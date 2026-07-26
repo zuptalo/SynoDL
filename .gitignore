@@ -1,0 +1,37 @@
+# Dependencies
+node_modules
+
+# Build outputs
+dist
+dist-ssr
+dev-dist
+
+# Local env + OS noise
+*.local
+.env
+.DS_Store
+
+# e2e test harness artifacts
+.tmp
+test-results
+playwright-report
+/playwright/.cache
+
+# Unit-test coverage output (vitest)
+coverage
+
+# Claude Code project setup is TRACKED (skills, shared settings) so a fresh clone
+# has the full workflow and we can pick up exactly where we left off on any machine.
+# Only machine-local / ephemeral bits stay out.
+.claude/settings.local.json
+.claude/*.lock
+
+# Server build artifacts (no runtime state — the proxy is stateless by design)
+server/tmp
+server/synodl
+server/synomock
+server/.env
+
+# Spec Kit: per-active-feature pointer written by spec-new.sh / the speckit
+# commands. Ephemeral working state — the tracked source of truth is specs/.
+.specify/feature.json
