@@ -12,6 +12,11 @@ import { decideUpdate } from '@/services/app-update';
 
 const PENDING_KEY = 'update.pendingVersion';
 
+// The active SW registration (captured on register) + a one-time guard so the
+// foreground re-check listeners are only wired once.
+let swReg: ServiceWorkerRegistration | undefined;
+let foregroundHooked = false;
+
 function readPending(): string | null {
   try {
     return localStorage.getItem(PENDING_KEY);
@@ -37,7 +42,26 @@ function clearPending(): void {
 export function useAppUpdate() {
   const applying = ref(false);
   const showPage = ref(false);
-  const { needRefresh, updateServiceWorker } = useRegisterSW({ immediate: true });
+  const { needRefresh, updateServiceWorker } = useRegisterSW({
+    immediate: true,
+    onRegisteredSW(_url, r) {
+      swReg = r;
+    },
+  });
+
+  // A backgrounded PWA never re-checks for a new service worker on its own, so
+  // tapping the "update available" notification would just resume the app
+  // without surfacing the update page until a full relaunch. Re-check every time
+  // the app is brought to the foreground so the waiting worker is found and the
+  // update page appears in-session.
+  if (!foregroundHooked) {
+    foregroundHooked = true;
+    const recheck = () => {
+      if (document.visibilityState === 'visible') void swReg?.update().catch(() => undefined);
+    };
+    document.addEventListener('visibilitychange', recheck);
+    window.addEventListener('focus', recheck);
+  }
 
   async function applyUpdate(targetVersion?: string): Promise<void> {
     applying.value = true;
