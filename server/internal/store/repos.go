@@ -41,6 +41,13 @@ func (s *Store) HasOperatorConfig() (bool, error) {
 	return n > 0, err
 }
 
+// DeleteOperatorConfig removes the singleton (used to roll back a failed setup
+// so the wizard runs again rather than leaving a broken connection stored).
+func (s *Store) DeleteOperatorConfig() error {
+	_, err := s.db.Exec(`DELETE FROM operator_config WHERE id = 1`)
+	return err
+}
+
 // SaveOperatorConfig upserts the singleton, encrypting the NAS password.
 func (s *Store) SaveOperatorConfig(c OperatorConfig) error {
 	enc, err := s.cipher.Seal([]byte(c.NASPassword))

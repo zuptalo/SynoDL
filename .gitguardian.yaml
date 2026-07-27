@@ -1,0 +1,14 @@
+# GitGuardian configuration.
+#
+# Test files legitimately contain the mock DSM's well-known, non-secret
+# credentials (admin/secret, otpuser/secret + OTP 000000 — see CLAUDE.md) and
+# other synthetic fixtures. These are not real secrets, so exclude test sources
+# from secret scanning. Production code, configuration, manifests, and scripts
+# are still scanned — real secrets belong only in env / Kubernetes Secrets and
+# must never be committed.
+version: 2
+secret:
+  ignored-paths:
+    - "**/*_test.go"
+    - "src/**/*.test.ts"
+    - "e2e/**"

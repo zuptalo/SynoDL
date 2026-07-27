@@ -1,7 +1,9 @@
-// synodl is the SynoDL server: a stateless, credential-free proxy in front of
-// a Synology NAS's Download Station, serving the built PWA and the /v1 API
-// from one binary. It holds no database, no files, no sessions — everything it
-// knows arrives with the request (constitution Principle III).
+// synodl is the SynoDL server in front of a Synology NAS's Download Station,
+// serving the built PWA and the /v1 API from one binary. With SECRETS_KEY set it
+// runs STATEFUL (constitution v2.0.0): its own accounts + a setup wizard, backed
+// by a single encrypted SQLite volume, reaching the NAS through one stored
+// connection. Without SECRETS_KEY it runs the legacy stateless path (SYNO_URL +
+// client-carried sid) for dev/e2e continuity.
 package main
 
 import (
@@ -16,8 +18,12 @@ import (
 	"syscall"
 	"time"
 
+	"path/filepath"
+
 	"synodl/server/internal/api"
 	"synodl/server/internal/config"
+	"synodl/server/internal/nas"
+	"synodl/server/internal/store"
 	"synodl/server/internal/syno"
 )
 
@@ -37,12 +43,47 @@ func main() {
 		os.Exit(1)
 	}
 
-	router := api.NewRouter(api.Deps{
+	deps := api.Deps{
 		Cfg:          cfg,
-		Syno:         syno.NewHTTPClient(cfg.SynoURL, cfg.SynoTLSInsecure),
 		Version:      version,
 		ReleaseNotes: decodeReleaseNotes(releaseNotesB64),
-	})
+	}
+
+	// Stateful mode (spec 0003) activates when SECRETS_KEY is configured: open the
+	// SQLite store on the mounted volume and build the shared NAS connection
+	// manager. Without it, the server runs the legacy stateless path.
+	if cfg.SecretsKey != "" {
+		cipher, err := store.NewCipher(cfg.SecretsKey)
+		if err != nil {
+			slog.Error("secrets key", "err", err)
+			os.Exit(1)
+		}
+		if err := os.MkdirAll(cfg.DataDir, 0o750); err != nil {
+			slog.Error("data dir", "err", err)
+			os.Exit(1)
+		}
+		st, err := store.Open(filepath.Join(cfg.DataDir, "synodl.db"), cipher)
+		if err != nil {
+			slog.Error("open store", "err", err)
+			os.Exit(1)
+		}
+		// Boot canary: a stored config we can't decrypt means the wrong/missing
+		// SECRETS_KEY — fail fast rather than silently resetting stored secrets.
+		if _, err := st.GetOperatorConfig(); err != nil && !errors.Is(err, store.ErrNotFound) {
+			slog.Error("cannot decrypt stored config — wrong or missing SECRETS_KEY?", "err", err)
+			os.Exit(1)
+		}
+		deps.Stateful = true
+		deps.Store = st
+		deps.NAS = nas.New(st, func(base string, insecure bool) syno.Client {
+			return syno.NewHTTPClient(base, insecure)
+		})
+		slog.Info("synodl stateful mode", "dataDir", cfg.DataDir)
+	} else {
+		deps.Syno = syno.NewHTTPClient(cfg.SynoURL, cfg.SynoTLSInsecure)
+	}
+
+	router := api.NewRouter(deps)
 
 	srv := &http.Server{
 		Addr:              ":" + cfg.Port,
