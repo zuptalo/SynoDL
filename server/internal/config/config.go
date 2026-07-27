@@ -38,6 +38,14 @@ type Config struct {
 	// LoginPerMinute rate-limits POST /v1/session per client IP so the proxy
 	// cannot be used to brute-force the NAS.
 	LoginPerMinute int
+	// DataDir is where the SQLite database lives (the single mounted volume of
+	// constitution v2.0.0). Defaults to /data. Introduced dormant in spec 0003
+	// Increment 1; the stateful path activates in a later increment.
+	DataDir string
+	// SecretsKey encrypts secret columns (NAS password, VAPID private key) at
+	// rest. Required once the stateful store is active; optional while the
+	// server still runs in the legacy SYNO_URL-only mode. Never logged.
+	SecretsKey string
 }
 
 // Load reads configuration from the environment, applying dev defaults and
@@ -53,6 +61,8 @@ func Load() (Config, error) {
 		SynoTLSInsecure: envBool("SYNO_TLS_INSECURE", false),
 		MaxTorrentMB:    envInt("MAX_TORRENT_MB", 16),
 		LoginPerMinute:  envInt("LOGIN_PER_MINUTE", 10),
+		DataDir:         env("DATA_DIR", "/data"),
+		SecretsKey:      os.Getenv("SECRETS_KEY"),
 	}
 
 	if cfg.Env == "dev" && cfg.SynoURL == "" {

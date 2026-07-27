@@ -90,6 +90,28 @@ func TestLoadProductionComplete(t *testing.T) {
 	if cfg.MaxTorrentMB != 32 {
 		t.Errorf("MaxTorrentMB = %d, want 32", cfg.MaxTorrentMB)
 	}
+	// DataDir defaults to /data when unset (spec 0003).
+	if cfg.DataDir != "/data" {
+		t.Errorf("DataDir = %q, want /data (default)", cfg.DataDir)
+	}
+}
+
+func TestLoadStatefulEnv(t *testing.T) {
+	clearEnv(t)
+	t.Setenv("ENV", "production")
+	t.Setenv("SYNO_URL", "https://nas:5001")
+	t.Setenv("DATA_DIR", "/var/lib/synodl")
+	t.Setenv("SECRETS_KEY", "kdf-input-for-tests")
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.DataDir != "/var/lib/synodl" {
+		t.Errorf("DataDir = %q, want the DATA_DIR override", cfg.DataDir)
+	}
+	if cfg.SecretsKey != "kdf-input-for-tests" {
+		t.Errorf("SecretsKey not loaded from SECRETS_KEY")
+	}
 }
 
 func TestLoadClampsAndIgnoresGarbage(t *testing.T) {
