@@ -10,7 +10,7 @@ import {
   IonProgressBar,
 } from '@ionic/vue';
 import { pauseOutline, playOutline, trashOutline } from 'ionicons/icons';
-import { computed } from 'vue';
+import { computed, ref } from 'vue';
 import type { Task } from '@/types/task';
 import { formatBytes, formatEta, formatPercent, formatSpeed, progressOf } from '@/utils/format';
 import { reasonFor } from '@/services/task-error';
@@ -23,6 +23,21 @@ const emit = defineEmits<{
   (e: 'toggle', id: string): void;
   (e: 'open', id: string): void;
 }>();
+
+// After a swipe action fires, slide the row back to its closed state so it
+// doesn't linger open over the (now-changed) task.
+const sliding = ref<InstanceType<typeof IonItemSliding> | null>(null);
+function closeSlide(): void {
+  void (sliding.value?.$el as HTMLIonItemSlidingElement | undefined)?.close();
+}
+function onPause(): void {
+  emit('pause', props.task.id);
+  closeSlide();
+}
+function onResume(): void {
+  emit('resume', props.task.id);
+  closeSlide();
+}
 
 // In selection mode, tapping the row toggles selection (swipe actions are off);
 // otherwise it opens the task detail view (spec 0002 US3).
@@ -64,7 +79,7 @@ const errorReason = computed(() =>
 </script>
 
 <template>
-  <ion-item-sliding :disabled="selectMode">
+  <ion-item-sliding ref="sliding" :disabled="selectMode">
     <ion-item :detail="false" button data-testid="task-item" @click="onRowClick">
       <ion-checkbox
         v-if="selectMode"
@@ -93,10 +108,10 @@ const errorReason = computed(() =>
       </ion-label>
     </ion-item>
     <ion-item-options side="end">
-      <ion-item-option v-if="canPause" data-testid="task-pause" @click="emit('pause', task.id)">
+      <ion-item-option v-if="canPause" data-testid="task-pause" @click="onPause">
         <ion-icon slot="icon-only" :icon="pauseOutline" />
       </ion-item-option>
-      <ion-item-option v-if="canResume" color="success" data-testid="task-resume" @click="emit('resume', task.id)">
+      <ion-item-option v-if="canResume" color="success" data-testid="task-resume" @click="onResume">
         <ion-icon slot="icon-only" :icon="playOutline" />
       </ion-item-option>
       <ion-item-option color="danger" data-testid="task-delete" @click="emit('delete', task.id)">
