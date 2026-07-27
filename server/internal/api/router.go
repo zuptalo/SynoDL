@@ -60,6 +60,11 @@ func NewRouter(d Deps) http.Handler {
 		mux.Handle("GET /v1/users/{id}/folders", handleGetUserFolders(d))
 		mux.Handle("PUT /v1/users/{id}/folders", handleSetUserFolders(d))
 
+		// Web Push subscriptions (Increment 4).
+		mux.Handle("GET /v1/push/key", handlePushKey(d))
+		mux.Handle("POST /v1/push/subscription", handleSaveSubscription(d))
+		mux.Handle("DELETE /v1/push/subscription", handleDeleteSubscription(d))
+
 		mux.Handle("GET /v1/tasks", handleListTasksStateful(d))
 		mux.Handle("POST /v1/tasks", handleCreateTaskStateful(d))
 		mux.Handle("POST /v1/tasks/pause", handleTaskActionStateful(d, "pause"))
