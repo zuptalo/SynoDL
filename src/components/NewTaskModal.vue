@@ -72,13 +72,27 @@ watch(
   },
 );
 
+// Append whatever's on the clipboard to the URL box, ALWAYS starting a fresh
+// line so a second bulk can never glue onto the first (which made the whole
+// second batch count as one link). Surfaces a hint if the clipboard can't be
+// read (iOS is finicky) instead of failing silently.
 async function pasteFromClipboard(): Promise<void> {
+  error.value = '';
+  let clip = '';
   try {
-    const clip = await navigator.clipboard.readText();
-    if (clip) text.value = text.value ? `${text.value}\n${clip}` : clip;
+    clip = (await navigator.clipboard.readText()).trim();
   } catch {
-    // Permission denied / unsupported: the textarea still works by hand.
+    error.value = 'Could not read the clipboard — long-press the box and paste manually.';
+    return;
   }
+  if (!clip) return;
+  const base = text.value.replace(/\s+$/, '');
+  text.value = base ? `${base}\n${clip}` : clip;
+}
+
+function clearUrls(): void {
+  text.value = '';
+  error.value = '';
 }
 
 function onFileChosen(event: Event): void {
@@ -195,16 +209,30 @@ async function submit(): Promise<void> {
 
         <ion-list-header><ion-label>Task URL(s)</ion-label></ion-list-header>
         <ion-item>
+          <!-- Explicit :value + @ionInput (not v-model) so the detected-link
+               count always reflects exactly what's in the box, including pastes. -->
           <ion-textarea
-            v-model="text"
+            :value="text"
             :rows="4"
+            :auto-grow="true"
             placeholder="Enter one or many task URLs"
             data-testid="newtask-urls"
+            @ionInput="text = String($event.target.value ?? '')"
           />
         </ion-item>
         <ion-item lines="none">
           <ion-button fill="clear" size="small" data-testid="newtask-paste" @click="pasteFromClipboard">
-            Paste link from clipboard
+            Paste from clipboard
+          </ion-button>
+          <ion-button
+            v-if="text"
+            fill="clear"
+            size="small"
+            color="medium"
+            data-testid="newtask-clear"
+            @click="clearUrls"
+          >
+            Clear
           </ion-button>
           <ion-note slot="end" data-testid="newtask-count">
             {{ urls.length }} link{{ urls.length === 1 ? '' : 's' }} detected
