@@ -11,9 +11,9 @@
  *   Microsoft tiles : mstile-70/150/310 + mstile-310x150 (wide)
  *
  * "any" icons keep the rounded-tile look with transparent corners (straight from
- * the SVG). Maskable + tile icons bleed the brand green to every edge and inset
+ * the SVG). Maskable + tile icons bleed the brand orange to every edge and inset
  * the artwork into the maskable safe zone, so any OS mask shape (circle/squircle)
- * shows green, never a clipped corner. Apple icons are flattened opaque because
+ * shows orange, never a clipped corner. Apple icons are flattened opaque because
  * iOS applies its own corner rounding and dislikes transparency.
  */
 import sharp from 'sharp';
@@ -22,12 +22,12 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
 const PUB = join(dirname(fileURLToPath(import.meta.url)), '..', 'public');
-const GREEN = '#10b981'; // brand primary (matches the tile + manifest theme_color)
+const GREEN = '#f97316'; // brand primary (matches the tile + manifest theme_color)
 const DENSITY = 768; // render the 100-unit SVG large, then downscale for crispness
 
 const svg = readFileSync(join(PUB, 'favicon.svg'), 'utf8');
 
-// Foreground = everything after the green tile rect. A full-bleed green square
+// Foreground = everything after the green tile rect. A full-bleed orange square
 // with the artwork scaled down about the centre, so it never touches the edges.
 const marker = 'width="100" height="100"/>';
 const foreground = svg.slice(svg.indexOf(marker) + marker.length, svg.lastIndexOf('</svg>'));
@@ -40,14 +40,14 @@ const bleedSvg = (scale) =>
 // corners (no crop), so a lighter inset keeps the mark comfortably off the top
 // edge while still reading full.
 const maskable = bleedSvg(0.78);
-const appleArt = bleedSvg(0.84); // already opaque (full-bleed green) - no flatten needed
+const appleArt = bleedSvg(0.84); // already opaque (full-bleed orange) - no flatten needed
 
 const pipe = (input, size) =>
   sharp(Buffer.from(input), { density: DENSITY }).resize(size, size);
 
 const any = (size, name) => pipe(svg, size).png().toFile(join(PUB, name)); // transparent corners
 const apple = (size, name) => pipe(appleArt, size).png().toFile(join(PUB, name)); // opaque + padded
-const bleed = (size, name) => pipe(maskable, size).png().toFile(join(PUB, name)); // full-bleed green
+const bleed = (size, name) => pipe(maskable, size).png().toFile(join(PUB, name)); // full-bleed orange
 
 await Promise.all([
   // Android / Chrome PWA - manifest "any"
@@ -70,7 +70,7 @@ await Promise.all([
   bleed(310, 'mstile-310x310.png'),
 ]);
 
-// Microsoft wide tile (310x150): centre the square logo on a green canvas.
+// Microsoft wide tile (310x150): centre the square logo on an orange canvas.
 const logo = await pipe(maskable, 150).png().toBuffer();
 await sharp({ create: { width: 310, height: 150, channels: 4, background: GREEN } })
   .composite([{ input: logo }])

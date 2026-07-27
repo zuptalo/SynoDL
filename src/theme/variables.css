@@ -1,0 +1,43 @@
+/*
+ * SynoDL theme tokens. The accent is the reference app's orange; the dark
+ * palette is the default (index.html pre-paint script). All custom styling in
+ * components goes through these --app-* tokens (constitution Principle VI) —
+ * never hard-coded colors.
+ */
+
+:root {
+  /* Ionic primary = brand orange. */
+  --ion-color-primary: #f97316;
+  --ion-color-primary-rgb: 249, 115, 22;
+  --ion-color-primary-contrast: #000000;
+  --ion-color-primary-contrast-rgb: 0, 0, 0;
+  --ion-color-primary-shade: #db6513;
+  --ion-color-primary-tint: #fa8338;
+
+  /* Status colors for task chips. */
+  --app-status-downloading: #f97316;
+  --app-status-finished: #22c55e;
+  --app-status-seeding: #14b8a6;
+  --app-status-paused: #a1a1aa;
+  --app-status-waiting: #eab308;
+  --app-status-error: #ef4444;
+
+  /* Semantic surfaces (light). */
+  --app-bg: #ffffff;
+  --app-card: #f4f4f5;
+  --app-text-dim: #71717a;
+}
+
+/* Dark palette overrides — the app's home look, matching the reference app's
+ * near-black surfaces with soft cards. */
+.ion-palette-dark {
+  --app-bg: #0a0a0a;
+  --app-card: #1c1c1e;
+  --app-text-dim: #8e8e93;
+
+  --ion-background-color: #0a0a0a;
+  --ion-background-color-rgb: 10, 10, 10;
+  --ion-item-background: #1c1c1e;
+  --ion-toolbar-background: #0a0a0a;
+  --ion-tab-bar-background: #161618;
+}

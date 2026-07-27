@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" href="/favicon.ico" sizes="48x48" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png" />
+    <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
+    <meta
+      name="viewport"
+      content="viewport-fit=cover, width=device-width, initial-scale=1.0, minimum-scale=1.0, maximum-scale=1.0, user-scalable=no, interactive-widget=resizes-content"
+    />
+    <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <title>SynoDL</title>
+    <!-- Pre-paint theme: apply Ionic's dark palette class synchronously so a cold
+         launch never renders a light frame before the async settings read resolves.
+         The theme composable mirrors the RESOLVED dark decision into localStorage on
+         each apply; we trust that mirror first (matchMedia is unreliable during an
+         iOS PWA cold launch). Absent any stored value the default is DARK — the
+         worst-case first frame is a dark frame on a dark app, not a white flash. -->
+    <script>
+      (function () {
+        function prefersDark() {
+          try { return window.matchMedia('(prefers-color-scheme: dark)').matches; } catch (e) { return false; }
+        }
+        var dark;
+        try {
+          var resolved = localStorage.getItem('appearance.theme.dark');
+          if (resolved === '1' || resolved === '0') {
+            dark = resolved === '1';
+          } else {
+            var pref = localStorage.getItem('appearance.theme') || 'dark';
+            dark = pref === 'dark' || (pref === 'system' && prefersDark());
+          }
+        } catch (e) {
+          dark = true;
+        }
+        if (dark) document.documentElement.classList.add('ion-palette-dark');
+      })();
+    </script>
+    <!-- Match the app's base background before Vue mounts so there's no white
+         flash between the launch screen and the first page. -->
+    <style>
+      html, body { background-color: #ffffff; }
+      @media (prefers-color-scheme: dark) {
+        html, body { background-color: #000000; }
+      }
+      html.ion-palette-dark, html.ion-palette-dark body { background-color: #000000; }
+    </style>
+  </head>
+  <body>
+    <div id="app"></div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
