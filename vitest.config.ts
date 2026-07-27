@@ -33,6 +33,8 @@ export default defineConfig({
         'src/services/syno-errors.ts',
         // Failure-reason mapping (spec 0002).
         'src/services/task-error.ts',
+        // In-app update decision logic (spec 1003).
+        'src/services/app-update.ts',
       ],
       thresholds: { lines: 80, functions: 80, statements: 80, branches: 80 },
     },

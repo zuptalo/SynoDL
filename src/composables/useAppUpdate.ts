@@ -1,23 +1,70 @@
 /**
- * Prompt-based PWA updates (constitution Principle V): a new deploy never
- * silently reloads. vite-plugin-pwa's registerType:'prompt' parks the fresh
- * service worker in "waiting"; we surface that as `updateAvailable` and only
- * message SKIP_WAITING when the user accepts, then reload once it activates.
+ * In-app update flow (spec 1003). A new deploy parks the fresh service worker in
+ * "waiting" (vite-plugin-pwa registerType:'prompt'). We surface that as an
+ * update PAGE with the incoming release notes and a single OK; OK applies the
+ * update and reloads. If the user is notified/OK'd but the app is closed before
+ * the reload finishes, the next launch finishes the update automatically (a
+ * recorded pending-version flag drives that — see decideUpdate).
  */
-import { ref } from 'vue';
+import { ref, watch } from 'vue';
 import { useRegisterSW } from 'virtual:pwa-register/vue';
+import { decideUpdate } from '@/services/app-update';
+
+const PENDING_KEY = 'update.pendingVersion';
+
+function readPending(): string | null {
+  try {
+    return localStorage.getItem(PENDING_KEY);
+  } catch {
+    return null;
+  }
+}
+function writePending(v: string): void {
+  try {
+    localStorage.setItem(PENDING_KEY, v);
+  } catch {
+    /* storage disabled — auto-heal just won't survive a hard exit */
+  }
+}
+function clearPending(): void {
+  try {
+    localStorage.removeItem(PENDING_KEY);
+  } catch {
+    /* ignore */
+  }
+}
 
 export function useAppUpdate() {
   const applying = ref(false);
-  const { needRefresh, updateServiceWorker } = useRegisterSW({
-    immediate: true,
-  });
+  const showPage = ref(false);
+  const { needRefresh, updateServiceWorker } = useRegisterSW({ immediate: true });
 
-  async function applyUpdate(): Promise<void> {
+  async function applyUpdate(targetVersion?: string): Promise<void> {
     applying.value = true;
+    // Record the target BEFORE reloading so an interrupted apply self-heals.
+    if (targetVersion) writePending(targetVersion);
     // updateServiceWorker(true) posts SKIP_WAITING and reloads on activation.
     await updateServiceWorker(true);
   }
 
-  return { updateAvailable: needRefresh, applying, applyUpdate };
+  function evaluate(waiting: boolean): void {
+    const d = decideUpdate({
+      waiting,
+      runningVersion: __APP_VERSION__,
+      pendingVersion: readPending(),
+    });
+    if (d.clearFlag) clearPending();
+    if (d.autoApply) {
+      void applyUpdate(); // target already recorded from last session
+      return;
+    }
+    showPage.value = d.prompt;
+  }
+
+  // Evaluate now (a completed or interrupted update from last launch) and again
+  // whenever the SW reports a freshly waiting worker.
+  evaluate(needRefresh.value);
+  watch(needRefresh, (w) => evaluate(w));
+
+  return { updateAvailable: showPage, applying, applyUpdate };
 }
