@@ -1,7 +1,22 @@
 <!--
 Sync Impact Report
-- Version: 1.0.0 → 1.1.0 (MINOR: Development Workflow redefined from GitFlow to
-  trunk-based; Principle VII's delivery bullet updated to match)
+- Version: 1.1.0 → 2.0.0 (MAJOR: Principle III redefined — the NON-NEGOTIABLE
+  "Stateless, Credential-Free Proxy" becomes "Custodial State & Credential Safety".
+  SynoDL gains its own user accounts, a single encrypted SQLite volume, stored NAS
+  credentials, and offline Web Push (spec 0003). The allowlist-only NAS access and
+  never-leak-secrets guarantees are preserved and extended with encryption-at-rest
+  and least-privilege per-user folder ACLs.)
+- Modified in 2.0.0: intro ("stateless proxy" → "self-hosted service with its own
+  accounts"); Principle III (full rewrite, still NON-NEGOTIABLE); Domain Constraints
+  ("no volumes" → "one SQLite volume"); Gate-sequencing checklist trigger (broadened
+  to stored data / secrets / auth); Governance complexity clause ("stateless-
+  preserving" → "keeps the Principle III custody rules intact").
+- Templates / docs to review for sync (follow-up in the spec 0003 PR): CLAUDE.md
+  (drop "stateless, credential-free" framing; add the volume + SECRETS_KEY + wizard);
+  deploy/k8s (add a PVC); Dockerfile/README (volume). Spec/plan templates: ✅ no
+  change (they reference the Credential-Safety Impact section, which persists).
+- Prior version (1.1.0): Development Workflow redefined from GitFlow to
+  trunk-based; Principle VII's delivery bullet updated to match.
 - Modified: "Development Workflow" — dropped the develop branch and the
   bump-at-cycle-start doctrine. main is now the single protected branch; every
   branch merges into it via a PR that auto-merges when the required checks are
@@ -19,8 +34,9 @@ Sync Impact Report
 # SynoDL Constitution
 
 SynoDL is a mobile-first, self-hostable client for Synology Download Station: an
-installable PWA (Vue 3 + Ionic) backed by a small stateless Go proxy (`synodl`)
-that forwards an allowlisted subset of the DSM Web API to the operator's NAS. This
+installable PWA (Vue 3 + Ionic) backed by a small self-hosted Go service
+(`synodl`) with its own user accounts that forwards an allowlisted subset of the
+DSM Web API to the operator's NAS on those users' behalf. This
 constitution governs every spec, plan, task, and change made in this repository.
 It supersedes habit and convenience. Where a principle says **MUST**, a violation
 blocks merge unless it is explicitly justified in the spec's *Complexity &
@@ -57,29 +73,42 @@ Tests come first wherever the work is testable.
 - A bug fix (`2001+`) MUST begin with a failing regression test that reproduces the
   bug before the fix lands.
 
-### III. Stateless, Credential-Free Proxy (NON-NEGOTIABLE)
+### III. Custodial State & Credential Safety (NON-NEGOTIABLE)
 
-The server is a pass-through with no memory: it persists nothing and can leak
-nothing it never held.
+SynoDL holds state and NAS credentials on behalf of its own users — under strict
+custody rules. (Superseded the v1 "Stateless, Credential-Free Proxy" in v2.0.0:
+the product now offers its own accounts, offline Web Push, and per-user NAS folder
+access, none of which are possible without server-side state. The safety intent —
+allowlist-only NAS access and never leaking secrets — is preserved and extended.)
 
-- The server MUST NOT persist any state — no database, no files, no volumes. A
-  container restart loses nothing because there is nothing to lose.
-- NAS credentials and session ids belong to the client. The password crosses the
-  server only inside the login forward and MUST never be stored, cached, or
-  logged; the resulting `sid` is returned to the client, kept in IndexedDB, and
-  sent back on each request (`X-Syno-Sid`). Server-side session storage is a
-  defect.
-- Credentials, sids, OTP codes, and full task URIs MUST never appear in log lines,
-  error payloads, metrics, or panics. Log the route and the outcome, not the
-  secrets.
-- The proxy forwards ONLY the explicit DSM API allowlist implemented in
-  `server/internal/syno` to the single operator-configured target (`SYNO_URL`).
-  No open-proxy behavior: no client-supplied target hosts, no passthrough of
-  arbitrary `SYNO.*` APIs, no query-string smuggling past the typed `/v1`
-  endpoints.
-- Every spec MUST contain a **Credential-Safety Impact** section answering: what
-  crosses the proxy, what is forwarded to the NAS, what could appear in logs or
-  errors, and why nothing sensitive is retained.
+- **One store, one volume.** All persistent state lives in a single SQLite
+  database on ONE mounted volume: the operator setup (NAS connection details,
+  public URL), SynoDL's own user accounts, per-user NAS folder access, push
+  subscriptions, VAPID keys, and app settings. There is no second datastore and no
+  state outside that volume. Download tasks themselves are never persisted — the
+  NAS remains their source of truth.
+- **Secrets are encrypted at rest.** Stored NAS credentials and the VAPID private
+  key MUST be encrypted in the database under a key derived from an operator-
+  provided secret (`SECRETS_KEY`, injected as env / k8s Secret, never written to
+  the volume). SynoDL user passwords are stored only as a strong salted hash, never
+  reversibly. Losing `SECRETS_KEY` makes the stored NAS secrets unrecoverable —
+  documented, not worked around.
+- **Credentials never leak.** NAS passwords, OTP codes, DSM session ids, the VAPID
+  private key, SynoDL user password hashes, and full task URIs MUST never appear in
+  log lines, error payloads, metrics, or panics. Log the route and the outcome, not
+  the secrets.
+- **The DSM allowlist still governs the NAS.** The server forwards ONLY the
+  explicit DSM API allowlist implemented in `server/internal/syno` to the single
+  operator-configured NAS. No open-proxy behavior: no client-supplied target hosts,
+  no passthrough of arbitrary `SYNO.*` APIs. Adding an API is a spec-level decision.
+- **Least privilege by design.** App users authenticate to SynoDL, never to the
+  NAS; SynoDL acts on the NAS through the single stored connection. Because that
+  one NAS account cannot express per-app-user permissions, per-user NAS folder
+  access is enforced by SynoDL itself and validated on every task-create.
+- Every spec that touches stored data, the NAS connection, or user auth MUST
+  contain a **Credential-Safety Impact** section answering: what is stored and how
+  it is protected, what crosses to the NAS, what could appear in logs or errors,
+  and why.
 
 ### IV. Offline-First Client Data
 
@@ -150,8 +179,10 @@ Every unit of work is visible from roadmap to merge.
 
 These are project-specific guardrails every relevant spec MUST respect.
 
-- **Single image.** Client and server ship as one container: `synodl` serves the
-  built PWA at `/` and the API at `/v1` and `/healthz`. No sidecars, no volumes.
+- **Single image, one volume.** Client and server ship as one container: `synodl`
+  serves the built PWA at `/` and the API at `/v1` and `/healthz`. No sidecars. Its
+  only persistence is the single SQLite volume of Principle III; no other volumes,
+  no external datastore.
 - **DSM API allowlist.** Every DSM API the proxy may call is declared and
   implemented in `server/internal/syno`; adding an API to the allowlist is a spec-
   level decision, not an implementation detail.
@@ -203,8 +234,9 @@ These are project-specific guardrails every relevant spec MUST respect.
   shipped`; the value drives its row in `ROADMAP.md`.
 - **Gate sequencing.** `/speckit-clarify` runs before `/speckit-plan`;
   `/speckit-analyze` runs after `/speckit-tasks` and before `/speckit-implement`.
-  `/speckit-checklist` is REQUIRED for any spec touching Principle III (the
-  credential boundary or the DSM allowlist) and optional otherwise.
+  `/speckit-checklist` is REQUIRED for any spec touching Principle III (stored
+  data, secrets at rest, the NAS connection/credentials, user auth, or the DSM
+  allowlist) and optional otherwise.
 
 ## Governance
 
@@ -216,8 +248,10 @@ These are project-specific guardrails every relevant spec MUST respect.
   unresolved violations block `/speckit-implement` and merge unless waived in the
   spec's *Complexity & Exceptions* section with maintainer sign-off.
 - Complexity must be justified: anything that adds a moving part, a dependency, or a
-  server capability must show why a simpler, stateless-preserving option won't do.
+  server capability must show why a simpler option won't do, and how it keeps the
+  Principle III custody rules (single volume, secrets encrypted at rest, allowlist-
+  only NAS access, no secrets in logs) intact.
 - Runtime engineering guidance that is not constitutional lives in `CLAUDE.md` and
   `CONTRIBUTING.md`; where they conflict with this document, this document wins.
 
-**Version**: 1.1.0 | **Ratified**: 2026-07-26 | **Last Amended**: 2026-07-27
+**Version**: 2.0.0 | **Ratified**: 2026-07-26 | **Last Amended**: 2026-07-27
