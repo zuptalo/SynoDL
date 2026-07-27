@@ -124,6 +124,33 @@ test('favoriting a folder gives a one-tap quick-select chip', async ({ page }) =
   await expect(page.getByTestId('newtask-destination')).toContainText('movie');
 });
 
+test('paste appends bulk URLs (never glued into one) and Clear empties the box', async ({
+  page,
+  context,
+}) => {
+  await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+  await login(page);
+  await page.getByTestId('newtask-open').click();
+
+  // First bulk of 2.
+  await page.evaluate(() => navigator.clipboard.writeText('http://a/1.iso\nhttp://a/2.iso'));
+  await page.getByTestId('newtask-paste').click();
+  await expect(page.getByTestId('newtask-count')).toHaveText('2 links detected');
+
+  // A second paste must APPEND on a fresh line — the 3 new links count as 3,
+  // not as one glued token (the reported bug).
+  await page.evaluate(() =>
+    navigator.clipboard.writeText('http://a/3.iso http://a/4.iso, http://a/5.iso'),
+  );
+  await page.getByTestId('newtask-paste').click();
+  await expect(page.getByTestId('newtask-count')).toHaveText('5 links detected');
+
+  // Clear empties everything (and the Clear button hides when empty).
+  await page.getByTestId('newtask-clear').click();
+  await expect(page.getByTestId('newtask-count')).toHaveText('0 links detected');
+  await expect(page.getByTestId('newtask-clear')).toHaveCount(0);
+});
+
 test('junk-only input keeps the confirm button disabled', async ({ page }) => {
   await login(page);
   await page.getByTestId('newtask-open').click();
