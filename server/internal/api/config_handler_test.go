@@ -41,3 +41,22 @@ func TestConfigExposesHostOnly(t *testing.T) {
 		t.Errorf("releaseNotes = %+v", body.ReleaseNotes)
 	}
 }
+
+func TestConfigHostFromStoredConfigInStatefulMode(t *testing.T) {
+	// In stateful mode the Settings host must reflect the wizard-configured NAS
+	// address from the store, not a stale SYNO_URL env value.
+	h, _ := newStatefulRouter(t)
+	adminAfterSetup(t, h) // setupBody configures nasAddress "nas"
+
+	rec := do(t, h, "GET", "/v1/config", "", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("config = %d %s", rec.Code, rec.Body.String())
+	}
+	var body struct {
+		NASHost string `json:"nasHost"`
+	}
+	_ = json.Unmarshal(rec.Body.Bytes(), &body)
+	if body.NASHost != "nas" {
+		t.Errorf("nasHost = %q, want the wizard's stored address 'nas'", body.NASHost)
+	}
+}

@@ -56,6 +56,12 @@ func NewRouter(d Deps) http.Handler {
 		mux.Handle("GET /v1/me", handleMe(d))
 		mux.Handle("POST /v1/nas/reauth", handleNASReauth(d))
 
+		// Admin-only: view/edit the stored NAS connection and test it before
+		// saving (spec 1002). The password is write-only — never returned.
+		mux.Handle("GET /v1/nas/config", handleGetNASConfig(d))
+		mux.Handle("PUT /v1/nas/config", handleUpdateNASConfig(d))
+		mux.Handle("POST /v1/nas/test", handleTestNASConnection(d))
+
 		// Admin user management + per-user folder grants (Increment 3).
 		mux.Handle("GET /v1/users", handleListUsers(d))
 		mux.Handle("POST /v1/users", handleCreateUser(d))
