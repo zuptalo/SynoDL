@@ -5,6 +5,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"synodl/server/internal/config"
@@ -38,6 +39,7 @@ type fakeSyno struct {
 	gotAction     string
 	gotActionIDs  []string
 	gotFolderPath string
+	gotFolderName string
 }
 
 func (f *fakeSyno) Login(_ context.Context, account, password, otp string) (string, error) {
@@ -113,6 +115,14 @@ func (f *fakeSyno) ListFolder(_ context.Context, _ string, path string) ([]syno.
 		return nil, f.err
 	}
 	return f.subfolders[path], nil
+}
+
+func (f *fakeSyno) CreateFolder(_ context.Context, _ string, path, name string) (syno.Folder, error) {
+	f.gotFolderPath, f.gotFolderName = path, name
+	if f.err != nil {
+		return syno.Folder{}, f.err
+	}
+	return syno.Folder{Name: name, Path: strings.TrimRight(path, "/") + "/" + name}, nil
 }
 
 // newTestServer builds the real router (full middleware chain) over the fake.

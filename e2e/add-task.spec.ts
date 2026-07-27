@@ -53,6 +53,47 @@ test('a large mixed-delimiter paste is parsed and added in batches of ten', asyn
   await expect(page.getByTestId('task-item')).toHaveCount(12);
 });
 
+test('cancel leaves the destination picker without changing the destination', async ({ page }) => {
+  await login(page);
+  await page.getByTestId('newtask-open').click();
+  await page.getByTestId('newtask-destination').click();
+  await expect(page.getByTestId('folder-item').first()).toBeVisible();
+  await page.getByTestId('folder-cancel').click();
+  await expect(page.getByTestId('newtask-destination')).toContainText('Default folder');
+});
+
+test('create a subfolder inside a folder and select it as the destination', async ({ page }) => {
+  await login(page);
+  await page.getByTestId('newtask-open').click();
+  await page.getByTestId('newtask-destination').click();
+  await page.getByTestId('folder-item').filter({ hasText: 'movie' }).click();
+
+  await page.getByTestId('folder-new').click();
+  const alert = page.locator('ion-alert');
+  await expect(alert).toBeVisible();
+  await alert.locator('input').fill('MyPicks');
+  await alert.getByRole('button', { name: 'Create' }).click();
+
+  // Drilled into the new subfolder; Select stores downloads there.
+  await expect(page.getByTestId('folder-confirm')).toBeVisible();
+  await page.getByTestId('folder-confirm').click();
+  await expect(page.getByTestId('newtask-destination')).toContainText('movie/MyPicks');
+});
+
+test('favoriting a folder gives a one-tap quick-select chip', async ({ page }) => {
+  await login(page);
+  await page.getByTestId('newtask-open').click();
+  await page.getByTestId('newtask-destination').click();
+  await page.getByTestId('folder-item').filter({ hasText: 'movie' }).click();
+  await page.getByTestId('folder-favorite').click();
+  await page.getByTestId('folder-cancel').click();
+
+  const chip = page.getByTestId('newtask-favorite').filter({ hasText: 'movie' });
+  await expect(chip).toBeVisible();
+  await chip.click();
+  await expect(page.getByTestId('newtask-destination')).toContainText('movie');
+});
+
 test('junk-only input keeps the confirm button disabled', async ({ page }) => {
   await login(page);
   await page.getByTestId('newtask-open').click();

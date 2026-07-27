@@ -265,6 +265,37 @@ func TestFileStationBrowse(t *testing.T) {
 	}
 }
 
+func TestFileStationCreateFolder(t *testing.T) {
+	c := newTestClient(t)
+	sid := login(t, c)
+
+	folder, err := c.CreateFolder(context.Background(), sid, "/movie", "Docs")
+	if err != nil {
+		t.Fatalf("CreateFolder: %v", err)
+	}
+	if folder.Name != "Docs" || folder.Path != "/movie/Docs" {
+		t.Fatalf("created folder = %+v", folder)
+	}
+	// The new folder is now browsable under its parent.
+	sub, err := c.ListFolder(context.Background(), sid, "/movie")
+	if err != nil {
+		t.Fatalf("ListFolder: %v", err)
+	}
+	found := false
+	for _, f := range sub {
+		if f.Name == "Docs" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("created folder not listed under /movie: %+v", sub)
+	}
+	// Creating under a missing parent surfaces a NAS error.
+	if _, err := c.CreateFolder(context.Background(), sid, "/nope", "x"); AsError(err) == nil {
+		t.Fatalf("CreateFolder under missing parent should error")
+	}
+}
+
 func TestUnreachableNAS(t *testing.T) {
 	// A dead port: connection refused must map to KindUnreachable, never panic.
 	c := NewHTTPClient("http://127.0.0.1:1", false)

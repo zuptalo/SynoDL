@@ -228,3 +228,45 @@ func handleListFolderStateful(d Deps) http.Handler {
 		httpx.JSON(w, http.StatusOK, map[string]any{"folders": folders})
 	})
 }
+
+// handleCreateFolderStateful creates a subfolder, gated by the SAME per-user
+// create ACL as adding a task to that path — a user may only create folders
+// where they're allowed to download (spec 1006).
+func handleCreateFolderStateful(d Deps) http.Handler {
+	return d.requireUser(func(w http.ResponseWriter, r *http.Request, u *store.User) {
+		var body createFolderReq
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<16)).Decode(&body); err != nil {
+			httpx.Error(w, http.StatusBadRequest, "bad request")
+			return
+		}
+		body.Path = strings.TrimSpace(body.Path)
+		body.Name = strings.TrimSpace(body.Name)
+		if !strings.HasPrefix(body.Path, "/") || !validFolderName(body.Name) {
+			httpx.Error(w, http.StatusBadRequest, "absolute path and a valid folder name required")
+			return
+		}
+		// The new folder as a create destination (no leading slash) must clear the
+		// same gate as downloading there.
+		rel := strings.Trim(body.Path, "/")
+		if rel == "" {
+			// Refuse creating new top-level shares — that's a NAS admin action.
+			httpx.Error(w, http.StatusForbidden, "folder_denied")
+			return
+		}
+		rel = rel + "/" + body.Name
+		if _, ok := authz.Normalize(rel); !ok || !d.destinationAllowed(u, rel) {
+			httpx.Error(w, http.StatusForbidden, "folder_denied")
+			return
+		}
+		var folder syno.Folder
+		if err := d.NAS.Do(r.Context(), func(c syno.Client, sid string) error {
+			f, e := c.CreateFolder(r.Context(), sid, body.Path, body.Name)
+			folder = f
+			return e
+		}); err != nil {
+			writeNASError(w, err)
+			return
+		}
+		httpx.JSON(w, http.StatusOK, map[string]any{"folder": folder})
+	})
+}

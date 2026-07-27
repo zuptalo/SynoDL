@@ -28,6 +28,7 @@ type Client interface {
 
 	ListShares(ctx context.Context, sid string) ([]Folder, error)
 	ListFolder(ctx context.Context, sid, path string) ([]Folder, error)
+	CreateFolder(ctx context.Context, sid, path, name string) (Folder, error)
 }
 
 // Task is the wire shape served to the PWA (camelCase JSON). It flattens the

@@ -84,6 +84,7 @@ func NewRouter(d Deps) http.Handler {
 
 		mux.Handle("GET /v1/fs/shares", handleListSharesStateful(d))
 		mux.Handle("GET /v1/fs/list", handleListFolderStateful(d))
+		mux.Handle("POST /v1/fs/folder", handleCreateFolderStateful(d))
 	} else {
 		// Legacy stateless mode: the client authenticates to the NAS and carries
 		// the sid. Kept for dev/e2e continuity until the switch is universal.
@@ -99,6 +100,7 @@ func NewRouter(d Deps) http.Handler {
 
 		mux.Handle("GET /v1/fs/shares", handleListShares(d))
 		mux.Handle("GET /v1/fs/list", handleListFolder(d))
+		mux.Handle("POST /v1/fs/folder", handleCreateFolder(d))
 	}
 
 	// Static serving is mounted last so /v1 + /healthz stay authoritative:

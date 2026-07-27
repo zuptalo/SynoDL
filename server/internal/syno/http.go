@@ -21,18 +21,20 @@ const (
 	apiInfo   = "SYNO.API.Info"
 	apiAuth   = "SYNO.API.Auth"
 	apiTask   = "SYNO.DownloadStation.Task"
-	apiStat   = "SYNO.DownloadStation.Statistic"
-	apiFSList = "SYNO.FileStation.List"
+	apiStat     = "SYNO.DownloadStation.Statistic"
+	apiFSList   = "SYNO.FileStation.List"
+	apiFSCreate = "SYNO.FileStation.CreateFolder"
 )
 
 // maxSupported caps the API version we negotiate: we speak min(our max, the
 // NAS's max). This is how one binary covers DSM 6 and DSM 7 — the NAS tells us
 // its paths and versions via SYNO.API.Info and we meet it where it is.
 var maxSupported = map[string]int{
-	apiAuth:   6,
-	apiTask:   3,
-	apiStat:   1,
-	apiFSList: 2,
+	apiAuth:     6,
+	apiTask:     3,
+	apiStat:     1,
+	apiFSList:   2,
+	apiFSCreate: 2,
 }
 
 // HTTPClient is the real DSM client. It is safe for concurrent use; the only
@@ -81,7 +83,7 @@ func (c *HTTPClient) endpointFor(ctx context.Context, api string) (endpoint, err
 			"api":     {apiInfo},
 			"version": {"1"},
 			"method":  {"query"},
-			"query":   {strings.Join([]string{apiAuth, apiTask, apiStat, apiFSList}, ",")},
+			"query":   {strings.Join([]string{apiAuth, apiTask, apiStat, apiFSList, apiFSCreate}, ",")},
 		}
 		req, err := http.NewRequestWithContext(ctx, http.MethodGet,
 			c.base+"/webapi/query.cgi?"+q.Encode(), nil)
@@ -374,6 +376,27 @@ func (c *HTTPClient) ListFolder(ctx context.Context, sid, path string) ([]Folder
 		return nil, err
 	}
 	return toFolders(data.Files), nil
+}
+
+// CreateFolder creates a single subfolder `name` under the absolute parent
+// `path` and returns it. force_parent is left off (defaults false) so a missing
+// parent is an error rather than silently created.
+func (c *HTTPClient) CreateFolder(ctx context.Context, sid, path, name string) (Folder, error) {
+	var data struct {
+		Folders []dsmFile `json:"folders"`
+	}
+	params := url.Values{
+		"folder_path": {path},
+		"name":        {name},
+	}
+	if err := c.call(ctx, apiFSCreate, "create", sid, params, &data); err != nil {
+		return Folder{}, err
+	}
+	if len(data.Folders) > 0 {
+		return Folder{Name: data.Folders[0].Name, Path: data.Folders[0].Path}, nil
+	}
+	// Some DSM versions return an empty body on success; synthesize the folder.
+	return Folder{Name: name, Path: strings.TrimRight(path, "/") + "/" + name}, nil
 }
 
 func toFolders(files []dsmFile) []Folder {
