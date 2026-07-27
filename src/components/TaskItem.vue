@@ -21,11 +21,14 @@ const emit = defineEmits<{
   (e: 'resume', id: string): void;
   (e: 'delete', id: string): void;
   (e: 'toggle', id: string): void;
+  (e: 'open', id: string): void;
 }>();
 
-// In selection mode, tapping the row toggles selection (swipe actions are off).
+// In selection mode, tapping the row toggles selection (swipe actions are off);
+// otherwise it opens the task detail view (spec 0002 US3).
 function onRowClick(): void {
   if (props.selectMode) emit('toggle', props.task.id);
+  else emit('open', props.task.id);
 }
 
 // Pause only makes sense for active work; resume only for paused.
@@ -62,7 +65,7 @@ const errorReason = computed(() =>
 
 <template>
   <ion-item-sliding :disabled="selectMode">
-    <ion-item :detail="false" :button="selectMode" data-testid="task-item" @click="onRowClick">
+    <ion-item :detail="false" button data-testid="task-item" @click="onRowClick">
       <ion-checkbox
         v-if="selectMode"
         slot="start"
