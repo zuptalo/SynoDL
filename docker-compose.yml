@@ -1,0 +1,22 @@
+# Self-hosting SynoDL: one stateless service, no volumes, no database.
+#
+#   SYNO_URL=https://your-nas:5001 docker compose up -d
+#
+# Put a TLS-terminating reverse proxy in front when the instance is reachable
+# from outside your LAN — the login forwards your DSM password through this
+# container, so the hop from your browser to it should be HTTPS.
+services:
+  synodl:
+    image: ghcr.io/zuptalo/synodl:latest
+    build:
+      context: .
+    restart: unless-stopped
+    ports:
+      - '8080:8080'
+    environment:
+      # Base URL of your NAS's DSM. Required.
+      SYNO_URL: ${SYNO_URL:?set SYNO_URL, e.g. https://nas.local:5001}
+      # Uncomment to accept a self-signed NAS certificate (outbound only).
+      # SYNO_TLS_INSECURE: 'true'
+      # Upload cap for .torrent files, in MiB.
+      # MAX_TORRENT_MB: '16'

@@ -1,0 +1,68 @@
+# Auto-merge release PRs: the develop -> main PR that cuts a release shouldn't need
+# babysitting. This enables GitHub's native auto-merge on it, so GitHub merges the
+# PR by itself the moment every required check is green — the "Release guard
+# (version bump)" check plus the full build+test suite — and not a second before.
+#
+# Scope is deliberately narrow: only PRs whose BASE is main (i.e. release PRs from
+# develop). Feature -> develop PRs are untouched; you still merge those yourself.
+#
+# Merge method is a MERGE COMMIT on purpose: release.yml verifies the merge commit,
+# and we keep develop's history joined into main (linear history is intentionally
+# NOT required). Auto-merge only schedules the merge; required checks + branch
+# protection still fully gate it, so a failing guard or red CI blocks the merge.
+name: Auto-merge release PRs
+
+on:
+  pull_request:
+    types: [opened, reopened, ready_for_review, synchronize]
+    branches: [main] # base branch == main
+
+permissions:
+  contents: write # github-actions[bot] performs the eventual merge
+  pull-requests: write # enable auto-merge on the PR
+  actions: write # dispatch release.yml after the merge (see below)
+
+jobs:
+  enable-auto-merge:
+    name: Enable auto-merge
+    # Same-repo PRs only (a fork's token is read-only and couldn't enable it anyway),
+    # and never on drafts.
+    if: >-
+      github.event.pull_request.draft == false &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    steps:
+      - name: Enable auto-merge (merge commit)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh pr merge "${{ github.event.pull_request.number }}" \
+            --repo "${{ github.repository }}" \
+            --auto --merge
+
+      # GitHub deliberately does not let a push made with the run's own GITHUB_TOKEN
+      # trigger other workflows (anti-infinite-loop safeguard) — so once GitHub's
+      # platform completes the auto-merge above, release.yml's `push: branches:
+      # [main]` never fires. workflow_dispatch IS exempt from that suppression even
+      # when called with GITHUB_TOKEN, so: poll until the PR actually merges, then
+      # explicitly dispatch release.yml. (First hit + full writeup: the v1.0.0 cut.)
+      - name: Wait for the merge, then dispatch the release workflow
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          # ~60 minutes at 20s/poll — comfortably past the slowest observed e2e run.
+          for i in $(seq 1 180); do
+            state=$(gh pr view "${{ github.event.pull_request.number }}" --repo "${{ github.repository }}" --json state -q .state)
+            if [ "$state" = "MERGED" ]; then
+              echo "PR merged — dispatching release.yml on main"
+              gh workflow run release.yml --repo "${{ github.repository }}" --ref main
+              exit 0
+            fi
+            if [ "$state" = "CLOSED" ]; then
+              echo "PR closed without merging — nothing to dispatch"
+              exit 0
+            fi
+            sleep 20
+          done
+          echo "::warning::Timed out waiting for the PR to merge; release.yml was not dispatched. Run it manually: gh workflow run release.yml --ref main"
