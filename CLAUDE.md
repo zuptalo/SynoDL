@@ -71,7 +71,8 @@ make start      # mock DSM (:8291) + synodl (air hot-reload, :8280) + Vite (:527
 
 App comes up on http://localhost:5273 and proxies the API to `synodl` on
 `:8280`, which talks to the mock DSM on `:8291`. Log in with the mock account
-`admin` / `secret` (the OTP account is `otpuser` / `secret` + code `000000`).
+`admin` / `secret` (the OTP account is `otpuser` / `secret` + code `000000`; `disabled`, `blocked`,
+and `expired` — password `secret` — reproduce the matching DSM account states).
 Other targets: `make backend` / `make frontend` / `make mock` (run one piece),
 `make stop`. Inside `server/`: `make run`, `make test`, `make vet`, `make fmt`,
 `make tidy`. Point the backend at a real NAS with `SYNO_URL=https://nas:5001`

@@ -16,7 +16,7 @@ func main() {
 		port = "8291"
 	}
 	slog.Info("synomock (fake DSM) starting", "port", port,
-		"accounts", "admin/secret, otpuser/secret+OTP 000000")
+		"accounts", "admin/secret, otpuser/secret+OTP 000000, disabled/blocked/expired (guide states)")
 	if err := http.ListenAndServe(":"+port, synomock.New().Handler()); err != nil {
 		slog.Error("listen", "err", err)
 		os.Exit(1)

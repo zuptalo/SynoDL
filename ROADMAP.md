@@ -17,7 +17,9 @@ Specs are grouped by category band; status moves
 
 ## ⚡ Ad-hoc (1001–1999)
 
-_None yet._
+| Spec | Title | Status |
+|------|-------|--------|
+| [1001](specs/1001-dsm-auth-errors/spec.md) | Recognize every DSM 7 sign-in failure with its own message | 🔵 in-review |
 
 ## 🐛 Hotfixes & Bug Fixes (2001+)
 

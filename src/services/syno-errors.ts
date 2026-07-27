@@ -12,6 +12,11 @@ const MESSAGES: Record<string, string> = {
   permission: 'This account is not allowed to use Download Station.',
   nas_unreachable: 'The NAS could not be reached. Is it powered on and connected?',
   session: 'Your session ended. Please sign in again.',
+  // DSM Login Web API Guide codes 401 / 407 / 408-410 (spec 1001) — each has a
+  // different remedy in DSM, so each gets its own copy.
+  account_disabled: 'This account is disabled in DSM.',
+  ip_blocked: "DSM has blocked this device's address after too many failed attempts.",
+  password_expired: 'The account password has expired — change it in DSM, then sign in again.',
 };
 
 /** Any failure → plain-language message. Non-ApiError means the request never

@@ -72,6 +72,27 @@ func TestLoginErrorMapping(t *testing.T) {
 	}
 }
 
+func TestLoginGuideAccountStates(t *testing.T) {
+	// End-to-end through the real client: the mock's guide-state accounts
+	// (disabled/blocked/expired) classify to their dedicated kinds (spec 1001).
+	c := newTestClient(t)
+	cases := []struct {
+		account string
+		want    Kind
+	}{
+		{"disabled", KindAccountDisabled},
+		{"blocked", KindIPBlocked},
+		{"expired", KindPasswordExpired},
+	}
+	for _, tc := range cases {
+		_, err := c.Login(context.Background(), tc.account, "secret", "")
+		se := AsError(err)
+		if se == nil || se.Kind != tc.want {
+			t.Errorf("%s: got %v, want kind %s", tc.account, err, tc.want)
+		}
+	}
+}
+
 func TestListTasksFlattensAdditional(t *testing.T) {
 	c := newTestClient(t)
 	sid := login(t, c)
@@ -257,11 +278,17 @@ func TestClassify(t *testing.T) {
 		code int
 		want Kind
 	}{
+		// Per the DSM Login Web API Guide's SYNO.API.Auth error table.
 		{apiAuth, 400, KindCredentials},
-		{apiAuth, 401, KindPermission},
+		{apiAuth, 401, KindAccountDisabled},
 		{apiAuth, 402, KindPermission},
 		{apiAuth, 403, KindOTPRequired},
 		{apiAuth, 404, KindOTPInvalid},
+		{apiAuth, 406, KindOTPRequired}, // "enforce 2FA" needs the same user action as 403
+		{apiAuth, 407, KindIPBlocked},
+		{apiAuth, 408, KindPasswordExpired},
+		{apiAuth, 409, KindPasswordExpired},
+		{apiAuth, 410, KindPasswordExpired},
 		{apiAuth, 105, KindPermission},
 		{apiTask, 105, KindSession},
 		{apiTask, 106, KindSession},

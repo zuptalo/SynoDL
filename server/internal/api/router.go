@@ -87,9 +87,10 @@ func writeSynoError(w http.ResponseWriter, err error) {
 		return
 	}
 	switch se.Kind {
-	case syno.KindSession, syno.KindCredentials, syno.KindOTPRequired, syno.KindOTPInvalid:
+	case syno.KindSession, syno.KindCredentials, syno.KindOTPRequired, syno.KindOTPInvalid,
+		syno.KindPasswordExpired:
 		httpx.Error(w, http.StatusUnauthorized, string(se.Kind))
-	case syno.KindPermission:
+	case syno.KindPermission, syno.KindAccountDisabled, syno.KindIPBlocked:
 		httpx.Error(w, http.StatusForbidden, string(se.Kind))
 	case syno.KindUnreachable:
 		httpx.Error(w, http.StatusBadGateway, string(se.Kind))

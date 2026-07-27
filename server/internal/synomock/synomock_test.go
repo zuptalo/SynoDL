@@ -120,6 +120,30 @@ func TestTaskNameFromURI(t *testing.T) {
 	}
 }
 
+func TestGuideAccountStates(t *testing.T) {
+	// The DSM-side account states from the Login Web API Guide, reproducible
+	// with the right password (spec 1001 FR-004).
+	srv := httptest.NewServer(New().Handler())
+	t.Cleanup(srv.Close)
+	cases := map[string]float64{
+		"disabled": 401,
+		"blocked":  407,
+		"expired":  409,
+	}
+	for acct, wantCode := range cases {
+		out := post(t, srv, "/webapi/auth.cgi", url.Values{
+			"method": {"login"}, "account": {acct}, "passwd": {"secret"},
+		})
+		if out["success"] != false {
+			t.Errorf("%s: login unexpectedly succeeded", acct)
+			continue
+		}
+		if code := out["error"].(map[string]any)["code"].(float64); code != wantCode {
+			t.Errorf("%s: code %v, want %v", acct, code, wantCode)
+		}
+	}
+}
+
 func TestAuthRequiredEverywhere(t *testing.T) {
 	srv := httptest.NewServer(New().Handler())
 	t.Cleanup(srv.Close)

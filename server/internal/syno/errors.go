@@ -21,6 +21,14 @@ const (
 	KindOTPInvalid Kind = "otp_invalid"
 	// KindPermission — the account lacks Download Station / FileStation privileges.
 	KindPermission Kind = "permission"
+	// KindAccountDisabled — the account exists but is disabled in DSM (auth 401).
+	KindAccountDisabled Kind = "account_disabled"
+	// KindIPBlocked — DSM's auto-block has blocked this source IP (auth 407).
+	KindIPBlocked Kind = "ip_blocked"
+	// KindPasswordExpired — the password expired / must be changed in DSM
+	// (auth 408/409/410 — the whole expired-password family; the remedy is
+	// identical for all three).
+	KindPasswordExpired Kind = "password_expired"
 	// KindUnreachable — the NAS could not be reached (network/TLS/timeout).
 	KindUnreachable Kind = "nas_unreachable"
 	// KindNAS — any other DSM-reported error.
@@ -55,9 +63,11 @@ func AsError(err error) *Error {
 // classify maps a DSM error code from the given API to its Kind.
 //
 // Common codes (all APIs): 105 privilege, 106/107 session timeout/duplicate
-// login, 119 sid not found. SYNO.API.Auth adds: 400 bad account/password,
-// 401 disabled account, 402 permission, 403 2FA code required, 404 2FA code
-// failed (DSM7 also uses 403/404 this way; DSM6 semantics match).
+// login, 119 sid not found. SYNO.API.Auth codes follow the DSM Login Web API
+// Guide's table (stable across DSM 6/7): 400 bad account/password, 401
+// disabled account, 402 permission denied, 403 2FA code required, 404 2FA
+// code failed, 406 2FA enforced, 407 blocked IP source, 408/409/410 the
+// expired-password family.
 func classify(api string, code int) Kind {
 	switch code {
 	case 106, 107, 119:
@@ -75,12 +85,20 @@ func classify(api string, code int) Kind {
 		switch code {
 		case 400:
 			return KindCredentials
-		case 401, 402:
+		case 401:
+			return KindAccountDisabled
+		case 402:
 			return KindPermission
-		case 403:
+		case 403, 406:
+			// 406 ("enforce 2FA") demands the same user action as 403: supply a
+			// verification code — one kind keeps the client's switch small.
 			return KindOTPRequired
 		case 404:
 			return KindOTPInvalid
+		case 407:
+			return KindIPBlocked
+		case 408, 409, 410:
+			return KindPasswordExpired
 		}
 	}
 	return KindNAS

@@ -10,6 +10,10 @@ describe('messageForError', () => {
     ['permission', 'This account is not allowed to use Download Station.'],
     ['nas_unreachable', 'The NAS could not be reached. Is it powered on and connected?'],
     ['session', 'Your session ended. Please sign in again.'],
+    // DSM Login Web API Guide codes 401 / 407 / 408-410 (spec 1001).
+    ['account_disabled', 'This account is disabled in DSM.'],
+    ['ip_blocked', "DSM has blocked this device's address after too many failed attempts."],
+    ['password_expired', 'The account password has expired — change it in DSM, then sign in again.'],
   ];
 
   it.each(cases)('maps %s to its own message', (code, message) => {

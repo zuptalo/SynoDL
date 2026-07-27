@@ -22,6 +22,11 @@ import (
 type account struct {
 	Password string
 	OTP      string // empty = no 2FA
+	// FailCode, when non-zero, makes every login for this account fail with
+	// that SYNO.API.Auth error even with the right password — reproducing the
+	// DSM-side account states from the Login Web API Guide (disabled, blocked
+	// IP, expired password) without real hardware (spec 1001 FR-004).
+	FailCode int
 }
 
 // Task is the mock's task record and the /__mock/seed wire shape. Progress for
@@ -70,8 +75,11 @@ func (s *Server) now() time.Time { return time.Now().Add(s.offset) }
 // constructor).
 func (s *Server) resetLocked() {
 	s.accounts = map[string]account{
-		"admin":   {Password: "secret"},
-		"otpuser": {Password: "secret", OTP: "000000"},
+		"admin":    {Password: "secret"},
+		"otpuser":  {Password: "secret", OTP: "000000"},
+		"disabled": {Password: "secret", FailCode: 401},
+		"blocked":  {Password: "secret", FailCode: 407},
+		"expired":  {Password: "secret", FailCode: 409},
 	}
 	s.sessions = map[string]string{}
 	s.nextID = 0
@@ -183,6 +191,10 @@ func (s *Server) handleAuth(w http.ResponseWriter, r *http.Request) {
 		acct, okAcct := s.accounts[r.FormValue("account")]
 		if !okAcct || acct.Password != r.FormValue("passwd") {
 			fail(w, 400)
+			return
+		}
+		if acct.FailCode != 0 {
+			fail(w, acct.FailCode)
 			return
 		}
 		if acct.OTP != "" {
