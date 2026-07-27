@@ -4,7 +4,7 @@
 
 **Created**: 2026-07-27
 
-**Status**: planned
+**Status**: in-progress
 <!-- SynoDL spec lifecycle: planned → in-progress → in-review → shipped.
      This line is the source of truth for the spec's row in ROADMAP.md. -->
 
