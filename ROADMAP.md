@@ -14,6 +14,7 @@ Specs are grouped by category band; status moves
 | Spec | Title | Status |
 |------|-------|--------|
 | [0001](specs/0001-connect-tasks-mvp/spec.md) | Connect to Download Station, view tasks, and add downloads | 🟢 shipped |
+| [0003](specs/0003-stateful-multi-user/spec.md) | Stateful multi-user rework — setup wizard, SynoDL accounts, folder access, and Web Push | ⚪ planned |
 
 ## ⚡ Ad-hoc (1001–1999)
 
