@@ -1,44 +1,46 @@
 /**
- * Destination preferences (spec 1006): a persisted default download folder and
- * up to four "favorite" folders shown as quick-select chips in the new-task
- * sheet. Stored in the idb `settings` store (offline-first) under one row;
- * module-level refs so every caller shares the same reactive state.
+ * Destination preferences (spec 1011): a default download folder and up to four
+ * "favorite" folders. Stored PER-USER on the server so they survive full app
+ * closure and stay in sync across the user's sessions. The server also cleans
+ * the set on read — a folder that's been deleted on the NAS or whose access the
+ * admin revoked simply drops out (and the default resets to root).
+ *
+ * Module-level refs so every caller shares one reactive source of truth. In
+ * legacy/stateless mode (no per-user server storage) the endpoints 404 and this
+ * degrades to in-memory-only for the session.
  */
 import { ref } from 'vue';
-import { get, put } from '@/db/idb';
+import { api, type DestinationPrefs } from '@/services/api';
 
 export const MAX_FAVORITES = 4;
-
-interface DestinationRow {
-  id: 'destinationPrefs';
-  default: string;
-  favorites: string[];
-}
 
 const defaultDest = ref('');
 const favorites = ref<string[]>([]);
 
-let restored = false;
+function apply(p: DestinationPrefs): void {
+  defaultDest.value = p.default ?? '';
+  favorites.value = (p.favorites ?? []).slice(0, MAX_FAVORITES);
+}
+
+let loaded = false;
 async function restore(): Promise<void> {
-  if (restored) return;
-  restored = true;
+  if (loaded) return;
+  loaded = true;
   try {
-    const row = await get<DestinationRow>('settings', 'destinationPrefs');
-    if (row) {
-      defaultDest.value = row.default ?? '';
-      favorites.value = (row.favorites ?? []).slice(0, MAX_FAVORITES);
-    }
+    apply(await api.getDestinationPrefs());
   } catch {
-    /* offline / no row yet — defaults stand */
+    /* stateless / offline — in-memory only for this session */
   }
 }
 
+// Persist to the server and adopt the cleaned set it returns (so a favorite the
+// server rejected as gone/forbidden disappears locally too).
 async function persist(): Promise<void> {
-  await put<DestinationRow>('settings', {
-    id: 'destinationPrefs',
-    default: defaultDest.value,
-    favorites: favorites.value,
-  });
+  try {
+    apply(await api.setDestinationPrefs({ default: defaultDest.value, favorites: favorites.value }));
+  } catch {
+    /* best-effort; the in-memory state still drives the UI */
+  }
 }
 
 export function useDestinationPrefs() {

@@ -79,6 +79,10 @@ func NewRouter(d Deps) http.Handler {
 		mux.Handle("GET /v1/notifications/prefs", handleGetNotifPrefs(d))
 		mux.Handle("PUT /v1/notifications/prefs", handleSetNotifPrefs(d))
 
+		// Per-user destination preferences: default folder + favorites (spec 1011).
+		mux.Handle("GET /v1/destinations/prefs", handleGetDestinationPrefs(d))
+		mux.Handle("PUT /v1/destinations/prefs", handleSetDestinationPrefs(d))
+
 		mux.Handle("GET /v1/tasks", handleListTasksStateful(d))
 		mux.Handle("GET /v1/tasks/stream", handleTasksStreamStateful(d, streamLim))
 		mux.Handle("POST /v1/tasks", handleCreateTaskStateful(d))
