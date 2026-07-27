@@ -15,14 +15,14 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 	"time"
-
-	"path/filepath"
 
 	"synodl/server/internal/api"
 	"synodl/server/internal/config"
 	"synodl/server/internal/nas"
+	"synodl/server/internal/push"
 	"synodl/server/internal/store"
 	"synodl/server/internal/syno"
 )
@@ -75,9 +75,46 @@ func main() {
 		}
 		deps.Stateful = true
 		deps.Store = st
-		deps.NAS = nas.New(st, func(base string, insecure bool) syno.Client {
+		mgr := nas.New(st, func(base string, insecure bool) syno.Client {
 			return syno.NewHTTPClient(base, insecure)
 		})
+		deps.NAS = mgr
+
+		// Web Push (spec 0003, Increment 4): generate the instance VAPID keys once,
+		// then run the completion watcher that notifies opted-in devices when a
+		// download finishes — server-side, so it works while every client is offline.
+		if _, err := st.GetVAPID(); errors.Is(err, store.ErrNotFound) {
+			pub, priv, gerr := push.GenerateVAPIDKeys()
+			if gerr != nil {
+				slog.Error("vapid keygen", "err", gerr)
+				os.Exit(1)
+			}
+			subject := "mailto:synodl@localhost"
+			if oc, e := st.GetOperatorConfig(); e == nil && oc.PublicURL != "" {
+				subject = oc.PublicURL
+			}
+			if err := st.SaveVAPID(store.VAPID{Public: pub, Private: priv, Subject: subject}); err != nil {
+				slog.Error("vapid save", "err", err)
+				os.Exit(1)
+			}
+		}
+		if v, err := st.GetVAPID(); err == nil {
+			watcher := push.NewWatcher(st, func(ctx context.Context) ([]push.Task, error) {
+				var out []push.Task
+				derr := mgr.Do(ctx, func(c syno.Client, sid string) error {
+					tasks, e := c.ListTasks(ctx, sid)
+					if e != nil {
+						return e
+					}
+					for _, t := range tasks {
+						out = append(out, push.Task{ID: t.ID, Name: t.Name, Status: t.Status})
+					}
+					return nil
+				})
+				return out, derr
+			}, push.NewSender(*v), version, 30*time.Second)
+			go watcher.Run(context.Background())
+		}
 		slog.Info("synodl stateful mode", "dataDir", cfg.DataDir)
 	} else {
 		deps.Syno = syno.NewHTTPClient(cfg.SynoURL, cfg.SynoTLSInsecure)

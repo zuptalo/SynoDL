@@ -181,4 +181,11 @@ export const api = {
   getUserFolders: (id: number) => request<{ folders: string[] }>(`/v1/users/${id}/folders`),
   setUserFolders: (id: number, folders: string[]) =>
     request<{ folders: string[] }>(`/v1/users/${id}/folders`, jsonMethod('PUT', { folders })),
+
+  // Web Push (stateful mode, Increment 4).
+  pushKey: () => request<{ publicKey: string }>('/v1/push/key'),
+  saveSubscription: (endpoint: string, keys: { p256dh: string; auth: string }, optedIn: boolean) =>
+    request<void>('/v1/push/subscription', json({ endpoint, keys, optedIn })),
+  deleteSubscription: (endpoint: string) =>
+    request<void>('/v1/push/subscription', jsonMethod('DELETE', { endpoint })),
 };

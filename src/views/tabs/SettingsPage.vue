@@ -16,9 +16,10 @@ import { useRouter } from 'vue-router';
 import { api } from '@/services/api';
 import { useSession } from '@/composables/useSession';
 import UserAdmin from '@/components/UserAdmin.vue';
+import PushOptIn from '@/components/PushOptIn.vue';
 
 const router = useRouter();
-const { account, logout, isAdmin } = useSession();
+const { account, logout, isAdmin, mode } = useSession();
 const nasHost = ref('');
 // Template scope can't see compile-time globals; re-expose the define.
 const version = __APP_VERSION__;
@@ -55,6 +56,9 @@ async function onLogout(): Promise<void> {
           <ion-note slot="end" color="primary" data-testid="settings-account">{{ account }}</ion-note>
         </ion-item>
       </ion-list>
+
+      <!-- Opt in to download-complete push notifications (stateful mode only). -->
+      <PushOptIn v-if="mode === 'stateful'" />
 
       <!-- Admin-only: manage SynoDL users and their NAS folder access. -->
       <UserAdmin v-if="isAdmin" data-testid="settings-useradmin" />
