@@ -11,7 +11,9 @@ Specs are grouped by category band; status moves
 
 ## 📌 Planned Features (0001–0999)
 
-_None yet._
+| Spec | Title | Status |
+|------|-------|--------|
+| [0001](specs/0001-connect-tasks-mvp/spec.md) | Connect to Download Station, view tasks, and add downloads | 🟡 in-progress |
 
 ## ⚡ Ad-hoc (1001–1999)
 
