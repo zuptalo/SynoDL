@@ -38,13 +38,19 @@ self.addEventListener('push', (event) => {
   } catch {
     if (event.data) body = event.data.text();
   }
+  // Set the app-icon badge where the Badging API exists (installed PWAs on
+  // Chromium / Safari 17+); silently no-op elsewhere. The app clears it on view.
+  const nav = self.navigator as Navigator & { setAppBadge?: (n?: number) => Promise<void> };
   event.waitUntil(
-    self.registration.showNotification(title, {
-      body,
-      icon: '/pwa-192x192.png',
-      badge: '/pwa-192x192.png',
-      tag: 'synodl-download',
-    }),
+    Promise.all([
+      self.registration.showNotification(title, {
+        body,
+        icon: '/pwa-192x192.png',
+        badge: '/pwa-192x192.png',
+        tag: 'synodl-download',
+      }),
+      nav.setAppBadge ? nav.setAppBadge().catch(() => undefined) : Promise.resolve(),
+    ]),
   );
 });
 

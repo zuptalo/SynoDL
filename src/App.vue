@@ -17,7 +17,23 @@ const onExpired = () => {
   void router.replace('/login');
 };
 window.addEventListener(SESSION_EXPIRED_EVENT, onExpired);
-onUnmounted(() => window.removeEventListener(SESSION_EXPIRED_EVENT, onExpired));
+
+// Clear the app-icon notification badge whenever the app is in view (the SW set
+// it on a push). Progressive enhancement — a silent no-op where unsupported.
+const clearBadge = (): void => {
+  if (document.visibilityState !== 'visible') return;
+  const nav = navigator as Navigator & { clearAppBadge?: () => Promise<void> };
+  if (nav.clearAppBadge) void nav.clearAppBadge().catch(() => undefined);
+};
+clearBadge();
+document.addEventListener('visibilitychange', clearBadge);
+window.addEventListener('focus', clearBadge);
+
+onUnmounted(() => {
+  window.removeEventListener(SESSION_EXPIRED_EVENT, onExpired);
+  document.removeEventListener('visibilitychange', clearBadge);
+  window.removeEventListener('focus', clearBadge);
+});
 </script>
 
 <template>

@@ -16,13 +16,14 @@ import {
   IonTitle,
   IonToolbar,
 } from '@ionic/vue';
-import { addOutline, optionsOutline } from 'ionicons/icons';
-import { computed, ref } from 'vue';
+import { addOutline, checkmarkOutline, ellipsisHorizontal, optionsOutline } from 'ionicons/icons';
+import { computed, ref, watch } from 'vue';
 import { useTasks } from '@/composables/useTasks';
 import { useTaskFilter } from '@/composables/useTaskFilter';
 import { api } from '@/services/api';
 import { applyTaskFilter, type TaskFilterState } from '@/services/task-sort';
 import { formatSpeed } from '@/utils/format';
+import type { Task } from '@/types/task';
 import TaskItem from '@/components/TaskItem.vue';
 import TaskFilterSheet from '@/components/TaskFilterSheet.vue';
 import NewTaskModal from '@/components/NewTaskModal.vue';
@@ -36,47 +37,171 @@ const newTaskOpen = ref(false);
 
 const visible = computed(() => applyTaskFilter(tasks.value, filter.value));
 
-async function onPull(ev: RefresherCustomEvent): Promise<void> {
-  await refresh();
-  await ev.target.complete();
+// ---- selection mode -------------------------------------------------------
+const selectMode = ref(false);
+const selected = ref<Set<string>>(new Set());
+const selectedCount = computed(() => selected.value.size);
+
+function enterSelect(): void {
+  selectMode.value = true;
+  selected.value = new Set();
+}
+function cancelSelect(): void {
+  selectMode.value = false;
+  selected.value = new Set();
+}
+function toggleSelect(id: string): void {
+  const next = new Set(selected.value);
+  if (next.has(id)) next.delete(id);
+  else next.add(id);
+  selected.value = next;
 }
 
-async function onApplyFilter(next: TaskFilterState): Promise<void> {
-  await apply(next);
-  filterOpen.value = false;
-}
+// Keep the selection valid across live refreshes: drop tasks that vanished.
+watch(tasks, (list) => {
+  if (!selectMode.value) return;
+  const ids = new Set(list.map((t) => t.id));
+  const kept = new Set([...selected.value].filter((id) => ids.has(id)));
+  if (kept.size !== selected.value.size) selected.value = kept;
+});
 
-async function onCreated(): Promise<void> {
-  newTaskOpen.value = false;
-  await refresh();
-}
+// ---- eligibility + bulk runners -------------------------------------------
+const PAUSABLE = ['downloading', 'waiting', 'filehosting_waiting'];
+const pausable = (pool: Task[]) => pool.filter((t) => PAUSABLE.includes(t.status)).map((t) => t.id);
+const resumable = (pool: Task[]) => pool.filter((t) => t.status === 'paused').map((t) => t.id);
+const finished = (pool: Task[]) => pool.filter((t) => t.status === 'finished').map((t) => t.id);
+const plural = (n: number) => (n === 1 ? 'task' : 'tasks');
 
-async function onPause(id: string): Promise<void> {
-  await api.pauseTasks([id]);
-  await refresh();
+async function runPause(ids: string[]): Promise<void> {
+  if (ids.length) {
+    await api.pauseTasks(ids);
+    await refresh();
+  }
 }
-
-async function onResume(id: string): Promise<void> {
-  await api.resumeTasks([id]);
-  await refresh();
+async function runResume(ids: string[]): Promise<void> {
+  if (ids.length) {
+    await api.resumeTasks(ids);
+    await refresh();
+  }
 }
-
-// Delete needs a confirmation (US4): an action sheet, never a silent remove.
-async function onDelete(id: string): Promise<void> {
+// Every destructive bulk action confirms first, naming the count.
+async function confirmDelete(ids: string[], subHeader: string): Promise<boolean> {
+  if (!ids.length) return false;
   const sheet = await actionSheetController.create({
-    header: 'Delete this download task?',
-    subHeader: 'Completed files stay on the NAS.',
+    header: `Delete ${ids.length} ${plural(ids.length)}?`,
+    subHeader,
     buttons: [
-      { text: 'Delete task', role: 'destructive', data: 'delete' },
+      { text: `Delete ${ids.length}`, role: 'destructive', data: 'ok' },
       { text: 'Cancel', role: 'cancel' },
     ],
   });
   await sheet.present();
   const { data } = await sheet.onDidDismiss();
-  if (data === 'delete') {
-    await api.deleteTasks([id]);
-    await refresh();
+  if (data !== 'ok') return false;
+  await api.deleteTasks(ids);
+  await refresh();
+  return true;
+}
+async function clearFinished(pool: Task[]): Promise<void> {
+  const ids = finished(pool);
+  await confirmDelete(ids, 'Removes the finished entries; files stay on the NAS.');
+}
+
+// ---- menus ----------------------------------------------------------------
+async function openOverflow(): Promise<void> {
+  const all = tasks.value;
+  const sheet = await actionSheetController.create({
+    header: `${all.length} ${plural(all.length)}`,
+    buttons: [
+      { text: 'Select tasks', data: 'select' },
+      { text: `Clear finished (${finished(all).length})`, role: 'destructive', data: 'clear' },
+      { text: 'Pause all', data: 'pause' },
+      { text: 'Resume all', data: 'resume' },
+      { text: 'Delete all', role: 'destructive', data: 'delete' },
+      { text: 'Cancel', role: 'cancel' },
+    ],
+  });
+  await sheet.present();
+  const { data } = await sheet.onDidDismiss();
+  switch (data) {
+    case 'select':
+      enterSelect();
+      break;
+    case 'clear':
+      await clearFinished(all);
+      break;
+    case 'pause':
+      await runPause(pausable(all));
+      break;
+    case 'resume':
+      await runResume(resumable(all));
+      break;
+    case 'delete':
+      await confirmDelete(
+        all.map((t) => t.id),
+        'Removes every task; files stay on the NAS.',
+      );
+      break;
   }
+}
+
+async function openSelectionActions(): Promise<void> {
+  if (selectedCount.value === 0) return;
+  const pool = tasks.value.filter((t) => selected.value.has(t.id));
+  const sheet = await actionSheetController.create({
+    header: `${pool.length} ${plural(pool.length)} selected`,
+    buttons: [
+      { text: `Clear finished (${finished(pool).length})`, role: 'destructive', data: 'clear' },
+      { text: 'Pause', data: 'pause' },
+      { text: 'Resume', data: 'resume' },
+      { text: 'Delete', role: 'destructive', data: 'delete' },
+      { text: 'Cancel', role: 'cancel' },
+    ],
+  });
+  await sheet.present();
+  const { data } = await sheet.onDidDismiss();
+  switch (data) {
+    case 'clear':
+      await clearFinished(pool);
+      cancelSelect();
+      break;
+    case 'pause':
+      await runPause(pausable(pool));
+      cancelSelect();
+      break;
+    case 'resume':
+      await runResume(resumable(pool));
+      cancelSelect();
+      break;
+    case 'delete':
+      if (await confirmDelete(pool.map((t) => t.id), 'Completed files stay on the NAS.')) cancelSelect();
+      break;
+  }
+}
+
+// ---- existing per-row + list plumbing -------------------------------------
+async function onPull(ev: RefresherCustomEvent): Promise<void> {
+  await refresh();
+  await ev.target.complete();
+}
+async function onApplyFilter(next: TaskFilterState): Promise<void> {
+  await apply(next);
+  filterOpen.value = false;
+}
+async function onCreated(): Promise<void> {
+  newTaskOpen.value = false;
+  await refresh();
+}
+async function onPause(id: string): Promise<void> {
+  await api.pauseTasks([id]);
+  await refresh();
+}
+async function onResume(id: string): Promise<void> {
+  await api.resumeTasks([id]);
+  await refresh();
+}
+async function onDelete(id: string): Promise<void> {
+  await confirmDelete([id], 'Completed files stay on the NAS.');
 }
 </script>
 
@@ -84,12 +209,18 @@ async function onDelete(id: string): Promise<void> {
   <ion-page>
     <ion-header>
       <ion-toolbar>
-        <ion-title>Tasks</ion-title>
-        <div slot="end" class="speeds" data-testid="global-speeds">
+        <ion-buttons slot="start">
+          <ion-button v-if="selectMode" data-testid="select-cancel" @click="cancelSelect">Cancel</ion-button>
+          <ion-button v-else data-testid="overflow-open" @click="openOverflow">
+            <ion-icon slot="icon-only" :icon="ellipsisHorizontal" />
+          </ion-button>
+        </ion-buttons>
+        <ion-title>{{ selectMode ? `${selectedCount} selected` : 'Tasks' }}</ion-title>
+        <div v-if="!selectMode" slot="end" class="speeds" data-testid="global-speeds">
           <span>↓ {{ formatSpeed(stats.downloadSpeed) }}</span>
           <span>↑ {{ formatSpeed(stats.uploadSpeed) }}</span>
         </div>
-        <ion-buttons slot="end">
+        <ion-buttons v-if="!selectMode" slot="end">
           <ion-button data-testid="filter-open" @click="filterOpen = true">
             <ion-icon slot="icon-only" :icon="optionsOutline" />
           </ion-button>
@@ -110,14 +241,27 @@ async function onDelete(id: string): Promise<void> {
           v-for="t in visible"
           :key="t.id"
           :task="t"
+          :select-mode="selectMode"
+          :selected="selected.has(t.id)"
           @pause="onPause"
           @resume="onResume"
           @delete="onDelete"
+          @toggle="toggleSelect"
         />
       </ion-list>
 
       <ion-fab slot="fixed" vertical="bottom" horizontal="end">
-        <ion-fab-button data-testid="newtask-open" @click="newTaskOpen = true">
+        <!-- Selection mode swaps the create button for a confirm checkmark,
+             disabled until at least one task is selected. -->
+        <ion-fab-button
+          v-if="selectMode"
+          :disabled="selectedCount === 0"
+          data-testid="selection-confirm"
+          @click="openSelectionActions"
+        >
+          <ion-icon :icon="checkmarkOutline" />
+        </ion-fab-button>
+        <ion-fab-button v-else data-testid="newtask-open" @click="newTaskOpen = true">
           <ion-icon :icon="addOutline" />
         </ion-fab-button>
       </ion-fab>
