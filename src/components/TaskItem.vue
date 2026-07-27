@@ -13,6 +13,7 @@ import { pauseOutline, playOutline, trashOutline } from 'ionicons/icons';
 import { computed } from 'vue';
 import type { Task } from '@/types/task';
 import { formatBytes, formatEta, formatPercent, formatSpeed, progressOf } from '@/utils/format';
+import { reasonFor } from '@/services/task-error';
 
 const props = defineProps<{ task: Task; selectMode?: boolean; selected?: boolean }>();
 const emit = defineEmits<{
@@ -53,6 +54,10 @@ const statusColorVar = computed(() => {
 const eta = computed(() =>
   formatEta(props.task.size - props.task.downloaded, props.task.downloadSpeed),
 );
+// Errored tasks show *why* they failed (spec 0002) instead of a bare "error".
+const errorReason = computed(() =>
+  props.task.status === 'error' ? reasonFor(props.task.errorDetail ?? '') : '',
+);
 </script>
 
 <template>
@@ -71,7 +76,8 @@ const eta = computed(() =>
           <span class="status" :style="{ color: statusColorVar }" data-testid="task-status">
             {{ task.status }}
           </span>
-          <span>{{ formatPercent(task.downloaded, task.size) }} of {{ formatBytes(task.size) }}</span>
+          <span v-if="errorReason" class="reason" data-testid="task-error-reason">{{ errorReason }}</span>
+          <span v-else>{{ formatPercent(task.downloaded, task.size) }} of {{ formatBytes(task.size) }}</span>
           <span v-if="active">↓ {{ formatSpeed(task.downloadSpeed) }}</span>
           <span v-if="active && task.uploadSpeed > 0">↑ {{ formatSpeed(task.uploadSpeed) }}</span>
           <span v-if="active">{{ eta }}</span>
@@ -114,6 +120,9 @@ const eta = computed(() =>
 .status {
   text-transform: capitalize;
   font-weight: 600;
+}
+.reason {
+  color: var(--app-status-error);
 }
 ion-progress-bar {
   height: 3px;

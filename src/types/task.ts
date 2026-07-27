@@ -15,6 +15,7 @@ export interface Task {
   seeders: number;
   createdAt: number; // unix seconds
   destination: string;
+  errorDetail?: string; // DSM status_extra.error_detail for errored tasks (raw keyword)
 }
 
 export interface Stats {

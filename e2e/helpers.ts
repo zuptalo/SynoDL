@@ -11,7 +11,8 @@ export interface TaskFixture {
   name: string;
   type?: string;
   status: string;
-  size: number;
+  size?: number;
+  errorDetail?: string;
   downloaded?: number;
   uploaded?: number;
   rate?: number;

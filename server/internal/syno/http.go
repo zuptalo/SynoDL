@@ -191,11 +191,15 @@ func (c *HTTPClient) Logout(ctx context.Context, sid string) error {
 // dsmTask is the raw DSM task shape ("additional" split into detail/transfer);
 // flattened into the wire Task before it leaves this package.
 type dsmTask struct {
-	ID         string `json:"id"`
-	Title      string `json:"title"`
-	Type       string `json:"type"`
-	Status     string `json:"status"`
-	Size       int64  `json:"size"`
+	ID     string `json:"id"`
+	Title  string `json:"title"`
+	Type   string `json:"type"`
+	Status string `json:"status"`
+	Size   int64  `json:"size"`
+	// DSM reports a failed task's cause here (sibling of status/additional).
+	StatusExtra struct {
+		ErrorDetail string `json:"error_detail"`
+	} `json:"status_extra"`
 	Additional struct {
 		Detail struct {
 			CreateTime       int64  `json:"create_time"`
@@ -239,6 +243,7 @@ func (c *HTTPClient) ListTasks(ctx context.Context, sid string) ([]Task, error) 
 			Seeders:       t.Additional.Detail.ConnectedSeeders,
 			CreatedAt:     t.Additional.Detail.CreateTime,
 			Destination:   t.Additional.Detail.Destination,
+			ErrorDetail:   t.StatusExtra.ErrorDetail,
 		})
 	}
 	return tasks, nil

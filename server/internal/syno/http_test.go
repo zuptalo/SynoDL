@@ -115,6 +115,32 @@ func TestListTasksFlattensAdditional(t *testing.T) {
 	}
 }
 
+func TestListTasksSurfacesErrorDetail(t *testing.T) {
+	mock := synomock.New()
+	srv := httptest.NewServer(mock.Handler())
+	t.Cleanup(srv.Close)
+	c := NewHTTPClient(srv.URL, false)
+	mock.Seed([]synomock.Task{
+		{Name: "broken.iso", Type: "bt", Status: "error", ErrorDetail: "broken_link"},
+		{Name: "ok.iso", Type: "http", Status: "finished", Size: 100, Downloaded: 100},
+	})
+	sid := login(t, c)
+
+	tasks, err := c.ListTasks(context.Background(), sid)
+	if err != nil {
+		t.Fatalf("ListTasks: %v", err)
+	}
+	if len(tasks) != 2 {
+		t.Fatalf("got %d tasks, want 2", len(tasks))
+	}
+	if tasks[0].Status != "error" || tasks[0].ErrorDetail != "broken_link" {
+		t.Errorf("errored task = %+v, want ErrorDetail=broken_link", tasks[0])
+	}
+	if tasks[1].ErrorDetail != "" {
+		t.Errorf("non-errored task carried ErrorDetail=%q, want empty", tasks[1].ErrorDetail)
+	}
+}
+
 func TestCreatePauseResumeDeleteRoundTrip(t *testing.T) {
 	c := newTestClient(t)
 	sid := login(t, c)
