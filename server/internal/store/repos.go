@@ -194,6 +194,13 @@ func (s *Store) SetUserEnabled(id int64, enabled bool) error {
 	return nil
 }
 
+// SetUserAdmin toggles a user's admin flag.
+func (s *Store) SetUserAdmin(id int64, isAdmin bool) error {
+	_, err := s.db.Exec(`UPDATE users SET is_admin = ?, updated_at = ? WHERE id = ?`,
+		boolToInt(isAdmin), time.Now().Unix(), id)
+	return err
+}
+
 func (s *Store) SetUserPassword(id int64, passwordHash string) error {
 	_, err := s.db.Exec(`UPDATE users SET password_hash = ?, updated_at = ? WHERE id = ?`,
 		passwordHash, time.Now().Unix(), id)
@@ -205,6 +212,48 @@ func (s *Store) SetUserPassword(id int64, passwordHash string) error {
 func (s *Store) DeleteUser(id int64) error {
 	_, err := s.db.Exec(`DELETE FROM users WHERE id = ?`, id)
 	return err
+}
+
+// ---- folder grants --------------------------------------------------------
+
+// ListFolderGrants returns a user's allowed NAS folder paths (normalized,
+// without leading slashes).
+func (s *Store) ListFolderGrants(userID int64) ([]string, error) {
+	rows, err := s.db.Query(`SELECT folder_path FROM folder_grants WHERE user_id = ? ORDER BY folder_path`, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var p string
+		if err := rows.Scan(&p); err != nil {
+			return nil, err
+		}
+		out = append(out, p)
+	}
+	return out, rows.Err()
+}
+
+// SetFolderGrants replaces a user's grants with the given paths (deduped by the
+// UNIQUE index; the caller normalizes them).
+func (s *Store) SetFolderGrants(userID int64, paths []string) error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`DELETE FROM folder_grants WHERE user_id = ?`, userID); err != nil {
+		_ = tx.Rollback()
+		return err
+	}
+	for _, p := range paths {
+		if _, err := tx.Exec(
+			`INSERT OR IGNORE INTO folder_grants (user_id, folder_path) VALUES (?, ?)`, userID, p); err != nil {
+			_ = tx.Rollback()
+			return err
+		}
+	}
+	return tx.Commit()
 }
 
 // ---- sessions -------------------------------------------------------------

@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -161,3 +162,78 @@ func TestStatefulLoginAndGuards(t *testing.T) {
 		t.Fatalf("disabled bob /v1/me = %d, want 401", rec.Code)
 	}
 }
+
+func TestStatefulUserManagementAndFolderScope(t *testing.T) {
+	h, _ := newStatefulRouter(t)
+	setup := do(t, h, "POST", "/v1/setup", setupBody, nil) // admin "kamran"
+	var admin struct {
+		Token string `json:"token"`
+	}
+	_ = json.Unmarshal(setup.Body.Bytes(), &admin)
+	adminAuth := map[string]string{"X-SynoDL-Session": admin.Token}
+
+	// Admin creates a non-admin user.
+	rec := do(t, h, "POST", "/v1/users", `{"username":"bob","password":"`+"example-bob-pw"+`","isAdmin":false}`, adminAuth)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create user = %d, body %s", rec.Code, rec.Body.String())
+	}
+	var bob struct {
+		ID int64 `json:"id"`
+	}
+	_ = json.Unmarshal(rec.Body.Bytes(), &bob)
+
+	// List shows both.
+	rec = do(t, h, "GET", "/v1/users", "", adminAuth)
+	if rec.Code != 200 || !strings.Contains(rec.Body.String(), `"bob"`) || !strings.Contains(rec.Body.String(), `"kamran"`) {
+		t.Fatalf("list users = %d %s", rec.Code, rec.Body.String())
+	}
+
+	// Scope bob to the "movie" folder only.
+	fp := "/v1/users/" + itoa(bob.ID) + "/folders"
+	if rec := do(t, h, "PUT", fp, `{"folders":["movie","/tv-show/Friends/","../evil"]}`, adminAuth); rec.Code != 200 {
+		t.Fatalf("set folders = %d %s", rec.Code, rec.Body.String())
+	}
+	rec = do(t, h, "GET", fp, "", adminAuth)
+	// "../evil" is dropped (traversal); the two valid grants remain.
+	if !strings.Contains(rec.Body.String(), `"movie"`) || !strings.Contains(rec.Body.String(), `tv-show/Friends`) || strings.Contains(rec.Body.String(), "evil") {
+		t.Fatalf("grants = %s", rec.Body.String())
+	}
+
+	// Bob signs in.
+	rec = do(t, h, "POST", "/v1/session", `{"username":"bob","password":"`+"example-bob-pw"+`"}`, nil)
+	var bobLogin struct {
+		Token string `json:"token"`
+	}
+	_ = json.Unmarshal(rec.Body.Bytes(), &bobLogin)
+	bobAuth := map[string]string{"X-SynoDL-Session": bobLogin.Token}
+
+	// Bob's share picker shows only "movie" and "tv-show" (ancestor of a grant),
+	// not "home"/"music".
+	rec = do(t, h, "GET", "/v1/fs/shares", "", bobAuth)
+	body := rec.Body.String()
+	if !strings.Contains(body, `"movie"`) || !strings.Contains(body, `"tv-show"`) {
+		t.Fatalf("bob shares missing granted folders: %s", body)
+	}
+	if strings.Contains(body, `"home"`) || strings.Contains(body, `"music"`) {
+		t.Fatalf("bob shares leaked ungranted folders: %s", body)
+	}
+
+	// Bob can create into an allowed folder, but not an out-of-scope one.
+	if rec := do(t, h, "POST", "/v1/tasks", `{"uris":["http://x/y.iso"],"destination":"movie/4K"}`, bobAuth); rec.Code != http.StatusCreated {
+		t.Fatalf("bob create into movie/4K = %d %s", rec.Code, rec.Body.String())
+	}
+	if rec := do(t, h, "POST", "/v1/tasks", `{"uris":["http://x/y.iso"],"destination":"home/Downloads"}`, bobAuth); rec.Code != http.StatusForbidden {
+		t.Fatalf("bob create into home = %d, want 403", rec.Code)
+	}
+	// Empty destination is denied for a scoped non-admin.
+	if rec := do(t, h, "POST", "/v1/tasks", `{"uris":["http://x/y.iso"]}`, bobAuth); rec.Code != http.StatusForbidden {
+		t.Fatalf("bob create with no destination = %d, want 403", rec.Code)
+	}
+
+	// Bob cannot reach admin endpoints.
+	if rec := do(t, h, "GET", "/v1/users", "", bobAuth); rec.Code != http.StatusForbidden {
+		t.Fatalf("bob list users = %d, want 403", rec.Code)
+	}
+}
+
+func itoa(n int64) string { return strconv.FormatInt(n, 10) }

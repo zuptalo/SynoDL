@@ -15,9 +15,10 @@ import { onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { api } from '@/services/api';
 import { useSession } from '@/composables/useSession';
+import UserAdmin from '@/components/UserAdmin.vue';
 
 const router = useRouter();
-const { account, logout } = useSession();
+const { account, logout, isAdmin } = useSession();
 const nasHost = ref('');
 // Template scope can't see compile-time globals; re-expose the define.
 const version = __APP_VERSION__;
@@ -54,6 +55,9 @@ async function onLogout(): Promise<void> {
           <ion-note slot="end" color="primary" data-testid="settings-account">{{ account }}</ion-note>
         </ion-item>
       </ion-list>
+
+      <!-- Admin-only: manage SynoDL users and their NAS folder access. -->
+      <UserAdmin v-if="isAdmin" data-testid="settings-useradmin" />
 
       <div class="logout">
         <ion-button expand="block" color="danger" fill="outline" data-testid="settings-logout" @click="onLogout">

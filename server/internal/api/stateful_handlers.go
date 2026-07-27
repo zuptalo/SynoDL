@@ -6,10 +6,52 @@ import (
 	"net/http"
 	"strings"
 
+	"synodl/server/internal/authz"
 	"synodl/server/internal/httpx"
 	"synodl/server/internal/store"
 	"synodl/server/internal/syno"
 )
+
+// grantsFor loads a user's folder grants (empty for admins, who are unrestricted).
+func (d Deps) grantsFor(u *store.User) []string {
+	if u.IsAdmin {
+		return nil
+	}
+	g, err := d.Store.ListFolderGrants(u.ID)
+	if err != nil {
+		return nil
+	}
+	return g
+}
+
+// destinationAllowed reports whether a user may create a task into dest. Admins
+// may use the NAS default (empty) or any folder; a non-admin must name a folder
+// within their grants (empty is rejected so a scoped user can't fall back to the
+// NAS default).
+func (d Deps) destinationAllowed(u *store.User, dest string) bool {
+	if u.IsAdmin {
+		return dest == "" || authz.AllowedForCreate(true, nil, dest)
+	}
+	if dest == "" {
+		return false
+	}
+	return authz.AllowedForCreate(false, d.grantsFor(u), dest)
+}
+
+// filterFolders keeps only folders the user may see in the destination picker.
+func (d Deps) filterFolders(u *store.User, folders []syno.Folder) []syno.Folder {
+	if u.IsAdmin {
+		return folders
+	}
+	grants := d.grantsFor(u)
+	out := make([]syno.Folder, 0, len(folders))
+	for _, f := range folders {
+		if authz.VisibleInPicker(false, grants, f.Path) {
+			out = append(out, f)
+		}
+	}
+	return out
+}
 
 // These mirror the legacy task/fs handlers but authenticate the caller as a
 // SynoDL user and reach the NAS through the shared connection manager (which
@@ -42,7 +84,7 @@ func handleListTasksStateful(d Deps) http.Handler {
 
 func handleCreateTaskStateful(d Deps) http.Handler {
 	maxBytes := int64(d.Cfg.MaxTorrentMB) << 20
-	return d.requireUser(func(w http.ResponseWriter, r *http.Request, _ *store.User) {
+	return d.requireUser(func(w http.ResponseWriter, r *http.Request, u *store.User) {
 		if strings.HasPrefix(r.Header.Get("Content-Type"), "multipart/form-data") {
 			r.Body = http.MaxBytesReader(w, r.Body, maxBytes)
 			if err := r.ParseMultipartForm(maxBytes); err != nil {
@@ -61,6 +103,10 @@ func handleCreateTaskStateful(d Deps) http.Handler {
 			}
 			defer file.Close()
 			opts := syno.CreateOpts{Destination: r.FormValue("destination"), UnzipPassword: r.FormValue("unzipPassword")}
+			if !d.destinationAllowed(u, opts.Destination) {
+				httpx.Error(w, http.StatusForbidden, "folder_denied")
+				return
+			}
 			if err := d.NAS.Do(r.Context(), func(c syno.Client, sid string) error {
 				return c.CreateTaskFile(r.Context(), sid, header.Filename, file, opts)
 			}); err != nil {
@@ -89,6 +135,10 @@ func handleCreateTaskStateful(d Deps) http.Handler {
 		opts := syno.CreateOpts{
 			Destination: req.Destination, Username: req.Username,
 			Password: req.Password, UnzipPassword: req.UnzipPassword,
+		}
+		if !d.destinationAllowed(u, opts.Destination) {
+			httpx.Error(w, http.StatusForbidden, "folder_denied")
+			return
 		}
 		if err := d.NAS.Do(r.Context(), func(c syno.Client, sid string) error {
 			return c.CreateTaskURIs(r.Context(), sid, uris, opts)
@@ -132,7 +182,7 @@ func handleTaskActionStateful(d Deps, action string) http.Handler {
 }
 
 func handleListSharesStateful(d Deps) http.Handler {
-	return d.requireUser(func(w http.ResponseWriter, r *http.Request, _ *store.User) {
+	return d.requireUser(func(w http.ResponseWriter, r *http.Request, u *store.User) {
 		var folders []syno.Folder
 		if err := d.NAS.Do(r.Context(), func(c syno.Client, sid string) error {
 			f, e := c.ListShares(r.Context(), sid)
@@ -142,6 +192,7 @@ func handleListSharesStateful(d Deps) http.Handler {
 			writeNASError(w, err)
 			return
 		}
+		folders = d.filterFolders(u, folders) // only shares within/leading to the user's grants
 		if folders == nil {
 			folders = []syno.Folder{}
 		}
@@ -150,10 +201,15 @@ func handleListSharesStateful(d Deps) http.Handler {
 }
 
 func handleListFolderStateful(d Deps) http.Handler {
-	return d.requireUser(func(w http.ResponseWriter, r *http.Request, _ *store.User) {
+	return d.requireUser(func(w http.ResponseWriter, r *http.Request, u *store.User) {
 		path := r.URL.Query().Get("path")
 		if path == "" {
 			httpx.Error(w, http.StatusBadRequest, "path required")
+			return
+		}
+		// A non-admin may only browse into folders their grants make visible.
+		if !u.IsAdmin && !authz.VisibleInPicker(false, d.grantsFor(u), path) {
+			httpx.Error(w, http.StatusForbidden, "folder_denied")
 			return
 		}
 		var folders []syno.Folder
@@ -165,6 +221,7 @@ func handleListFolderStateful(d Deps) http.Handler {
 			writeNASError(w, err)
 			return
 		}
+		folders = d.filterFolders(u, folders)
 		if folders == nil {
 			folders = []syno.Folder{}
 		}
