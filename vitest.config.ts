@@ -35,6 +35,8 @@ export default defineConfig({
         'src/services/task-error.ts',
         // In-app update decision logic (spec 1003).
         'src/services/app-update.ts',
+        // PWA install-guard UA detection (spec 1008).
+        'src/services/install-detect.ts',
       ],
       thresholds: { lines: 80, functions: 80, statements: 80, branches: 80 },
     },

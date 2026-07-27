@@ -6,6 +6,7 @@ import { SESSION_EXPIRED_EVENT } from '@/services/api';
 import { useAppUpdate } from '@/composables/useAppUpdate';
 import { useTheme } from '@/composables/useTheme';
 import UpdateModal from '@/components/UpdateModal.vue';
+import InstallGuard from '@/components/InstallGuard.vue';
 
 // Apply the persisted dark/light choice at startup (the index.html pre-paint
 // covers the very first frame; this keeps the runtime palette in sync).
@@ -46,6 +47,9 @@ onUnmounted(() => {
 <template>
   <ion-app>
     <ion-router-outlet />
+    <!-- Blocks the app behind an install guide unless running as an installed
+         PWA (localhost exempt for dev/e2e). Spec 1008. -->
+    <InstallGuard />
     <UpdateModal :is-open="updateAvailable" :applying="applying" @confirm="applyUpdate" />
   </ion-app>
 </template>

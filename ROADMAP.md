@@ -27,6 +27,7 @@ Specs are grouped by category band; status moves
 | [1003](specs/1003-update-page/spec.md) | In-app update page — what's new, one-tap OK, and self-healing apply | 🔵 in-review |
 | [1005](specs/1005-bulk-urls/spec.md) | Bulk-paste URLs with mixed delimiters, added in batches | 🔵 in-review |
 | [1006](specs/1006-destinations/spec.md) | Destination overhaul — cancel, default, favorites, and subfolder creation | 🔵 in-review |
+| [1008](specs/1008-install-guard/spec.md) | PWA install guard — sign in only from the installed app | 🔵 in-review |
 
 ## 🐛 Hotfixes & Bug Fixes (2001+)
 
