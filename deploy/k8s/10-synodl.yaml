@@ -1,0 +1,107 @@
+# synodl: the all-in-one SynoDL image (the built PWA at / plus the /v1 API and
+# /healthz, all on one origin at :8080). It is a STATELESS, CREDENTIAL-FREE proxy
+# (constitution Principle III): it persists nothing — no database, no files, no
+# volumes — so there is nothing to back up and no PVC here. The NAS session id
+# lives on the client (IndexedDB) and rides each request in X-Syno-Sid; the only
+# server-side config is the single operator NAS URL below.
+#
+# Because it holds no per-pod state it is safe to scale or roll freely: any replica
+# can serve any request. We still run a single steady-state replica (this fronts a
+# home NAS, not a fleet) and roll updates with a brief overlap so deploys don't
+# blip — see the strategy block.
+#
+# Keel auto-updates this Deployment: it polls ghcr.io/zuptalo/synodl:latest and,
+# when the tag's digest changes (a new production release moves :latest), forces a
+# rolling redeploy — so this cluster always tracks the newest stable release. Keel
+# itself is already installed cluster-wide (shared with the Ring deployment); this
+# folder does NOT reinstall it. To follow the rolling dev build instead, point the
+# image tag below at :develop.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: synodl-config
+  namespace: synodl
+data:
+  ENV: "production"
+  PORT: "8080"
+  # Browser origin allowlist for CORS. Must exactly match the public URL the PWA is
+  # served from — same-origin in single-container mode, but the check is explicit.
+  ALLOWED_ORIGINS: "https://${APP_HOST}"
+  # The single operator-configured NAS this proxy forwards to. Must be reachable
+  # from inside the cluster (a LAN IP or hostname the k3s node can resolve/route to),
+  # e.g. https://192.168.1.10:5001 or https://nas.example.com:5001.
+  SYNO_URL: "${SYNO_URL}"
+  # Set to "true" ONLY if the NAS presents a self-signed / private-CA TLS cert
+  # (common for a LAN NAS on its DSM :5001). Leave "false" for a real cert.
+  SYNO_TLS_INSECURE: "${SYNO_TLS_INSECURE}"
+  # STATIC_DIR (=/app/web, single-container mode) is baked into the image; no need
+  # to repeat it here.
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: synodl
+  namespace: synodl
+spec:
+  selector:
+    app: synodl
+  ports:
+    - name: http # PWA + /v1 API + /healthz (also the IngressRoute + probe target)
+      port: 8080
+      targetPort: 8080
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: synodl
+  namespace: synodl
+  annotations:
+    # Keel: watch the mutable :latest tag and force a redeploy on a new digest.
+    keel.sh/policy: force
+    keel.sh/trigger: poll
+    keel.sh/pollSchedule: "@every 2m"
+spec:
+  replicas: 1
+  strategy:
+    # Roll updates with a short overlap instead of a hard stop-then-start:
+    # maxUnavailable:0 keeps the old pod serving until the new one passes /healthz,
+    # so the app sees ~no downtime. Safe to do because the proxy is stateless — the
+    # two pods share nothing during the handoff window.
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app: synodl
+  template:
+    metadata:
+      labels:
+        app: synodl
+    spec:
+      containers:
+        - name: synodl
+          image: ghcr.io/zuptalo/synodl:latest
+          imagePullPolicy: Always
+          ports:
+            - { name: http, containerPort: 8080 }
+          envFrom:
+            - configMapRef:
+                name: synodl-config
+          # /healthz returns 200 once the HTTP server is up (it holds no state and
+          # opens no DB, so readiness is immediate). Liveness/readiness both hit it.
+          readinessProbe:
+            httpGet: { path: /healthz, port: 8080 }
+            initialDelaySeconds: 3
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: { path: /healthz, port: 8080 }
+            initialDelaySeconds: 10
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: 25m
+              memory: 32Mi
+            limits:
+              cpu: 500m
+              memory: 128Mi
