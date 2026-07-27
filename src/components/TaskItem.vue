@@ -13,6 +13,7 @@ import { pauseOutline, playOutline, trashOutline } from 'ionicons/icons';
 import { computed } from 'vue';
 import type { Task } from '@/types/task';
 import { formatBytes, formatEta, formatPercent, formatSpeed, progressOf } from '@/utils/format';
+import { reasonFor } from '@/services/task-error';
 
 const props = defineProps<{ task: Task; selectMode?: boolean; selected?: boolean }>();
 const emit = defineEmits<{
@@ -20,11 +21,14 @@ const emit = defineEmits<{
   (e: 'resume', id: string): void;
   (e: 'delete', id: string): void;
   (e: 'toggle', id: string): void;
+  (e: 'open', id: string): void;
 }>();
 
-// In selection mode, tapping the row toggles selection (swipe actions are off).
+// In selection mode, tapping the row toggles selection (swipe actions are off);
+// otherwise it opens the task detail view (spec 0002 US3).
 function onRowClick(): void {
   if (props.selectMode) emit('toggle', props.task.id);
+  else emit('open', props.task.id);
 }
 
 // Pause only makes sense for active work; resume only for paused.
@@ -53,11 +57,15 @@ const statusColorVar = computed(() => {
 const eta = computed(() =>
   formatEta(props.task.size - props.task.downloaded, props.task.downloadSpeed),
 );
+// Errored tasks show *why* they failed (spec 0002) instead of a bare "error".
+const errorReason = computed(() =>
+  props.task.status === 'error' ? reasonFor(props.task.errorDetail ?? '') : '',
+);
 </script>
 
 <template>
   <ion-item-sliding :disabled="selectMode">
-    <ion-item :detail="false" :button="selectMode" data-testid="task-item" @click="onRowClick">
+    <ion-item :detail="false" button data-testid="task-item" @click="onRowClick">
       <ion-checkbox
         v-if="selectMode"
         slot="start"
@@ -71,7 +79,8 @@ const eta = computed(() =>
           <span class="status" :style="{ color: statusColorVar }" data-testid="task-status">
             {{ task.status }}
           </span>
-          <span>{{ formatPercent(task.downloaded, task.size) }} of {{ formatBytes(task.size) }}</span>
+          <span v-if="errorReason" class="reason" data-testid="task-error-reason">{{ errorReason }}</span>
+          <span v-else>{{ formatPercent(task.downloaded, task.size) }} of {{ formatBytes(task.size) }}</span>
           <span v-if="active">↓ {{ formatSpeed(task.downloadSpeed) }}</span>
           <span v-if="active && task.uploadSpeed > 0">↑ {{ formatSpeed(task.uploadSpeed) }}</span>
           <span v-if="active">{{ eta }}</span>
@@ -114,6 +123,9 @@ const eta = computed(() =>
 .status {
   text-transform: capitalize;
   font-weight: 600;
+}
+.reason {
+  color: var(--app-status-error);
 }
 ion-progress-bar {
   height: 3px;

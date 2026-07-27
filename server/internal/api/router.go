@@ -42,6 +42,10 @@ func NewRouter(d Deps) http.Handler {
 	// client IP so the server can't be used to brute-force (Principle III).
 	limiter := httpx.NewLimiter(d.Cfg.LoginPerMinute)
 
+	// One global bound on concurrent SSE task streams, shared by whichever mode
+	// is active, so the live-update endpoint can't open unbounded NAS polls.
+	streamLim := newStreamLimiter(d.Cfg.StreamMax)
+
 	if d.Stateful {
 		// Stateful mode (spec 0003): SynoDL accounts, a setup wizard, and NAS
 		// access through the shared stored connection.
@@ -66,6 +70,7 @@ func NewRouter(d Deps) http.Handler {
 		mux.Handle("DELETE /v1/push/subscription", handleDeleteSubscription(d))
 
 		mux.Handle("GET /v1/tasks", handleListTasksStateful(d))
+		mux.Handle("GET /v1/tasks/stream", handleTasksStreamStateful(d, streamLim))
 		mux.Handle("POST /v1/tasks", handleCreateTaskStateful(d))
 		mux.Handle("POST /v1/tasks/pause", handleTaskActionStateful(d, "pause"))
 		mux.Handle("POST /v1/tasks/resume", handleTaskActionStateful(d, "resume"))
@@ -80,6 +85,7 @@ func NewRouter(d Deps) http.Handler {
 		mux.Handle("DELETE /v1/session", handleLogout(d))
 
 		mux.Handle("GET /v1/tasks", handleListTasks(d))
+		mux.Handle("GET /v1/tasks/stream", handleTasksStream(d, streamLim))
 		mux.Handle("POST /v1/tasks", handleCreateTask(d))
 		mux.Handle("POST /v1/tasks/pause", handleTaskAction(d, "pause"))
 		mux.Handle("POST /v1/tasks/resume", handleTaskAction(d, "resume"))

@@ -47,6 +47,7 @@ type Task struct {
 	Seeders     int    `json:"seeders"`
 	CreatedAt   int64  `json:"createdAt"` // unix seconds; 0 = now
 	Destination string `json:"destination"`
+	ErrorDetail string `json:"errorDetail"` // DSM status_extra.error_detail keyword, e.g. "broken_link"
 
 	resumedAt      time.Time
 	baseDownloaded int64
@@ -121,6 +122,15 @@ func (s *Server) seedLocked(tasks []Task) {
 		t.baseDownloaded = t.Downloaded
 		s.tasks = append(s.tasks, &t)
 	}
+}
+
+// Seed replaces the task list with the given fixtures. Exported for Go tests
+// (the syno client contract tests) that need a deterministic task — e.g. an
+// errored one carrying an error_detail — without going through /__mock/seed.
+func (s *Server) Seed(tasks []Task) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.seedLocked(tasks)
 }
 
 // advanceLocked folds elapsed virtual time into each downloading task.
@@ -252,7 +262,7 @@ func (s *Server) handleTask(w http.ResponseWriter, r *http.Request) {
 			if t.Status == "seeding" || t.Status == "downloading" {
 				ul = t.UpRate
 			}
-			tasks = append(tasks, map[string]any{
+			entry := map[string]any{
 				"id": t.ID, "title": t.Name, "type": t.Type, "status": t.Status,
 				"size": t.Size, "username": "admin",
 				"additional": map[string]any{
@@ -265,7 +275,13 @@ func (s *Server) handleTask(w http.ResponseWriter, r *http.Request) {
 						"speed_download": dl, "speed_upload": ul,
 					},
 				},
-			})
+			}
+			// DSM reports a failed task's cause in status_extra.error_detail; only
+			// present when set, mirroring the real NAS.
+			if t.ErrorDetail != "" {
+				entry["status_extra"] = map[string]any{"error_detail": t.ErrorDetail}
+			}
+			tasks = append(tasks, entry)
 		}
 		ok(w, map[string]any{"tasks": tasks, "total": len(tasks)})
 	case "create":

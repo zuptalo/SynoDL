@@ -121,6 +121,108 @@ export interface SetupPayload {
   adminPassword: string;
 }
 
+export interface TaskSnapshot {
+  tasks: Task[];
+  stats: Stats;
+}
+
+/** One parsed SSE frame: a named event and/or a JSON data payload. */
+function parseSSEFrame(frame: string): { event?: string; data?: unknown } | null {
+  let event: string | undefined;
+  const dataLines: string[] = [];
+  for (const line of frame.split('\n')) {
+    if (line === '' || line.startsWith(':')) continue; // heartbeat / comment
+    if (line.startsWith('event:')) event = line.slice(6).trim();
+    else if (line.startsWith('data:')) dataLines.push(line.slice(5).replace(/^ /, ''));
+  }
+  if (dataLines.length === 0 && event === undefined) return null;
+  let data: unknown;
+  if (dataLines.length) {
+    try {
+      data = JSON.parse(dataLines.join('\n'));
+    } catch {
+      return null;
+    }
+  }
+  return { event, data };
+}
+
+/**
+ * Consume the live task stream (GET /v1/tasks/stream) via fetch + a
+ * ReadableStream reader — NOT EventSource — so the session rides in a header,
+ * never the URL (constitution Principle III). `onSnapshot` fires for each
+ * snapshot; the promise resolves when the caller aborts via `signal` or the
+ * server closes cleanly, and rejects with an ApiError otherwise:
+ *
+ *  - code 'session' / status 401: connect-time 401 or a terminal session_expired
+ *    event — the caller must NOT fall back; the session-expiry flow takes over.
+ *  - any other error: a transport failure — the caller falls back to polling and
+ *    retries the stream with backoff.
+ */
+export async function streamTasks(
+  onSnapshot: (snap: TaskSnapshot) => void,
+  signal: AbortSignal,
+): Promise<void> {
+  const headers = new Headers({ Accept: 'text/event-stream' });
+  if (currentSid) headers.set('X-Syno-Sid', currentSid);
+  if (currentToken) headers.set('X-SynoDL-Session', currentToken);
+
+  let resp: Response;
+  try {
+    resp = await fetch('/v1/tasks/stream', { headers, signal });
+  } catch {
+    if (signal.aborted) return; // caller stopped us — a clean shutdown
+    throw new ApiError('nas_unreachable', 0);
+  }
+
+  if (!resp.ok || !resp.body) {
+    let code = `http_${resp.status}`;
+    try {
+      const body = (await resp.json()) as { error?: string };
+      if (body.error) code = body.error;
+    } catch {
+      /* non-JSON body — keep the status code */
+    }
+    if (resp.status === 401 && code === 'session') {
+      window.dispatchEvent(new CustomEvent(SESSION_EXPIRED_EVENT));
+    }
+    if (resp.status === 503 && code === 'nas_reauth') {
+      window.dispatchEvent(new CustomEvent(NAS_REAUTH_EVENT));
+    }
+    throw new ApiError(code, resp.status);
+  }
+
+  const reader = resp.body.getReader();
+  const decoder = new TextDecoder();
+  let buf = '';
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) return; // server closed the stream
+      buf += decoder.decode(value, { stream: true });
+      let sep: number;
+      // SSE frames are separated by a blank line.
+      while ((sep = buf.indexOf('\n\n')) !== -1) {
+        const frame = buf.slice(0, sep);
+        buf = buf.slice(sep + 2);
+        const evt = parseSSEFrame(frame);
+        if (!evt) continue; // heartbeat / unparseable
+        if (evt.event === 'error') {
+          // Terminal auth error: surface it exactly like a 401 on a poll.
+          window.dispatchEvent(new CustomEvent(SESSION_EXPIRED_EVENT));
+          throw new ApiError('session', 401);
+        }
+        if (evt.data) onSnapshot(evt.data as TaskSnapshot);
+      }
+    }
+  } catch (e) {
+    if (signal.aborted) return; // caller aborted mid-read — clean
+    throw e instanceof ApiError ? e : new ApiError('nas', 0);
+  } finally {
+    void reader.cancel().catch(() => undefined);
+  }
+}
+
 export const api = {
   config: () => request<ServerConfig>('/v1/config'),
 

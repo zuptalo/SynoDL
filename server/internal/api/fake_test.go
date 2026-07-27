@@ -23,6 +23,12 @@ type fakeSyno struct {
 	shares     []syno.Folder
 	subfolders map[string][]syno.Folder
 
+	// Streaming test hooks: fail ListTasks after failListAfter successful calls,
+	// returning listErr (used to exercise a mid-stream session expiry).
+	listCalls     int
+	failListAfter int
+	listErr       error
+
 	gotLogin      [3]string // account, password, otp
 	gotLogoutSid  string
 	gotURIs       []string
@@ -55,6 +61,12 @@ func (f *fakeSyno) Logout(_ context.Context, sid string) error {
 }
 
 func (f *fakeSyno) ListTasks(_ context.Context, _ string) ([]syno.Task, error) {
+	// failListAfter lets a streaming test succeed for the first N calls and then
+	// fail (e.g. a mid-stream session expiry). 0 keeps the simple canned behavior.
+	f.listCalls++
+	if f.failListAfter > 0 && f.listCalls > f.failListAfter {
+		return nil, f.listErr
+	}
 	return f.tasks, f.err
 }
 
@@ -108,7 +120,7 @@ func newTestServer(t *testing.T, fake *fakeSyno) *httptest.Server {
 	t.Helper()
 	cfg := config.Config{
 		Env: "dev", Port: "0", SynoURL: "http://fake",
-		MaxTorrentMB: 1, LoginPerMinute: 100,
+		MaxTorrentMB: 1, LoginPerMinute: 100, StreamMax: 64,
 	}
 	srv := httptest.NewServer(NewRouter(Deps{
 		Cfg: cfg, Syno: fake, Version: "test",

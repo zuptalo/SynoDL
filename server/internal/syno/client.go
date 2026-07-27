@@ -46,6 +46,7 @@ type Task struct {
 	Seeders       int    `json:"seeders"`
 	CreatedAt     int64  `json:"createdAt"` // unix seconds
 	Destination   string `json:"destination"`
+	ErrorDetail   string `json:"errorDetail,omitempty"` // DSM status_extra.error_detail for errored tasks
 }
 
 // Stats is the global transfer rate pair shown in the Tasks header.

@@ -4,7 +4,7 @@
 
 **Created**: 2026-07-27
 
-**Status**: in-progress
+**Status**: shipped
 <!-- SynoDL spec lifecycle: planned → in-progress → in-review → shipped. -->
 
 **Input**: Operator request: an overflow menu with bulk actions (select mode, clear finished, pause/

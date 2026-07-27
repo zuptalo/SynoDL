@@ -31,6 +31,8 @@ export default defineConfig({
         'src/services/task-sort.ts',
         'src/services/url-detect.ts',
         'src/services/syno-errors.ts',
+        // Failure-reason mapping (spec 0002).
+        'src/services/task-error.ts',
       ],
       thresholds: { lines: 80, functions: 80, statements: 80, branches: 80 },
     },

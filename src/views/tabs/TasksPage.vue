@@ -27,6 +27,7 @@ import type { Task } from '@/types/task';
 import TaskItem from '@/components/TaskItem.vue';
 import TaskFilterSheet from '@/components/TaskFilterSheet.vue';
 import NewTaskModal from '@/components/NewTaskModal.vue';
+import TaskDetailModal from '@/components/TaskDetailModal.vue';
 import type { RefresherCustomEvent } from '@ionic/vue';
 
 const { tasks, stats, loaded, refresh } = useTasks();
@@ -36,6 +37,17 @@ const filterOpen = ref(false);
 const newTaskOpen = ref(false);
 
 const visible = computed(() => applyTaskFilter(tasks.value, filter.value));
+
+// ---- detail view (spec 0002 US3) ------------------------------------------
+// Track the open task by id so the sheet re-reads the live task on every
+// snapshot; it goes null (gone state) if the task leaves the list.
+const detailId = ref<string | null>(null);
+const detailTask = computed<Task | null>(
+  () => tasks.value.find((t) => t.id === detailId.value) ?? null,
+);
+function openDetail(id: string): void {
+  detailId.value = id;
+}
 
 // ---- selection mode -------------------------------------------------------
 const selectMode = ref(false);
@@ -247,6 +259,7 @@ async function onDelete(id: string): Promise<void> {
           @resume="onResume"
           @delete="onDelete"
           @toggle="toggleSelect"
+          @open="openDetail"
         />
       </ion-list>
 
@@ -274,6 +287,11 @@ async function onDelete(id: string): Promise<void> {
       @dismiss="filterOpen = false"
     />
     <NewTaskModal :is-open="newTaskOpen" @created="onCreated" @dismiss="newTaskOpen = false" />
+    <TaskDetailModal
+      :is-open="detailId !== null"
+      :task="detailTask"
+      @dismiss="detailId = null"
+    />
   </ion-page>
 </template>
 
