@@ -72,4 +72,7 @@ var migrations = []string{
 		updated_at    INTEGER NOT NULL DEFAULT 0
 	);
 	`,
+	// 0002 — cache the live NAS session id (encrypted) so a pod restart / deploy
+	// doesn't drop it and force a 2FA re-auth every time (spec 0003 fix).
+	`ALTER TABLE operator_config ADD COLUMN nas_sid_enc BLOB;`,
 }
