@@ -19,7 +19,10 @@ func (f *fakeSender) Send(_ context.Context, sub store.Subscription, payload []b
 	return f.gone, nil
 }
 
-func newWatcherStore(t *testing.T) *store.Store {
+// newWatcherStore returns a store with one admin user + an opted-in subscription
+// (default prefs: completed+failed for own tasks). Returns the user id so tests
+// can attribute tasks / tune prefs.
+func newWatcherStore(t *testing.T) (*store.Store, int64) {
 	t.Helper()
 	c, _ := store.NewCipher("kdf-input-for-tests")
 	st, err := store.Open(filepath.Join(t.TempDir(), "db.sqlite"), c)
@@ -30,16 +33,24 @@ func newWatcherStore(t *testing.T) *store.Store {
 	_ = st.SaveOperatorConfig(store.OperatorConfig{NASAddress: "n", NASPort: 1, NASAccount: "a"})
 	uid, _ := st.CreateUser("u", "h", true)
 	_ = st.SaveSubscription(uid, "https://push.example/one", "p", "a", true)
-	return st
+	return st, uid
+}
+
+func claim(t *testing.T, st *store.Store, uid int64, name string) {
+	t.Helper()
+	if err := st.AddTaskClaim(uid, name, time.Now().Unix()); err != nil {
+		t.Fatalf("AddTaskClaim: %v", err)
+	}
 }
 
 func TestWatcherNotifiesOnCompletionOnce(t *testing.T) {
-	st := newWatcherStore(t)
+	st, uid := newWatcherStore(t)
+	claim(t, st, uid, "ubuntu.iso") // the user created this task
 	fs := &fakeSender{}
 	tasks := []Task{{ID: "t1", Name: "ubuntu.iso", Status: "downloading"}}
 	w := NewWatcher(st, func(context.Context) ([]Task, error) { return tasks, nil }, fs, "v1", time.Hour)
 
-	w.poll(context.Background()) // baseline: downloading → no push
+	w.poll(context.Background()) // baseline: downloading → attributes, no push
 	if len(fs.sent) != 0 {
 		t.Fatalf("push on baseline: %v", fs.sent)
 	}
@@ -54,8 +65,72 @@ func TestWatcherNotifiesOnCompletionOnce(t *testing.T) {
 	}
 }
 
+func TestWatcherOwnScopeSkipsUnattributedTask(t *testing.T) {
+	st, _ := newWatcherStore(t) // no claim → task can't be attributed
+	fs := &fakeSender{}
+	tasks := []Task{{ID: "t1", Name: "someone-elses.iso", Status: "downloading"}}
+	w := NewWatcher(st, func(context.Context) ([]Task, error) { return tasks, nil }, fs, "v1", time.Hour)
+	w.poll(context.Background())
+	tasks[0].Status = "finished"
+	w.poll(context.Background())
+	if len(fs.sent) != 0 {
+		t.Fatalf("own-scope (default) must not notify for an unattributed task: %v", fs.sent)
+	}
+}
+
+func TestWatcherAnyScopeNotifiesUnattributedTask(t *testing.T) {
+	st, uid := newWatcherStore(t)
+	_ = st.SaveNotificationPrefs(uid, store.NotificationPrefs{NotifyCompleted: true, Scope: "any"}, 0)
+	fs := &fakeSender{}
+	tasks := []Task{{ID: "t1", Name: "anything.iso", Status: "downloading"}}
+	w := NewWatcher(st, func(context.Context) ([]Task, error) { return tasks, nil }, fs, "v1", time.Hour)
+	w.poll(context.Background())
+	tasks[0].Status = "finished"
+	w.poll(context.Background())
+	if len(fs.sent) != 1 {
+		t.Fatalf("any-scope must notify for any task, got %v", fs.sent)
+	}
+}
+
+func TestWatcherNotifiesOnFailure(t *testing.T) {
+	st, uid := newWatcherStore(t)
+	claim(t, st, uid, "bad.iso")
+	fs := &fakeSender{}
+	tasks := []Task{{ID: "t1", Name: "bad.iso", Status: "downloading"}}
+	w := NewWatcher(st, func(context.Context) ([]Task, error) { return tasks, nil }, fs, "v1", time.Hour)
+	w.poll(context.Background()) // baseline attributes
+	tasks[0].Status = "error"
+	w.poll(context.Background()) // failed → push
+	if len(fs.sent) != 1 || !contains(fs.sent[0], "bad.iso") {
+		t.Fatalf("expected one failure push, got %v", fs.sent)
+	}
+	w.poll(context.Background()) // still error → no duplicate
+	if len(fs.sent) != 1 {
+		t.Fatalf("duplicate failure push: %v", fs.sent)
+	}
+}
+
+func TestWatcherAddedOnlyWhenEnabledAndPrimed(t *testing.T) {
+	st, uid := newWatcherStore(t)
+	_ = st.SaveNotificationPrefs(uid,
+		store.NotificationPrefs{NotifyAdded: true, NotifyCompleted: true, NotifyFailed: true, Scope: "own"}, 0)
+	fs := &fakeSender{}
+	var tasks []Task
+	w := NewWatcher(st, func(context.Context) ([]Task, error) { return tasks, nil }, fs, "v1", time.Hour)
+
+	w.poll(context.Background()) // baseline (empty) — not primed yet
+	w.primed = true
+
+	claim(t, st, uid, "new.iso")
+	tasks = []Task{{ID: "n1", Name: "new.iso", Status: "downloading"}}
+	w.poll(context.Background()) // first sight + primed → "added" push
+	if len(fs.sent) != 1 || !contains(fs.sent[0], "new.iso") {
+		t.Fatalf("expected one added push, got %v", fs.sent)
+	}
+}
+
 func TestWatcherIgnoresAlreadyFinished(t *testing.T) {
-	st := newWatcherStore(t)
+	st, _ := newWatcherStore(t)
 	fs := &fakeSender{}
 	w := NewWatcher(st, func(context.Context) ([]Task, error) {
 		return []Task{{ID: "old", Name: "done.iso", Status: "finished"}}, nil
@@ -68,7 +143,8 @@ func TestWatcherIgnoresAlreadyFinished(t *testing.T) {
 }
 
 func TestWatcherPrunesGoneSubscription(t *testing.T) {
-	st := newWatcherStore(t)
+	st, uid := newWatcherStore(t)
+	claim(t, st, uid, "x")
 	fs := &fakeSender{gone: true}
 	tasks := []Task{{ID: "t1", Name: "x", Status: "downloading"}}
 	w := NewWatcher(st, func(context.Context) ([]Task, error) { return tasks, nil }, fs, "v1", time.Hour)
@@ -82,17 +158,15 @@ func TestWatcherPrunesGoneSubscription(t *testing.T) {
 }
 
 func TestWatcherAppUpdatePush(t *testing.T) {
-	st := newWatcherStore(t)
+	st, _ := newWatcherStore(t)
 	fs := &fakeSender{}
 	w := NewWatcher(st, func(context.Context) ([]Task, error) { return nil, nil }, fs, "v2", time.Hour)
 
-	// First run records the version silently.
 	_ = st.SetLastVersionNotified("")
 	w.maybeNotifyUpdate(context.Background())
 	if len(fs.sent) != 0 {
 		t.Fatalf("no push on first-run version record: %v", fs.sent)
 	}
-	// A later version change pushes once.
 	_ = st.SetLastVersionNotified("v1")
 	w.maybeNotifyUpdate(context.Background())
 	if len(fs.sent) != 1 || !contains(fs.sent[0], "new version") {
