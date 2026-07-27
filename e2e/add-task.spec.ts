@@ -25,6 +25,11 @@ test('multi-URL input counts links, creates one task per URL with the picked des
   await expect(page.getByTestId('newtask-destination')).toContainText('tv-show/Friends');
 
   await page.getByTestId('newtask-submit').click();
+  // Regression (fix/2001): a successful create returns 201 with an empty body;
+  // the modal MUST dismiss with no error — not stay open on a false
+  // "Could not reach the server." while the task was actually created.
+  await expect(page.getByTestId('newtask-submit')).toBeHidden();
+  await expect(page.getByTestId('newtask-error')).toHaveCount(0);
   const items = page.getByTestId('task-item');
   await expect(items).toHaveCount(2);
   await expect(items.filter({ hasText: 'one.iso' })).toHaveCount(1);
@@ -49,6 +54,7 @@ test('a .torrent upload becomes a task named after the file', async ({ page }) =
     buffer: Buffer.from('d8:announce30:http://tracker.example/announcee'),
   });
   await page.getByTestId('newtask-submit').click();
+  await expect(page.getByTestId('newtask-submit')).toBeHidden(); // modal dismissed on success (fix/2001)
   await expect(page.getByTestId('task-item').filter({ hasText: 'great-distro.torrent' })).toHaveCount(1);
 });
 

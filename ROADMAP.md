@@ -23,4 +23,6 @@ Specs are grouped by category band; status moves
 
 ## 🐛 Hotfixes & Bug Fixes (2001+)
 
-_None yet._
+| Spec | Title | Status |
+|------|-------|--------|
+| [2001](specs/2001-new-task-modal/spec.md) | New-task modal shows a false "Could not reach the server" after the task is created | 🔵 in-review |
