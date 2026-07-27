@@ -26,10 +26,10 @@ func TestLoadDevDefaults(t *testing.T) {
 	if cfg.Env != "dev" {
 		t.Errorf("Env = %q, want dev", cfg.Env)
 	}
-	if cfg.Port != "8080" {
-		t.Errorf("Port = %q, want 8080", cfg.Port)
+	if cfg.Port != "8280" {
+		t.Errorf("Port = %q, want the dev-block default 8280", cfg.Port)
 	}
-	if cfg.SynoURL != "http://localhost:8091" {
+	if cfg.SynoURL != "http://localhost:8291" {
 		t.Errorf("SynoURL = %q, want mock default", cfg.SynoURL)
 	}
 	if cfg.SynoTLSInsecure {
@@ -41,8 +41,21 @@ func TestLoadDevDefaults(t *testing.T) {
 	if cfg.LoginPerMinute != 10 {
 		t.Errorf("LoginPerMinute = %d, want 10", cfg.LoginPerMinute)
 	}
-	if len(cfg.AllowedOrigins) != 2 || cfg.AllowedOrigins[0] != "http://localhost:5173" {
+	if len(cfg.AllowedOrigins) != 2 || cfg.AllowedOrigins[0] != "http://localhost:5273" {
 		t.Errorf("AllowedOrigins = %v, want the two Vite dev origins", cfg.AllowedOrigins)
+	}
+}
+
+func TestLoadProductionPortDefault(t *testing.T) {
+	clearEnv(t)
+	t.Setenv("ENV", "production")
+	t.Setenv("SYNO_URL", "https://nas:5001")
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.Port != "8080" {
+		t.Errorf("Port = %q, want container-conventional 8080 in production", cfg.Port)
 	}
 }
 

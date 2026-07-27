@@ -4,8 +4,8 @@ import { defineConfig, devices } from '@playwright/test';
  * e2e config for SynoDL.
  *
  * global-setup builds and starts an isolated test stack — the mock DSM
- * (synomock :8091) and a test synodl (:8081) pointed at it; the webServer below
- * serves a test vite on :5174 proxied at that backend. No real NAS anywhere.
+ * (synomock :8292) and a test synodl (:8281) pointed at it; the webServer below
+ * serves a test vite on :5274 proxied at that backend. No real NAS anywhere.
  * Serial, single worker — the specs share one mock whose state they seed/reset.
  */
 export default defineConfig({
@@ -25,15 +25,15 @@ export default defineConfig({
   globalSetup: './e2e/global-setup.ts',
   globalTeardown: './e2e/global-teardown.ts',
   use: {
-    baseURL: 'http://localhost:5174',
+    baseURL: 'http://localhost:5274',
     trace: 'retain-on-failure',
   },
   webServer: {
-    command: 'npx vite --port 5174 --strictPort',
-    url: 'http://localhost:5174',
+    command: 'npx vite --port 5274 --strictPort',
+    url: 'http://localhost:5274',
     reuseExistingServer: false,
     timeout: 60_000,
-    env: { SYNODL_PROXY_TARGET: `http://localhost:${process.env.SYNODL_E2E_PORT || 8081}` },
+    env: { SYNODL_PROXY_TARGET: `http://localhost:${process.env.SYNODL_E2E_PORT || 8281}` },
   },
   projects: [
     {

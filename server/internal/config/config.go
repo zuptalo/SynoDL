@@ -45,8 +45,8 @@ type Config struct {
 func Load() (Config, error) {
 	cfg := Config{
 		Env:             env("ENV", "dev"),
-		Port:            env("PORT", "8080"),
-		AllowedOrigins:  splitComma(env("ALLOWED_ORIGINS", "http://localhost:5173,http://localhost:5174")),
+		Port:            os.Getenv("PORT"),
+		AllowedOrigins:  splitComma(env("ALLOWED_ORIGINS", "http://localhost:5273,http://localhost:5274")),
 		StaticDir:       os.Getenv("STATIC_DIR"),
 		DevProxy:        os.Getenv("DEV_PROXY"),
 		SynoURL:         os.Getenv("SYNO_URL"),
@@ -56,9 +56,19 @@ func Load() (Config, error) {
 	}
 
 	if cfg.Env == "dev" && cfg.SynoURL == "" {
-		// Dev parity: `make start` runs the in-repo mock DSM on :8091, so a bare
+		// Dev parity: `make start` runs the in-repo mock DSM on :8291, so a bare
 		// dev boot always has a NAS to talk to without real hardware.
-		cfg.SynoURL = "http://localhost:8091"
+		cfg.SynoURL = "http://localhost:8291"
+	}
+	if cfg.Port == "" {
+		// Dev defaults to SynoDL's own port block (see "Port allocation" in
+		// CLAUDE.md) so this stack coexists with the user's other projects on
+		// one machine; production keeps the conventional container-internal 8080.
+		if cfg.Env == "dev" {
+			cfg.Port = "8280"
+		} else {
+			cfg.Port = "8080"
+		}
 	}
 
 	var missing []string

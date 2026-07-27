@@ -28,11 +28,11 @@ Requires **Go 1.26** and **Node 22**. No Docker and no real NAS needed for dev.
 
 ```sh
 npm install
-make start      # mock DSM (:8091) + synodl (air hot-reload) + Vite, all at once
+make start      # mock DSM (:8291) + synodl (air hot-reload) + Vite, all at once
 ```
 
-The app comes up on http://localhost:5173 and proxies the API to `synodl` on
-`:8080`, which talks to the in-repo mock DSM. Log in with `admin` / `secret`
+The app comes up on http://localhost:5273 and proxies the API to `synodl` on
+`:8280`, which talks to the in-repo mock DSM. Log in with `admin` / `secret`
 (OTP account: `otpuser` / `secret`, code `000000`). To develop against a real
 NAS instead: `SYNO_URL=https://nas:5001 make backend`.
 

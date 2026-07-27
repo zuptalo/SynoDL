@@ -30,12 +30,12 @@ DSM web interface never had on mobile.
 
 ```sh
 docker run -d --name synodl \
-  -p 8080:8080 \
+  -p 8280:8080 \
   -e SYNO_URL=https://your-nas:5001 \
   ghcr.io/zuptalo/synodl:latest
 ```
 
-Open http://localhost:8080 and log in with your DSM account. That's the whole
+Open http://localhost:8280 and log in with your DSM account. That's the whole
 deployment: one container, no database, no volumes, nothing stored server-side.
 
 | Env var | Default | What it does |
@@ -60,7 +60,7 @@ runs against an in-repo mock DSM.
 
 ```sh
 npm install
-make start      # mock DSM (:8091) + Go proxy (hot reload) + Vite (:5173)
+make start      # mock DSM (:8291) + Go proxy (hot reload) + Vite (:5273)
 ```
 
 Log in with `admin` / `secret` (OTP account: `otpuser` / `secret`, code

@@ -1,8 +1,8 @@
 # SynoDL - root dev orchestration.
 # `make start` brings up the whole stack for local development:
-#   1. Mock DSM (synomock) on :8091 - a fake Synology NAS, so dev never needs real hardware
+#   1. Mock DSM (synomock) on :8291 - a fake Synology NAS, so dev never needs real hardware
 #   2. Go backend (synodl) in hot-reload mode via `air`, proxying to the mock
-#   3. Frontend (Vite) in hot-reload mode on :5173
+#   3. Frontend (Vite) in hot-reload mode on :5273
 #
 # All three run concurrently in the foreground; Ctrl+C stops them together.
 # Point the backend at a real NAS instead with: SYNO_URL=https://nas:5001 make backend
@@ -16,7 +16,7 @@ AIR := $(GOBIN)/air
 
 ## start: mock DSM + backend hot reload + frontend hot reload
 start: tools
-	@echo "▶ Starting mock DSM (:8091) + backend (air) + frontend (vite) - Ctrl+C to stop all"
+	@echo "▶ Starting mock DSM (:8291) + backend (air) + frontend (vite) - Ctrl+C to stop all"
 	@trap 'kill 0' INT TERM EXIT; \
 		( cd $(SERVER_DIR) && go run ./cmd/synomock ) & \
 		( cd $(SERVER_DIR) && set -a && { [ -f .env ] && . ./.env; }; set +a; $(AIR) ) & \

@@ -13,7 +13,7 @@ import (
 func main() {
 	port := os.Getenv("MOCK_PORT")
 	if port == "" {
-		port = "8091"
+		port = "8291"
 	}
 	slog.Info("synomock (fake DSM) starting", "port", port,
 		"accounts", "admin/secret, otpuser/secret+OTP 000000")

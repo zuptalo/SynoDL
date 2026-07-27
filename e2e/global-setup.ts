@@ -3,10 +3,10 @@
  * and repeatable — no real NAS, no Docker, no shared state with `make start`.
  *
  *   1. build cmd/synomock and cmd/synodl into .tmp/
- *   2. start the mock DSM on :8091 (fixed accounts + seedable fixtures)
- *   3. start synodl on :8081 with SYNO_URL pointed at the mock
+ *   2. start the mock DSM on :8292 (fixed accounts + seedable fixtures)
+ *   3. start synodl on :8281 with SYNO_URL pointed at the mock
  *
- * Playwright's `webServer` then serves a test vite on :5174 proxied at that
+ * Playwright's `webServer` then serves a test vite on :5274 proxied at that
  * backend. Torn down in global-teardown.ts. Requires Go on PATH.
  */
 import { spawn, execSync } from 'node:child_process';
@@ -22,8 +22,8 @@ const PIDS_FILE = path.join(TMP, 'e2e-pids.json');
 // Defaults match CI; override with SYNODL_E2E_PORT / SYNODL_E2E_MOCK_PORT when
 // taken locally. Keep in sync with playwright.config.ts (SYNODL_PROXY_TARGET)
 // and e2e/helpers.ts (MOCK), which read the same env.
-const SYNODL_PORT = Number(process.env.SYNODL_E2E_PORT) || 8081;
-const MOCK_PORT = Number(process.env.SYNODL_E2E_MOCK_PORT) || 8091;
+const SYNODL_PORT = Number(process.env.SYNODL_E2E_PORT) || 8281;
+const MOCK_PORT = Number(process.env.SYNODL_E2E_MOCK_PORT) || 8292;
 
 async function waitFor(url: string, timeoutMs = 30_000): Promise<void> {
   const deadline = Date.now() + timeoutMs;
@@ -89,7 +89,7 @@ export default async function globalSetup(): Promise<void> {
     ENV: 'dev',
     PORT: String(SYNODL_PORT),
     SYNO_URL: `http://localhost:${MOCK_PORT}`,
-    ALLOWED_ORIGINS: `http://localhost:5174,http://localhost:${SYNODL_PORT}`,
+    ALLOWED_ORIGINS: `http://localhost:5274,http://localhost:${SYNODL_PORT}`,
     // e2e drives repeated logins across specs; don't trip the brute-force guard.
     LOGIN_PER_MINUTE: '1000',
   });

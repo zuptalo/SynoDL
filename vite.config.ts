@@ -29,8 +29,8 @@ try {
 }
 
 // Backend the dev server proxies /v1 + /healthz to. Defaults to local synodl on
-// :8080; the e2e harness overrides it to its isolated test backend.
-const proxyTarget = process.env.SYNODL_PROXY_TARGET || 'http://localhost:8080';
+// :8280; the e2e harness overrides it to its isolated test backend.
+const proxyTarget = process.env.SYNODL_PROXY_TARGET || 'http://localhost:8280';
 
 export default defineConfig({
   define: {
@@ -39,7 +39,7 @@ export default defineConfig({
   },
   server: {
     host: true, // listen on 0.0.0.0 so the LAN address is reachable from a phone
-    port: 5173,
+    port: 5273,
     // Only watch app source. Without this, Vite watches the whole repo and a full
     // page reload fires whenever the Go backend rebuilds (server/tmp), e2e
     // artifacts change, etc.
@@ -63,7 +63,7 @@ export default defineConfig({
   },
   preview: {
     host: true,
-    port: 5173,
+    port: 5273,
   },
   plugins: [
     vue(),

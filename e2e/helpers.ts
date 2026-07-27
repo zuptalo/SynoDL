@@ -4,7 +4,7 @@
  */
 import { expect, type Page } from '@playwright/test';
 
-const MOCK = `http://localhost:${process.env.SYNODL_E2E_MOCK_PORT || 8091}`;
+const MOCK = `http://localhost:${process.env.SYNODL_E2E_MOCK_PORT || 8292}`;
 
 /** A /__mock/seed task fixture. Rate 0 freezes progress for stable asserts. */
 export interface TaskFixture {

@@ -66,16 +66,34 @@ dev, Vite serves the client and proxies the API to a local `synodl`.
 Requires **Go 1.26** and **Node 22**. No Docker needed for dev.
 
 ```sh
-make start      # mock DSM (:8091) + synodl (air hot-reload, :8080) + Vite (:5173)
+make start      # mock DSM (:8291) + synodl (air hot-reload, :8280) + Vite (:5273)
 ```
 
-App comes up on http://localhost:5173 and proxies the API to `synodl` on
-`:8080`, which talks to the mock DSM on `:8091`. Log in with the mock account
+App comes up on http://localhost:5273 and proxies the API to `synodl` on
+`:8280`, which talks to the mock DSM on `:8291`. Log in with the mock account
 `admin` / `secret` (the OTP account is `otpuser` / `secret` + code `000000`).
 Other targets: `make backend` / `make frontend` / `make mock` (run one piece),
 `make stop`. Inside `server/`: `make run`, `make test`, `make vet`, `make fmt`,
 `make tidy`. Point the backend at a real NAS with `SYNO_URL=https://nas:5001`
 (add `SYNO_TLS_INSECURE=true` only for self-signed certs).
+
+### Port allocation
+
+SynoDL owns a dedicated dev port block so it coexists with the user's other
+projects (Ring claims 5173/5174 + 8080/8081; keep clear of any sibling repo's
+ports before adding a new listener):
+
+| Port | What |
+|---|---|
+| 5273 | Vite dev server (`make start`) |
+| 5274 | e2e test Vite |
+| 8280 | synodl dev (also the compose host mapping `8280:8080`) |
+| 8281 | e2e synodl |
+| 8291 | mock DSM dev |
+| 8292 | e2e mock DSM |
+
+The production container still listens on the conventional **8080**
+internally — only dev listeners and the compose *host* port use the block.
 
 ## Build, typecheck, and test
 
@@ -98,7 +116,7 @@ npm run test:e2e              # Playwright e2e (builds + boots its own synodl + 
   fake `syno.Client`; the real client is tested against an `httptest` fake DSM.
   Each handler file has a sibling `_test.go`; keep that pattern.
 - The e2e harness (`e2e/global-setup.ts`) builds `synodl` + `synomock`, boots
-  them on isolated ports (`:8081` / `:8091`) and a test Vite on `:5174`. Tests
+  them on isolated ports (`:8281` / `:8292`) and a test Vite on `:5274`. Tests
   seed deterministic task fixtures through the mock's `/__mock/*` control
   endpoints. It does NOT touch your `make start` stack.
 
