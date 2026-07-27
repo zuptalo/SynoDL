@@ -10,6 +10,7 @@ import {
   IonLabel,
   IonList,
   IonModal,
+  IonSearchbar,
   IonNote,
   IonSpinner,
   IonTitle,
@@ -41,9 +42,18 @@ const error = ref('');
 // The destination form (no leading slash) — how favorites/default are stored.
 const dest = computed(() => path.value.replace(/^\//, ''));
 
+// Search filters the current folder's list by a partial, case-insensitive match
+// anywhere in the name. Cleared on every navigation so each folder starts fresh.
+const search = ref('');
+const shown = computed(() => {
+  const q = search.value.trim().toLowerCase();
+  return q ? folders.value.filter((f) => f.name.toLowerCase().includes(q)) : folders.value;
+});
+
 async function load(): Promise<void> {
   loading.value = true;
   error.value = '';
+  search.value = '';
   try {
     const res = path.value === '' ? await api.shares() : await api.listFolder(path.value);
     folders.value = res.folders;
@@ -142,21 +152,35 @@ async function newFolder(): Promise<void> {
 
       <div v-if="loading" class="center"><ion-spinner name="crescent" /></div>
       <ion-note v-else-if="error" color="danger" class="ion-padding">{{ error }}</ion-note>
-      <ion-list v-else>
-        <ion-item
-          v-for="folder in folders"
-          :key="folder.path"
-          button
-          :detail="true"
-          data-testid="folder-item"
-          @click="drillInto(folder)"
-        >
-          <ion-label>{{ folder.name }}</ion-label>
-        </ion-item>
-        <ion-item v-if="folders.length === 0" lines="none">
-          <ion-label color="medium">No subfolders — Select uses this folder.</ion-label>
-        </ion-item>
-      </ion-list>
+      <template v-else>
+        <!-- Filter the current folder's list by a partial name match. -->
+        <ion-searchbar
+          v-if="folders.length"
+          :value="search"
+          placeholder="Search folders"
+          :debounce="0"
+          data-testid="folder-search"
+          @ionInput="search = String($event.target.value ?? '')"
+        />
+        <ion-list>
+          <ion-item
+            v-for="folder in shown"
+            :key="folder.path"
+            button
+            :detail="true"
+            data-testid="folder-item"
+            @click="drillInto(folder)"
+          >
+            <ion-label>{{ folder.name }}</ion-label>
+          </ion-item>
+          <ion-item v-if="folders.length === 0" lines="none">
+            <ion-label color="medium">No subfolders — Select uses this folder.</ion-label>
+          </ion-item>
+          <ion-item v-else-if="shown.length === 0" lines="none">
+            <ion-label color="medium">No folders match “{{ search }}”.</ion-label>
+          </ion-item>
+        </ion-list>
+      </template>
     </ion-content>
   </ion-modal>
 </template>
