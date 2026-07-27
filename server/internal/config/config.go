@@ -38,6 +38,10 @@ type Config struct {
 	// LoginPerMinute rate-limits POST /v1/session per client IP so the proxy
 	// cannot be used to brute-force the NAS.
 	LoginPerMinute int
+	// StreamMax bounds concurrent SSE task streams (GET /v1/tasks/stream) so the
+	// live-update feature cannot be used to open unbounded long-lived polls
+	// against the NAS. Excess connections are shed with 503 + Retry-After.
+	StreamMax int
 	// DataDir is where the SQLite database lives (the single mounted volume of
 	// constitution v2.0.0). Defaults to /data. Introduced dormant in spec 0003
 	// Increment 1; the stateful path activates in a later increment.
@@ -61,6 +65,7 @@ func Load() (Config, error) {
 		SynoTLSInsecure: envBool("SYNO_TLS_INSECURE", false),
 		MaxTorrentMB:    envInt("MAX_TORRENT_MB", 16),
 		LoginPerMinute:  envInt("LOGIN_PER_MINUTE", 10),
+		StreamMax:       envInt("STREAM_MAX_CONCURRENT", 64),
 		DataDir:         env("DATA_DIR", "/data"),
 		SecretsKey:      os.Getenv("SECRETS_KEY"),
 	}
@@ -98,6 +103,9 @@ func Load() (Config, error) {
 	}
 	if cfg.LoginPerMinute < 1 {
 		cfg.LoginPerMinute = 1
+	}
+	if cfg.StreamMax < 1 {
+		cfg.StreamMax = 1
 	}
 	return cfg, nil
 }

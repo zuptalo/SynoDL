@@ -41,6 +41,9 @@ func TestLoadDevDefaults(t *testing.T) {
 	if cfg.LoginPerMinute != 10 {
 		t.Errorf("LoginPerMinute = %d, want 10", cfg.LoginPerMinute)
 	}
+	if cfg.StreamMax != 64 {
+		t.Errorf("StreamMax = %d, want 64", cfg.StreamMax)
+	}
 	if len(cfg.AllowedOrigins) != 2 || cfg.AllowedOrigins[0] != "http://localhost:5273" {
 		t.Errorf("AllowedOrigins = %v, want the two Vite dev origins", cfg.AllowedOrigins)
 	}
@@ -119,6 +122,7 @@ func TestLoadClampsAndIgnoresGarbage(t *testing.T) {
 	t.Setenv("SYNO_URL", "http://mock:8091")
 	t.Setenv("MAX_TORRENT_MB", "0")
 	t.Setenv("LOGIN_PER_MINUTE", "-5")
+	t.Setenv("STREAM_MAX_CONCURRENT", "0")
 	t.Setenv("SYNO_TLS_INSECURE", "banana")
 	cfg, err := Load()
 	if err != nil {
@@ -129,6 +133,9 @@ func TestLoadClampsAndIgnoresGarbage(t *testing.T) {
 	}
 	if cfg.LoginPerMinute != 1 {
 		t.Errorf("LoginPerMinute = %d, want floor of 1", cfg.LoginPerMinute)
+	}
+	if cfg.StreamMax != 1 {
+		t.Errorf("StreamMax = %d, want floor of 1", cfg.StreamMax)
 	}
 	if cfg.SynoTLSInsecure {
 		t.Error("unparseable SYNO_TLS_INSECURE must fall back to false")
