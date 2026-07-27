@@ -81,6 +81,35 @@ test('create a subfolder inside a folder and select it as the destination', asyn
   await expect(page.getByTestId('newtask-destination')).toContainText('movie/MyPicks');
 });
 
+test('the destination picker reopens inside the current destination, not root', async ({ page }) => {
+  await login(page);
+  await page.getByTestId('newtask-open').click();
+  await page.getByTestId('newtask-destination').click();
+  await page.getByTestId('folder-item').filter({ hasText: 'movie' }).click();
+  await page.getByTestId('folder-confirm').click();
+  await expect(page.getByTestId('newtask-destination')).toContainText('movie');
+
+  // Reopen: it must start inside /movie (title shows the path), not at the root.
+  await page.getByTestId('newtask-destination').click();
+  await expect(page.getByTestId('folder-title')).toHaveText('/movie');
+});
+
+test('create a folder in the current destination right from the task screen', async ({ page }) => {
+  await login(page);
+  await page.getByTestId('newtask-open').click();
+  await page.getByTestId('newtask-destination').click();
+  await page.getByTestId('folder-item').filter({ hasText: 'movie' }).click();
+  await page.getByTestId('folder-confirm').click();
+  await expect(page.getByTestId('newtask-destination')).toContainText('movie');
+
+  await page.getByTestId('newtask-newfolder').click();
+  const alert = page.locator('ion-alert');
+  await expect(alert).toBeVisible();
+  await alert.locator('input').fill('QuickPicks');
+  await alert.getByRole('button', { name: 'Create' }).click();
+  await expect(page.getByTestId('newtask-destination')).toContainText('movie/QuickPicks');
+});
+
 test('favoriting a folder gives a one-tap quick-select chip', async ({ page }) => {
   await login(page);
   await page.getByTestId('newtask-open').click();
