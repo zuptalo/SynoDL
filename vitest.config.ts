@@ -27,6 +27,10 @@ export default defineConfig({
       include: [
         'src/db/idb.ts',
         'src/utils/format.ts',
+        // Pure MVP logic (spec 0001): sort/filter, URL extraction, error copy.
+        'src/services/task-sort.ts',
+        'src/services/url-detect.ts',
+        'src/services/syno-errors.ts',
       ],
       thresholds: { lines: 80, functions: 80, statements: 80, branches: 80 },
     },

@@ -13,7 +13,7 @@ Specs are grouped by category band; status moves
 
 | Spec | Title | Status |
 |------|-------|--------|
-| [0001](specs/0001-connect-tasks-mvp/spec.md) | Connect to Download Station, view tasks, and add downloads | 🟡 in-progress |
+| [0001](specs/0001-connect-tasks-mvp/spec.md) | Connect to Download Station, view tasks, and add downloads | 🔵 in-review |
 
 ## ⚡ Ad-hoc (1001–1999)
 

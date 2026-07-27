@@ -1,10 +1,30 @@
 <script setup lang="ts">
-import { IonItem, IonLabel, IonProgressBar } from '@ionic/vue';
+import {
+  IonIcon,
+  IonItem,
+  IonItemOption,
+  IonItemOptions,
+  IonItemSliding,
+  IonLabel,
+  IonProgressBar,
+} from '@ionic/vue';
+import { pauseOutline, playOutline, trashOutline } from 'ionicons/icons';
 import { computed } from 'vue';
 import type { Task } from '@/types/task';
 import { formatBytes, formatEta, formatPercent, formatSpeed, progressOf } from '@/utils/format';
 
 const props = defineProps<{ task: Task }>();
+const emit = defineEmits<{
+  (e: 'pause', id: string): void;
+  (e: 'resume', id: string): void;
+  (e: 'delete', id: string): void;
+}>();
+
+// Pause only makes sense for active work; resume only for paused.
+const canPause = computed(() =>
+  ['downloading', 'waiting', 'filehosting_waiting'].includes(props.task.status),
+);
+const canResume = computed(() => props.task.status === 'paused');
 
 const active = computed(() => props.task.status === 'downloading');
 const statusColorVar = computed(() => {
@@ -29,25 +49,38 @@ const eta = computed(() =>
 </script>
 
 <template>
-  <ion-item :detail="false" data-testid="task-item">
-    <ion-label>
-      <h2 class="name">{{ task.name }}</h2>
-      <div class="meta">
-        <span class="status" :style="{ color: statusColorVar }" data-testid="task-status">
-          {{ task.status }}
-        </span>
-        <span>{{ formatPercent(task.downloaded, task.size) }} of {{ formatBytes(task.size) }}</span>
-        <span v-if="active">↓ {{ formatSpeed(task.downloadSpeed) }}</span>
-        <span v-if="active && task.uploadSpeed > 0">↑ {{ formatSpeed(task.uploadSpeed) }}</span>
-        <span v-if="active">{{ eta }}</span>
-      </div>
-      <ion-progress-bar
-        v-if="task.status !== 'finished'"
-        :value="progressOf(task.downloaded, task.size)"
-        :style="{ '--progress-background': statusColorVar }"
-      />
-    </ion-label>
-  </ion-item>
+  <ion-item-sliding>
+    <ion-item :detail="false" data-testid="task-item">
+      <ion-label>
+        <h2 class="name">{{ task.name }}</h2>
+        <div class="meta">
+          <span class="status" :style="{ color: statusColorVar }" data-testid="task-status">
+            {{ task.status }}
+          </span>
+          <span>{{ formatPercent(task.downloaded, task.size) }} of {{ formatBytes(task.size) }}</span>
+          <span v-if="active">↓ {{ formatSpeed(task.downloadSpeed) }}</span>
+          <span v-if="active && task.uploadSpeed > 0">↑ {{ formatSpeed(task.uploadSpeed) }}</span>
+          <span v-if="active">{{ eta }}</span>
+        </div>
+        <ion-progress-bar
+          v-if="task.status !== 'finished'"
+          :value="progressOf(task.downloaded, task.size)"
+          :style="{ '--progress-background': statusColorVar }"
+        />
+      </ion-label>
+    </ion-item>
+    <ion-item-options side="end">
+      <ion-item-option v-if="canPause" data-testid="task-pause" @click="emit('pause', task.id)">
+        <ion-icon slot="icon-only" :icon="pauseOutline" />
+      </ion-item-option>
+      <ion-item-option v-if="canResume" color="success" data-testid="task-resume" @click="emit('resume', task.id)">
+        <ion-icon slot="icon-only" :icon="playOutline" />
+      </ion-item-option>
+      <ion-item-option color="danger" data-testid="task-delete" @click="emit('delete', task.id)">
+        <ion-icon slot="icon-only" :icon="trashOutline" />
+      </ion-item-option>
+    </ion-item-options>
+  </ion-item-sliding>
 </template>
 
 <style scoped>
