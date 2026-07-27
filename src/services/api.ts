@@ -72,6 +72,22 @@ function json(body: unknown): RequestInit {
   };
 }
 
+function jsonMethod(method: string, body: unknown): RequestInit {
+  return {
+    method,
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  };
+}
+
+/** A SynoDL account as the admin sees it (stateful mode). */
+export interface AdminUser {
+  id: number;
+  username: string;
+  isAdmin: boolean;
+  isEnabled: boolean;
+}
+
 /** A SynoDL account (stateful mode). */
 export interface SynoDLUser {
   id: number;
@@ -148,4 +164,15 @@ export const api = {
   shares: () => request<{ folders: Folder[] }>('/v1/fs/shares'),
   listFolder: (path: string) =>
     request<{ folders: Folder[] }>(`/v1/fs/list?path=${encodeURIComponent(path)}`),
+
+  // Admin user management + per-user folder grants (stateful mode, Increment 3).
+  listUsers: () => request<{ users: AdminUser[] }>('/v1/users'),
+  createUser: (username: string, password: string, isAdmin: boolean) =>
+    request<AdminUser>('/v1/users', json({ username, password, isAdmin })),
+  updateUser: (id: number, patch: { isEnabled?: boolean; isAdmin?: boolean; password?: string }) =>
+    request<AdminUser>(`/v1/users/${id}`, jsonMethod('PATCH', patch)),
+  deleteUser: (id: number) => request<void>(`/v1/users/${id}`, { method: 'DELETE' }),
+  getUserFolders: (id: number) => request<{ folders: string[] }>(`/v1/users/${id}/folders`),
+  setUserFolders: (id: number, folders: string[]) =>
+    request<{ folders: string[] }>(`/v1/users/${id}/folders`, jsonMethod('PUT', { folders })),
 };
