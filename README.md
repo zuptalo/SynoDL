@@ -47,8 +47,9 @@ deployment: one container, no database, no volumes, nothing stored server-side.
 
 A `docker-compose.yml` with the same setup is included. Images are published
 multi-arch (amd64 + arm64) to `ghcr.io/zuptalo/synodl` and
-`docker.io/zuptalo/synodl`; `:latest` is the current release, `:develop` the
-rolling integration build.
+`docker.io/zuptalo/synodl`; every green merge to `main` updates the rolling
+`:latest` (plus an immutable `:main-<sha>`), and version bumps additionally
+publish `:X.Y.Z` / `:X.Y` release tags.
 
 Because the proxy forwards your DSM login, run SynoDL over HTTPS (behind your
 reverse proxy) whenever it's reachable from outside your LAN.
@@ -70,8 +71,9 @@ workflow (Spec Kit + TDD), test gates, and the release train, and
 
 ### Repository administration (one-time setup)
 
-- Create `develop` (default branch) and `main`, then run
-  `scripts/setup-branch-protection.sh` to apply the protected-branch ruleset.
+- Set **`main` as the default branch**, then run
+  `scripts/setup-branch-protection.sh` to apply the protected-branch ruleset
+  (required checks + the Allow auto-merge setting the PR auto-merge flow needs).
 - Add the `DOCKERHUB_USERNAME` / `DOCKERHUB_TOKEN` secrets for the Docker Hub
   publish steps (GHCR works out of the box with `GITHUB_TOKEN`).
 

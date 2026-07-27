@@ -29,9 +29,10 @@ opt-in). Full configuration and development docs: see the
 
 | Tag | What it is |
 | --- | --- |
-| `latest`, `X.Y.Z`, `X.Y` | Production releases. |
-| `X.Y.Z-rc.N` | Immutable release candidates (never moves `latest`). |
-| `develop`, `develop-<sha>` | Rolling development build. |
+| `latest` | Rolling build of `main` — updated by every green merge. |
+| `main-<sha>` | The same builds, immutable per merge. |
+| `X.Y.Z`, `X.Y` | Tagged releases. |
+| `X.Y.Z-rc.N` | Immutable release candidates (never move `latest`). |
 
 Images are multi-arch (`linux/amd64` + `linux/arm64`) and also published to
 `ghcr.io/zuptalo/synodl`.

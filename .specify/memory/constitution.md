@@ -1,17 +1,19 @@
 <!--
 Sync Impact Report
-- Version: (new) → 1.0.0 (initial ratification for SynoDL)
-- Derived from the Ring constitution v1.2.2: Principles II (Spec-Driven), III (TDD),
-  VII (Quality Gates), VIII (Traceable Delivery), XI (Ionic-First UI) carried over
-  with project names and coverage packages adapted; Ring's zero-knowledge/crypto
-  principles (I, IV) replaced by the Stateless, Credential-Free Proxy principle;
-  Ring's Postgres principle (VI) dropped (this server persists nothing).
+- Version: 1.0.0 → 1.1.0 (MINOR: Development Workflow redefined from GitFlow to
+  trunk-based; Principle VII's delivery bullet updated to match)
+- Modified: "Development Workflow" — dropped the develop branch and the
+  bump-at-cycle-start doctrine. main is now the single protected branch; every
+  branch merges into it via a PR that auto-merges when the required checks are
+  green; every merge publishes rolling images; a version bump inside a PR makes
+  that merge a tagged release (Version guard keeps versions monotonic + unique).
+  Principle VII: "feature→develop PR" → "PR into main" for the Closes #N rule.
+- Prior version (1.0.0): initial ratification, derived from the Ring
+  constitution v1.2.2 with the Stateless, Credential-Free Proxy principle
+  replacing zero-knowledge/crypto and the Postgres principle dropped.
 - Templates / docs reviewed for sync:
-  - .specify/templates/plan-template.md — ✅ no change needed (Constitution Check is
-    derived generically from this file).
-  - .specify/templates/spec-template.md — ✅ no change needed (the Credential-Safety
-    Impact section is mandated here, not in the template).
-  - .specify/templates/tasks-template.md — ✅ no change needed.
+  - .specify/templates/*.md — ✅ no change needed (branch model not encoded there).
+  - CLAUDE.md / CONTRIBUTING.md / README.md — ✅ updated in the same change.
 - Deferred TODOs: none.
 -->
 # SynoDL Constitution
@@ -140,8 +142,8 @@ Every unit of work is visible from roadmap to merge.
 - Each task (or task group) becomes a GitHub issue with a descriptive title, a
   comprehensive body drawn from the spec/plan, and labels for category band, spec
   id, and area.
-- The feature→`develop` PR MUST list `Closes #N` for every issue it implements so
-  they auto-close on merge (`develop` is the default branch; closing keywords only
+- The PR into `main` MUST list `Closes #N` for every issue it implements so
+  they auto-close on merge (`main` is the default branch; closing keywords only
   fire on merges into the default branch).
 
 ## Domain Constraints
@@ -166,19 +168,20 @@ These are project-specific guardrails every relevant spec MUST respect.
 
 ## Development Workflow
 
-- **GitFlow.** `develop` is the integration branch and the GitHub default branch;
-  `main` is production. Feature branches merge into `develop`; releases are a
-  `develop → main` PR carrying a `package.json` version bump (the release guard
-  blocks an un-bumped release PR).
-- **Version is bumped at the START of a release cycle, not automated after one.**
-  After a release ships, `develop` and `main` hold the same `package.json`
-  version, so the next `develop → main` PR would fail the release guard until
-  `develop` is moved forward. The first change of a new cycle MUST bump
-  `develop`'s `package.json` to the next intended version (patch by default;
-  minor/major when the work warrants it). This is a deliberate manual step —
-  GitHub Actions cannot open the bump PR itself (org policy forbids Actions from
-  creating pull requests), and the release guard is the backstop that enforces it
-  at release time.
+- **Trunk-based: one protected `main`.** `main` is the only long-lived branch
+  and the GitHub default branch. Every change lands via a PR into `main` that
+  runs the full verification suite; a green PR auto-merges (the Auto-merge
+  workflow schedules it; branch protection's required checks are the gate).
+  Direct pushes to `main` are blocked.
+- **Every merge publishes.** Each push to `main` re-verifies the merge commit
+  and publishes the rolling `latest` + immutable `main-<sha>` images. A merge
+  is deployable by definition; there is no separate integration channel.
+- **A release is a version bump inside a PR.** When a PR also bumps
+  `package.json`'s version (patch by default; minor/major when warranted), its
+  merge additionally tags `vX.Y.Z`, publishes the `X.Y.Z` + `X.Y` image tags,
+  and cuts the GitHub release. The CI **Version guard** keeps versions
+  monotonic and never reused: an unchanged version passes; a downgrade or a
+  bump onto an already-shipped version blocks the merge.
 - **Supply-chain scan at the start of new work.** Before starting a new feature or
   bug fix, review the Docker Scout vulnerability report for the latest published
   image (Docker Hub → `zuptalo/synodl` → the current tag). Any flagged
@@ -217,4 +220,4 @@ These are project-specific guardrails every relevant spec MUST respect.
 - Runtime engineering guidance that is not constitutional lives in `CLAUDE.md` and
   `CONTRIBUTING.md`; where they conflict with this document, this document wins.
 
-**Version**: 1.0.0 | **Ratified**: 2026-07-26 | **Last Amended**: 2026-07-26
+**Version**: 1.1.0 | **Ratified**: 2026-07-26 | **Last Amended**: 2026-07-27

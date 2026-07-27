@@ -9,7 +9,7 @@ See CONTRIBUTING.md for the full workflow.
 
 ## Checklist
 
-- [ ] Targets `develop` (not `main`).
+- [ ] Targets `main`. A green PR auto-merges — keep it a draft while iterating.
 - [ ] `npm run build` passes (typecheck + bundle).
 - [ ] `npm run test:unit` passes; added/updated unit tests where it made sense.
 - [ ] `cd server && go test ./...` passes; added/updated `_test.go` where it made sense.

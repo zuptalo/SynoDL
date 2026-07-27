@@ -177,40 +177,37 @@ contributor walkthrough is in `CONTRIBUTING.md`.
   (`planned → in-progress → in-review → shipped`); CI's `Roadmap up to date` guard
   fails if it's stale.
 - **Auto-close issues**: `taskstoissues` opens one GitHub issue per task; the
-  feature → `develop` PR must list `Closes #N` for each so they close on merge
-  (works because `develop` is the default branch).
+  PR into `main` must list `Closes #N` for each so they close on merge
+  (works because `main` is the default branch).
 - **Bootstrap note**: the initial scaffold commits (speckit workflow, server,
   client shell, e2e harness, CI/CD) predate the constitution's enforcement —
   everything after them goes through specs.
 
 ## Git, branching, and releases
 
-GitFlow. **`develop`** is the integration branch; **`main`** is production.
+Trunk-based. **`main`** is the only long-lived branch (default + protected);
+everything merges into it via PR.
 
-- Every PR runs the full build+test suite (path-filtered: doc/spec/tooling-only
-  changes skip the heavy jobs). A push to `develop` does NOT re-run the suite —
-  the merged PR already tested the identical tree — it only rebuilds and publishes
-  the rolling `ghcr.io/zuptalo/synodl:develop` image.
-- **Bump the version at the start of each release cycle.** After a release ships,
-  `develop` and `main` sit at the same `package.json` version, so the next
-  `develop → main` PR fails the release guard until `develop` moves forward. The
-  first change of a new cycle bumps `develop`'s `version` to the next intended
-  value (patch by default). This is manual on purpose — GitHub Actions can't open
-  the bump PR (org policy blocks Actions from creating PRs), and the release guard
-  enforces it at release time. See constitution "Development Workflow."
+- Every PR into `main` runs the full build+test suite (path-filtered: doc/spec/
+  tooling-only changes skip the heavy jobs) plus the always-on `Roadmap up to
+  date` and `Version guard` checks, aggregated behind the single required
+  `CI gate` check. A green PR **auto-merges** (`auto-merge.yml` schedules it;
+  it refuses to act until branch protection with required checks exists).
+- **Every merge to `main` publishes.** `release.yml` re-verifies the merge
+  commit, then pushes rolling `ghcr.io/zuptalo/synodl:latest` + immutable
+  `:main-<sha>` (mirrored to docker.io). When the merge also bumped
+  `package.json`'s version to an untagged value, it additionally tags
+  `vX.Y.Z`, publishes `X.Y.Z` + `X.Y`, and cuts the GitHub release — so
+  "cutting a release" is just merging a PR that bumps the version
+  (`npm run release:patch|minor|major`). The `Version guard` blocks
+  downgrades and reuse of shipped versions; an unchanged version is fine.
 - **Scan the latest image at the start of new work.** Check the Docker Scout report
   for the current `zuptalo/synodl` tag (Docker Hub) and apply any vulnerability that
   has a fix version: bump the Go module or the base image in `Dockerfile`, rebuild +
   test, ride the same branch. "No fix available" ones are noted and left. A
   CVE-patch bump is `fix`/`security`-typed (so it reaches "What's new") and gets
   released, not parked.
-- Releases are driven by `package.json` `version`: bump it on `develop`, open a
-  PR into `main`. That PR **auto-merges** once green (`auto-merge-release.yml`),
-  which then dispatches `release.yml` (a workflow-token push can't trigger it
-  directly). If green and the `vX.Y.Z` tag doesn't already exist, it tags `main`,
-  publishes the production image (`latest`, `X.Y.Z`, `X.Y`), and cuts a GitHub
-  release. A merge without a version bump re-runs CI but does not re-release.
-- Release candidates are cut by pushing a `vX.Y.Z-rc.N` tag (off `develop`):
+- Release candidates are cut by pushing a `vX.Y.Z-rc.N` tag:
   `release-candidate.yml` runs the full suite and, if green, publishes a single
   immutable `:X.Y.Z-rc.N` image + a GitHub pre-release. RCs never move `:latest`
   or `:X.Y`; the RC version comes from the tag, not `package.json`. Operator

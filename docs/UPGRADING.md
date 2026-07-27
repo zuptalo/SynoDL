@@ -32,15 +32,16 @@ under several tags; which one you pin decides how upgrades reach you:
 
 | Tag             | What it is                                  | Use it when…                                         |
 | --------------- | ------------------------------------------- | ---------------------------------------------------- |
-| `:latest`       | The most recent stable release.             | You want stable, and redeploys to pick up new releases. |
-| `:X.Y.Z`        | One specific stable release (immutable).    | You want **deliberate**, pinned upgrades and easy rollback. |
+| `:latest`       | Rolling build of `main` — every green merge. | You auto-deploy from main (e.g. k3s polling) and want each merge live. |
+| `:main-<sha>`   | One specific merge (immutable).             | You pin deployments to exact merges and roll back by sha. |
+| `:X.Y.Z`        | One specific tagged release (immutable).    | You want **deliberate**, pinned upgrades and easy rollback. |
 | `:X.Y`          | Newest patch within a minor line.           | You want patch updates but not minor/major jumps.    |
 | `:X.Y.Z-rc.N`   | A **release candidate** (pre-release).      | You're helping test an upcoming release.             |
-| `:develop`      | Rolling build of the `develop` branch.      | You track bleeding edge and accept breakage.         |
 
-Pinning a specific `:X.Y.Z` is the safest posture for production: redeploys are
-reproducible and a rollback is just re-pinning the previous number. Leaving
-`:latest` floating means any redeploy picks up whatever is newest.
+Pinning a specific `:X.Y.Z` (or `:main-<sha>`) is the safest posture for
+production: redeploys are reproducible and a rollback is just re-pinning the
+previous number. `:latest` floats with every merge to main — ideal for an
+auto-updating home deployment, since only fully-green merges ever publish.
 
 ## Upgrading
 

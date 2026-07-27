@@ -36,16 +36,22 @@ The app comes up on http://localhost:5273 and proxies the API to `synodl` on
 (OTP account: `otpuser` / `secret`, code `000000`). To develop against a real
 NAS instead: `SYNO_URL=https://nas:5001 make backend`.
 
-## Branching model (GitFlow)
+## Branching model (trunk-based)
 
-- **`develop`** is the integration branch — all work targets it.
-- **`main`** is production — only `develop` is merged in, to cut a release.
-- **Feature branches** branch off `develop` and open a PR back into `develop`.
+- **`main`** is the only long-lived branch — the default branch, protected, and
+  what gets deployed.
+- **Feature branches** branch off `main` and open a PR back into `main`.
   Name them descriptively, e.g. `feat/0002-search-modules`, `fix/2001-stalled-eta`.
+- A PR **auto-merges the moment its required checks are green** (the
+  `Auto-merge PRs` workflow schedules it; branch protection's required checks —
+  `CI gate`, `Roadmap up to date`, `Version guard` — are the gate). Mark a PR
+  as a draft to keep it from merging while you iterate.
+- **Every merge to `main` publishes**: release.yml re-verifies the merge commit
+  and pushes the rolling `latest` + immutable `main-<sha>` images.
 
-Both `develop` and `main` are protected: changes land **only via pull request with
-all CI checks green** (see [the branch-protection setup](#branch-protection)).
-Direct pushes are rejected.
+`main` is protected: changes land **only via pull request with all CI checks
+green** (see [the branch-protection setup](#branch-protection)). Direct pushes
+are rejected.
 
 ## Spec-driven development (required for new work)
 
@@ -96,7 +102,7 @@ agent skills tracked in `.claude/skills/`):
    flags something, fix the artifact at fault (spec, plan, **or** tasks) and re-run
    from there down. Must be clean (or findings explicitly waived) before implementing.
 6. **`/speckit-taskstoissues`** — open one GitHub issue per task (title, body, and
-   labels) in `zuptalo/synodl`. Note the issue numbers for the PR.
+   labels) in `zuptalo/SynoDL`. Note the issue numbers for the PR.
 7. **`/speckit-implement`** — work the tasks in order.
 
 `/speckit-checklist` is **required** for any spec touching the credential boundary
@@ -119,10 +125,10 @@ doesn't match `specs/`, so regenerate and commit it alongside your spec changes.
 
 ### Closing issues on merge
 
-The feature → `develop` PR **must reference every issue it implements** with a
-closing keyword (`Closes #123`, one per line) so GitHub auto-closes them on merge.
-This works because `develop` is the repository's default branch — closing keywords
-only fire on merges into the default branch.
+The PR into `main` **must reference every issue it implements** with a closing
+keyword (`Closes #123`, one per line) so GitHub auto-closes them on merge. This
+works because `main` is the repository's default branch — closing keywords only
+fire on merges into the default branch.
 
 ## Making a change
 
@@ -131,12 +137,13 @@ only fire on merges into the default branch.
 2. Make your change, matching the surrounding code (see Code style in `CLAUDE.md` —
    we favor explanatory comments on the *why*).
 3. Run the gates locally (below). Add or update tests (tests first, per TDD).
-4. Open a PR into `develop`. Fill in the PR template, including the
+4. Open a PR into `main`. Fill in the PR template, including the
    credential-safety confirmation for anything touching the proxy, and
-   `Closes #N` for each issue.
-5. Once CI is green, the PR can be merged. Your feature branch is deleted
-   automatically on merge (the protected `develop`/`main` are never auto-deleted),
-   and the referenced issues close themselves.
+   `Closes #N` for each issue. Bump the version in the same PR if this change
+   should ship as a tagged release (see Releases below).
+5. Once CI is green, the PR merges itself. Your feature branch is deleted
+   automatically on merge (protected `main` is never auto-deleted), and the
+   referenced issues close themselves.
 
 ### Commit messages
 
@@ -169,57 +176,29 @@ npm run test:e2e              # Playwright e2e (builds + boots its own synodl + 
 
 ## Releases and release candidates
 
-Releases are driven by `package.json` `version`:
+Every green merge to `main` already publishes a deployable image (`latest` +
+`main-<sha>`). A **release** is simply a PR that also bumps `package.json`'s
+version:
 
-> **Bump at the start of a cycle.** After a release ships, `develop` and `main`
-> hold the same version, so the *next* `develop → main` PR fails the release guard
-> until `develop` is moved forward. Bump `develop`'s version (with the script below)
-> as the first change of the new cycle. This is manual by design — GitHub Actions
-> can't open the bump PR (org policy forbids Actions from creating PRs), so there's
-> no bot to do it for you; the release guard is the backstop at release time.
+```sh
+npm run release:patch    # 0.0.1 -> 0.0.2   (or release:minor / release:major)
+```
 
-- **Release:** bump the version on `develop`, then open a PR into `main`. Bump with
-  the one-shot script (no manual editing, no local tag/commit — it just edits
-  `package.json` + `package-lock.json` for you to commit):
+Commit the bump inside the PR (its own PR, or riding the feature it ships).
+When that PR merges, release.yml additionally tags `vX.Y.Z`, publishes the
+`X.Y.Z` + `X.Y` image tags, and cuts a GitHub release whose notes are drawn
+from the Conventional-Commit subjects since the last tag — another reason to
+keep commit subjects clean. The
+[release PR template](.github/PULL_REQUEST_TEMPLATE/release.md) is available
+for bump PRs (add `?template=release.md` to the compose URL).
 
-  ```sh
-  npm run release:patch    # 0.1.0 -> 0.1.1   (or release:minor / release:major)
-  ```
+The CI **`Version guard`** keeps versions safe to auto-merge: an unchanged
+version passes (rolling images only); a downgrade, or a bump onto a version
+whose tag already exists, blocks the merge.
 
-  Open the PR using the **release PR template**
-  ([`.github/PULL_REQUEST_TEMPLATE/release.md`](.github/PULL_REQUEST_TEMPLATE/release.md);
-  add `?template=release.md` to the compose URL, or follow its shape if you open the
-  PR via the API). List each user-facing change as a one-liner under **Changes**.
-
-  On merge, the pipeline re-verifies the merge commit and — if green and the
-  `vX.Y.Z` tag is new — tags `main`, publishes the production image (`latest`,
-  `X.Y.Z`, `X.Y`), and cuts a GitHub release whose notes are the version plus one
-  bullet per change (drawn from the Conventional-Commit subjects since the last
-  tag — another reason to keep commit subjects clean).
-
-  A release PR **without a version bump cannot be merged**: the CI check
-  `Release guard (version bump)` fails it, because merging it would silently no-op
-  the release (the tag already exists). The guard is green on every PR into
-  `develop`, so it only matters for the `develop → main` PR.
-
-  You don't merge the release PR by hand. The `Auto-merge release PRs` workflow
-  turns on GitHub auto-merge for any PR into `main`, so GitHub merges it (as a
-  merge commit) the moment the guard and the full suite are green — and not
-  before. Open it and walk away; to cancel, just disable auto-merge on the PR.
-  (This needs the repo-level "Allow auto-merge" setting, which
-  `scripts/setup-branch-protection.sh` turns on.)
-
-- **Release candidate:** push a `vX.Y.Z-rc.N` tag (off `develop`). It runs the full
-  suite and publishes a single immutable `:X.Y.Z-rc.N` image + a GitHub pre-release.
+- **Release candidate:** push a `vX.Y.Z-rc.N` tag. It runs the full suite and
+  publishes a single immutable `:X.Y.Z-rc.N` image + a GitHub pre-release.
   An RC never moves `:latest`/`:X.Y`.
-
-### Optional: local release-bump reminder
-
-Run `make hooks` once to opt in to the repo's git hooks
-(`git config core.hooksPath scripts/hooks`). The advisory `pre-push` hook warns —
-without ever blocking the push — when you push `develop` at a version that's already
-been released, so you remember to bump before opening the release PR. CI's release
-guard stays the real gate. Disable with `git config --unset core.hooksPath`.
 
 Operator upgrade/rollback guidance lives in [`docs/UPGRADING.md`](docs/UPGRADING.md).
 
