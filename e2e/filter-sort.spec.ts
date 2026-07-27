@@ -28,6 +28,16 @@ test('sort by size in both directions', async ({ page }) => {
   await expect(page.getByTestId('task-item').first()).toContainText('big-new.mkv');
 });
 
+test('the top search bar filters the download list by name', async ({ page }) => {
+  await login(page);
+  await expect(page.getByTestId('task-item')).toHaveCount(3);
+  await page.getByTestId('tasks-search').locator('input').fill('paused');
+  await expect(page.getByTestId('task-item')).toHaveCount(1);
+  await expect(page.getByTestId('task-item')).toContainText('medium-paused.zip');
+  await page.getByTestId('tasks-search').locator('input').fill('');
+  await expect(page.getByTestId('task-item')).toHaveCount(3);
+});
+
 test('term filter narrows by name, case-insensitively', async ({ page }) => {
   await login(page);
   await page.getByTestId('filter-open').click();

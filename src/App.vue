@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { IonApp, IonRouterOutlet } from '@ionic/vue';
-import { onUnmounted } from 'vue';
+import { IonApp, IonRouterOutlet, IonToast } from '@ionic/vue';
+import { onUnmounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { SESSION_EXPIRED_EVENT } from '@/services/api';
 import { useAppUpdate } from '@/composables/useAppUpdate';
@@ -37,10 +37,24 @@ clearBadge();
 document.addEventListener('visibilitychange', clearBadge);
 window.addEventListener('focus', clearBadge);
 
+// In-app notifications (spec 1013): when the app is in the foreground the SW
+// forwards a push here instead of showing a system notification. Surface it as a
+// toast UNLESS the user is already on the Tasks tab, where the change is visible
+// live.
+const inAppMsg = ref('');
+const onSwMessage = (e: MessageEvent): void => {
+  const d = e.data as { type?: string; title?: string; body?: string } | undefined;
+  if (!d || d.type !== 'push-notification') return;
+  if (router.currentRoute.value.path.startsWith('/tabs/tasks')) return;
+  inAppMsg.value = d.body ? `${d.title}: ${d.body}` : (d.title ?? '');
+};
+navigator.serviceWorker?.addEventListener('message', onSwMessage);
+
 onUnmounted(() => {
   window.removeEventListener(SESSION_EXPIRED_EVENT, onExpired);
   document.removeEventListener('visibilitychange', clearBadge);
   window.removeEventListener('focus', clearBadge);
+  navigator.serviceWorker?.removeEventListener('message', onSwMessage);
 });
 </script>
 
@@ -51,5 +65,13 @@ onUnmounted(() => {
          PWA (localhost exempt for dev/e2e). Spec 1008. -->
     <InstallGuard />
     <UpdateModal :is-open="updateAvailable" :applying="applying" @confirm="applyUpdate" />
+    <ion-toast
+      :is-open="!!inAppMsg"
+      :message="inAppMsg"
+      :duration="4000"
+      position="top"
+      data-testid="inapp-notification"
+      @didDismiss="inAppMsg = ''"
+    />
   </ion-app>
 </template>

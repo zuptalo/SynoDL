@@ -48,6 +48,15 @@ test('login shows the seeded task list with live fields', async ({ page }) => {
   await expect(page.getByTestId('task-item')).toHaveCount(2);
 });
 
+test('the tab bar has Tasks, Browser, and Settings — no Search or RSS', async ({ page }) => {
+  await login(page);
+  await expect(page.getByTestId('tab-tasks')).toBeVisible();
+  await expect(page.getByTestId('tab-browser')).toBeVisible();
+  await expect(page.getByTestId('tab-settings')).toBeVisible();
+  await expect(page.getByTestId('tab-search')).toHaveCount(0);
+  await expect(page.getByTestId('tab-rss')).toHaveCount(0);
+});
+
 test('logout returns to login and forgets the session', async ({ page }) => {
   await login(page);
   await page.getByTestId('tab-settings').click();
