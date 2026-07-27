@@ -20,7 +20,7 @@ import { useRouter } from 'vue-router';
 import { api } from '@/services/api';
 import { useSession } from '@/composables/useSession';
 import { useTheme } from '@/composables/useTheme';
-import UserAdmin from '@/components/UserAdmin.vue';
+import UserManagementModal from '@/components/UserManagementModal.vue';
 import PushOptIn from '@/components/PushOptIn.vue';
 import NasConnectionModal from '@/components/NasConnectionModal.vue';
 import ChangePasswordModal from '@/components/ChangePasswordModal.vue';
@@ -41,6 +41,7 @@ const darkMode = computed({
 
 const nasOpen = ref(false);
 const pwOpen = ref(false);
+const usersOpen = ref(false);
 
 async function loadHost(): Promise<void> {
   try {
@@ -72,7 +73,13 @@ async function onLogout(): Promise<void> {
           <ion-label>Signed in as</ion-label>
           <ion-note slot="end" color="primary" data-testid="settings-account">{{ account }}</ion-note>
         </ion-item>
-        <ion-item v-if="stateful && user" button data-testid="settings-change-password" @click="pwOpen = true">
+        <ion-item
+          v-if="stateful && user"
+          button
+          :detail="false"
+          data-testid="settings-change-password"
+          @click="pwOpen = true"
+        >
           <ion-label>Change password</ion-label>
           <ion-icon slot="end" :icon="chevronForward" color="medium" />
         </ion-item>
@@ -89,7 +96,7 @@ async function onLogout(): Promise<void> {
       <!-- NAS connection (admin, stateful) — dive-in editor -->
       <ion-list v-if="stateful && isAdmin" inset>
         <ion-list-header>NAS connection</ion-list-header>
-        <ion-item button data-testid="settings-nas-connection" @click="nasOpen = true">
+        <ion-item button :detail="false" data-testid="settings-nas-connection" @click="nasOpen = true">
           <ion-label>
             <h2>Connection</h2>
             <p>{{ nasHost || 'Configure the NAS this app talks to' }}</p>
@@ -110,8 +117,14 @@ async function onLogout(): Promise<void> {
       <!-- Notifications (stateful only). -->
       <PushOptIn v-if="stateful" />
 
-      <!-- Admin-only: manage SynoDL users and their NAS folder access. -->
-      <UserAdmin v-if="isAdmin" data-testid="settings-useradmin" />
+      <!-- Admin-only: user management behind its own dive-in section. -->
+      <ion-list v-if="isAdmin" inset>
+        <ion-list-header>Users</ion-list-header>
+        <ion-item button :detail="false" data-testid="settings-users" @click="usersOpen = true">
+          <ion-label>Manage users</ion-label>
+          <ion-icon slot="end" :icon="chevronForward" color="medium" />
+        </ion-item>
+      </ion-list>
 
       <div class="logout">
         <ion-button expand="block" color="danger" fill="outline" data-testid="settings-logout" @click="onLogout">
@@ -121,6 +134,7 @@ async function onLogout(): Promise<void> {
 
       <p class="version" data-testid="settings-version">v{{ version }}</p>
 
+      <UserManagementModal v-if="isAdmin" :is-open="usersOpen" @dismiss="usersOpen = false" />
       <NasConnectionModal :is-open="nasOpen" @dismiss="nasOpen = false" @saved="loadHost" />
       <ChangePasswordModal
         v-if="user"
