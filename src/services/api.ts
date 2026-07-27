@@ -299,6 +299,9 @@ export const api = {
   shares: () => request<{ folders: Folder[] }>('/v1/fs/shares'),
   listFolder: (path: string) =>
     request<{ folders: Folder[] }>(`/v1/fs/list?path=${encodeURIComponent(path)}`),
+  // Create a subfolder `name` under the absolute parent `path` (spec 1006).
+  createFolder: (path: string, name: string) =>
+    request<{ folder: Folder }>('/v1/fs/folder', json({ path, name })),
 
   // Admin user management + per-user folder grants (stateful mode, Increment 3).
   listUsers: () => request<{ users: AdminUser[] }>('/v1/users'),

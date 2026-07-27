@@ -2,8 +2,10 @@
 import {
   IonButton,
   IonButtons,
+  IonChip,
   IonContent,
   IonHeader,
+  IonIcon,
   IonInput,
   IonItem,
   IonLabel,
@@ -16,11 +18,15 @@ import {
   IonToggle,
   IonToolbar,
 } from '@ionic/vue';
+import { folderOutline } from 'ionicons/icons';
 import { computed, ref, watch } from 'vue';
 import { api, ApiError } from '@/services/api';
 import { batch, extractUrls } from '@/services/url-detect';
 import { messageForError } from '@/services/syno-errors';
+import { useDestinationPrefs } from '@/composables/useDestinationPrefs';
 import FolderPickerModal from '@/components/FolderPickerModal.vue';
+
+const { defaultDest, favorites } = useDestinationPrefs();
 
 const props = defineProps<{ isOpen: boolean }>();
 const emit = defineEmits<{
@@ -53,7 +59,7 @@ watch(
   (open) => {
     if (open) {
       text.value = '';
-      destination.value = '';
+      destination.value = defaultDest.value; // pre-fill with the saved default
       withCredentials.value = false;
       username.value = '';
       password.value = '';
@@ -138,6 +144,20 @@ async function submit(): Promise<void> {
     <ion-content>
       <ion-list>
         <ion-list-header><ion-label>Destination</ion-label></ion-list-header>
+        <!-- Up to 4 favorite folders for one-tap selection (spec 1006). -->
+        <div v-if="favorites.length" class="favorites" data-testid="newtask-favorites">
+          <ion-chip
+            v-for="fav in favorites"
+            :key="fav"
+            :color="destination === fav ? 'primary' : undefined"
+            :outline="destination !== fav"
+            data-testid="newtask-favorite"
+            @click="destination = fav"
+          >
+            <ion-icon :icon="folderOutline" />
+            <ion-label>{{ fav }}</ion-label>
+          </ion-chip>
+        </div>
         <ion-item button :detail="true" data-testid="newtask-destination" @click="pickerOpen = true">
           <ion-label>{{ destination || 'Default folder' }}</ion-label>
         </ion-item>

@@ -186,6 +186,7 @@ func (s *Server) handleInfo(w http.ResponseWriter, r *http.Request) {
 		"SYNO.DownloadStation.Task":      map[string]any{"path": "DownloadStation/task.cgi", "minVersion": 1, "maxVersion": 3},
 		"SYNO.DownloadStation.Statistic": map[string]any{"path": "DownloadStation/statistic.cgi", "minVersion": 1, "maxVersion": 1},
 		"SYNO.FileStation.List":          map[string]any{"path": "entry.cgi", "minVersion": 1, "maxVersion": 2},
+		"SYNO.FileStation.CreateFolder":  map[string]any{"path": "entry.cgi", "minVersion": 1, "maxVersion": 2},
 	})
 }
 
@@ -377,31 +378,53 @@ func (s *Server) handleFileStation(w http.ResponseWriter, r *http.Request) {
 		fail(w, 106)
 		return
 	}
-	if r.FormValue("api") != "SYNO.FileStation.List" {
-		fail(w, 103)
-		return
-	}
-	switch r.FormValue("method") {
-	case "list_share":
-		shares := make([]map[string]any, 0)
-		for _, name := range s.folders[""] {
-			shares = append(shares, map[string]any{"isdir": true, "name": name, "path": "/" + name})
+	switch r.FormValue("api") {
+	case "SYNO.FileStation.List":
+		switch r.FormValue("method") {
+		case "list_share":
+			shares := make([]map[string]any, 0)
+			for _, name := range s.folders[""] {
+				shares = append(shares, map[string]any{"isdir": true, "name": name, "path": "/" + name})
+			}
+			ok(w, map[string]any{"shares": shares, "total": len(shares)})
+		case "list":
+			dir := r.FormValue("folder_path")
+			children, exists := s.folders[dir]
+			if !exists {
+				fail(w, 408) // FileStation: no such file or directory
+				return
+			}
+			files := make([]map[string]any, 0)
+			for _, name := range children {
+				files = append(files, map[string]any{"isdir": true, "name": name, "path": path.Join(dir, name)})
+			}
+			ok(w, map[string]any{"files": files, "total": len(files)})
+		default:
+			fail(w, 101)
 		}
-		ok(w, map[string]any{"shares": shares, "total": len(shares)})
-	case "list":
-		dir := r.FormValue("folder_path")
-		children, exists := s.folders[dir]
-		if !exists {
-			fail(w, 408) // FileStation: no such file or directory
+	case "SYNO.FileStation.CreateFolder":
+		if r.FormValue("method") != "create" {
+			fail(w, 101)
 			return
 		}
-		files := make([]map[string]any, 0)
-		for _, name := range children {
-			files = append(files, map[string]any{"isdir": true, "name": name, "path": path.Join(dir, name)})
+		parent := r.FormValue("folder_path")
+		name := r.FormValue("name")
+		if parent == "" || name == "" {
+			fail(w, 101)
+			return
 		}
-		ok(w, map[string]any{"files": files, "total": len(files)})
+		if _, exists := s.folders[parent]; !exists {
+			fail(w, 408) // parent must exist (force_parent not set)
+			return
+		}
+		full := path.Join(parent, name)
+		s.folders[parent] = append(s.folders[parent], name)
+		if _, exists := s.folders[full]; !exists {
+			s.folders[full] = []string{}
+		}
+		ok(w, map[string]any{"folders": []map[string]any{{"isdir": true, "name": name, "path": full}}})
 	default:
-		fail(w, 101)
+		fail(w, 103)
 	}
 }
 
