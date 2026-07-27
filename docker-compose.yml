@@ -1,13 +1,15 @@
-# Self-hosting SynoDL: one stateless service, no volumes, no database.
+# Self-hosting SynoDL. The server runs STATEFUL (first-run setup wizard + SynoDL
+# accounts, spec 0003) whenever a SECRETS_KEY is set and a volume is mounted at
+# /data — the NAS connection is then configured in the wizard, not via env.
 #
-#   SYNO_URL=https://your-nas:5001 docker compose up -d
+#   SECRETS_KEY=$(openssl rand -hex 32) docker compose up -d
 #
-# Host port 8280 (container-internal 8080) — SynoDL's block, so it coexists
-# with the other self-hosted stacks on this machine.
+# BACK UP the volume AND the SECRETS_KEY together: the key encrypts the stored
+# NAS credentials + VAPID key at rest; losing it makes them unrecoverable.
 #
-# Put a TLS-terminating reverse proxy in front when the instance is reachable
-# from outside your LAN — the login forwards your DSM password through this
-# container, so the hop from your browser to it should be HTTPS.
+# Host port 8280 (container-internal 8080) — SynoDL's block, so it coexists with
+# the other self-hosted stacks on this machine. Put a TLS-terminating reverse
+# proxy in front when the instance is reachable from outside your LAN.
 services:
   synodl:
     image: ghcr.io/zuptalo/synodl:latest
@@ -17,9 +19,18 @@ services:
     ports:
       - '8280:8080'
     environment:
-      # Base URL of your NAS's DSM. Required.
-      SYNO_URL: ${SYNO_URL:?set SYNO_URL, e.g. https://nas.local:5001}
+      # Encrypts stored secrets at rest and switches the server to stateful mode.
+      # Generate once and keep it stable forever (rotating it orphans the secrets).
+      SECRETS_KEY: ${SECRETS_KEY:?generate one with: openssl rand -hex 32}
+      # Where the SQLite database lives on the mounted volume.
+      DATA_DIR: /data
+      # SYNO_URL is NOT needed in stateful mode — the wizard configures the NAS.
+      # It applies only to legacy stateless mode, or as a one-time wizard prefill.
+      # SYNO_URL: https://nas.local:5001
       # Uncomment to accept a self-signed NAS certificate (outbound only).
       # SYNO_TLS_INSECURE: 'true'
-      # Upload cap for .torrent files, in MiB.
-      # MAX_TORRENT_MB: '16'
+    volumes:
+      - synodl-data:/data
+
+volumes:
+  synodl-data:

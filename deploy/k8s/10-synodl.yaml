@@ -28,9 +28,11 @@ data:
   # Browser origin allowlist for CORS. Must exactly match the public URL the PWA is
   # served from — same-origin in single-container mode, but the check is explicit.
   ALLOWED_ORIGINS: "https://${APP_HOST}"
-  # The single operator-configured NAS this proxy forwards to. Must be reachable
-  # from inside the cluster (a LAN IP or hostname the k3s node can resolve/route to),
-  # e.g. https://192.168.1.10:5001 or https://nas.example.com:5001.
+  # OPTIONAL in stateful mode (the default when synodl-secrets/SECRETS_KEY exists):
+  # the NAS connection is configured in the first-run wizard and stored in the DB,
+  # so this is left empty and only used as a one-time wizard prefill. It is REQUIRED
+  # only for legacy stateless mode (STATELESS=true), where it is the single NAS the
+  # proxy forwards to, reachable from inside the cluster.
   SYNO_URL: "${SYNO_URL}"
   # Set to "true" ONLY if the NAS presents a self-signed / private-CA TLS cert
   # (common for a LAN NAS on its DSM :5001). Leave "false" for a real cert.
