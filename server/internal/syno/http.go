@@ -206,6 +206,7 @@ type dsmTask struct {
 		Detail struct {
 			CreateTime       int64  `json:"create_time"`
 			Destination      string `json:"destination"`
+			URI              string `json:"uri"` // source URL/magnet for copy + re-download
 			ConnectedPeers   int    `json:"connected_peers"`
 			ConnectedSeeders int    `json:"connected_seeders"`
 		} `json:"detail"`
@@ -245,6 +246,7 @@ func (c *HTTPClient) ListTasks(ctx context.Context, sid string) ([]Task, error) 
 			Seeders:       t.Additional.Detail.ConnectedSeeders,
 			CreatedAt:     t.Additional.Detail.CreateTime,
 			Destination:   t.Additional.Detail.Destination,
+			URI:           t.Additional.Detail.URI,
 			ErrorDetail:   t.StatusExtra.ErrorDetail,
 		})
 	}
