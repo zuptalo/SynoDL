@@ -35,6 +35,24 @@ export APP_HOST SYNO_URL SYNO_TLS_INSECURE
 
 command -v envsubst >/dev/null || { echo "need 'envsubst' (gettext). install it and re-run." >&2; exit 1; }
 
+echo "==> namespace"
+"$KUBECTL" create namespace synodl --dry-run=client -o yaml | "$KUBECTL" apply -f - >/dev/null
+
+# SECRETS_KEY (spec 0003): generated exactly once and kept stable forever — it
+# encrypts the stored NAS credentials + the VAPID private key at rest. Its
+# presence switches the server to STATEFUL mode (setup wizard + SynoDL accounts).
+# Re-running never rotates it (that would make the stored secrets unrecoverable).
+# Set STATELESS=true to skip it and stay on the legacy SYNO_URL path.
+if [ "${STATELESS:-}" = "true" ]; then
+  echo "==> STATELESS=true — not creating SECRETS_KEY; legacy mode"
+elif "$KUBECTL" -n synodl get secret synodl-secrets >/dev/null 2>&1; then
+  echo "==> synodl-secrets exists; keeping SECRETS_KEY as-is (stateful)"
+else
+  echo "==> generating synodl-secrets (SECRETS_KEY) — BACK THIS UP with the volume"
+  "$KUBECTL" -n synodl create secret generic synodl-secrets \
+    --from-literal=SECRETS_KEY="$(openssl rand -hex 32)"
+fi
+
 echo "==> applying manifests for APP_HOST=$APP_HOST SYNO_URL=$SYNO_URL SYNO_TLS_INSECURE=$SYNO_TLS_INSECURE"
 for f in 00-namespace 10-synodl 20-ingressroute; do
   envsubst '${APP_HOST} ${SYNO_URL} ${SYNO_TLS_INSECURE}' < "$DIR/${f}.yaml" | "$KUBECTL" apply -f -

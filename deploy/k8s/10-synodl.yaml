@@ -1,14 +1,15 @@
 # synodl: the all-in-one SynoDL image (the built PWA at / plus the /v1 API and
-# /healthz, all on one origin at :8080). It is a STATELESS, CREDENTIAL-FREE proxy
-# (constitution Principle III): it persists nothing — no database, no files, no
-# volumes — so there is nothing to back up and no PVC here. The NAS session id
-# lives on the client (IndexedDB) and rides each request in X-Syno-Sid; the only
-# server-side config is the single operator NAS URL below.
+# /healthz, all on one origin at :8080). Two modes (constitution v2.0.0):
+#   - legacy/stateless: no SECRETS_KEY ⇒ the client authenticates to the NAS and
+#     carries the sid; nothing is persisted (the mounted volume goes unused).
+#   - stateful (spec 0003): a SECRETS_KEY secret ⇒ its own accounts + setup wizard,
+#     backed by one encrypted SQLite database on the synodl-data volume, reaching
+#     the NAS through a single stored connection.
+# The SECRETS_KEY secret is optional here, so this manifest is safe to apply in
+# either mode; create the secret (install.sh) to switch a running instance to
+# stateful. Back up = the synodl-data volume PLUS the SECRETS_KEY secret.
 #
-# Because it holds no per-pod state it is safe to scale or roll freely: any replica
-# can serve any request. We still run a single steady-state replica (this fronts a
-# home NAS, not a fleet) and roll updates with a brief overlap so deploys don't
-# blip — see the strategy block.
+# Single replica, Recreate strategy: the SQLite volume is single-writer.
 #
 # Keel auto-updates this Deployment: it polls ghcr.io/zuptalo/synodl:latest and,
 # when the tag's digest changes (a new production release moves :latest), forces a
@@ -34,6 +35,11 @@ data:
   # Set to "true" ONLY if the NAS presents a self-signed / private-CA TLS cert
   # (common for a LAN NAS on its DSM :5001). Leave "false" for a real cert.
   SYNO_TLS_INSECURE: "${SYNO_TLS_INSECURE}"
+  # Where the SQLite database lives on the mounted volume (spec 0003). The server
+  # runs STATEFUL (setup wizard + SynoDL accounts) only when a SECRETS_KEY secret
+  # is also present; without it, it stays on the legacy SYNO_URL path — so this is
+  # safe to apply before you're ready to switch.
+  DATA_DIR: "/data"
   # STATIC_DIR (=/app/web, single-container mode) is baked into the image; no need
   # to repeat it here.
 ---
@@ -63,14 +69,10 @@ metadata:
 spec:
   replicas: 1
   strategy:
-    # Roll updates with a short overlap instead of a hard stop-then-start:
-    # maxUnavailable:0 keeps the old pod serving until the new one passes /healthz,
-    # so the app sees ~no downtime. Safe to do because the proxy is stateless — the
-    # two pods share nothing during the handoff window.
-    type: RollingUpdate
-    rollingUpdate:
-      maxSurge: 1
-      maxUnavailable: 0
+    # Recreate (stop-then-start), not RollingUpdate: the stateful mode keeps a
+    # single-writer SQLite database on one ReadWriteOnce volume, so two pods must
+    # never hold it at once. Brief downtime on deploy is fine for a home app.
+    type: Recreate
   selector:
     matchLabels:
       app: synodl
@@ -79,6 +81,12 @@ spec:
       labels:
         app: synodl
     spec:
+      # The image runs as uid/gid 1000; fsGroup makes the mounted SQLite volume
+      # group-owned by 1000 so the non-root process can write the database.
+      securityContext:
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
       containers:
         - name: synodl
           image: ghcr.io/zuptalo/synodl:latest
@@ -88,8 +96,21 @@ spec:
           envFrom:
             - configMapRef:
                 name: synodl-config
-          # /healthz returns 200 once the HTTP server is up (it holds no state and
-          # opens no DB, so readiness is immediate). Liveness/readiness both hit it.
+          env:
+            # SECRETS_KEY activates stateful mode and encrypts stored NAS creds +
+            # the VAPID private key at rest. optional:true means an absent secret
+            # leaves the server on the legacy path — so this manifest is safe to
+            # apply before you create the secret; create it (install.sh) to switch.
+            - name: SECRETS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: synodl-secrets
+                  key: SECRETS_KEY
+                  optional: true
+          volumeMounts:
+            - name: data
+              mountPath: /data
+          # /healthz returns 200 once the HTTP server is up. Liveness/readiness hit it.
           readinessProbe:
             httpGet: { path: /healthz, port: 8080 }
             initialDelaySeconds: 3
@@ -101,7 +122,26 @@ spec:
           resources:
             requests:
               cpu: 25m
-              memory: 32Mi
+              memory: 48Mi
             limits:
               cpu: 500m
-              memory: 128Mi
+              memory: 192Mi
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: synodl-data
+---
+# The single stateful volume (constitution v2.0.0): the SQLite database only.
+# k3s's default local-path provisioner; 1Gi is ample (config + a few accounts +
+# push subscriptions). Back this up together with SECRETS_KEY to restore.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: synodl-data
+  namespace: synodl
+spec:
+  accessModes: ["ReadWriteOnce"]
+  storageClassName: local-path
+  resources:
+    requests:
+      storage: 1Gi
