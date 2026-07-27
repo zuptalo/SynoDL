@@ -1,0 +1,30 @@
+# HTTP routing on k3s's built-in Traefik. Unlike the Ring deployment (which needs
+# raw TLS-over-:443 SNI passthrough for its embedded TURN/SFU), SynoDL is a plain
+# HTTP app that terminates NO TLS of its own. TLS is terminated UPSTREAM — by the
+# edge Traefik that fronts the cluster — which then forwards cleartext HTTP to this
+# node's `web` (:80) entrypoint, where this route matches the Host and hands off to
+# the synodl Service.
+#
+#   edge Traefik (terminates TLS for ${APP_HOST})  ──HTTP──►  k3s :80 (web)
+#        └─ HostSNI/Host = ${APP_HOST}                              │
+#                                                     Host(`${APP_HOST}`) ─► synodl:8080
+#
+# This is why the route sits on `web`, not `websecure`: k3s's Traefik here has no
+# ACME cert-resolver, so terminating TLS in-cluster would only yield Traefik's
+# default self-signed cert. Keep TLS at the edge. (If you later configure an ACME
+# resolver on k3s Traefik and want it to terminate TLS instead, move this to the
+# `websecure` entrypoint and add a `tls:` block with your certResolver.)
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: synodl
+  namespace: synodl
+spec:
+  entryPoints:
+    - web
+  routes:
+    - match: Host(`${APP_HOST}`)
+      kind: Rule
+      services:
+        - name: synodl
+          port: 8080
