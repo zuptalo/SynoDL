@@ -32,6 +32,7 @@ Specs are grouped by category band; status moves
 | [1008](specs/1008-install-guard/spec.md) | PWA install guard — sign in only from the installed app | 🔵 in-review |
 | [1009](specs/1009-destination-picker-start/spec.md) | Destination picker starts in the selected folder + task-level new folder | 🔵 in-review |
 | [1011](specs/1011-destination-prefs-server/spec.md) | Per-user destination preferences on the server, with self-cleaning | 🔵 in-review |
+| [1013](specs/1013-tasks-search-notif/spec.md) | Foreground-aware notifications, Tasks search bar, fewer tabs | 🔵 in-review |
 
 ## 🐛 Hotfixes & Bug Fixes (2001+)
 

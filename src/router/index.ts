@@ -23,10 +23,11 @@ const routes: Array<RouteRecordRaw> = [
     children: [
       { path: '', redirect: '/tabs/tasks' },
       { path: 'tasks', component: () => import('@/views/tabs/TasksPage.vue') },
-      { path: 'search', component: () => import('@/views/tabs/SearchPage.vue') },
       { path: 'browser', component: () => import('@/views/tabs/BrowserPage.vue') },
-      { path: 'rss', component: () => import('@/views/tabs/RssPage.vue') },
       { path: 'settings', component: () => import('@/views/tabs/SettingsPage.vue') },
+      // Legacy paths — redirect removed tabs to Tasks so old links don't 404.
+      { path: 'search', redirect: '/tabs/tasks' },
+      { path: 'rss', redirect: '/tabs/tasks' },
     ],
   },
 ];

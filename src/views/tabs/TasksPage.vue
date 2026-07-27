@@ -7,6 +7,7 @@ import {
   IonFab,
   IonFabButton,
   IonHeader,
+  IonSearchbar,
   IonIcon,
   IonList,
   IonPage,
@@ -200,6 +201,10 @@ async function onApplyFilter(next: TaskFilterState): Promise<void> {
   await apply(next);
   filterOpen.value = false;
 }
+function onSearch(ev: CustomEvent): void {
+  const term = String((ev.target as HTMLInputElement | null)?.value ?? '');
+  void apply({ ...filter.value, term });
+}
 async function onCreated(): Promise<void> {
   newTaskOpen.value = false;
   await refresh();
@@ -237,6 +242,16 @@ async function onDelete(id: string): Promise<void> {
             <ion-icon slot="icon-only" :icon="optionsOutline" />
           </ion-button>
         </ion-buttons>
+      </ion-toolbar>
+      <!-- Always-visible search of the download list, by name (spec 1013). -->
+      <ion-toolbar v-if="!selectMode">
+        <ion-searchbar
+          :value="filter.term"
+          placeholder="Search downloads"
+          :debounce="150"
+          data-testid="tasks-search"
+          @ionInput="onSearch"
+        />
       </ion-toolbar>
     </ion-header>
     <ion-content :fullscreen="true">

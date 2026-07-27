@@ -25,9 +25,11 @@ self.addEventListener('activate', (event) => {
   event.waitUntil(self.clients.claim());
 });
 
-// Web Push (spec 0003): the server sends an encrypted JSON payload {title, body};
-// show it as a plain-text notification. A missing/garbled payload degrades to a
-// generic message rather than failing silently.
+// Web Push (spec 0003): the server sends a JSON payload {title, body}. We only
+// show a SYSTEM notification when the user isn't actively looking at the app
+// (spec 1013): if a window is in the foreground we hand the message to the page
+// instead, which shows an in-app notice (or nothing, on the Tasks tab where the
+// change is already visible live).
 self.addEventListener('push', (event) => {
   let title = 'SynoDL';
   let body = 'A download update is available.';
@@ -38,19 +40,30 @@ self.addEventListener('push', (event) => {
   } catch {
     if (event.data) body = event.data.text();
   }
-  // Set the app-icon badge where the Badging API exists (installed PWAs on
-  // Chromium / Safari 17+); silently no-op elsewhere. The app clears it on view.
-  const nav = self.navigator as Navigator & { setAppBadge?: (n?: number) => Promise<void> };
+
   event.waitUntil(
-    Promise.all([
-      self.registration.showNotification(title, {
-        body,
-        icon: '/pwa-192x192.png',
-        badge: '/pwa-192x192.png',
-        tag: 'synodl-download',
-      }),
-      nav.setAppBadge ? nav.setAppBadge().catch(() => undefined) : Promise.resolve(),
-    ]),
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clients) => {
+      const foreground = clients.some((c) => c.visibilityState === 'visible');
+      if (foreground) {
+        // App is open in front — let the page decide (in-app toast off the Tasks
+        // tab, nothing on it). No OS notification, no badge.
+        for (const c of clients) {
+          c.postMessage({ type: 'push-notification', title, body });
+        }
+        return undefined;
+      }
+      // Backgrounded / closed — show the OS notification + set the app badge.
+      const nav = self.navigator as Navigator & { setAppBadge?: (n?: number) => Promise<void> };
+      return Promise.all([
+        self.registration.showNotification(title, {
+          body,
+          icon: '/pwa-192x192.png',
+          badge: '/pwa-192x192.png',
+          tag: 'synodl-download',
+        }),
+        nav.setAppBadge ? nav.setAppBadge().catch(() => undefined) : Promise.resolve(),
+      ]);
+    }),
   );
 });
 
