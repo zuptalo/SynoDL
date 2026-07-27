@@ -110,7 +110,7 @@ async function newFolder(): Promise<void> {
           <ion-button data-testid="folder-cancel" @click="emit('dismiss')">Cancel</ion-button>
           <ion-button v-if="path" data-testid="folder-up" @click="up">Back</ion-button>
         </ion-buttons>
-        <ion-title>{{ path || 'Destination' }}</ion-title>
+        <ion-title data-testid="folder-title">{{ path || 'Destination' }}</ion-title>
         <ion-buttons slot="end">
           <ion-button v-if="path" data-testid="folder-new" @click="newFolder">
             <ion-icon slot="icon-only" :icon="createOutline" />

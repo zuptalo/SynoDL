@@ -74,8 +74,9 @@ test('create a subfolder inside a folder and select it as the destination', asyn
   await alert.locator('input').fill('MyPicks');
   await alert.getByRole('button', { name: 'Create' }).click();
 
-  // Drilled into the new subfolder; Select stores downloads there.
-  await expect(page.getByTestId('folder-confirm')).toBeVisible();
+  // Wait until the picker has drilled into the freshly created folder (the
+  // create is async, and Select is already visible at the parent), then Select.
+  await expect(page.getByTestId('folder-title')).toHaveText('/movie/MyPicks');
   await page.getByTestId('folder-confirm').click();
   await expect(page.getByTestId('newtask-destination')).toContainText('movie/MyPicks');
 });
