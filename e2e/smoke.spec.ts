@@ -35,9 +35,12 @@ test('login shows the seeded task list with live fields', async ({ page }) => {
   await login(page);
   const items = page.getByTestId('task-item');
   await expect(items).toHaveCount(2);
-  await expect(items.first()).toContainText('e2e-fixture.iso');
-  await expect(items.first()).toContainText('25% of 1.0 GB');
-  await expect(items.first().getByTestId('task-status')).toHaveText('downloading');
+  // Locate the downloading task by name (the default sort is newest-first, and
+  // 'done.iso' was seeded later, so position is not a stable handle).
+  const fixture = items.filter({ hasText: 'e2e-fixture.iso' });
+  await expect(fixture).toHaveCount(1);
+  await expect(fixture).toContainText('25% of 1.0 GB');
+  await expect(fixture.getByTestId('task-status')).toHaveText('downloading');
 
   // Reload keeps the session (IndexedDB persistence) — no login round-trip.
   await page.reload();

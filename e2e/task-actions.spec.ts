@@ -46,6 +46,7 @@ test('delete requires confirmation; cancel keeps the task, confirm removes it', 
   await openSliding(page);
   await page.getByTestId('task-delete').click();
   // The cancelled sheet's DOM can still be tearing down — target the newest.
-  await page.getByRole('button', { name: 'Delete task' }).last().click();
+  // The confirm button names the count ("Delete 1") per spec 0004.
+  await page.getByRole('button', { name: 'Delete 1', exact: true }).last().click();
   await expect(page.getByTestId('tasks-empty')).toBeVisible({ timeout: 10_000 });
 });
