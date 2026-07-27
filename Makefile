@@ -12,7 +12,7 @@ SERVER_DIR := server
 GOBIN := $(shell go env GOPATH)/bin
 AIR := $(GOBIN)/air
 
-.PHONY: start stop mock tools backend frontend hooks roadmap spec
+.PHONY: start stop mock tools backend frontend roadmap spec
 
 ## start: mock DSM + backend hot reload + frontend hot reload
 start: tools
@@ -47,12 +47,6 @@ tools: $(AIR)
 $(AIR):
 	@echo "▶ Installing air (Go live reload)…"
 	@go install github.com/air-verse/air@latest
-
-## hooks: opt in to the repo's git hooks (advisory release-bump pre-push warning)
-hooks:
-	@git config core.hooksPath scripts/hooks
-	@echo "▶ Git hooks enabled (core.hooksPath = scripts/hooks)."
-	@echo "  Disable with: git config --unset core.hooksPath"
 
 ## roadmap: regenerate ROADMAP.md from specs/ (CI fails if it's stale)
 roadmap:

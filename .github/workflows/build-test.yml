@@ -1,6 +1,6 @@
-# Reusable build + test pipeline, called by ci.yml (develop pushes, PRs) and
-# release.yml (main). Keeping it in one place means the exact same gates run
-# before a develop image and before a production release.
+# Reusable build + test pipeline, called by ci.yml (PRs) and
+# release.yml (main pushes). Keeping it in one place means the exact same
+# gates run on the PR and again on the merge commit that publishes.
 name: build-test
 
 on:

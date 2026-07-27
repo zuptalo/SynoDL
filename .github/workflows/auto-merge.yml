@@ -1,21 +1,18 @@
-# Auto-merge release PRs: the develop -> main PR that cuts a release shouldn't need
-# babysitting. This enables GitHub's native auto-merge on it, so GitHub merges the
-# PR by itself the moment every required check is green — the "Release guard
-# (version bump)" check plus the full build+test suite — and not a second before.
+# Auto-merge every green PR: main is the only long-lived branch, and a PR that
+# passes the full gate set (CI gate + Roadmap up to date + Version guard) needs
+# no babysitting. This enables GitHub's native auto-merge, so GitHub merges the
+# PR by itself the moment every REQUIRED check is green — and not a second
+# before. Branch protection is what makes that safe; see the safety gate below.
 #
-# Scope is deliberately narrow: only PRs whose BASE is main (i.e. release PRs from
-# develop). Feature -> develop PRs are untouched; you still merge those yourself.
-#
-# Merge method is a MERGE COMMIT on purpose: release.yml verifies the merge commit,
-# and we keep develop's history joined into main (linear history is intentionally
-# NOT required). Auto-merge only schedules the merge; required checks + branch
-# protection still fully gate it, so a failing guard or red CI blocks the merge.
-name: Auto-merge release PRs
+# Merge method is a MERGE COMMIT on purpose: release.yml verifies the merge
+# commit, and the feature branch's history stays joined into main (linear
+# history is intentionally NOT required).
+name: Auto-merge PRs
 
 on:
   pull_request:
     types: [opened, reopened, ready_for_review, synchronize]
-    branches: [main] # base branch == main
+    branches: [main] # base branch == main (all PRs)
 
 permissions:
   contents: write # github-actions[bot] performs the eventual merge
@@ -25,14 +22,35 @@ permissions:
 jobs:
   enable-auto-merge:
     name: Enable auto-merge
-    # Same-repo PRs only (a fork's token is read-only and couldn't enable it anyway),
-    # and never on drafts.
+    # Same-repo PRs only (a fork's token is read-only and couldn't enable it
+    # anyway), and never on drafts.
     if: >-
       github.event.pull_request.draft == false &&
       github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     steps:
+      # SAFETY GATE: on a repo where main has no required status checks yet,
+      # `gh pr merge --auto` doesn't schedule — it merges IMMEDIATELY, red CI
+      # and all. Refuse to touch the PR until branch protection is configured
+      # (scripts/setup-branch-protection.sh), so an unprotected repo degrades
+      # to manual merging instead of check-less auto-merging.
+      - name: Require branch protection with required checks on main
+        id: protection
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          checks=$(gh api "repos/${{ github.repository }}/branches/main/protection/required_status_checks/contexts" --jq 'length' 2>/dev/null || echo 0)
+          if [ "${checks:-0}" -ge 1 ]; then
+            echo "ok=true" >> "$GITHUB_OUTPUT"
+            echo "main requires $checks status check(s) — safe to enable auto-merge."
+          else
+            echo "ok=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::main has no required status checks — skipping auto-merge. Run scripts/setup-branch-protection.sh once, then re-open or push to this PR."
+          fi
+
       - name: Enable auto-merge (merge commit)
+        if: steps.protection.outputs.ok == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -45,8 +63,9 @@ jobs:
       # platform completes the auto-merge above, release.yml's `push: branches:
       # [main]` never fires. workflow_dispatch IS exempt from that suppression even
       # when called with GITHUB_TOKEN, so: poll until the PR actually merges, then
-      # explicitly dispatch release.yml. (First hit + full writeup: the v1.0.0 cut.)
+      # explicitly dispatch release.yml.
       - name: Wait for the merge, then dispatch the release workflow
+        if: steps.protection.outputs.ok == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |

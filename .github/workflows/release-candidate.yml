@@ -1,5 +1,5 @@
 # Release candidate: hand testers a pinned pre-release build without shipping it as
-# "latest". Triggered by pushing a vX.Y.Z-rc.N tag (typically off develop) - it
+# "latest". Triggered by pushing a vX.Y.Z-rc.N tag (typically off main) - it
 # re-runs the full build + test suite on the tagged commit and, only if that is
 # green, publishes a single immutable image (ghcr.io/zuptalo/synodl:X.Y.Z-rc.N) and
 # cuts a GitHub *pre-release*.
@@ -7,7 +7,7 @@
 # Deliberately separate from release.yml (which fires on merge to main and owns the
 # moving latest/X.Y tags): an RC must NEVER move :latest or :X.Y, so production
 # deploys tracking those tags can't pick it up. The version is read from the tag
-# name, not package.json - on develop package.json still carries the in-progress
+# name, not package.json - on main package.json may still carry the in-progress
 # version (e.g. 0.1.0), while the tag is the real RC identity (e.g. v0.2.0-rc.1),
 # and that is what gets stamped into the image so the About page shows the truth.
 #
@@ -43,7 +43,7 @@ jobs:
 
       - name: Resolve version from tag
         id: ver
-        # The tag IS the version of record for an RC (package.json lags on develop).
+        # The tag IS the version of record for an RC (package.json may lag on main).
         run: |
           tag="${GITHUB_REF_NAME}"
           echo "tag=$tag" >> "$GITHUB_OUTPUT"

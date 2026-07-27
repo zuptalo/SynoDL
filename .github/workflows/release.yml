@@ -1,21 +1,24 @@
-# Release: fires when develop is merged into main. It re-runs the full build +
-# test suite on the merge commit and, only if that is green, tags main with the
-# package.json version, publishes the production image, and cuts a GitHub release
-# whose notes are the version plus one bullet per change since the last tag.
+# Publish + release: fires on every push to main (i.e. every merged PR; the
+# auto-merge workflow dispatches it explicitly when the merge was performed
+# with the workflow token, which suppresses the push event). It re-runs the
+# full build + test suite on the merge commit and, only if that is green,
+# publishes the production image:
 #
-# Versioning is driven by package.json: to ship a release, bump the "version"
-# there on develop and open a PR into main. If the tag for the current version
-# already exists, the release steps no-op (a merge without a version bump won't
-# overwrite a published release).
+#   - ALWAYS: rolling `latest` + immutable `main-<shortsha>` — every green
+#     merge to main is deployable (k3s pulls from these).
+#   - WHEN package.json's version has no tag yet: additionally `X.Y.Z` +
+#     `X.Y`, an annotated `vX.Y.Z` tag, and a GitHub release. So "cutting a
+#     release" is simply merging a PR that bumps the version (the CI Version
+#     guard keeps bumps monotonic and unique).
 name: Release
 
 on:
   push:
     branches: [main]
-  # A GITHUB_TOKEN-authored push (e.g. auto-merge-release.yml's auto-merge) doesn't
-  # trigger the push event above (anti-infinite-loop safeguard) — workflow_dispatch
-  # is exempt from that, so auto-merge-release.yml calls this explicitly once a
-  # release PR actually merges. Also handy for a manual re-run.
+  # A GITHUB_TOKEN-authored push (e.g. auto-merge.yml's merge) doesn't trigger
+  # the push event above (anti-infinite-loop safeguard) — workflow_dispatch is
+  # exempt, so auto-merge.yml calls this explicitly once a PR merges. Also
+  # handy for a manual re-publish.
   workflow_dispatch:
 
 concurrency:
@@ -29,45 +32,96 @@ jobs:
   verify:
     uses: ./.github/workflows/build-test.yml
 
-  release:
-    name: Tag, image, and GitHub release
+  publish:
+    name: Publish image (and release on a version bump)
     needs: verify
     runs-on: ubuntu-latest
     permissions:
       contents: write # create the tag + the GitHub release
-      packages: write # push the production image to GHCR
+      packages: write # push the image to GHCR
     steps:
       - uses: actions/checkout@v5
         with:
           fetch-depth: 0 # full history so release notes can diff from the last tag
 
-      - name: Resolve version
+      - name: Resolve version and whether it is a new release
         id: ver
         run: |
           v=$(node -p "require('./package.json').version")
           echo "version=$v" >> "$GITHUB_OUTPUT"
           echo "tag=v$v" >> "$GITHUB_OUTPUT"
-
-      - name: Has this version already shipped?
-        id: check
-        run: |
-          if git rev-parse "refs/tags/${{ steps.ver.outputs.tag }}" >/dev/null 2>&1; then
-            echo "exists=true" >> "$GITHUB_OUTPUT"
-            echo "::notice::Tag ${{ steps.ver.outputs.tag }} already exists. Bump the version in package.json to cut a new release. Skipping release steps."
+          echo "shortsha=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+          git fetch --quiet --tags origin
+          if git rev-parse "refs/tags/v$v" >/dev/null 2>&1; then
+            echo "release=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::Tag v$v already exists — publishing rolling images only (latest, main-${GITHUB_SHA::7})."
           else
-            echo "exists=false" >> "$GITHUB_OUTPUT"
+            echo "release=true" >> "$GITHUB_OUTPUT"
+            echo "::notice::Tag v$v is new — this merge cuts release v$v."
           fi
 
-      # Compose the build's release notes BEFORE creating the new tag, so the script's
-      # "since the last release tag" range is this release's changes (the previous tag
-      # is still the highest one). Baked into the image for the PWA's "what's new".
+      # Compose the build's release notes BEFORE creating the new tag, so the
+      # script's "since the last release tag" range is this build's changes.
+      # Baked into the image for the PWA's "What's new".
       - name: Compose release notes (base64 JSON)
         id: notes_b64
-        if: steps.check.outputs.exists == 'false'
         run: echo "b64=$(scripts/release-notes.sh | base64 -w0)" >> "$GITHUB_OUTPUT"
 
+      # The version stamped into the binary + PWA: the clean X.Y.Z when this
+      # build IS that release; X.Y.Z+<sha> build metadata for rolling merges so
+      # a non-release build never claims to be the (older) tagged release.
+      - name: Resolve stamped VERSION
+        id: stamp
+        run: |
+          if [ "${{ steps.ver.outputs.release }}" = "true" ]; then
+            echo "version=${{ steps.ver.outputs.version }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "version=${{ steps.ver.outputs.version }}+${{ steps.ver.outputs.shortsha }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: docker/setup-qemu-action@v4 # arm64 emulation for the final stage
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      # Mirror to Docker Hub (canonical registry stays ghcr.io); both get the
+      # same tags.
+      - uses: docker/login-action@v4
+        with:
+          registry: docker.io
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - uses: docker/metadata-action@v6
+        id: meta
+        with:
+          images: |
+            ghcr.io/zuptalo/synodl
+            docker.io/zuptalo/synodl
+          # Rolling pair always; the semver pair only when this merge releases.
+          tags: |
+            type=raw,value=latest
+            type=raw,value=main-${{ steps.ver.outputs.shortsha }}
+            type=semver,pattern={{version}},value=${{ steps.ver.outputs.version }},enable=${{ steps.ver.outputs.release }}
+            type=semver,pattern={{major}}.{{minor}},value=${{ steps.ver.outputs.version }},enable=${{ steps.ver.outputs.release }}
+      - uses: docker/build-push-action@v7
+        with:
+          context: .
+          push: true
+          platforms: linux/amd64,linux/arm64
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            VERSION=${{ steps.stamp.outputs.version }}
+            RELEASE_NOTES_B64=${{ steps.notes_b64.outputs.b64 }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # The tag is created only AFTER the image publish succeeded, so a failed
+      # publish can be re-run without a stale tag blocking it.
       - name: Create and push tag
-        if: steps.check.outputs.exists == 'false'
+        if: steps.ver.outputs.release == 'true'
         run: |
           # An annotated tag needs a committer identity; the runner has none by
           # default (fatal: empty ident name). Set the standard github-actions bot.
@@ -76,63 +130,20 @@ jobs:
           git tag -a "${{ steps.ver.outputs.tag }}" -m "Release ${{ steps.ver.outputs.tag }}"
           git push origin "${{ steps.ver.outputs.tag }}"
 
-      - uses: docker/setup-qemu-action@v4 # arm64 emulation for the final stage
-        if: steps.check.outputs.exists == 'false'
-      - uses: docker/setup-buildx-action@v4
-        if: steps.check.outputs.exists == 'false'
-      - uses: docker/login-action@v4
-        if: steps.check.outputs.exists == 'false'
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-      # Mirror the production image to Docker Hub (canonical registry stays ghcr.io).
-      - uses: docker/login-action@v4
-        if: steps.check.outputs.exists == 'false'
-        with:
-          registry: docker.io
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
-      - uses: docker/metadata-action@v6
-        id: meta
-        if: steps.check.outputs.exists == 'false'
-        with:
-          images: |
-            ghcr.io/zuptalo/synodl
-            docker.io/zuptalo/synodl
-          # latest + full semver + major.minor, all pointing at this release.
-          tags: |
-            type=raw,value=latest
-            type=semver,pattern={{version}},value=${{ steps.ver.outputs.version }}
-            type=semver,pattern={{major}}.{{minor}},value=${{ steps.ver.outputs.version }}
-      - uses: docker/build-push-action@v7
-        if: steps.check.outputs.exists == 'false'
-        with:
-          context: .
-          push: true
-          platforms: linux/amd64,linux/arm64
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          build-args: |
-            VERSION=${{ steps.ver.outputs.version }}
-            RELEASE_NOTES_B64=${{ steps.notes_b64.outputs.b64 }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-
       # Human-readable release notes: user-facing changes since the previous STABLE
       # release, grouped (New / Fixes / …) and prettified with the same filter + wording
       # rules the in-app "What's new" uses (scripts/release-notes-md.mjs). ci/docs/chore
       # noise is dropped; a spec/PR ref is stripped. Basing on the last stable tag (not
       # the RC) means a GA release shows the whole product delta, not just the RC gap.
       - name: Compose release notes
-        if: steps.check.outputs.exists == 'false'
+        if: steps.ver.outputs.release == 'true'
         run: |
           node scripts/release-notes-md.mjs --tag "${{ steps.ver.outputs.tag }}" \
             --repo "${{ github.repository }}" > release-notes.md
           echo "Generated release notes:"; cat release-notes.md
 
       - name: Create GitHub release
-        if: steps.check.outputs.exists == 'false'
+        if: steps.ver.outputs.release == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -140,3 +151,17 @@ jobs:
             --title "SynoDL ${{ steps.ver.outputs.version }}" \
             --target "${{ github.sha }}" \
             --notes-file release-notes.md
+
+      # Keep the Docker Hub repo's Overview (README + short description) in sync with
+      # docs/DOCKERHUB.md on every publish, so the listing never drifts.
+      # Best-effort: editing the Hub Overview needs a token scope an image-push PAT
+      # may lack (403) — don't fail the publish on a cosmetic README sync.
+      - name: Sync Docker Hub Overview
+        continue-on-error: true
+        uses: peter-evans/dockerhub-description@v5
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          repository: zuptalo/synodl
+          short-description: 'Mobile-first PWA client for Synology Download Station — self-hostable stateless proxy + PWA in one container (AGPL).'
+          readme-filepath: ./docs/DOCKERHUB.md
