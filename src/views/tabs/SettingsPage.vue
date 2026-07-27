@@ -3,34 +3,53 @@ import {
   IonButton,
   IonContent,
   IonHeader,
+  IonIcon,
   IonItem,
   IonLabel,
   IonList,
+  IonListHeader,
   IonNote,
   IonPage,
   IonTitle,
+  IonToggle,
   IonToolbar,
 } from '@ionic/vue';
-import { onMounted, ref } from 'vue';
+import { chevronForward } from 'ionicons/icons';
+import { computed, onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { api } from '@/services/api';
 import { useSession } from '@/composables/useSession';
+import { useTheme } from '@/composables/useTheme';
 import UserAdmin from '@/components/UserAdmin.vue';
 import PushOptIn from '@/components/PushOptIn.vue';
+import NasConnectionModal from '@/components/NasConnectionModal.vue';
+import ChangePasswordModal from '@/components/ChangePasswordModal.vue';
 
 const router = useRouter();
-const { account, logout, isAdmin, mode } = useSession();
+const { account, logout, isAdmin, mode, user } = useSession();
+const { theme, setTheme } = useTheme();
 const nasHost = ref('');
+
 // Template scope can't see compile-time globals; re-expose the define.
 const version = __APP_VERSION__;
 
-onMounted(async () => {
+const stateful = computed(() => mode.value === 'stateful');
+const darkMode = computed({
+  get: () => theme.value === 'dark',
+  set: (on: boolean) => setTheme(on ? 'dark' : 'light'),
+});
+
+const nasOpen = ref(false);
+const pwOpen = ref(false);
+
+async function loadHost(): Promise<void> {
   try {
     nasHost.value = (await api.config()).nasHost;
   } catch {
-    /* offline — the rows just stay empty */
+    /* offline — the row just stays empty */
   }
-});
+}
+onMounted(loadHost);
 
 async function onLogout(): Promise<void> {
   await logout();
@@ -40,25 +59,56 @@ async function onLogout(): Promise<void> {
 
 <template>
   <ion-page>
-    <ion-header>
+    <ion-header :translucent="true">
       <ion-toolbar>
         <ion-title>Settings</ion-title>
       </ion-toolbar>
     </ion-header>
-    <ion-content>
+    <ion-content :fullscreen="true">
+      <!-- Account -->
       <ion-list inset>
+        <ion-list-header>Account</ion-list-header>
+        <ion-item>
+          <ion-label>Signed in as</ion-label>
+          <ion-note slot="end" color="primary" data-testid="settings-account">{{ account }}</ion-note>
+        </ion-item>
+        <ion-item v-if="stateful && user" button data-testid="settings-change-password" @click="pwOpen = true">
+          <ion-label>Change password</ion-label>
+          <ion-icon slot="end" :icon="chevronForward" color="medium" />
+        </ion-item>
+      </ion-list>
+
+      <!-- Appearance -->
+      <ion-list inset>
+        <ion-list-header>Appearance</ion-list-header>
+        <ion-item>
+          <ion-toggle v-model="darkMode" data-testid="settings-dark-toggle">Dark mode</ion-toggle>
+        </ion-item>
+      </ion-list>
+
+      <!-- NAS connection (admin, stateful) — dive-in editor -->
+      <ion-list v-if="stateful && isAdmin" inset>
+        <ion-list-header>NAS connection</ion-list-header>
+        <ion-item button data-testid="settings-nas-connection" @click="nasOpen = true">
+          <ion-label>
+            <h2>Connection</h2>
+            <p>{{ nasHost || 'Configure the NAS this app talks to' }}</p>
+          </ion-label>
+          <ion-icon slot="end" :icon="chevronForward" color="medium" />
+        </ion-item>
+      </ion-list>
+
+      <!-- Legacy (stateless) mode just shows the host read-only. -->
+      <ion-list v-else-if="!stateful" inset>
+        <ion-list-header>NAS</ion-list-header>
         <ion-item>
           <ion-label>Host</ion-label>
           <ion-note slot="end" color="primary" data-testid="settings-host">{{ nasHost }}</ion-note>
         </ion-item>
-        <ion-item>
-          <ion-label>Account</ion-label>
-          <ion-note slot="end" color="primary" data-testid="settings-account">{{ account }}</ion-note>
-        </ion-item>
       </ion-list>
 
-      <!-- Opt in to download-complete push notifications (stateful mode only). -->
-      <PushOptIn v-if="mode === 'stateful'" />
+      <!-- Notifications (stateful only). -->
+      <PushOptIn v-if="stateful" />
 
       <!-- Admin-only: manage SynoDL users and their NAS folder access. -->
       <UserAdmin v-if="isAdmin" data-testid="settings-useradmin" />
@@ -70,6 +120,14 @@ async function onLogout(): Promise<void> {
       </div>
 
       <p class="version" data-testid="settings-version">v{{ version }}</p>
+
+      <NasConnectionModal :is-open="nasOpen" @dismiss="nasOpen = false" @saved="loadHost" />
+      <ChangePasswordModal
+        v-if="user"
+        :is-open="pwOpen"
+        :user-id="user.id"
+        @dismiss="pwOpen = false"
+      />
     </ion-content>
   </ion-page>
 </template>

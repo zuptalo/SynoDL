@@ -4,6 +4,11 @@ import { onUnmounted } from 'vue';
 import { useRouter } from 'vue-router';
 import { SESSION_EXPIRED_EVENT } from '@/services/api';
 import { useAppUpdate } from '@/composables/useAppUpdate';
+import { useTheme } from '@/composables/useTheme';
+
+// Apply the persisted dark/light choice at startup (the index.html pre-paint
+// covers the very first frame; this keeps the runtime palette in sync).
+useTheme();
 
 // Prompt-based updates: the toast names the waiting version; applying is the
 // user's call, never automatic (constitution Principle V).

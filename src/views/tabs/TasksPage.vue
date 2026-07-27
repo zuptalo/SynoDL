@@ -219,7 +219,7 @@ async function onDelete(id: string): Promise<void> {
 
 <template>
   <ion-page>
-    <ion-header>
+    <ion-header :translucent="true">
       <ion-toolbar>
         <ion-buttons slot="start">
           <ion-button v-if="selectMode" data-testid="select-cancel" @click="cancelSelect">Cancel</ion-button>
@@ -239,7 +239,7 @@ async function onDelete(id: string): Promise<void> {
         </ion-buttons>
       </ion-toolbar>
     </ion-header>
-    <ion-content>
+    <ion-content :fullscreen="true">
       <ion-refresher slot="fixed" @ionRefresh="onPull">
         <ion-refresher-content />
       </ion-refresher>

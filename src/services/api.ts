@@ -101,6 +101,27 @@ export interface SynoDLUser {
   isAdmin: boolean;
 }
 
+/** The non-secret NAS connection projection (no password) from GET /v1/nas/config. */
+export interface NasConfig {
+  publicUrl: string;
+  nasAddress: string;
+  nasPort: number;
+  nasTlsVerify: boolean;
+  nasAccount: string;
+  nasUses2FA: boolean;
+}
+
+/** Fields for testing/updating the NAS connection. A blank password keeps the stored one. */
+export interface NasConnInput {
+  publicUrl?: string;
+  nasAddress?: string;
+  nasPort?: number;
+  nasTlsVerify?: boolean;
+  nasAccount?: string;
+  nasPassword?: string;
+  otp?: string;
+}
+
 /** Whether the instance is stateful and, if so, whether setup has run. */
 export interface SetupState {
   stateful: boolean;
@@ -249,6 +270,12 @@ export const api = {
     request<{ token: string; user: SynoDLUser }>('/v1/session', json({ username, password })),
   me: () => request<SynoDLUser>('/v1/me'),
   nasReauth: (otp: string) => request<void>('/v1/nas/reauth', json({ otp })),
+
+  // Admin: view/edit the stored NAS connection and test it before saving
+  // (spec 1002). The password is write-only — the server never returns it.
+  getNasConfig: () => request<NasConfig>('/v1/nas/config'),
+  testNasConnection: (input: NasConnInput) => request<void>('/v1/nas/test', json(input)),
+  updateNasConfig: (input: NasConnInput) => request<void>('/v1/nas/config', jsonMethod('PUT', input)),
 
   tasks: () => request<{ tasks: Task[]; stats: Stats }>('/v1/tasks'),
 

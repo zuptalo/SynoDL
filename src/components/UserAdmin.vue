@@ -205,7 +205,7 @@ async function saveFolders(): Promise<void> {
 
   <!-- Per-user folder scope editor -->
   <ion-modal :is-open="folderOpen" @didDismiss="folderOpen = false">
-    <ion-header>
+    <ion-header :translucent="true">
       <ion-toolbar>
         <ion-title>Folders · {{ folderUsername }}</ion-title>
         <ion-buttons slot="end">

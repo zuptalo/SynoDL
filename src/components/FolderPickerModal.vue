@@ -75,7 +75,7 @@ function confirm(): void {
 
 <template>
   <ion-modal :is-open="isOpen" @didDismiss="emit('dismiss')">
-    <ion-header>
+    <ion-header :translucent="true">
       <ion-toolbar>
         <ion-buttons slot="start">
           <ion-button v-if="path" data-testid="folder-up" @click="up">Back</ion-button>
