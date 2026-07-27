@@ -13,13 +13,13 @@ Specs are grouped by category band; status moves
 
 | Spec | Title | Status |
 |------|-------|--------|
-| [0001](specs/0001-connect-tasks-mvp/spec.md) | Connect to Download Station, view tasks, and add downloads | 🔵 in-review |
+| [0001](specs/0001-connect-tasks-mvp/spec.md) | Connect to Download Station, view tasks, and add downloads | 🟢 shipped |
 
 ## ⚡ Ad-hoc (1001–1999)
 
 | Spec | Title | Status |
 |------|-------|--------|
-| [1001](specs/1001-dsm-auth-errors/spec.md) | Recognize every DSM 7 sign-in failure with its own message | 🔵 in-review |
+| [1001](specs/1001-dsm-auth-errors/spec.md) | Recognize every DSM 7 sign-in failure with its own message | 🟢 shipped |
 
 ## 🐛 Hotfixes & Bug Fixes (2001+)
 

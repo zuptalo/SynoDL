@@ -4,7 +4,7 @@
 
 **Created**: 2026-07-27
 
-**Status**: in-review
+**Status**: shipped
 <!-- SynoDL spec lifecycle: planned → in-progress → in-review → shipped. -->
 
 **Input**: User request: "Make sure the mock is implemented based on the DSM 7.3.2-86009 API specifications" + the official DSM Login Web API Guide (SYNO.API.Auth error table).
