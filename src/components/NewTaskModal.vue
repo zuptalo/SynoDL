@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import {
+  alertController,
   IonButton,
   IonButtons,
   IonChip,
@@ -18,7 +19,7 @@ import {
   IonToggle,
   IonToolbar,
 } from '@ionic/vue';
-import { folderOutline } from 'ionicons/icons';
+import { createOutline, folderOutline } from 'ionicons/icons';
 import { computed, ref, watch } from 'vue';
 import { api, ApiError } from '@/services/api';
 import { batch, extractUrls } from '@/services/url-detect';
@@ -83,6 +84,31 @@ async function pasteFromClipboard(): Promise<void> {
 function onFileChosen(event: Event): void {
   const input = event.target as HTMLInputElement;
   file.value = input.files?.[0] ?? null;
+}
+
+// Create a subfolder inside the current destination and make it the destination,
+// without leaving the new-task screen (spec 1009).
+async function newFolderHere(): Promise<void> {
+  if (!destination.value) return;
+  const alert = await alertController.create({
+    header: 'New folder',
+    subHeader: `Inside ${destination.value}`,
+    inputs: [{ name: 'name', type: 'text', placeholder: 'Folder name' }],
+    buttons: [
+      { text: 'Cancel', role: 'cancel' },
+      { text: 'Create', role: 'confirm' },
+    ],
+  });
+  await alert.present();
+  const { role, data } = await alert.onDidDismiss();
+  const name = String(data?.values?.name ?? '').trim();
+  if (role !== 'confirm' || !name) return;
+  try {
+    const { folder } = await api.createFolder(`/${destination.value}`, name);
+    destination.value = folder.path.replace(/^\//, ''); // select the new folder
+  } catch (e) {
+    error.value = messageForError(e);
+  }
 }
 
 async function submit(): Promise<void> {
@@ -161,6 +187,11 @@ async function submit(): Promise<void> {
         <ion-item button :detail="true" data-testid="newtask-destination" @click="pickerOpen = true">
           <ion-label>{{ destination || 'Default folder' }}</ion-label>
         </ion-item>
+        <!-- Quick "new subfolder here" without opening the picker (spec 1009). -->
+        <ion-item v-if="destination" button :detail="false" data-testid="newtask-newfolder" @click="newFolderHere">
+          <ion-icon slot="start" :icon="createOutline" color="primary" />
+          <ion-label color="primary">New folder in “{{ destination }}”</ion-label>
+        </ion-item>
 
         <ion-list-header><ion-label>Task URL(s)</ion-label></ion-list-header>
         <ion-item>
@@ -224,6 +255,7 @@ async function submit(): Promise<void> {
 
     <FolderPickerModal
       :is-open="pickerOpen"
+      :initial-dest="destination"
       @pick="(d) => { destination = d; pickerOpen = false; }"
       @dismiss="pickerOpen = false"
     />

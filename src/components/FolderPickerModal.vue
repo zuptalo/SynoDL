@@ -21,7 +21,7 @@ import { api } from '@/services/api';
 import { useDestinationPrefs } from '@/composables/useDestinationPrefs';
 import type { Folder } from '@/types/task';
 
-const props = defineProps<{ isOpen: boolean }>();
+const props = defineProps<{ isOpen: boolean; initialDest?: string }>();
 const emit = defineEmits<{
   // Emits the Download Station destination: the picked path without its
   // leading slash (e.g. "tv-show/Friends").
@@ -59,7 +59,10 @@ watch(
   () => props.isOpen,
   (open) => {
     if (open) {
-      path.value = '';
+      // Start browsing INSIDE the currently-selected destination (e.g. a picked
+      // favorite), not back at the share root, so drilling/creating continues
+      // from where the user already is.
+      path.value = props.initialDest ? `/${props.initialDest}` : '';
       void load();
     }
   },

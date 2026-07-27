@@ -30,6 +30,7 @@ Specs are grouped by category band; status moves
 | [1006](specs/1006-destinations/spec.md) | Destination overhaul — cancel, default, favorites, and subfolder creation | 🔵 in-review |
 | [1007](specs/1007-copy-redownload/spec.md) | Copy the download link and re-download from the detail view | 🔵 in-review |
 | [1008](specs/1008-install-guard/spec.md) | PWA install guard — sign in only from the installed app | 🔵 in-review |
+| [1009](specs/1009-destination-picker-start/spec.md) | Destination picker starts in the selected folder + task-level new folder | 🔵 in-review |
 
 ## 🐛 Hotfixes & Bug Fixes (2001+)
 
