@@ -110,6 +110,24 @@ test('create a folder in the current destination right from the task screen', as
   await expect(page.getByTestId('newtask-destination')).toContainText('movie/QuickPicks');
 });
 
+test('the folder picker search filters by a partial name match anywhere', async ({ page }) => {
+  await login(page);
+  await page.getByTestId('newtask-open').click();
+  await page.getByTestId('newtask-destination').click();
+  await expect(page.getByTestId('folder-item').first()).toBeVisible();
+
+  // "vid" matches anywhere in the name → music-video and rated-video.
+  await page.getByTestId('folder-search').locator('input').fill('vid');
+  const items = page.getByTestId('folder-item');
+  await expect(items).toHaveCount(2);
+  await expect(items.filter({ hasText: 'music-video' })).toHaveCount(1);
+  await expect(items.filter({ hasText: 'rated-video' })).toHaveCount(1);
+
+  // Clearing the search restores the full list.
+  await page.getByTestId('folder-search').locator('input').fill('');
+  await expect(items.filter({ hasText: 'home' })).toHaveCount(1);
+});
+
 test('favoriting a folder gives a one-tap quick-select chip', async ({ page }) => {
   await login(page);
   await page.getByTestId('newtask-open').click();
