@@ -45,8 +45,12 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
     }
     throw new ApiError(code, resp.status);
   }
-  if (resp.status === 204) return undefined as T;
-  return (await resp.json()) as T;
+  // Some successful responses carry no body: 204 from pause/resume/delete, and
+  // 201 Created from task-create. Parsing an empty body as JSON throws, so read
+  // the text once and only parse when there is something to parse — otherwise a
+  // successfully created task surfaced as a false "Could not reach the server."
+  const text = await resp.text();
+  return (text ? (JSON.parse(text) as T) : (undefined as T));
 }
 
 function json(body: unknown): RequestInit {
