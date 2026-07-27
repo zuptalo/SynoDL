@@ -35,6 +35,24 @@ test('multi-URL input counts links, creates one task per URL with the picked des
   await expect(items.filter({ hasText: 'one.iso' })).toHaveCount(1);
 });
 
+test('a large mixed-delimiter paste is parsed and added in batches of ten', async ({ page }) => {
+  await login(page);
+  await page.getByTestId('newtask-open').click();
+
+  // 12 links separated by a mix of commas, semicolons, spaces, tabs, newlines.
+  const urls = Array.from({ length: 12 }, (_, i) => `http://mirror.example/file${i}.iso`);
+  const blob =
+    urls.slice(0, 5).join(', ') + '; ' + urls.slice(5, 9).join('\n') + '\t' + urls.slice(9).join(' ');
+  await page.getByTestId('newtask-urls').locator('textarea').fill(blob);
+  await expect(page.getByTestId('newtask-count')).toHaveText('12 links detected');
+
+  await page.getByTestId('newtask-submit').click();
+  // Sent as two batches (10 + 2); all 12 must land with no error.
+  await expect(page.getByTestId('newtask-submit')).toBeHidden();
+  await expect(page.getByTestId('newtask-error')).toHaveCount(0);
+  await expect(page.getByTestId('task-item')).toHaveCount(12);
+});
+
 test('junk-only input keeps the confirm button disabled', async ({ page }) => {
   await login(page);
   await page.getByTestId('newtask-open').click();

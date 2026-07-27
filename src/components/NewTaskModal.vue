@@ -18,7 +18,7 @@ import {
 } from '@ionic/vue';
 import { computed, ref, watch } from 'vue';
 import { api, ApiError } from '@/services/api';
-import { extractUrls } from '@/services/url-detect';
+import { batch, extractUrls } from '@/services/url-detect';
 import { messageForError } from '@/services/syno-errors';
 import FolderPickerModal from '@/components/FolderPickerModal.vue';
 
@@ -39,6 +39,11 @@ const unzipPassword = ref('');
 const file = ref<File | null>(null);
 const busy = ref(false);
 const error = ref('');
+const progress = ref('');
+
+// Download Station caps how many URLs one create request accepts, so a bulk
+// paste is sent in batches (spec 1005).
+const BATCH_SIZE = 10;
 
 const urls = computed(() => extractUrls(text.value));
 const canSubmit = computed(() => !busy.value && (urls.value.length > 0 || file.value !== null));
@@ -77,14 +82,24 @@ function onFileChosen(event: Event): void {
 async function submit(): Promise<void> {
   busy.value = true;
   error.value = '';
+  progress.value = '';
   try {
     if (urls.value.length > 0) {
-      await api.createTaskURIs(urls.value, {
+      const opts = {
         destination: destination.value || undefined,
         username: withCredentials.value ? username.value : undefined,
         password: withCredentials.value ? password.value : undefined,
         unzipPassword: withExtract.value ? unzipPassword.value : undefined,
-      });
+      };
+      const chunks = batch(urls.value, BATCH_SIZE);
+      let added = 0;
+      for (const chunk of chunks) {
+        // Sequential so a mid-batch failure reports how many already landed
+        // rather than firing them all and losing the boundary.
+        await api.createTaskURIs(chunk, opts);
+        added += chunk.length;
+        if (chunks.length > 1) progress.value = `Added ${added} of ${urls.value.length}…`;
+      }
     }
     if (file.value) {
       await api.createTaskFile(file.value, {
@@ -100,6 +115,7 @@ async function submit(): Promise<void> {
         : messageForError(e);
   } finally {
     busy.value = false;
+    progress.value = '';
   }
 }
 </script>
@@ -178,6 +194,9 @@ async function submit(): Promise<void> {
         </ion-item>
       </ion-list>
 
+      <ion-note v-if="progress" color="medium" class="ion-padding" data-testid="newtask-progress">
+        {{ progress }}
+      </ion-note>
       <ion-note v-if="error" color="danger" class="ion-padding" data-testid="newtask-error">
         {{ error }}
       </ion-note>

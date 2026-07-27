@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { extractUrls } from './url-detect';
+import { batch, extractUrls } from './url-detect';
 
 describe('extractUrls', () => {
   it('extracts one URL per line', () => {
@@ -47,5 +47,37 @@ describe('extractUrls', () => {
   it('magnet links keep their query intact (no whitespace inside)', () => {
     const magnet = 'magnet:?xt=urn:btih:abc&dn=My%20File&tr=udp%3A%2F%2Ft.example%3A80';
     expect(extractUrls(`${magnet}\n`)).toEqual([magnet]);
+  });
+
+  it('splits bulk pastes on commas, semicolons, and tabs too (spec 1005)', () => {
+    expect(extractUrls('https://a/1,https://b/2;https://c/3\thttps://d/4')).toEqual([
+      'https://a/1',
+      'https://b/2',
+      'https://c/3',
+      'https://d/4',
+    ]);
+    // Mixed and repeated delimiters collapse.
+    expect(extractUrls('https://a/1 , ; https://b/2')).toEqual(['https://a/1', 'https://b/2']);
+  });
+});
+
+describe('batch', () => {
+  it('splits into fixed-size chunks (last chunk may be shorter)', () => {
+    expect(batch([1, 2, 3, 4, 5], 2)).toEqual([[1, 2], [3, 4], [5]]);
+  });
+
+  it('groups bulk URLs into batches of ten', () => {
+    const urls = Array.from({ length: 23 }, (_, i) => `https://x/${i}`);
+    const chunks = batch(urls, 10);
+    expect(chunks.map((c) => c.length)).toEqual([10, 10, 3]);
+  });
+
+  it('an empty list yields no chunks', () => {
+    expect(batch([], 10)).toEqual([]);
+  });
+
+  it('a non-positive size yields a single chunk (or none when empty)', () => {
+    expect(batch([1, 2, 3], 0)).toEqual([[1, 2, 3]]);
+    expect(batch([], 0)).toEqual([]);
   });
 });

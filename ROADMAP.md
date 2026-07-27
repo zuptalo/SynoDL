@@ -25,6 +25,7 @@ Specs are grouped by category band; status moves
 | [1001](specs/1001-dsm-auth-errors/spec.md) | Recognize every DSM 7 sign-in failure with its own message | 🟢 shipped |
 | [1002](specs/1002-admin-settings/spec.md) | Admin settings — edit & test the NAS connection, change password, themes, and glass UI | 🔵 in-review |
 | [1003](specs/1003-update-page/spec.md) | In-app update page — what's new, one-tap OK, and self-healing apply | 🔵 in-review |
+| [1005](specs/1005-bulk-urls/spec.md) | Bulk-paste URLs with mixed delimiters, added in batches | 🔵 in-review |
 
 ## 🐛 Hotfixes & Bug Fixes (2001+)
 
