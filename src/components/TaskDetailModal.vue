@@ -9,16 +9,21 @@ import {
   IonButton,
   IonButtons,
   IonContent,
+  IonFooter,
   IonHeader,
+  IonIcon,
   IonItem,
   IonLabel,
   IonList,
   IonModal,
   IonNote,
   IonTitle,
+  IonToast,
   IonToolbar,
 } from '@ionic/vue';
-import { computed } from 'vue';
+import { copyOutline, refreshOutline } from 'ionicons/icons';
+import { computed, ref } from 'vue';
+import { api } from '@/services/api';
 import type { Task } from '@/types/task';
 import { formatBytes, formatDate, formatSpeed, formatPercent } from '@/utils/format';
 import { reasonFor } from '@/services/task-error';
@@ -29,6 +34,36 @@ defineEmits<{ (e: 'dismiss'): void }>();
 const reason = computed(() =>
   props.task?.status === 'error' ? reasonFor(props.task.errorDetail ?? '') : '',
 );
+
+// Re-download makes sense for a task that has finished or failed and still knows
+// its source link (spec 1007).
+const canRedownload = computed(
+  () => !!props.task?.uri && ['finished', 'error'].includes(props.task?.status ?? ''),
+);
+
+const toast = ref('');
+
+async function copyLink(): Promise<void> {
+  if (!props.task?.uri) return;
+  try {
+    await navigator.clipboard.writeText(props.task.uri);
+    toast.value = 'Link copied.';
+  } catch {
+    toast.value = 'Could not copy the link.';
+  }
+}
+
+async function redownload(): Promise<void> {
+  if (!props.task?.uri) return;
+  try {
+    await api.createTaskURIs([props.task.uri], {
+      destination: props.task.destination || undefined,
+    });
+    toast.value = 'Re-download started.';
+  } catch {
+    toast.value = 'Could not start the re-download.';
+  }
+}
 </script>
 
 <template>
@@ -70,6 +105,15 @@ const reason = computed(() =>
             <h2 data-testid="detail-destination">{{ task.destination || '—' }}</h2>
           </ion-label>
         </ion-item>
+        <ion-item v-if="task.uri">
+          <ion-label class="ion-text-wrap">
+            <p>Link</p>
+            <h2 data-testid="detail-uri">{{ task.uri }}</h2>
+          </ion-label>
+          <ion-button slot="end" fill="clear" data-testid="detail-copy" @click="copyLink">
+            <ion-icon slot="icon-only" :icon="copyOutline" />
+          </ion-button>
+        </ion-item>
         <ion-item>
           <ion-label>
             <p>Created</p>
@@ -105,9 +149,30 @@ const reason = computed(() =>
           <ion-note slot="end">{{ task.type }}</ion-note>
         </ion-item>
       </ion-list>
+      <ion-toast
+        :is-open="!!toast"
+        :message="toast"
+        :duration="1800"
+        position="top"
+        @didDismiss="toast = ''"
+      />
     </ion-content>
+    <ion-footer v-if="canRedownload" :translucent="true">
+      <ion-toolbar>
+        <ion-button expand="block" class="redownload" data-testid="detail-redownload" @click="redownload">
+          <ion-icon slot="start" :icon="refreshOutline" />
+          Re-download
+        </ion-button>
+      </ion-toolbar>
+    </ion-footer>
   </ion-modal>
 </template>
+
+<style scoped>
+.redownload {
+  margin: 0.4rem 0.6rem;
+}
+</style>
 
 <style scoped>
 .gone {

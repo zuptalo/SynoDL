@@ -21,6 +21,7 @@ export interface TaskFixture {
   seeders?: number;
   createdAt?: number;
   destination?: string;
+  uri?: string;
 }
 
 /** Restore the mock's default fixtures and drop all sessions. */

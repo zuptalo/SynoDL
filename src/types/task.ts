@@ -15,6 +15,7 @@ export interface Task {
   seeders: number;
   createdAt: number; // unix seconds
   destination: string;
+  uri?: string; // source URL/magnet, for copy + re-download
   errorDetail?: string; // DSM status_extra.error_detail for errored tasks (raw keyword)
 }
 

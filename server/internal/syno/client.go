@@ -47,6 +47,7 @@ type Task struct {
 	Seeders       int    `json:"seeders"`
 	CreatedAt     int64  `json:"createdAt"` // unix seconds
 	Destination   string `json:"destination"`
+	URI           string `json:"uri,omitempty"`         // source URL/magnet, for copy + re-download
 	ErrorDetail   string `json:"errorDetail,omitempty"` // DSM status_extra.error_detail for errored tasks
 }
 

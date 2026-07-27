@@ -47,6 +47,7 @@ type Task struct {
 	Seeders     int    `json:"seeders"`
 	CreatedAt   int64  `json:"createdAt"` // unix seconds; 0 = now
 	Destination string `json:"destination"`
+	URI         string `json:"uri"`         // source URL/magnet
 	ErrorDetail string `json:"errorDetail"` // DSM status_extra.error_detail keyword, e.g. "broken_link"
 
 	resumedAt      time.Time
@@ -268,7 +269,7 @@ func (s *Server) handleTask(w http.ResponseWriter, r *http.Request) {
 				"size": t.Size, "username": "admin",
 				"additional": map[string]any{
 					"detail": map[string]any{
-						"create_time": t.CreatedAt, "destination": t.Destination,
+						"create_time": t.CreatedAt, "destination": t.Destination, "uri": t.URI,
 						"connected_peers": t.Peers, "connected_seeders": t.Seeders,
 					},
 					"transfer": map[string]any{
@@ -286,27 +287,28 @@ func (s *Server) handleTask(w http.ResponseWriter, r *http.Request) {
 		}
 		ok(w, map[string]any{"tasks": tasks, "total": len(tasks)})
 	case "create":
-		var names []string
+		type mk struct{ name, uri string }
+		var items []mk
 		if uri := r.FormValue("uri"); uri != "" {
 			for _, u := range strings.Split(uri, ",") {
-				names = append(names, taskNameFromURI(u))
+				items = append(items, mk{taskNameFromURI(u), strings.TrimSpace(u)})
 			}
 		}
 		if r.MultipartForm != nil && len(r.MultipartForm.File["file"]) > 0 {
-			names = append(names, r.MultipartForm.File["file"][0].Filename)
+			items = append(items, mk{r.MultipartForm.File["file"][0].Filename, ""})
 		}
-		if len(names) == 0 {
+		if len(items) == 0 {
 			fail(w, 101)
 			return
 		}
-		for _, name := range names {
+		for _, it := range items {
 			s.nextID++
 			s.tasks = append(s.tasks, &Task{
-				ID: fmt.Sprintf("dbid_%03d", s.nextID), Name: name, Type: "bt",
+				ID: fmt.Sprintf("dbid_%03d", s.nextID), Name: it.name, Type: "bt",
 				Status: "downloading", Size: 1_073_741_824, Rate: 25_000_000,
 				Peers: 5, Seeders: 20, CreatedAt: s.now().Unix(),
-				Destination: r.FormValue("destination"),
-				resumedAt:   s.now(),
+				Destination: r.FormValue("destination"), URI: it.uri,
+				resumedAt: s.now(),
 			})
 		}
 		ok(w, nil)
