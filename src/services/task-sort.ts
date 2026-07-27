@@ -85,7 +85,10 @@ function remainingOf(t: Task): number {
 function keyOf(t: Task, key: SortKey): number | string {
   switch (key) {
     case 'createdAt':
-      return t.createdAt;
+      // A brand-new task can momentarily have no create_time from DSM; treat an
+      // unknown creation time as "newest" so a just-added download tops the
+      // default (descending) sort rather than sinking to the bottom.
+      return t.createdAt > 0 ? t.createdAt : Number.MAX_SAFE_INTEGER;
     case 'status':
       return STATUS_RANK[t.status] ?? UNKNOWN_STATUS_RANK;
     case 'size':
@@ -105,6 +108,24 @@ function keyOf(t: Task, key: SortKey): number | string {
     case 'remaining':
       return remainingOf(t);
   }
+}
+
+// idNum extracts the trailing numeric part of a DSM task id (e.g. "dbid_12" → 12)
+// so tie-breaks reflect insertion order rather than lexicographic order (where
+// "dbid_10" wrongly precedes "dbid_2").
+function idNum(t: Task): number {
+  const m = /(\d+)\s*$/.exec(t.id);
+  return m ? Number(m[1]) : Number.NaN;
+}
+
+// newerFirst orders the more-recently-added task first — the tie-break that keeps
+// a just-added download at the top even when creation times tie or are absent.
+function newerFirst(a: Task, b: Task): number {
+  const na = idNum(a);
+  const nb = idNum(b);
+  if (!Number.isNaN(na) && !Number.isNaN(nb) && na !== nb) return nb - na;
+  if (a.id !== b.id) return a.id < b.id ? 1 : -1;
+  return 0;
 }
 
 /** Filter by term + statuses, then sort. Never mutates the input. */
@@ -129,10 +150,10 @@ export function applyTaskFilter(tasks: Task[], filter: TaskFilterState): Task[] 
       const aInf = ka === Infinity;
       const bInf = kb === Infinity;
       if (aInf !== bInf) return aInf ? 1 : -1;
-      if (aInf && bInf) return a.id < b.id ? -1 : 1;
+      if (aInf && bInf) return newerFirst(a, b);
     }
     if (ka < kb) return -1 * dir;
     if (ka > kb) return 1 * dir;
-    return a.id < b.id ? -1 : a.id > b.id ? 1 : 0; // stable tie-break by id
+    return newerFirst(a, b); // stable tie-break: newest-added first
   });
 }

@@ -66,8 +66,8 @@ describe('applyTaskFilter — sorting', () => {
 
   it('sorts by progress (size 0 counts as 0 progress)', () => {
     const withZero = [...mixed, task({ id: 'z', size: 0, downloaded: 0 })];
-    // progress: a=1, b=0.5, c=0.5 (b,c tie → id order), z=0
-    expect(ids(applyTaskFilter(withZero, f({ sortKey: 'progress', ascending: false })))).toEqual(['a', 'b', 'c', 'z']);
+    // progress: a=1, b=0.5, c=0.5 (b,c tie → newest-first id desc), z=0
+    expect(ids(applyTaskFilter(withZero, f({ sortKey: 'progress', ascending: false })))).toEqual(['a', 'c', 'b', 'z']);
   });
 
   it('sorts by remaining time with unknown (no speed / no size) always last', () => {
@@ -77,15 +77,15 @@ describe('applyTaskFilter — sorting', () => {
       task({ id: 'stalled', size: 1000, downloaded: 0, downloadSpeed: 0 }), // unknown
       task({ id: 'meta', size: 0, downloaded: 0, downloadSpeed: 50 }), // unknown
     ];
-    // Unknowns settle among themselves by id (deterministic, input-order-free).
-    expect(ids(applyTaskFilter(tasks, f({ sortKey: 'remaining', ascending: true })))).toEqual(['fast', 'slow', 'meta', 'stalled']);
+    // Unknowns settle among themselves newest-first by id (deterministic).
+    expect(ids(applyTaskFilter(tasks, f({ sortKey: 'remaining', ascending: true })))).toEqual(['fast', 'slow', 'stalled', 'meta']);
     // Unknown stays last even descending — it's "no estimate", not "longest".
-    expect(ids(applyTaskFilter(tasks, f({ sortKey: 'remaining', ascending: false })))).toEqual(['slow', 'fast', 'meta', 'stalled']);
+    expect(ids(applyTaskFilter(tasks, f({ sortKey: 'remaining', ascending: false })))).toEqual(['slow', 'fast', 'stalled', 'meta']);
   });
 
-  it('breaks ties stably by id', () => {
+  it('breaks ties newest-first by id (stable)', () => {
     const tied = [task({ id: 'x', size: 5 }), task({ id: 'y', size: 5 }), task({ id: 'w', size: 5 })];
-    expect(ids(applyTaskFilter(tied, f({ sortKey: 'size', ascending: true })))).toEqual(['w', 'x', 'y']);
+    expect(ids(applyTaskFilter(tied, f({ sortKey: 'size', ascending: true })))).toEqual(['y', 'x', 'w']);
   });
 
   it('sorts by status in lifecycle order', () => {
@@ -113,8 +113,8 @@ describe('applyTaskFilter — term + status filters', () => {
   });
 
   it('status multi-select keeps only enabled statuses', () => {
-    // All createdAt tie → id order ('m' < 'u') under the default sort.
-    expect(ids(applyTaskFilter(tasks, f({ statuses: ['downloading', 'paused'] })))).toEqual(['m', 'u']);
+    // All createdAt tie → newest-first id desc ('u' before 'm').
+    expect(ids(applyTaskFilter(tasks, f({ statuses: ['downloading', 'paused'] })))).toEqual(['u', 'm']);
     expect(ids(applyTaskFilter(tasks, f({ statuses: [] })))).toEqual([]);
   });
 
@@ -132,5 +132,27 @@ describe('defaults', () => {
     expect(d.term).toBe('');
     expect(d.statuses).toEqual(ALL_STATUSES);
     expect(ALL_STATUSES).toHaveLength(12);
+  });
+});
+
+describe('applyTaskFilter — newest-first default tie-break', () => {
+  it('puts the higher NAS id first when creation times tie (default sort)', () => {
+    const tasks = [
+      task({ id: 'dbid_2', createdAt: 100 }),
+      task({ id: 'dbid_10', createdAt: 100 }),
+      task({ id: 'dbid_1', createdAt: 100 }),
+    ];
+    // Default is createdAt desc; equal createdAt → highest (newest) id first,
+    // numeric — not lexicographic (which would order dbid_10 before dbid_2).
+    const out = applyTaskFilter(tasks, defaultTaskFilter()).map((t) => t.id);
+    expect(out).toEqual(['dbid_10', 'dbid_2', 'dbid_1']);
+  });
+
+  it('a just-added task with no creation time still sorts to the top', () => {
+    const tasks = [
+      task({ id: 'dbid_5', createdAt: 500 }),
+      task({ id: 'dbid_9', createdAt: 0 }), // brand new; NAS create_time not set yet
+    ];
+    expect(applyTaskFilter(tasks, defaultTaskFilter())[0].id).toBe('dbid_9');
   });
 });

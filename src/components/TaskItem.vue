@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import {
+  IonCheckbox,
   IonIcon,
   IonItem,
   IonItemOption,
@@ -13,12 +14,18 @@ import { computed } from 'vue';
 import type { Task } from '@/types/task';
 import { formatBytes, formatEta, formatPercent, formatSpeed, progressOf } from '@/utils/format';
 
-const props = defineProps<{ task: Task }>();
+const props = defineProps<{ task: Task; selectMode?: boolean; selected?: boolean }>();
 const emit = defineEmits<{
   (e: 'pause', id: string): void;
   (e: 'resume', id: string): void;
   (e: 'delete', id: string): void;
+  (e: 'toggle', id: string): void;
 }>();
+
+// In selection mode, tapping the row toggles selection (swipe actions are off).
+function onRowClick(): void {
+  if (props.selectMode) emit('toggle', props.task.id);
+}
 
 // Pause only makes sense for active work; resume only for paused.
 const canPause = computed(() =>
@@ -49,8 +56,15 @@ const eta = computed(() =>
 </script>
 
 <template>
-  <ion-item-sliding>
-    <ion-item :detail="false" data-testid="task-item">
+  <ion-item-sliding :disabled="selectMode">
+    <ion-item :detail="false" :button="selectMode" data-testid="task-item" @click="onRowClick">
+      <ion-checkbox
+        v-if="selectMode"
+        slot="start"
+        :checked="selected"
+        aria-label="Select task"
+        data-testid="task-select"
+      />
       <ion-label>
         <h2 class="name">{{ task.name }}</h2>
         <div class="meta">
