@@ -21,6 +21,9 @@ export class ApiError extends Error {
 /** Fires when any request comes back 401 "session" — the sid is dead. */
 export const SESSION_EXPIRED_EVENT = 'synodl:session-expired';
 
+/** Fires when the NAS connection needs an admin 2FA re-auth (503 nas_reauth). */
+export const NAS_REAUTH_EVENT = 'synodl:nas-reauth';
+
 // Two auth mechanisms coexist during the 0003 transition: the legacy NAS sid
 // (X-Syno-Sid, stateless mode) and the SynoDL session token (X-SynoDL-Session,
 // stateful mode). Only one is ever set; both headers are attached harmlessly and
@@ -53,6 +56,9 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
     }
     if (resp.status === 401 && code === 'session' && (currentSid || currentToken)) {
       window.dispatchEvent(new CustomEvent(SESSION_EXPIRED_EVENT));
+    }
+    if (resp.status === 503 && code === 'nas_reauth') {
+      window.dispatchEvent(new CustomEvent(NAS_REAUTH_EVENT));
     }
     throw new ApiError(code, resp.status);
   }

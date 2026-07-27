@@ -79,6 +79,14 @@ func (m *Manager) current(ctx context.Context) (syno.Client, string, error) {
 		return nil, "", err
 	}
 	if m.sid == "" {
+		// Resume the persisted session first so a restart/deploy doesn't force a
+		// re-login (which a 2FA account can't do unattended). A stale cached sid
+		// just fails on first use and falls through to re-auth via Do/Invalidate.
+		if s, _ := m.store.GetNASSID(); s != "" {
+			m.sid = s
+		}
+	}
+	if m.sid == "" {
 		if cfg.NASUses2FA {
 			return nil, "", ErrNeedsReauth
 		}
@@ -87,6 +95,7 @@ func (m *Manager) current(ctx context.Context) (syno.Client, string, error) {
 			return nil, "", err
 		}
 		m.sid = sid
+		_ = m.store.SaveNASSID(sid)
 	}
 	return client, m.sid, nil
 }
@@ -111,6 +120,7 @@ func (m *Manager) Reauth(ctx context.Context, otp string) error {
 		return err
 	}
 	m.sid = sid
+	_ = m.store.SaveNASSID(sid)
 	return nil
 }
 
@@ -119,6 +129,7 @@ func (m *Manager) Reauth(ctx context.Context, otp string) error {
 func (m *Manager) Invalidate() {
 	m.mu.Lock()
 	m.sid = ""
+	_ = m.store.ClearNASSID()
 	m.mu.Unlock()
 }
 

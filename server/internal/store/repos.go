@@ -48,6 +48,42 @@ func (s *Store) DeleteOperatorConfig() error {
 	return err
 }
 
+// SaveNASSID caches the current DSM session id, encrypted, so a restart can
+// resume it instead of forcing a re-login (which a 2FA account can't do
+// unattended). No-op if setup hasn't run.
+func (s *Store) SaveNASSID(sid string) error {
+	enc, err := s.cipher.Seal([]byte(sid))
+	if err != nil {
+		return err
+	}
+	_, err = s.db.Exec(`UPDATE operator_config SET nas_sid_enc = ? WHERE id = 1`, enc)
+	return err
+}
+
+// GetNASSID returns the cached session id ("" if none/undecryptable — the
+// caller just re-authenticates).
+func (s *Store) GetNASSID() (string, error) {
+	var enc []byte
+	err := s.db.QueryRow(`SELECT nas_sid_enc FROM operator_config WHERE id = 1`).Scan(&enc)
+	if errors.Is(err, sql.ErrNoRows) || len(enc) == 0 {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	pt, err := s.cipher.Open(enc)
+	if err != nil {
+		return "", nil // stale/wrong-key cache: treat as none
+	}
+	return string(pt), nil
+}
+
+// ClearNASSID drops the cached session id (on expiry).
+func (s *Store) ClearNASSID() error {
+	_, err := s.db.Exec(`UPDATE operator_config SET nas_sid_enc = NULL WHERE id = 1`)
+	return err
+}
+
 // SaveOperatorConfig upserts the singleton, encrypting the NAS password.
 func (s *Store) SaveOperatorConfig(c OperatorConfig) error {
 	enc, err := s.cipher.Seal([]byte(c.NASPassword))

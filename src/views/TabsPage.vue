@@ -1,10 +1,13 @@
 <script setup lang="ts">
 import { IonIcon, IonLabel, IonPage, IonRouterOutlet, IonTabBar, IonTabButton, IonTabs } from '@ionic/vue';
 import { downloadOutline, globeOutline, logoRss, optionsOutline, searchOutline } from 'ionicons/icons';
+import NasReauthGate from '@/components/NasReauthGate.vue';
 </script>
 
 <template>
   <ion-page>
+    <!-- Global: prompts an admin to re-enter a 2FA code when the NAS session expires. -->
+    <NasReauthGate />
     <ion-tabs>
       <ion-router-outlet />
       <ion-tab-bar slot="bottom">

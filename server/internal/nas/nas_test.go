@@ -136,3 +136,31 @@ func TestDoReauthenticatesOnExpiredSession(t *testing.T) {
 		t.Fatalf("expected 2 fn calls and 2 logins (initial + re-auth); got calls=%d logins=%d", calls, sc.logins)
 	}
 }
+
+func TestSIDResumesPersistedSessionAcrossRestart(t *testing.T) {
+	c, _ := store.NewCipher("kdf-input-for-tests")
+	st, _ := store.Open(filepath.Join(t.TempDir(), "db.sqlite"), c)
+	t.Cleanup(func() { _ = st.Close() })
+	_ = st.SaveOperatorConfig(store.OperatorConfig{
+		NASAddress: "mock", NASPort: 5001, NASAccount: "otpuser", NASPassword: dsmMockValue, NASUses2FA: true,
+	})
+	srv := httptest.NewServer(synomock.New().Handler())
+	t.Cleanup(srv.Close)
+	factory := func(string, bool) syno.Client { return syno.NewHTTPClient(srv.URL, false) }
+
+	// First manager: a 2FA account needs an admin re-auth to establish a session.
+	m1 := New(st, factory)
+	if _, err := m1.SID(context.Background()); !errors.Is(err, ErrNeedsReauth) {
+		t.Fatalf("first SID = %v, want ErrNeedsReauth", err)
+	}
+	if err := m1.Reauth(context.Background(), "000000"); err != nil {
+		t.Fatalf("Reauth: %v", err)
+	}
+
+	// A second manager (simulating a pod restart) over the SAME store resumes the
+	// persisted session — no re-auth prompt this time.
+	m2 := New(st, factory)
+	if sid, err := m2.SID(context.Background()); err != nil || sid == "" {
+		t.Fatalf("restarted manager SID = %q, %v; want the persisted session (no reauth)", sid, err)
+	}
+}
