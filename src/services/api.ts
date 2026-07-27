@@ -21,16 +21,27 @@ export class ApiError extends Error {
 /** Fires when any request comes back 401 "session" — the sid is dead. */
 export const SESSION_EXPIRED_EVENT = 'synodl:session-expired';
 
+// Two auth mechanisms coexist during the 0003 transition: the legacy NAS sid
+// (X-Syno-Sid, stateless mode) and the SynoDL session token (X-SynoDL-Session,
+// stateful mode). Only one is ever set; both headers are attached harmlessly and
+// the server reads whichever its mode uses.
 let currentSid = '';
+let currentToken = '';
 
 /** The api module holds the sid for outbound requests; useSession owns persistence. */
 export function setSid(sid: string): void {
   currentSid = sid;
 }
 
+/** Stateful mode: the SynoDL session token attached as X-SynoDL-Session. */
+export function setSessionToken(token: string): void {
+  currentToken = token;
+}
+
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   const headers = new Headers(init.headers);
   if (currentSid) headers.set('X-Syno-Sid', currentSid);
+  if (currentToken) headers.set('X-SynoDL-Session', currentToken);
   const resp = await fetch(path, { ...init, headers });
   if (!resp.ok) {
     let code = `http_${resp.status}`;
@@ -40,7 +51,7 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
     } catch {
       /* non-JSON error body — keep the status code */
     }
-    if (resp.status === 401 && code === 'session' && currentSid) {
+    if (resp.status === 401 && code === 'session' && (currentSid || currentToken)) {
       window.dispatchEvent(new CustomEvent(SESSION_EXPIRED_EVENT));
     }
     throw new ApiError(code, resp.status);
@@ -61,13 +72,59 @@ function json(body: unknown): RequestInit {
   };
 }
 
+/** A SynoDL account (stateful mode). */
+export interface SynoDLUser {
+  id: number;
+  username: string;
+  isAdmin: boolean;
+}
+
+/** Whether the instance is stateful and, if so, whether setup has run. */
+export interface SetupState {
+  stateful: boolean;
+  configured: boolean;
+  prefillNasUrl?: string;
+}
+
+/** Fields the first-run wizard collects. */
+export interface SetupPayload {
+  publicUrl: string;
+  nasAddress: string;
+  nasPort: number;
+  nasTlsVerify: boolean;
+  nasAccount: string;
+  nasPassword: string;
+  otp?: string;
+  adminUsername: string;
+  adminPassword: string;
+}
+
 export const api = {
   config: () => request<ServerConfig>('/v1/config'),
 
+  // Legacy stateless mode: authenticate to the NAS, carry the sid.
   login: (account: string, password: string, otp?: string) =>
     request<{ sid: string; account: string }>('/v1/session', json({ account, password, otp })),
 
   logout: () => request<void>('/v1/session', { method: 'DELETE' }),
+
+  // Stateful mode (spec 0003): setup wizard + SynoDL accounts.
+  // setupState probes /v1/setup/state; a 404 means the server is in legacy mode.
+  setupState: async (): Promise<SetupState> => {
+    try {
+      const s = await request<{ configured: boolean; prefillNasUrl?: string }>('/v1/setup/state');
+      return { stateful: true, configured: s.configured, prefillNasUrl: s.prefillNasUrl };
+    } catch (e) {
+      if (e instanceof ApiError && e.status === 404) return { stateful: false, configured: false };
+      throw e;
+    }
+  },
+  submitSetup: (p: SetupPayload) =>
+    request<{ token: string; user: SynoDLUser }>('/v1/setup', json(p)),
+  synodlLogin: (username: string, password: string) =>
+    request<{ token: string; user: SynoDLUser }>('/v1/session', json({ username, password })),
+  me: () => request<SynoDLUser>('/v1/me'),
+  nasReauth: (otp: string) => request<void>('/v1/nas/reauth', json({ otp })),
 
   tasks: () => request<{ tasks: Task[]; stats: Stats }>('/v1/tasks'),
 

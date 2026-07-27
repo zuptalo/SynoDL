@@ -69,19 +69,24 @@ LABEL org.opencontainers.image.source="https://github.com/zuptalo/synodl" \
       org.opencontainers.image.title="SynoDL" \
       org.opencontainers.image.description="Mobile-first PWA client for Synology Download Station — stateless credential-free proxy and PWA in a single image." \
       org.opencontainers.image.vendor="Zuptalo"
-# ca-certificates: outbound TLS to the NAS. wget: healthcheck.
+# ca-certificates: outbound TLS to the NAS. wget: healthcheck. The synodl user is
+# pinned to uid/gid 1000 so a Kubernetes fsGroup can make the mounted data volume
+# (stateful mode, spec 0003) writable by the non-root process.
 RUN apk add --no-cache ca-certificates wget tzdata \
-    && addgroup -S synodl && adduser -S -G synodl -h /app synodl
+    && addgroup -g 1000 -S synodl && adduser -u 1000 -S -G synodl -h /app synodl
 WORKDIR /app
 COPY --from=server /out/synodl /app/synodl
 COPY --from=web /web/dist /app/web
-RUN chown -R synodl:synodl /app
-# STATIC_DIR turns on single-container mode (synodl serves /app/web at /). The
-# container is stateless — no volume is ever needed; SYNO_URL is the only
-# required setting.
+# /data is the mount point for the stateful SQLite volume; owned by synodl so the
+# database is writable when a volume is mounted (unused in legacy mode).
+RUN chown -R synodl:synodl /app && mkdir -p /data && chown synodl:synodl /data
+# STATIC_DIR turns on single-container mode (synodl serves /app/web at /).
+# DATA_DIR is where the SQLite database lives when SECRETS_KEY enables stateful
+# mode; harmless (unused) otherwise.
 ENV ENV=production \
     PORT=8080 \
-    STATIC_DIR=/app/web
+    STATIC_DIR=/app/web \
+    DATA_DIR=/data
 USER synodl
 EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \

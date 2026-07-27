@@ -82,7 +82,10 @@ func Load() (Config, error) {
 	}
 
 	var missing []string
-	if cfg.SynoURL == "" {
+	// SYNO_URL is required only in legacy (stateless) mode. When SECRETS_KEY is
+	// set the server runs stateful (spec 0003): the NAS connection comes from the
+	// setup wizard, not the environment.
+	if cfg.SecretsKey == "" && cfg.SynoURL == "" {
 		missing = append(missing, "SYNO_URL")
 	}
 	if len(missing) > 0 {
