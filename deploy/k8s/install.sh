@@ -27,7 +27,10 @@
 set -euo pipefail
 
 : "${APP_HOST:?set APP_HOST, e.g. APP_HOST=synodl.example.com}"
-: "${SYNO_URL:?set SYNO_URL, e.g. SYNO_URL=https://nas.local:5001 (reachable from the cluster)}"
+# SYNO_URL is OPTIONAL in stateful mode (the default): the NAS is configured in
+# the first-run wizard, not via env. It's only needed for legacy stateless mode
+# (STATELESS=true), or as a one-time wizard prefill. Defaults to empty.
+: "${SYNO_URL:=}"
 : "${SYNO_TLS_INSECURE:=false}"
 KUBECTL="${KUBECTL:-kubectl}"
 DIR="$(cd "$(dirname "$0")" && pwd)"

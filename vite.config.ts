@@ -88,7 +88,7 @@ export default defineConfig({
         name: 'SynoDL',
         short_name: 'SynoDL',
         description: 'Mobile client for Synology Download Station',
-        theme_color: '#f97316',
+        theme_color: '#10b981',
         background_color: '#0a0a0a',
         display: 'standalone',
         id: '/',

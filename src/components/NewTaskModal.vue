@@ -106,7 +106,7 @@ async function submit(): Promise<void> {
 
 <template>
   <ion-modal :is-open="isOpen" @didDismiss="emit('dismiss')">
-    <ion-header>
+    <ion-header :translucent="true">
       <ion-toolbar>
         <ion-buttons slot="start">
           <ion-button data-testid="newtask-cancel" @click="emit('dismiss')">Cancel</ion-button>

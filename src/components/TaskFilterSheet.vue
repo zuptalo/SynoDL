@@ -91,7 +91,7 @@ function apply(): void {
 
 <template>
   <ion-modal :is-open="isOpen" :initial-breakpoint="0.85" :breakpoints="[0, 0.85, 1]" @didDismiss="emit('dismiss')">
-    <ion-header>
+    <ion-header :translucent="true">
       <ion-toolbar>
         <ion-title>Filters</ion-title>
         <ion-buttons slot="end">

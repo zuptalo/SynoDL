@@ -22,7 +22,7 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
 const PUB = join(dirname(fileURLToPath(import.meta.url)), '..', 'public');
-const GREEN = '#f97316'; // brand primary (matches the tile + manifest theme_color)
+const GREEN = '#10b981'; // brand primary (matches the tile + manifest theme_color)
 const DENSITY = 768; // render the 100-unit SVG large, then downscale for crispness
 
 const svg = readFileSync(join(PUB, 'favicon.svg'), 'utf8');

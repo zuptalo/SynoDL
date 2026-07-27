@@ -18,25 +18,15 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <title>SynoDL</title>
     <!-- Pre-paint theme: apply Ionic's dark palette class synchronously so a cold
-         launch never renders a light frame before the async settings read resolves.
-         The theme composable mirrors the RESOLVED dark decision into localStorage on
-         each apply; we trust that mirror first (matchMedia is unreliable during an
-         iOS PWA cold launch). Absent any stored value the default is DARK — the
-         worst-case first frame is a dark frame on a dark app, not a white flash. -->
+         launch never renders a light frame before Vue mounts. The theme is a
+         manual dark/light choice (useTheme) with DARK as the default and no
+         "follow system" option — so we simply read the stored preference; absent
+         any value the default is DARK (worst-case first frame is dark-on-dark). -->
     <script>
       (function () {
-        function prefersDark() {
-          try { return window.matchMedia('(prefers-color-scheme: dark)').matches; } catch (e) { return false; }
-        }
-        var dark;
+        var dark = true;
         try {
-          var resolved = localStorage.getItem('appearance.theme.dark');
-          if (resolved === '1' || resolved === '0') {
-            dark = resolved === '1';
-          } else {
-            var pref = localStorage.getItem('appearance.theme') || 'dark';
-            dark = pref === 'dark' || (pref === 'system' && prefersDark());
-          }
+          dark = localStorage.getItem('appearance.theme') !== 'light';
         } catch (e) {
           dark = true;
         }

@@ -10,7 +10,7 @@ import NasReauthGate from '@/components/NasReauthGate.vue';
     <NasReauthGate />
     <ion-tabs>
       <ion-router-outlet />
-      <ion-tab-bar slot="bottom">
+      <ion-tab-bar slot="bottom" :translucent="true">
         <ion-tab-button tab="tasks" href="/tabs/tasks" data-testid="tab-tasks">
           <ion-icon aria-hidden="true" :icon="downloadOutline" />
           <ion-label>Tasks</ion-label>

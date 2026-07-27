@@ -4,12 +4,12 @@ import { IonContent, IonHeader, IonPage, IonTitle, IonToolbar } from '@ionic/vue
 
 <template>
   <ion-page>
-    <ion-header>
+    <ion-header :translucent="true">
       <ion-toolbar>
         <ion-title>RSS</ion-title>
       </ion-toolbar>
     </ion-header>
-    <ion-content>
+    <ion-content :fullscreen="true">
       <div class="placeholder">
         <p>Follow RSS feeds and download new items automatically.</p>
         <p class="soon">Coming soon — see the roadmap.</p>

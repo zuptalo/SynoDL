@@ -18,15 +18,28 @@ type ReleaseNote struct {
 // version, release notes for the update prompt, and the NAS host for the
 // Settings "Host" row. Host only — never the full URL, port, or credentials.
 func handleConfig(d Deps) http.Handler {
-	nasHost := ""
-	if u, err := url.Parse(d.Cfg.SynoURL); err == nil {
-		nasHost = u.Hostname()
-	}
 	return http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		httpx.JSON(w, http.StatusOK, map[string]any{
 			"version":      d.Version,
 			"releaseNotes": d.ReleaseNotes,
-			"nasHost":      nasHost,
+			"nasHost":      nasHostFor(d),
 		})
 	})
+}
+
+// nasHostFor returns the bare NAS hostname for the Settings screen. In stateful
+// mode the source of truth is the wizard-configured connection in the store
+// (so editing it in Settings takes effect), not the SYNO_URL env — which in
+// stateful mode is only a first-run prefill. Legacy mode parses SYNO_URL.
+func nasHostFor(d Deps) string {
+	if d.Stateful && d.Store != nil {
+		if c, err := d.Store.GetOperatorConfig(); err == nil {
+			return c.NASAddress // already a bare host — no scheme/port
+		}
+		return ""
+	}
+	if u, err := url.Parse(d.Cfg.SynoURL); err == nil {
+		return u.Hostname()
+	}
+	return ""
 }

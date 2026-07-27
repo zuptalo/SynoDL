@@ -33,7 +33,7 @@ const reason = computed(() =>
 
 <template>
   <ion-modal :is-open="isOpen" @did-dismiss="$emit('dismiss')">
-    <ion-header>
+    <ion-header :translucent="true">
       <ion-toolbar>
         <ion-title>Task details</ion-title>
         <ion-buttons slot="end">
