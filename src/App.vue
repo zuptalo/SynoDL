@@ -1,18 +1,20 @@
 <script setup lang="ts">
-import { IonApp, IonRouterOutlet, IonToast } from '@ionic/vue';
+import { IonApp, IonRouterOutlet } from '@ionic/vue';
 import { onUnmounted } from 'vue';
 import { useRouter } from 'vue-router';
 import { SESSION_EXPIRED_EVENT } from '@/services/api';
 import { useAppUpdate } from '@/composables/useAppUpdate';
 import { useTheme } from '@/composables/useTheme';
+import UpdateModal from '@/components/UpdateModal.vue';
 
 // Apply the persisted dark/light choice at startup (the index.html pre-paint
 // covers the very first frame; this keeps the runtime palette in sync).
 useTheme();
 
-// Prompt-based updates: the toast names the waiting version; applying is the
-// user's call, never automatic (constitution Principle V).
-const { updateAvailable, applyUpdate } = useAppUpdate();
+// A new deploy surfaces a full-screen update page (spec 1003): what's new + a
+// single OK that applies and reloads. An interrupted apply finishes on the next
+// launch (useAppUpdate).
+const { updateAvailable, applying, applyUpdate } = useAppUpdate();
 
 // When the NAS ends the session (any request answering 401 "session"),
 // useSession already dropped the sid — this is the navigation half: return to
@@ -44,11 +46,6 @@ onUnmounted(() => {
 <template>
   <ion-app>
     <ion-router-outlet />
-    <ion-toast
-      :is-open="updateAvailable"
-      message="A new version of SynoDL is ready."
-      position="top"
-      :buttons="[{ text: 'Update', handler: () => applyUpdate() }, { text: 'Later', role: 'cancel' }]"
-    />
+    <UpdateModal :is-open="updateAvailable" :applying="applying" @confirm="applyUpdate" />
   </ion-app>
 </template>
