@@ -101,6 +101,14 @@ export interface SynoDLUser {
   isAdmin: boolean;
 }
 
+/** A user's notification preferences (spec 1004). */
+export interface NotifPrefs {
+  notifyAdded: boolean;
+  notifyCompleted: boolean;
+  notifyFailed: boolean;
+  scope: 'own' | 'any';
+}
+
 /** The non-secret NAS connection projection (no password) from GET /v1/nas/config. */
 export interface NasConfig {
   publicUrl: string;
@@ -270,6 +278,10 @@ export const api = {
     request<{ token: string; user: SynoDLUser }>('/v1/session', json({ username, password })),
   me: () => request<SynoDLUser>('/v1/me'),
   nasReauth: (otp: string) => request<void>('/v1/nas/reauth', json({ otp })),
+
+  // Per-user notification preferences (spec 1004).
+  getNotifPrefs: () => request<NotifPrefs>('/v1/notifications/prefs'),
+  setNotifPrefs: (p: NotifPrefs) => request<void>('/v1/notifications/prefs', jsonMethod('PUT', p)),
 
   // Admin: view/edit the stored NAS connection and test it before saving
   // (spec 1002). The password is write-only — the server never returns it.

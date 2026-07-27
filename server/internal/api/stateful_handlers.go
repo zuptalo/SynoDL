@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"strings"
+	"time"
 
 	"synodl/server/internal/authz"
 	"synodl/server/internal/httpx"
@@ -113,6 +114,8 @@ func handleCreateTaskStateful(d Deps) http.Handler {
 				writeNASError(w, err)
 				return
 			}
+			// Record who created it so the watcher can attribute notifications.
+			_ = d.Store.AddTaskClaim(u.ID, header.Filename, time.Now().Unix())
 			w.WriteHeader(http.StatusCreated)
 			return
 		}
@@ -145,6 +148,11 @@ func handleCreateTaskStateful(d Deps) http.Handler {
 		}); err != nil {
 			writeNASError(w, err)
 			return
+		}
+		// Record who created each task so the watcher can attribute notifications.
+		now := time.Now().Unix()
+		for _, uri := range uris {
+			_ = d.Store.AddTaskClaim(u.ID, titleHint(uri), now)
 		}
 		w.WriteHeader(http.StatusCreated)
 	})

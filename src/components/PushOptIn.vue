@@ -1,7 +1,16 @@
 <script setup lang="ts">
-import { IonItem, IonLabel, IonList, IonListHeader, IonNote, IonToggle } from '@ionic/vue';
+import {
+  IonItem,
+  IonLabel,
+  IonList,
+  IonListHeader,
+  IonNote,
+  IonSegment,
+  IonSegmentButton,
+  IonToggle,
+} from '@ionic/vue';
 import { onMounted, ref } from 'vue';
-import { api } from '@/services/api';
+import { api, type NotifPrefs } from '@/services/api';
 
 const supported =
   'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
@@ -10,6 +19,40 @@ const enabled = ref(false);
 const busy = ref(false);
 const error = ref('');
 const iosNeedsInstall = ref(false);
+
+// Per-user notification preferences (which events, whose tasks).
+const prefs = ref<NotifPrefs>({
+  notifyAdded: false,
+  notifyCompleted: true,
+  notifyFailed: true,
+  scope: 'own',
+});
+
+async function loadPrefs(): Promise<void> {
+  try {
+    prefs.value = await api.getNotifPrefs();
+  } catch {
+    /* keep defaults */
+  }
+}
+
+async function savePrefs(): Promise<void> {
+  try {
+    await api.setNotifPrefs(prefs.value);
+  } catch {
+    error.value = 'Could not save notification preferences.';
+  }
+}
+
+function setEvent(key: 'notifyAdded' | 'notifyCompleted' | 'notifyFailed', ev: CustomEvent): void {
+  prefs.value = { ...prefs.value, [key]: (ev.detail as { checked: boolean }).checked };
+  void savePrefs();
+}
+function setScope(ev: CustomEvent): void {
+  const value = (ev.detail as { value?: string }).value;
+  prefs.value = { ...prefs.value, scope: value === 'any' ? 'any' : 'own' };
+  void savePrefs();
+}
 
 // VAPID public key (base64url) → the Uint8Array the Push API wants.
 function urlB64ToUint8Array(base64url: string): Uint8Array {
@@ -42,6 +85,7 @@ onMounted(async () => {
   } catch {
     /* leave off */
   }
+  await loadPrefs();
 });
 
 async function onToggle(ev: CustomEvent): Promise<void> {
@@ -92,15 +136,51 @@ async function unsubscribe(): Promise<void> {
       <ion-note>Add SynoDL to your Home Screen to enable download notifications on iOS.</ion-note>
     </ion-item>
     <ion-item v-else>
-      <ion-toggle
-        :checked="enabled"
-        :disabled="busy"
-        data-testid="push-optin"
-        @ion-change="onToggle"
-      >
-        Notify me on this device when a download finishes
+      <ion-toggle :checked="enabled" :disabled="busy" data-testid="push-optin" @ion-change="onToggle">
+        Notify me on this device
       </ion-toggle>
     </ion-item>
+
+    <!-- What to be notified about + whose tasks (spec 1004). Shown once enabled. -->
+    <template v-if="enabled && !iosNeedsInstall">
+      <ion-item>
+        <ion-toggle
+          :checked="prefs.notifyAdded"
+          data-testid="notif-added"
+          @ion-change="(e) => setEvent('notifyAdded', e)"
+        >
+          When a download is added
+        </ion-toggle>
+      </ion-item>
+      <ion-item>
+        <ion-toggle
+          :checked="prefs.notifyCompleted"
+          data-testid="notif-completed"
+          @ion-change="(e) => setEvent('notifyCompleted', e)"
+        >
+          When a download finishes
+        </ion-toggle>
+      </ion-item>
+      <ion-item>
+        <ion-toggle
+          :checked="prefs.notifyFailed"
+          data-testid="notif-failed"
+          @ion-change="(e) => setEvent('notifyFailed', e)"
+        >
+          When a download fails
+        </ion-toggle>
+      </ion-item>
+      <ion-item lines="none">
+        <ion-label>
+          <p>For</p>
+        </ion-label>
+        <ion-segment :value="prefs.scope" data-testid="notif-scope" @ion-change="setScope">
+          <ion-segment-button value="own"><ion-label>My downloads</ion-label></ion-segment-button>
+          <ion-segment-button value="any"><ion-label>Everyone's</ion-label></ion-segment-button>
+        </ion-segment>
+      </ion-item>
+    </template>
+
     <ion-note v-if="error" color="danger" class="err" data-testid="push-error">{{ error }}</ion-note>
   </ion-list>
 </template>

@@ -75,4 +75,22 @@ var migrations = []string{
 	// 0002 — cache the live NAS session id (encrypted) so a pod restart / deploy
 	// doesn't drop it and force a 2FA re-auth every time (spec 0003 fix).
 	`ALTER TABLE operator_config ADD COLUMN nas_sid_enc BLOB;`,
+	// 0003 — per-user notification preferences + task-ownership claims (spec 1004).
+	`
+	CREATE TABLE notification_prefs (
+		user_id          INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+		notify_added     INTEGER NOT NULL DEFAULT 0,
+		notify_completed INTEGER NOT NULL DEFAULT 1,
+		notify_failed    INTEGER NOT NULL DEFAULT 1,
+		scope            TEXT    NOT NULL DEFAULT 'own',
+		updated_at       INTEGER NOT NULL DEFAULT 0
+	);
+	CREATE TABLE task_claims (
+		id         INTEGER PRIMARY KEY AUTOINCREMENT,
+		user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+		name_hint  TEXT    NOT NULL,
+		created_at INTEGER NOT NULL
+	);
+	CREATE INDEX idx_task_claims_name ON task_claims(name_hint);
+	`,
 }

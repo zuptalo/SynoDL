@@ -75,6 +75,10 @@ func NewRouter(d Deps) http.Handler {
 		mux.Handle("POST /v1/push/subscription", handleSaveSubscription(d))
 		mux.Handle("DELETE /v1/push/subscription", handleDeleteSubscription(d))
 
+		// Per-user notification preferences (spec 1004).
+		mux.Handle("GET /v1/notifications/prefs", handleGetNotifPrefs(d))
+		mux.Handle("PUT /v1/notifications/prefs", handleSetNotifPrefs(d))
+
 		mux.Handle("GET /v1/tasks", handleListTasksStateful(d))
 		mux.Handle("GET /v1/tasks/stream", handleTasksStreamStateful(d, streamLim))
 		mux.Handle("POST /v1/tasks", handleCreateTaskStateful(d))
