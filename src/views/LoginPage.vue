@@ -9,14 +9,16 @@ import {
   IonPage,
   IonSpinner,
 } from '@ionic/vue';
-import { onMounted, ref } from 'vue';
+import { computed, onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { api, ApiError } from '@/services/api';
 import { messageForError } from '@/services/syno-errors';
 import { useSession } from '@/composables/useSession';
 
 const router = useRouter();
-const { login } = useSession();
+const { login, synodlLogin, mode } = useSession();
+
+const stateful = computed(() => mode.value === 'stateful');
 
 const nasHost = ref('');
 const account = ref('');
@@ -27,6 +29,9 @@ const busy = ref(false);
 const error = ref('');
 
 onMounted(async () => {
+  // The legacy login shows the NAS host it connects to; stateful login is a
+  // SynoDL account and doesn't expose the NAS pre-auth.
+  if (stateful.value) return;
   try {
     nasHost.value = (await api.config()).nasHost;
   } catch {
@@ -38,7 +43,11 @@ async function submit(): Promise<void> {
   busy.value = true;
   error.value = '';
   try {
-    await login(account.value.trim(), password.value, otp.value.trim() || undefined);
+    if (stateful.value) {
+      await synodlLogin(account.value.trim(), password.value);
+    } else {
+      await login(account.value.trim(), password.value, otp.value.trim() || undefined);
+    }
     await router.replace('/tabs/tasks');
   } catch (e) {
     if (e instanceof ApiError && e.code === 'otp_required') otpNeeded.value = true;
@@ -60,7 +69,7 @@ async function submit(): Promise<void> {
           <ion-item>
             <ion-input
               v-model="account"
-              label="Account"
+              :label="stateful ? 'Username' : 'Account'"
               label-placement="stacked"
               autocomplete="username"
               autocapitalize="off"
@@ -78,7 +87,7 @@ async function submit(): Promise<void> {
               @keyup.enter="submit"
             />
           </ion-item>
-          <ion-item v-if="otpNeeded">
+          <ion-item v-if="!stateful && otpNeeded">
             <ion-input
               v-model="otp"
               label="2-step verification code"
@@ -101,7 +110,7 @@ async function submit(): Promise<void> {
           @click="submit"
         >
           <ion-spinner v-if="busy" name="crescent" />
-          <template v-else>Connect</template>
+          <template v-else>{{ stateful ? 'Sign in' : 'Connect' }}</template>
         </ion-button>
       </div>
     </ion-content>
