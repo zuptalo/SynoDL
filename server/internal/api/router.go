@@ -52,6 +52,14 @@ func NewRouter(d Deps) http.Handler {
 		mux.Handle("GET /v1/me", handleMe(d))
 		mux.Handle("POST /v1/nas/reauth", handleNASReauth(d))
 
+		// Admin user management + per-user folder grants (Increment 3).
+		mux.Handle("GET /v1/users", handleListUsers(d))
+		mux.Handle("POST /v1/users", handleCreateUser(d))
+		mux.Handle("PATCH /v1/users/{id}", handleUpdateUser(d))
+		mux.Handle("DELETE /v1/users/{id}", handleDeleteUser(d))
+		mux.Handle("GET /v1/users/{id}/folders", handleGetUserFolders(d))
+		mux.Handle("PUT /v1/users/{id}/folders", handleSetUserFolders(d))
+
 		mux.Handle("GET /v1/tasks", handleListTasksStateful(d))
 		mux.Handle("POST /v1/tasks", handleCreateTaskStateful(d))
 		mux.Handle("POST /v1/tasks/pause", handleTaskActionStateful(d, "pause"))
