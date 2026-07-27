@@ -101,6 +101,12 @@ export interface SynoDLUser {
   isAdmin: boolean;
 }
 
+/** A user's destination preferences (spec 1011): default folder + favorites. */
+export interface DestinationPrefs {
+  default: string;
+  favorites: string[];
+}
+
 /** A user's notification preferences (spec 1004). */
 export interface NotifPrefs {
   notifyAdded: boolean;
@@ -282,6 +288,12 @@ export const api = {
   // Per-user notification preferences (spec 1004).
   getNotifPrefs: () => request<NotifPrefs>('/v1/notifications/prefs'),
   setNotifPrefs: (p: NotifPrefs) => request<void>('/v1/notifications/prefs', jsonMethod('PUT', p)),
+
+  // Per-user destination preferences: default folder + favorites (spec 1011).
+  // The server returns the cleaned set (invalid/gone folders removed).
+  getDestinationPrefs: () => request<DestinationPrefs>('/v1/destinations/prefs'),
+  setDestinationPrefs: (p: DestinationPrefs) =>
+    request<DestinationPrefs>('/v1/destinations/prefs', jsonMethod('PUT', p)),
 
   // Admin: view/edit the stored NAS connection and test it before saving
   // (spec 1002). The password is write-only — the server never returns it.

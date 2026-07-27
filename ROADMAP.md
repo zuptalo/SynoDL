@@ -31,6 +31,7 @@ Specs are grouped by category band; status moves
 | [1007](specs/1007-copy-redownload/spec.md) | Copy the download link and re-download from the detail view | 🔵 in-review |
 | [1008](specs/1008-install-guard/spec.md) | PWA install guard — sign in only from the installed app | 🔵 in-review |
 | [1009](specs/1009-destination-picker-start/spec.md) | Destination picker starts in the selected folder + task-level new folder | 🔵 in-review |
+| [1011](specs/1011-destination-prefs-server/spec.md) | Per-user destination preferences on the server, with self-cleaning | 🔵 in-review |
 
 ## 🐛 Hotfixes & Bug Fixes (2001+)
 

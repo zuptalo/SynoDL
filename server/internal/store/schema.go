@@ -93,4 +93,15 @@ var migrations = []string{
 	);
 	CREATE INDEX idx_task_claims_name ON task_claims(name_hint);
 	`,
+	// 0004 — per-user destination preferences: a default folder + favorites,
+	// moved server-side so they persist and sync across a user's sessions (spec
+	// 1011). favorites is a newline-joined list of destination paths.
+	`
+	CREATE TABLE destination_prefs (
+		user_id      INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+		default_dest TEXT    NOT NULL DEFAULT '',
+		favorites    TEXT    NOT NULL DEFAULT '',
+		updated_at   INTEGER NOT NULL DEFAULT 0
+	);
+	`,
 }
