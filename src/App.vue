@@ -1,10 +1,23 @@
 <script setup lang="ts">
 import { IonApp, IonRouterOutlet, IonToast } from '@ionic/vue';
+import { onUnmounted } from 'vue';
+import { useRouter } from 'vue-router';
+import { SESSION_EXPIRED_EVENT } from '@/services/api';
 import { useAppUpdate } from '@/composables/useAppUpdate';
 
 // Prompt-based updates: the toast names the waiting version; applying is the
 // user's call, never automatic (constitution Principle V).
 const { updateAvailable, applyUpdate } = useAppUpdate();
+
+// When the NAS ends the session (any request answering 401 "session"),
+// useSession already dropped the sid — this is the navigation half: return to
+// login instead of leaving a dead task list (spec 0001 US1 scenario 6).
+const router = useRouter();
+const onExpired = () => {
+  void router.replace('/login');
+};
+window.addEventListener(SESSION_EXPIRED_EVENT, onExpired);
+onUnmounted(() => window.removeEventListener(SESSION_EXPIRED_EVENT, onExpired));
 </script>
 
 <template>

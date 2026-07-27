@@ -12,6 +12,7 @@ import {
 import { onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { api, ApiError } from '@/services/api';
+import { messageForError } from '@/services/syno-errors';
 import { useSession } from '@/composables/useSession';
 
 const router = useRouter();
@@ -33,26 +34,6 @@ onMounted(async () => {
   }
 });
 
-// User-facing wording for the server's error contract. Kept inline until the
-// error-map module lands with the connect spec's TDD pass.
-function messageFor(e: unknown): string {
-  if (!(e instanceof ApiError)) return 'Could not reach the server.';
-  switch (e.code) {
-    case 'credentials':
-      return 'Wrong account or password.';
-    case 'otp_required':
-      return 'This account needs a 2-step verification code.';
-    case 'otp_invalid':
-      return 'That verification code was not accepted.';
-    case 'permission':
-      return 'This account is not allowed to use Download Station.';
-    case 'nas_unreachable':
-      return 'The NAS could not be reached.';
-    default:
-      return 'Sign-in failed. Please try again.';
-  }
-}
-
 async function submit(): Promise<void> {
   busy.value = true;
   error.value = '';
@@ -61,7 +42,7 @@ async function submit(): Promise<void> {
     await router.replace('/tabs/tasks');
   } catch (e) {
     if (e instanceof ApiError && e.code === 'otp_required') otpNeeded.value = true;
-    error.value = messageFor(e);
+    error.value = messageForError(e);
   } finally {
     busy.value = false;
   }
