@@ -140,4 +140,9 @@ var migrations = []string{
 	// rating on the user's source searches so a scoped account only sees titles at
 	// that rating.
 	`ALTER TABLE users ADD COLUMN content_rating TEXT NOT NULL DEFAULT '';`,
+	// 0007 — download quotas (spec 0005): an instance-wide maximum download size
+	// (MB, 0 = unlimited) and a per-user rolling 24h download-count limit
+	// (0 = unlimited), to balance quality vs. the provider's daily download cap.
+	`ALTER TABLE operator_config ADD COLUMN max_download_mb INTEGER NOT NULL DEFAULT 0;`,
+	`ALTER TABLE users ADD COLUMN daily_download_limit INTEGER NOT NULL DEFAULT 0;`,
 }

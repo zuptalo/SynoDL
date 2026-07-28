@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue';
+import { computed, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import {
   IonButton,
@@ -35,7 +35,7 @@ const emit = defineEmits<{
   (e: 'needs-refresh'): void;
 }>();
 
-const { preferredQuality } = useSourceCatalog();
+const { preferredQuality, status } = useSourceCatalog();
 const router = useRouter();
 
 const loading = ref(false);
@@ -44,6 +44,24 @@ const sendable = ref(true);
 const qualities = ref<QualityOption[]>([]);
 const selected = ref('');
 const errorMsg = ref('');
+
+// Instance-wide max download size (MB, 0 = unlimited) from the source status.
+const maxMB = computed(() => status.value?.maxDownloadMB ?? 0);
+const maxLabel = computed(() =>
+  maxMB.value > 0 ? `${+(maxMB.value / 1024).toFixed(1)} GB` : '',
+);
+
+// Parse a provider size string ("11 GB") into MB; 0 when unknown.
+function sizeMB(size: string): number {
+  const m = /([\d.]+)\s*(TB|GB|MB|KB)/i.exec(size);
+  if (!m) return 0;
+  const v = parseFloat(m[1]);
+  const unit = m[2].toUpperCase();
+  return Math.round(unit === 'TB' ? v * 1024 * 1024 : unit === 'GB' ? v * 1024 : unit === 'KB' ? v / 1024 : v);
+}
+function tooLarge(q: QualityOption): boolean {
+  return maxMB.value > 0 && sizeMB(q.size) > maxMB.value;
+}
 
 watch(
   () => props.isOpen,
@@ -57,12 +75,13 @@ watch(
       const detail = await api.getSourceTitle(props.titleId);
       sendable.value = detail.sendable;
       qualities.value = detail.qualities;
-      // Preselect the user's preferred quality when this title offers it,
-      // otherwise the first available quality.
-      const preferred = detail.qualities.find((q) =>
-        q.label.toLowerCase().includes(preferredQuality.value.toLowerCase()),
+      // Preselect the preferred quality among those within the size limit,
+      // otherwise the first usable one.
+      const usable = detail.qualities.filter((q) => !tooLarge(q));
+      const preferred = usable.find((q) =>
+        preferredQuality.value ? q.label.toLowerCase().includes(preferredQuality.value.toLowerCase()) : false,
       );
-      selected.value = preferred?.id ?? detail.qualities[0]?.id ?? '';
+      selected.value = preferred?.id ?? usable[0]?.id ?? '';
     } catch (e) {
       if (e instanceof ApiError && e.code === 'source_needs_refresh') {
         emit('needs-refresh');
@@ -112,6 +131,12 @@ async function send(): Promise<void> {
       }
       if (e.code === 'destination_forbidden') {
         errorMsg.value = "You can't download to that folder.";
+      } else if (e.code === 'download_too_large') {
+        errorMsg.value = maxLabel.value
+          ? `The admin set a max download size of ${maxLabel.value}. Pick a smaller quality.`
+          : 'That download exceeds the admin size limit. Pick a smaller quality.';
+      } else if (e.code === 'daily_limit_reached') {
+        errorMsg.value = "You've reached your daily download limit set by the admin. Try again later.";
       } else if (e.code === 'send_failed') {
         errorMsg.value = 'The download link could not be used. Try again.';
       } else {
@@ -152,18 +177,26 @@ async function send(): Promise<void> {
           Sending isn't available for this title yet — series and anime are browse-only for now.
         </ion-note>
 
-        <ion-radio-group v-else v-model="selected">
-          <ion-list :inset="true">
-            <ion-item v-for="q in qualities" :key="q.id">
-              <ion-radio :value="q.id" label-placement="end" justify="start">
-                <ion-label>
-                  <h3>{{ q.label }}</h3>
-                  <p>{{ q.size }} · {{ q.resolution }}{{ q.encoder ? ' · ' + q.encoder : '' }}</p>
-                </ion-label>
-              </ion-radio>
-            </ion-item>
-          </ion-list>
-        </ion-radio-group>
+        <template v-else>
+          <ion-note v-if="maxLabel" color="medium" class="cap-hint">
+            Max download size {{ maxLabel }} (set by admin) — larger options are disabled.
+          </ion-note>
+          <ion-radio-group v-model="selected">
+            <ion-list :inset="true">
+              <ion-item v-for="q in qualities" :key="q.id" :class="{ over: tooLarge(q) }">
+                <ion-radio :value="q.id" :disabled="tooLarge(q)" label-placement="end" justify="start">
+                  <ion-label>
+                    <h3>{{ q.label }}</h3>
+                    <p>
+                      {{ q.size }} · {{ q.resolution }}{{ q.encoder ? ' · ' + q.encoder : '' }}
+                      <span v-if="tooLarge(q)" class="over-tag">over limit</span>
+                    </p>
+                  </ion-label>
+                </ion-radio>
+              </ion-item>
+            </ion-list>
+          </ion-radio-group>
+        </template>
 
         <ion-note v-if="errorMsg" color="danger" class="error">{{ errorMsg }}</ion-note>
 
@@ -211,6 +244,17 @@ async function send(): Promise<void> {
   display: block;
   padding: 24px 8px;
   text-align: center;
+}
+.cap-hint {
+  display: block;
+  padding: 0 8px 6px;
+}
+.over {
+  opacity: 0.5;
+}
+.over-tag {
+  margin-left: 6px;
+  color: var(--ion-color-warning, #e0a030);
 }
 .error {
   display: block;

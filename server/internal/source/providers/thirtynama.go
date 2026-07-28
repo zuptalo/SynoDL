@@ -140,14 +140,14 @@ func (p thirtynama) Title(ctx context.Context, c *source.Client, cfg source.Conf
 	return source.TitleDetail{ID: id, Type: source.TypeMovie, Sendable: len(quals) > 0, Qualities: quals}, nil
 }
 
-func (p thirtynama) ResolveDownload(ctx context.Context, c *source.Client, cfg source.Config, s source.Session, titleID, qualityID string) (string, error) {
+func (p thirtynama) ResolveDownload(ctx context.Context, c *source.Client, cfg source.Config, s source.Session, titleID, qualityID string) (string, string, error) {
 	raw, err := p.call(ctx, c, cfg, s, "/api/v1/action/download/id/"+url.PathEscape(titleID), "")
 	if err != nil {
-		return "", runtimeErr(err)
+		return "", "", runtimeErr(err)
 	}
 	var r tnDownloadResult
 	if err := json.Unmarshal(raw, &r); err != nil {
-		return "", runtimeErr(errBadShape)
+		return "", "", runtimeErr(errBadShape)
 	}
 	for _, d := range r.Download {
 		if d.ID == qualityID {
@@ -156,17 +156,17 @@ func (p thirtynama) ResolveDownload(ctx context.Context, c *source.Client, cfg s
 				link = d.IPDL
 			}
 			if link == "" {
-				return "", errors.New("thirtynama: no download url for quality")
+				return "", "", errors.New("thirtynama: no download url for quality")
 			}
 			// The signed link must live on an allowed download host.
 			u, err := url.Parse(link)
 			if err != nil || !source.HostAllowed(u.Hostname(), cfg.DownloadHosts) {
-				return "", source.ErrHostNotAllowed
+				return "", "", source.ErrHostNotAllowed
 			}
-			return link, nil
+			return link, d.Size, nil
 		}
 	}
-	return "", errors.New("thirtynama: quality not found")
+	return "", "", errors.New("thirtynama: quality not found")
 }
 
 // downloads fetches and maps a title's quality entries (without exposing links).

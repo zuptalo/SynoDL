@@ -140,14 +140,15 @@ func (s *Store) GetOperatorConfig() (*OperatorConfig, error) {
 // User is a SynoDL account (no relation to any NAS account). PasswordHash is a
 // salted hash produced by internal/auth; the plaintext password is never stored.
 type User struct {
-	ID            int64
-	Username      string
-	PasswordHash  string
-	IsAdmin       bool
-	IsEnabled     bool
-	ContentRating string
-	CreatedAt     int64
-	UpdatedAt     int64
+	ID                 int64
+	Username           string
+	PasswordHash       string
+	IsAdmin            bool
+	IsEnabled          bool
+	ContentRating      string
+	DailyDownloadLimit int
+	CreatedAt          int64
+	UpdatedAt          int64
 }
 
 // CreateUser inserts a user and returns its id. Username uniqueness is
@@ -167,7 +168,7 @@ func (s *Store) CreateUser(username, passwordHash string, isAdmin bool) (int64, 
 func scanUser(row interface{ Scan(...any) error }) (*User, error) {
 	var u User
 	var admin, enabled int
-	if err := row.Scan(&u.ID, &u.Username, &u.PasswordHash, &admin, &enabled, &u.ContentRating, &u.CreatedAt, &u.UpdatedAt); err != nil {
+	if err := row.Scan(&u.ID, &u.Username, &u.PasswordHash, &admin, &enabled, &u.ContentRating, &u.DailyDownloadLimit, &u.CreatedAt, &u.UpdatedAt); err != nil {
 		return nil, err
 	}
 	u.IsAdmin = admin != 0
@@ -175,7 +176,7 @@ func scanUser(row interface{ Scan(...any) error }) (*User, error) {
 	return &u, nil
 }
 
-const userCols = `id, username, password_hash, is_admin, is_enabled, content_rating, created_at, updated_at`
+const userCols = `id, username, password_hash, is_admin, is_enabled, content_rating, daily_download_limit, created_at, updated_at`
 
 // GetUserByUsername looks up a user case-insensitively (for login).
 func (s *Store) GetUserByUsername(username string) (*User, error) {
@@ -252,6 +253,46 @@ func (s *Store) SetUserContentRating(id int64, rating string) error {
 	return err
 }
 
+// SetUserDailyDownloadLimit caps how many catalog downloads a user may start in a
+// rolling 24h window (0 = unlimited).
+func (s *Store) SetUserDailyDownloadLimit(id int64, limit int) error {
+	if limit < 0 {
+		limit = 0
+	}
+	_, err := s.db.Exec(`UPDATE users SET daily_download_limit = ?, updated_at = ? WHERE id = ?`,
+		limit, time.Now().Unix(), id)
+	return err
+}
+
+// CountUserDownloadsSince counts a user's catalog downloads (task claims) started
+// at or after `since` — used to enforce the daily download limit.
+func (s *Store) CountUserDownloadsSince(userID, since int64) (int, error) {
+	var n int
+	err := s.db.QueryRow(
+		`SELECT COUNT(*) FROM task_claims WHERE user_id = ? AND created_at >= ?`, userID, since).Scan(&n)
+	return n, err
+}
+
+// GetMaxDownloadMB returns the instance-wide maximum download size in MB
+// (0 = unlimited); 0 when the instance isn't configured yet.
+func (s *Store) GetMaxDownloadMB() (int, error) {
+	var mb int
+	err := s.db.QueryRow(`SELECT COALESCE(max_download_mb, 0) FROM operator_config LIMIT 1`).Scan(&mb)
+	if errors.Is(err, sql.ErrNoRows) {
+		return 0, nil
+	}
+	return mb, err
+}
+
+// SetMaxDownloadMB sets the instance-wide maximum download size (MB).
+func (s *Store) SetMaxDownloadMB(mb int) error {
+	if mb < 0 {
+		mb = 0
+	}
+	_, err := s.db.Exec(`UPDATE operator_config SET max_download_mb = ?, updated_at = ?`, mb, time.Now().Unix())
+	return err
+}
+
 // DeleteUser removes a user; ON DELETE CASCADE clears their sessions, grants,
 // and subscriptions.
 func (s *Store) DeleteUser(id int64) error {
@@ -324,7 +365,7 @@ func (s *Store) UserForSession(tokenHash string, now int64) (*User, error) {
 	return u, err
 }
 
-const userColsPrefixed = `u.id, u.username, u.password_hash, u.is_admin, u.is_enabled, u.content_rating, u.created_at, u.updated_at`
+const userColsPrefixed = `u.id, u.username, u.password_hash, u.is_admin, u.is_enabled, u.content_rating, u.daily_download_limit, u.created_at, u.updated_at`
 
 func (s *Store) DeleteSession(tokenHash string) error {
 	_, err := s.db.Exec(`DELETE FROM sessions WHERE token_hash = ?`, tokenHash)

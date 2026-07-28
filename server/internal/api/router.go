@@ -100,6 +100,7 @@ func NewRouter(d Deps) http.Handler {
 		mux.Handle("GET /v1/source/status", handleSourceStatus(d))
 		mux.Handle("PUT /v1/source/session", handleSourceSession(d))
 		mux.Handle("DELETE /v1/source/session", handleSourceDelete(d))
+		mux.Handle("PUT /v1/source/policy", handleSourcePolicy(d))
 		mux.Handle("POST /v1/source/search", handleSourceSearch(d))
 		mux.Handle("GET /v1/source/title/{id}", handleSourceTitle(d))
 		mux.Handle("POST /v1/source/send", handleSourceSend(d))

@@ -30,6 +30,23 @@ const errorMsg = ref('');
 
 // Form fields. Session material is write-only — never prefilled from the server.
 const displayName = ref('30nama');
+const maxSizeGB = ref('');
+const savingPolicy = ref(false);
+
+async function saveMaxSize(): Promise<void> {
+  savingPolicy.value = true;
+  errorMsg.value = '';
+  try {
+    const gb = parseFloat(maxSizeGB.value) || 0;
+    await api.setSourcePolicy(Math.round(gb * 1024));
+    await toast(gb > 0 ? `Max download size set to ${gb} GB.` : 'Download size limit removed.');
+    await refresh();
+  } catch {
+    errorMsg.value = 'Could not save the size limit.';
+  } finally {
+    savingPolicy.value = false;
+  }
+}
 const moviesParent = ref('');
 const tvParent = ref('');
 const cfClearance = ref('');
@@ -62,6 +79,7 @@ async function refresh(): Promise<void> {
       moviesParent.value = s.moviesParent;
       tvParent.value = s.tvParent;
     }
+    maxSizeGB.value = s.maxDownloadMB ? String(+(s.maxDownloadMB / 1024).toFixed(1)) : '';
   } catch {
     status.value = null;
   } finally {
@@ -180,6 +198,25 @@ async function remove(): Promise<void> {
               label-placement="stacked"
               placeholder="e.g. tv-show (used later)"
             />
+          </ion-item>
+        </ion-list>
+
+        <ion-list :inset="true">
+          <ion-list-header>Download policy</ion-list-header>
+          <ion-note class="hint">
+            Refuse individual downloads larger than this so users balance quality against bandwidth and
+            storage. 0 or blank means no limit.
+          </ion-note>
+          <ion-item>
+            <ion-input
+              v-model="maxSizeGB"
+              type="number"
+              inputmode="decimal"
+              label="Max download size (GB)"
+              label-placement="stacked"
+              placeholder="e.g. 10"
+            />
+            <ion-button slot="end" :disabled="savingPolicy" @click="saveMaxSize">Save</ion-button>
           </ion-item>
         </ion-list>
 
