@@ -1,9 +1,11 @@
 <script setup lang="ts">
-import { IonApp, IonRouterOutlet, IonToast } from '@ionic/vue';
+import { IonApp, IonIcon, IonRouterOutlet, IonToast } from '@ionic/vue';
+import { cloudOfflineOutline } from 'ionicons/icons';
 import { onUnmounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { SESSION_EXPIRED_EVENT } from '@/services/api';
 import { useAppUpdate } from '@/composables/useAppUpdate';
+import { useConnectivity } from '@/composables/useConnectivity';
 import { useTheme } from '@/composables/useTheme';
 import UpdateModal from '@/components/UpdateModal.vue';
 import InstallGuard from '@/components/InstallGuard.vue';
@@ -11,6 +13,9 @@ import InstallGuard from '@/components/InstallGuard.vue';
 // Apply the persisted dark/light choice at startup (the index.html pre-paint
 // covers the very first frame; this keeps the runtime palette in sync).
 useTheme();
+
+// Whether the SynoDL server is reachable — drives the offline banner.
+const { reachable } = useConnectivity();
 
 // A new deploy surfaces a full-screen update page (spec 1003): what's new + a
 // single OK that applies and reloads. An interrupted apply finishes on the next
@@ -85,6 +90,12 @@ onUnmounted(() => {
 
 <template>
   <ion-app>
+    <!-- Persistent banner while the server is unreachable, so nothing is a guess.
+         Clears automatically on the next successful request. -->
+    <div v-if="!reachable" class="offline-banner" role="status">
+      <ion-icon :icon="cloudOfflineOutline" />
+      Can't reach the server — reconnecting…
+    </div>
     <ion-router-outlet />
     <!-- Blocks the app behind an install guide unless running as an installed
          PWA (localhost exempt for dev/e2e). Spec 1008. -->
@@ -112,5 +123,27 @@ ion-toast.app-toast {
   --color: var(--ion-text-color, #fff);
   --border-radius: 12px;
   --box-shadow: 0 6px 20px rgba(0, 0, 0, 0.28);
+}
+
+/* Server-unreachable banner. Fixed above everything, respects the safe-area
+   inset so it clears the status bar / notch on installed apps. */
+.offline-banner {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: calc(env(safe-area-inset-top, 0px) + 6px) 12px 6px;
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: #fff;
+  background: var(--ion-color-warning, #c96f12);
+}
+.offline-banner ion-icon {
+  font-size: 1.05rem;
 }
 </style>
