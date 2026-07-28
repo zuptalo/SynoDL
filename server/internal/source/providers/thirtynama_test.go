@@ -103,6 +103,49 @@ func TestThirtynamaSearchQueryUsesFullSearch(t *testing.T) {
 	}
 }
 
+// Regression: VerifySession must NOT probe full_search with a 1-char query (the
+// provider rejects it as "empty" → looks like invalid_token). It must use
+// advanced_search, which returns success for a valid session.
+func TestThirtynamaVerifyUsesAdvancedSearch(t *testing.T) {
+	var gotPath, gotBody string
+	cfg, done := fakeProvider(t, func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		buf := make([]byte, r.ContentLength)
+		_, _ = r.Body.Read(buf)
+		gotBody = string(buf)
+		w.Write(fixture(t, "advanced_search.json"))
+	})
+	defer done()
+	if err := (thirtynama{}).VerifySession(context.Background(), source.NewClient(), cfg, source.Session{}); err != nil {
+		t.Fatalf("VerifySession: %v", err)
+	}
+	if !strings.Contains(gotPath, "advanced_search") {
+		t.Fatalf("verify path = %q, want advanced_search", gotPath)
+	}
+	if strings.Contains(gotBody, "query=") {
+		t.Fatalf("verify must not send a text query, body = %q", gotBody)
+	}
+}
+
+// Regression: a 1-char (or empty) query browses via advanced_search rather than
+// full_search, which would be rejected as an empty search.
+func TestThirtynamaShortQueryBrowses(t *testing.T) {
+	var gotPath string
+	cfg, done := fakeProvider(t, func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		w.Write(fixture(t, "advanced_search.json"))
+	})
+	defer done()
+	_, err := thirtynama{}.Search(context.Background(), source.NewClient(), cfg, source.Session{},
+		source.SearchQuery{Query: "a"})
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	if !strings.Contains(gotPath, "advanced_search") {
+		t.Fatalf("1-char query path = %q, want advanced_search", gotPath)
+	}
+}
+
 func TestThirtynamaTitleAndResolve(t *testing.T) {
 	cfg, done := fakeProvider(t, defaultHandler(t))
 	defer done()
