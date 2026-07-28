@@ -49,10 +49,11 @@ test('detail shows the source link and re-downloads a finished task', async ({ p
   await expect(page.getByTestId('detail-uri')).toContainText('http://mirror.example/done.iso');
   await page.getByTestId('detail-copy').click(); // clipboard best-effort; must not error
 
-  // Re-download re-adds the task from its link.
+  // Re-download replaces the task in place (no numbered duplicate) from its link,
+  // and closes the sheet.
   await page.getByTestId('detail-redownload').click();
-  await page.getByTestId('detail-close').click();
-  await expect(page.getByTestId('task-item')).toHaveCount(2, { timeout: 10_000 });
+  await expect(page.getByTestId('task-detail')).toHaveCount(0, { timeout: 10_000 });
+  await expect(page.getByTestId('task-item')).toHaveCount(1, { timeout: 10_000 });
 });
 
 test('detail sheet explains why an errored task failed', async ({ page }) => {
