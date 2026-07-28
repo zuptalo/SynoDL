@@ -39,6 +39,12 @@ var apiBase = "https://" + tnAPIHost
 // public error depending on context (verify vs. runtime).
 var errUnauth = errors.New("thirtynama: unauthenticated")
 
+// errBadShape is a parse/shape mismatch on an AUTHENTICATED (success:true)
+// response. It is deliberately NOT errUnauth: a malformed field must never be
+// reported as an expired session (which would tell the admin to re-paste for no
+// reason). It surfaces as a generic provider error instead.
+var errBadShape = errors.New("thirtynama: unexpected response shape")
+
 func (thirtynama) Kind() string { return "thirtynama" }
 
 // Hosts is the provider's fixed outbound allowlist: the API host plus the site
@@ -81,7 +87,8 @@ func (p thirtynama) Search(ctx context.Context, c *source.Client, cfg source.Con
 	// full_search needs a term of at least 2 characters; the provider rejects a
 	// shorter one as "empty". For an empty or single-char query we browse via
 	// advanced_search instead (which also carries the filters).
-	if len([]rune(query)) >= 2 {
+	useFull := len([]rune(query)) >= 2
+	if useFull {
 		path = fmt.Sprintf("/api/v1/action/full_search/type/all/orderby/relevant/order/desc/page/%d", page)
 		body = "query=" + url.QueryEscape(query)
 	} else {
@@ -92,18 +99,29 @@ func (p thirtynama) Search(ctx context.Context, c *source.Client, cfg source.Con
 	if err != nil {
 		return source.SearchResult{}, runtimeErr(err)
 	}
+	// The two endpoints nest results differently: advanced_search returns
+	// {page,pages,posts}; full_search wraps the title results one level deeper
+	// under {title:{page,pages,posts}, person, news}.
 	var r tnSearchResult
-	if err := json.Unmarshal(raw, &r); err != nil {
-		return source.SearchResult{}, runtimeErr(errUnauth)
+	if useFull {
+		var fr struct {
+			Title tnSearchResult `json:"title"`
+		}
+		if err := json.Unmarshal(raw, &fr); err != nil {
+			return source.SearchResult{}, runtimeErr(errBadShape)
+		}
+		r = fr.Title
+	} else if err := json.Unmarshal(raw, &r); err != nil {
+		return source.SearchResult{}, runtimeErr(errBadShape)
 	}
 	out := source.SearchResult{Page: int(r.Page), Pages: int(r.Pages)}
 	for _, post := range r.Posts {
 		out.Items = append(out.Items, source.CatalogTitle{
-			ID:            post.ID.String(),
-			Type:          post.TitleType,
-			Title:         post.Title,
-			PosterURL:     post.Image.Cover,
-			IMDbID:        post.IMDbID,
+			ID:            string(post.ID),
+			Type:          string(post.TitleType),
+			Title:         string(post.Title),
+			PosterURL:     string(post.Image.Cover),
+			IMDbID:        string(post.IMDbID),
 			IMDbScore:     float64(post.IMDbScore),
 			ProviderScore: float64(post.Score),
 			ComingSoon:    bool(post.ComingSoon),
@@ -129,7 +147,7 @@ func (p thirtynama) ResolveDownload(ctx context.Context, c *source.Client, cfg s
 	}
 	var r tnDownloadResult
 	if err := json.Unmarshal(raw, &r); err != nil {
-		return "", runtimeErr(errUnauth)
+		return "", runtimeErr(errBadShape)
 	}
 	for _, d := range r.Download {
 		if d.ID == qualityID {
@@ -159,7 +177,7 @@ func (p thirtynama) downloads(ctx context.Context, c *source.Client, cfg source.
 	}
 	var r tnDownloadResult
 	if err := json.Unmarshal(raw, &r); err != nil {
-		return nil, errUnauth
+		return nil, errBadShape // odd shape (e.g. a series) — not an auth failure
 	}
 	out := make([]source.QualityOption, 0, len(r.Download))
 	for _, d := range r.Download {
@@ -269,17 +287,21 @@ type tnSearchResult struct {
 	Posts []tnPost `json:"posts"`
 }
 
+// The provider is loosely typed: empty string fields come back as `false`
+// (a bool), and ids may be numbers or strings. Every field that isn't strictly
+// typed uses a flex* type so one coverless/oddly-typed post never fails the
+// whole page's parse.
 type tnPost struct {
-	ID           json.Number `json:"id"`
-	TitleType    string      `json:"title_type"`
-	Title        string      `json:"title"`
-	IMDbID       string      `json:"imdb_id"`
-	IMDbScore    flexFloat   `json:"imdb_score"`
-	Score        flexFloat   `json:"30nama_score"`
-	ComingSoon   flexBool    `json:"coming_soon"`
-	FreeDownload flexBool    `json:"free_download"`
+	ID           flexNumStr `json:"id"`
+	TitleType    flexStr    `json:"title_type"`
+	Title        flexStr    `json:"title"`
+	IMDbID       flexStr    `json:"imdb_id"`
+	IMDbScore    flexFloat  `json:"imdb_score"`
+	Score        flexFloat  `json:"30nama_score"`
+	ComingSoon   flexBool   `json:"coming_soon"`
+	FreeDownload flexBool   `json:"free_download"`
 	Image        struct {
-		Cover string `json:"cover"`
+		Cover flexStr `json:"cover"`
 	} `json:"image"`
 }
 
@@ -325,7 +347,7 @@ func (f *flexFloat) UnmarshalJSON(b []byte) error {
 	}
 	var v float64
 	if err := json.Unmarshal(b, &v); err != nil {
-		return err
+		return nil // non-numeric (e.g. the provider's `false` for empty) → 0
 	}
 	*f = flexFloat(v)
 	return nil
@@ -357,5 +379,46 @@ func (f *flexBool) UnmarshalJSON(b []byte) error {
 			*f = flexBool(v)
 		}
 	}
+	return nil
+}
+
+// flexStr accepts a JSON string and yields it; anything else the provider sends
+// for an "empty" value (bool false, null, number, object) yields "". This is the
+// key robustness against the provider returning `false` for a missing poster.
+type flexStr string
+
+func (f *flexStr) UnmarshalJSON(b []byte) error {
+	b = bytes.TrimSpace(b)
+	if len(b) == 0 || string(b) == "null" {
+		return nil
+	}
+	if b[0] == '"' {
+		var s string
+		if err := json.Unmarshal(b, &s); err != nil {
+			return err
+		}
+		*f = flexStr(s)
+	}
+	return nil
+}
+
+// flexNumStr accepts an id that may be a JSON number or a string, yielding its
+// textual form ("" for null).
+type flexNumStr string
+
+func (f *flexNumStr) UnmarshalJSON(b []byte) error {
+	b = bytes.TrimSpace(b)
+	if len(b) == 0 || string(b) == "null" {
+		return nil
+	}
+	if b[0] == '"' {
+		var s string
+		if err := json.Unmarshal(b, &s); err != nil {
+			return err
+		}
+		*f = flexNumStr(s)
+		return nil
+	}
+	*f = flexNumStr(string(b)) // a JSON number → its literal digits
 	return nil
 }

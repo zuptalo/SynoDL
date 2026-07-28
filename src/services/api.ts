@@ -265,6 +265,9 @@ export interface SourceStatus {
   enabled: boolean;
   state: 'not_configured' | 'active' | 'needs_refresh';
   providerName: string;
+  kind: string;
+  moviesParent: string;
+  tvParent: string;
   lastVerifiedAt: number;
   canManage: boolean;
 }
