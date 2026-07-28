@@ -8,6 +8,7 @@ import { useAppUpdate } from '@/composables/useAppUpdate';
 import { useConnectivity } from '@/composables/useConnectivity';
 import { useInstallGuard } from '@/composables/useInstallGuard';
 import { useTheme } from '@/composables/useTheme';
+import { resetBadge } from '@/utils/badge';
 import UpdateModal from '@/components/UpdateModal.vue';
 import InstallGuard from '@/components/InstallGuard.vue';
 
@@ -38,12 +39,12 @@ const onExpired = () => {
 };
 window.addEventListener(SESSION_EXPIRED_EVENT, onExpired);
 
-// Clear the app-icon notification badge whenever the app is in view (the SW set
-// it on a push). Progressive enhancement — a silent no-op where unsupported.
+// Clear the app-icon notification badge AND reset its count whenever the app is
+// in view (the SW grows it per push while closed). Progressive enhancement — a
+// silent no-op where unsupported.
 const clearBadge = (): void => {
   if (document.visibilityState !== 'visible') return;
-  const nav = navigator as Navigator & { clearAppBadge?: () => Promise<void> };
-  if (nav.clearAppBadge) void nav.clearAppBadge().catch(() => undefined);
+  void resetBadge();
 };
 clearBadge();
 document.addEventListener('visibilitychange', clearBadge);
