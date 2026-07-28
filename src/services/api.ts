@@ -299,6 +299,8 @@ export interface CatalogTitle {
   imdbId: string;
   imdbScore: number;
   providerScore: number;
+  plot: string;
+  genres: string[];
   comingSoon: boolean;
   freeDownload: boolean;
 }
