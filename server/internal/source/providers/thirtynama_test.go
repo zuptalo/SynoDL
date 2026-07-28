@@ -146,6 +146,48 @@ func TestThirtynamaShortQueryBrowses(t *testing.T) {
 	}
 }
 
+// Regression: a post whose image.cover is `false` (the provider's "no poster")
+// must not fail the whole page's parse or trip needs-refresh.
+func TestThirtynamaToleratesLooseTypes(t *testing.T) {
+	body := `{"success":true,"result":{"page":1,"pages":9,"posts":[
+	  {"id":100,"title_type":"movie","title":"Has Poster","imdb_id":"tt1","imdb_score":"7.1","30nama_score":8,"image":{"cover":"https://x/c.jpg"}},
+	  {"id":200,"title_type":"series","title":"No Poster","imdb_id":false,"imdb_score":false,"30nama_score":false,"image":{"cover":false}}
+	]}}`
+	cfg, done := fakeProvider(t, func(w http.ResponseWriter, r *http.Request) { w.Write([]byte(body)) })
+	defer done()
+	res, err := thirtynama{}.Search(context.Background(), source.NewClient(), cfg, source.Session{}, source.SearchQuery{})
+	if err != nil {
+		t.Fatalf("Search with a bool cover must not error: %v", err)
+	}
+	if len(res.Items) != 2 || res.Pages != 9 {
+		t.Fatalf("got %d items, pages=%d", len(res.Items), res.Pages)
+	}
+	if res.Items[1].PosterURL != "" || res.Items[1].IMDbID != "" || res.Items[1].Title != "No Poster" {
+		t.Fatalf("coverless post mapped wrong: %+v", res.Items[1])
+	}
+}
+
+// Regression: full_search nests results under result.title.{page,pages,posts};
+// a text query must read that shape (not return empty).
+func TestThirtynamaFullSearchNestedShape(t *testing.T) {
+	body := `{"success":true,"result":{"title":{"page":1,"pages":2,"posts":[
+	  {"id":232162,"title_type":"movie","title":"The Matrix Resurrections 2021","imdb_id":"tt10838180","imdb_score":"5.6","30nama_score":5.4,"image":{"cover":"https://x/m.jpg"}}
+	]},"person":{},"news":{}}}`
+	var gotPath string
+	cfg, done := fakeProvider(t, func(w http.ResponseWriter, r *http.Request) { gotPath = r.URL.Path; w.Write([]byte(body)) })
+	defer done()
+	res, err := thirtynama{}.Search(context.Background(), source.NewClient(), cfg, source.Session{}, source.SearchQuery{Query: "matrix"})
+	if err != nil {
+		t.Fatalf("full_search: %v", err)
+	}
+	if !strings.Contains(gotPath, "full_search") {
+		t.Fatalf("path = %q", gotPath)
+	}
+	if len(res.Items) != 1 || res.Items[0].Title != "The Matrix Resurrections 2021" || res.Pages != 2 {
+		t.Fatalf("nested full_search parse: %+v (pages=%d)", res.Items, res.Pages)
+	}
+}
+
 func TestThirtynamaTitleAndResolve(t *testing.T) {
 	cfg, done := fakeProvider(t, defaultHandler(t))
 	defer done()

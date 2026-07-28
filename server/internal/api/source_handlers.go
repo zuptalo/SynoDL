@@ -25,6 +25,9 @@ type sourceStatusView struct {
 	Enabled        bool   `json:"enabled"`
 	State          string `json:"state"`
 	ProviderName   string `json:"providerName"`
+	Kind           string `json:"kind"`
+	MoviesParent   string `json:"moviesParent"`
+	TVParent       string `json:"tvParent"`
 	LastVerifiedAt int64  `json:"lastVerifiedAt"`
 	CanManage      bool   `json:"canManage"`
 }
@@ -115,6 +118,9 @@ func handleSourceStatus(d Deps) http.Handler {
 			view.Enabled = p.Enabled
 			view.State = p.State
 			view.ProviderName = p.DisplayName
+			view.Kind = p.Kind
+			view.MoviesParent = p.MoviesParent
+			view.TVParent = p.TVParent
 			view.LastVerifiedAt = p.LastVerifiedAt
 		}
 		httpx.JSON(w, http.StatusOK, view)

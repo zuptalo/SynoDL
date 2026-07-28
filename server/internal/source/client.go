@@ -75,10 +75,12 @@ func (c *Client) Do(ctx context.Context, s Session, allowHosts []string, req Req
 		return nil, err
 	}
 
-	// Identity + bot-protection clearance.
-	r.Header.Set("User-Agent", s.UserAgent)
-	if s.CFClearance != "" {
-		r.Header.Set("Cookie", "cf_clearance="+s.CFClearance)
+	// Identity + bot-protection clearance. Values are header-sanitized so a paste
+	// artifact (e.g. a wrapped User-Agent with an embedded newline) can't make
+	// http fail the request with a cryptic "invalid header field value".
+	r.Header.Set("User-Agent", headerSafe(s.UserAgent))
+	if cf := headerSafe(s.CFClearance); cf != "" {
+		r.Header.Set("Cookie", "cf_clearance="+cf)
 	}
 	// Provider API auth headers (harmless on page loads).
 	setIf(r, "c-api-key", s.CAPIKey)
@@ -145,9 +147,15 @@ func HostAllowed(host string, allow []string) bool {
 }
 
 func setIf(r *http.Request, key, val string) {
-	if val != "" {
-		r.Header.Set(key, val)
+	if v := headerSafe(val); v != "" {
+		r.Header.Set(key, v)
 	}
+}
+
+// headerSafe strips CR/LF and trims surrounding whitespace so pasted session
+// values (which often wrap across lines) don't produce an invalid HTTP header.
+func headerSafe(v string) string {
+	return strings.TrimSpace(strings.NewReplacer("\r", "", "\n", "").Replace(v))
 }
 
 func looksLikeChallenge(b []byte) bool {

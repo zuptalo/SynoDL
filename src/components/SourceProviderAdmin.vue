@@ -53,7 +53,15 @@ watch(
 async function refresh(): Promise<void> {
   loading.value = true;
   try {
-    status.value = await api.getSourceStatus();
+    const s = await api.getSourceStatus();
+    status.value = s;
+    // Prefill the non-secret config so it's clear what's stored. Secret fields
+    // stay blank by design — the server never returns them.
+    if (s.configured) {
+      if (s.providerName) displayName.value = s.providerName;
+      moviesParent.value = s.moviesParent;
+      tvParent.value = s.tvParent;
+    }
   } catch {
     status.value = null;
   } finally {
