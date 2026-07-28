@@ -59,3 +59,12 @@ ion-tab-bar {
   backdrop-filter: saturate(180%) blur(20px);
   -webkit-backdrop-filter: saturate(180%) blur(20px);
 }
+
+/* Shared floating action button (Tasks: add; Discover: jump-to-top). Same size
+ * and position in both views, with a translucent, frosted background — the icon
+ * itself stays fully opaque (it's a separate layer over ::part(native)). */
+ion-fab-button.app-fab::part(native) {
+  background: rgba(var(--ion-color-primary-rgb, 16, 185, 129), 0.8);
+  backdrop-filter: saturate(160%) blur(10px);
+  -webkit-backdrop-filter: saturate(160%) blur(10px);
+}

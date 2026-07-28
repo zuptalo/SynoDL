@@ -332,7 +332,7 @@ function goSettings(): void {
 
       <!-- Appears only once scrolled down; taps back to the top. -->
       <ion-fab v-show="showTop" slot="fixed" vertical="bottom" horizontal="end">
-        <ion-fab-button size="small" aria-label="Jump to top" @click="scrollTop">
+        <ion-fab-button class="app-fab" aria-label="Jump to top" @click="scrollTop">
           <ion-icon :icon="arrowUpOutline" />
         </ion-fab-button>
       </ion-fab>
