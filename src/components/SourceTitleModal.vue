@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue';
+import { computed, onUnmounted, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import {
   IonBadge,
@@ -21,9 +21,10 @@ import {
   IonToolbar,
   toastController,
 } from '@ionic/vue';
-import { cloudDownloadOutline } from 'ionicons/icons';
+import { arrowForwardOutline, cloudDownloadOutline } from 'ionicons/icons';
 import { api, ApiError, posterSrc, type CatalogTitle, type QualityOption } from '@/services/api';
 import { useSourceCatalog } from '@/composables/useSourceCatalog';
+import type { Task } from '@/types/task';
 
 const props = defineProps<{
   isOpen: boolean;
@@ -68,10 +69,97 @@ const selectedTooLarge = computed(() => {
   return q ? tooLarge(q) : false;
 });
 
+// ---- post-send live state -------------------------------------------------
+// After a successful send we don't dismiss; the Send button becomes a live
+// status button that polls the task list for the download(s) we just created
+// (matched by their destination subfolder) and links through to the task detail.
+const sent = ref(false);
+const sentDest = ref('');
+const liveTasks = ref<Task[]>([]);
+let pollTimer: ReturnType<typeof setInterval> | null = null;
+
+// The task's `destination` is share-relative (e.g. "movies/Spider-Man"); match on
+// the full path, or fall back to the leaf folder we created for this title.
+function sameDest(taskDest: string, dest: string): boolean {
+  const norm = (s: string): string => s.replace(/^\/+/, '').replace(/\/+$/, '');
+  const a = norm(taskDest);
+  const b = norm(dest);
+  if (!a || !b) return false;
+  const folder = b.split('/').pop() ?? '';
+  return a === b || (folder !== '' && a.endsWith('/' + folder));
+}
+const sentTasks = computed(() =>
+  sentDest.value ? liveTasks.value.filter((t) => sameDest(t.destination, sentDest.value)) : [],
+);
+const primaryTask = computed<Task | null>(() => sentTasks.value[0] ?? null);
+
+const STATUS_LABEL: Record<string, string> = {
+  waiting: 'Queued',
+  filehosting_waiting: 'Waiting',
+  downloading: 'Downloading',
+  paused: 'Paused',
+  finishing: 'Finishing',
+  finished: 'Completed',
+  seeding: 'Seeding',
+  hash_checking: 'Checking',
+  extracting: 'Extracting',
+  error: 'Error',
+};
+const sentLabel = computed(() => {
+  if (sentTasks.value.length > 1) return `${sentTasks.value.length} downloads · View in Tasks`;
+  const t = primaryTask.value;
+  if (!t) return 'Added to NAS · View in Tasks';
+  const base = STATUS_LABEL[t.status] ?? t.status;
+  if (t.size > 0 && t.status === 'downloading') {
+    return `${base} · ${Math.min(100, Math.floor((t.downloaded / t.size) * 100))}%`;
+  }
+  return `${base} · View download`;
+});
+
+async function pollSent(): Promise<void> {
+  try {
+    liveTasks.value = (await api.tasks()).tasks;
+  } catch {
+    // Leave the button in its last state; the poll retries on the next tick.
+  }
+}
+function startPolling(): void {
+  if (pollTimer) return;
+  void pollSent();
+  pollTimer = setInterval(() => void pollSent(), 3000);
+}
+function stopPolling(): void {
+  if (pollTimer) {
+    clearInterval(pollTimer);
+    pollTimer = null;
+  }
+}
+onUnmounted(stopPolling);
+
+function viewDownload(): void {
+  const t = primaryTask.value;
+  emit('dismiss');
+  // A single created task deep-links to its detail; a season pack (many tasks)
+  // just lands on the Tasks list.
+  if (t && sentTasks.value.length === 1) {
+    void router.push({ path: '/tabs/tasks', query: { task: t.id } });
+  } else {
+    void router.push('/tabs/tasks');
+  }
+}
+
 watch(
   () => props.isOpen,
   async (open) => {
-    if (!open) return;
+    if (!open) {
+      stopPolling();
+      return;
+    }
+    // Reset any prior send state so a reopened title starts fresh.
+    sent.value = false;
+    sentDest.value = '';
+    liveTasks.value = [];
+    stopPolling();
     loading.value = true;
     errorMsg.value = '';
     qualities.value = [];
@@ -99,23 +187,22 @@ watch(
       loading.value = false;
     }
   },
+  // Fire on mount too: the modal is mounted with is-open already true (the parent
+  // sets the title and opens it in the same tick), so without `immediate` the
+  // very first open would never load — the bug where options only appeared after
+  // closing and reopening.
+  { immediate: true },
 );
 
 async function toast(message: string): Promise<void> {
+  // A plain confirmation — the send button itself becomes the live "view the
+  // download" affordance, so the toast no longer needs its own action.
   const t = await toastController.create({
     message,
-    duration: 4000,
+    duration: 3000,
     position: 'top',
     cssClass: 'app-toast',
     swipeGesture: 'vertical',
-    buttons: [
-      {
-        text: 'View',
-        handler: (): void => {
-          void router.push('/tabs/tasks');
-        },
-      },
-    ],
   });
   await t.present();
 }
@@ -126,8 +213,12 @@ async function send(): Promise<void> {
   errorMsg.value = '';
   try {
     const res = await api.sendSource(props.title.id, selected.value, props.title.title, props.title.type);
-    await toast(`Sending to ${res.destination}`);
-    emit('dismiss');
+    // Stay open and flip the button into a live status control; poll the task
+    // list for the download(s) we just created so the button tracks their state.
+    sent.value = true;
+    sentDest.value = res.destination;
+    startPolling();
+    await toast('Sent to your NAS');
   } catch (e) {
     if (e instanceof ApiError) {
       if (e.code === 'source_needs_refresh') {
@@ -161,7 +252,7 @@ async function send(): Promise<void> {
   <ion-modal :is-open="isOpen" @didDismiss="emit('dismiss')">
     <ion-header :translucent="true">
       <ion-toolbar>
-        <ion-title class="ion-text-nowrap">{{ title.title }}</ion-title>
+        <ion-title>Details</ion-title>
         <ion-buttons slot="end">
           <ion-button @click="emit('dismiss')">Close</ion-button>
         </ion-buttons>
@@ -225,13 +316,25 @@ async function send(): Promise<void> {
           </ion-radio-group>
         </template>
 
-        <ion-note v-if="selectedTooLarge && !errorMsg" color="warning" class="error">
+        <ion-note v-if="!sent && selectedTooLarge && !errorMsg" color="warning" class="error">
           That's over the {{ maxLabel }} limit — pick a smaller quality.
         </ion-note>
         <ion-note v-if="errorMsg" color="danger" class="error">{{ errorMsg }}</ion-note>
 
+        <!-- After a successful send the button tracks the created download and
+             links through to it, instead of the modal just closing. -->
         <ion-button
-          v-if="sendable"
+          v-if="sent"
+          expand="block"
+          class="send-btn"
+          color="success"
+          @click="viewDownload"
+        >
+          <ion-icon slot="start" :icon="arrowForwardOutline" />
+          {{ sentLabel }}
+        </ion-button>
+        <ion-button
+          v-else-if="sendable"
           expand="block"
           class="send-btn"
           :disabled="!selected || sending || selectedTooLarge"
