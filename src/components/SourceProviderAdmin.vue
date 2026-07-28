@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue';
+import { computed, ref, watch } from 'vue';
 import {
   IonButton,
   IonButtons,
@@ -58,6 +58,11 @@ const cAppVersion = ref('');
 
 const KIND = 'thirtynama';
 
+// Once configured, the stored session material is kept when a secret field is
+// left blank — so only the changed pieces (or just the folders) need re-entry.
+const configured = computed(() => !!status.value?.configured);
+const secretPlaceholder = computed(() => (configured.value ? 'Stored — leave blank to keep' : ''));
+
 watch(
   () => props.isOpen,
   async (open) => {
@@ -100,8 +105,14 @@ async function toast(message: string): Promise<void> {
 
 async function save(): Promise<void> {
   errorMsg.value = '';
-  if (!moviesParent.value.trim() || !cToken.value.trim() || !cfClearance.value.trim() || !userAgent.value.trim()) {
-    errorMsg.value = 'Movies folder, clearance cookie, auth token, and User-Agent are required.';
+  if (!moviesParent.value.trim()) {
+    errorMsg.value = 'A movies folder is required.';
+    return;
+  }
+  // First-time setup needs the full session; a re-verify/edit of an existing
+  // source can leave the secret fields blank to keep what's stored.
+  if (!configured.value && (!cToken.value.trim() || !cfClearance.value.trim() || !userAgent.value.trim())) {
+    errorMsg.value = 'Clearance cookie, auth token, and User-Agent are required.';
     return;
   }
   saving.value = true;
@@ -224,6 +235,7 @@ async function remove(): Promise<void> {
           <ion-note class="hint">
             Capture these from your logged-in browser on the same network as the NAS. They are stored
             encrypted and never shown again.
+            <template v-if="configured"> Leave a field blank to keep the stored value.</template>
           </ion-note>
           <ion-item>
             <ion-input v-model="displayName" label="Display name" label-placement="stacked" />
@@ -233,6 +245,7 @@ async function remove(): Promise<void> {
               v-model="cfClearance"
               label="cf_clearance cookie"
               label-placement="stacked"
+              :placeholder="secretPlaceholder"
               :auto-grow="true"
               :rows="2"
             />
@@ -242,18 +255,20 @@ async function remove(): Promise<void> {
               v-model="cToken"
               label="c-token"
               label-placement="stacked"
+              :placeholder="secretPlaceholder"
               :auto-grow="true"
               :rows="2"
             />
           </ion-item>
           <ion-item>
-            <ion-input v-model="cApiKey" label="c-api-key" label-placement="stacked" />
+            <ion-input v-model="cApiKey" label="c-api-key" label-placement="stacked" :placeholder="secretPlaceholder" />
           </ion-item>
           <ion-item>
             <ion-textarea
               v-model="userAgent"
               label="User-Agent"
               label-placement="stacked"
+              :placeholder="secretPlaceholder"
               :auto-grow="true"
               :rows="2"
             />
