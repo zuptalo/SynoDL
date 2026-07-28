@@ -17,7 +17,7 @@ Specs are grouped by category band; status moves
 | [0002](specs/0002-live-task-updates/spec.md) | Live task updates, task detail view, and download failure reasons | 🔵 in-review |
 | [0003](specs/0003-stateful-multi-user/spec.md) | Stateful multi-user rework — setup wizard, SynoDL accounts, folder access, and Web Push | 🟢 shipped |
 | [0004](specs/0004-task-list-bulk/spec.md) | Task-list bulk actions, selection mode, app badge, and newest-first sort | 🟢 shipped |
-| [0005](specs/0005-source-catalog/spec.md) | Download-source catalog — browse, search, and send an admin-configured provider to Download Station | ⚪ planned |
+| [0005](specs/0005-source-catalog/spec.md) | Download-source catalog — browse, search, and send an admin-configured provider to Download Station | 🟡 in-progress |
 
 ## ⚡ Ad-hoc (1001–1999)
 
