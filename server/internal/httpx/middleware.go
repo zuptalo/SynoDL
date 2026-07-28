@@ -88,3 +88,15 @@ func (s *statusRecorder) Hijack() (net.Conn, *bufio.ReadWriter, error) {
 	}
 	return hj.Hijack()
 }
+
+// Flush forwards to the underlying ResponseWriter so Server-Sent Events work
+// through the logging middleware. The SSE task stream type-asserts its writer to
+// http.Flusher; without this method the wrapper doesn't satisfy that interface
+// and the handler answers 500 on every connect (the live-update endpoint then
+// 500s on each client reconnect). A no-op when the underlying writer can't
+// flush, matching the Hijack delegation above.
+func (s *statusRecorder) Flush() {
+	if fl, ok := s.ResponseWriter.(http.Flusher); ok {
+		fl.Flush()
+	}
+}
