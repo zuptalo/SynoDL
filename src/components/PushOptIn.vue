@@ -15,6 +15,28 @@ import { api, type NotifPrefs } from '@/services/api';
 const supported =
   'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
 
+// Remembers that the user opted in on this device. iOS drops the push
+// subscription when the installed PWA updates, which would silently turn
+// notifications off until the user noticed and re-enabled them. With this flag
+// we re-subscribe automatically on next launch (permission is still granted),
+// so notifications survive updates and restarts.
+const OPTED_IN_KEY = 'push.optedIn';
+function rememberOptIn(on: boolean): void {
+  try {
+    if (on) localStorage.setItem(OPTED_IN_KEY, '1');
+    else localStorage.removeItem(OPTED_IN_KEY);
+  } catch {
+    /* private mode — the in-memory state still drives this session */
+  }
+}
+function wasOptedIn(): boolean {
+  try {
+    return localStorage.getItem(OPTED_IN_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+
 const enabled = ref(false);
 const busy = ref(false);
 const error = ref('');
@@ -81,7 +103,21 @@ onMounted(async () => {
     return;
   }
   try {
-    enabled.value = (await currentSub()) !== null && Notification.permission === 'granted';
+    const granted = Notification.permission === 'granted';
+    const sub = await currentSub();
+    if (sub && granted) {
+      enabled.value = true;
+    } else if (granted && wasOptedIn()) {
+      // The subscription was dropped (typically by an iOS PWA update) but the
+      // user still wants notifications and permission is granted — restore it
+      // silently so they don't have to re-enable after every update.
+      try {
+        await subscribe();
+        enabled.value = true;
+      } catch {
+        enabled.value = false;
+      }
+    }
   } catch {
     /* leave off */
   }
@@ -119,9 +155,12 @@ async function subscribe(): Promise<void> {
   const j = sub.toJSON();
   if (!j.keys?.p256dh || !j.keys?.auth) throw new Error('Subscription keys unavailable.');
   await api.saveSubscription(sub.endpoint, { p256dh: j.keys.p256dh, auth: j.keys.auth }, true);
+  rememberOptIn(true);
 }
 
 async function unsubscribe(): Promise<void> {
+  // The user explicitly turned it off — don't auto-restore on next launch.
+  rememberOptIn(false);
   const sub = await currentSub();
   if (!sub) return;
   await api.deleteSubscription(sub.endpoint).catch(() => undefined);
