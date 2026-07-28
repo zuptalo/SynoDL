@@ -100,21 +100,27 @@ onMounted(async () => {
 async function onSearch(e: CustomEvent): Promise<void> {
   await setQuery(((e.detail as { value?: string }).value ?? '').trim());
   await fillViewport();
+  // A new search replaces the list, so a previously scrolled-down view would
+  // otherwise land the user in the middle of the fresh results — jump back up.
+  await scrollTop();
 }
 
 async function onApply(f: typeof filters.value, s: string): Promise<void> {
   await applyFilters(f, s);
   await fillViewport();
+  await scrollTop();
 }
 
 async function onClear(): Promise<void> {
   await clearFilters();
   await fillViewport();
+  await scrollTop();
 }
 
 async function onRemoveFilter(key: Parameters<typeof removeFilter>[0]): Promise<void> {
   await removeFilter(key);
   await fillViewport();
+  await scrollTop();
 }
 
 async function onInfinite(e: InfiniteScrollCustomEvent): Promise<void> {
@@ -385,7 +391,7 @@ function goSettings(): void {
   -webkit-appearance: none;
   appearance: none;
   font: inherit;
-  color: var(--ion-text-color, #fff);
+  color: var(--app-text);
 }
 .poster {
   position: relative;
@@ -435,7 +441,7 @@ function goSettings(): void {
   font-size: 0.9rem;
   font-weight: 600;
   margin: 0;
-  color: var(--ion-text-color, #fff);
+  color: var(--app-text);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
