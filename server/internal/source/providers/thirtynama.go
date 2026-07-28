@@ -134,68 +134,86 @@ func (p thirtynama) Search(ctx context.Context, c *source.Client, cfg source.Con
 }
 
 func (p thirtynama) Title(ctx context.Context, c *source.Client, cfg source.Config, s source.Session, id string) (source.TitleDetail, error) {
-	quals, err := p.downloads(ctx, c, cfg, s, id)
+	quals, isSeries, err := p.downloads(ctx, c, cfg, s, id)
 	if err != nil {
 		return source.TitleDetail{}, runtimeErr(err)
 	}
-	// v1: a title is sendable when it exposes movie-style download entries.
-	return source.TitleDetail{ID: id, Type: source.TypeMovie, Sendable: len(quals) > 0, Qualities: quals}, nil
+	typ := source.TypeMovie
+	if isSeries {
+		typ = source.TypeSeries
+	}
+	// Sendable when it exposes downloadable entries: a movie's files, or a
+	// series' season packs.
+	return source.TitleDetail{ID: id, Type: typ, Sendable: len(quals) > 0, Qualities: quals}, nil
 }
 
-func (p thirtynama) ResolveDownload(ctx context.Context, c *source.Client, cfg source.Config, s source.Session, titleID, qualityID string) (string, string, error) {
+func (p thirtynama) ResolveDownload(ctx context.Context, c *source.Client, cfg source.Config, s source.Session, titleID, qualityID string) ([]string, string, error) {
 	raw, err := p.call(ctx, c, cfg, s, "/api/v1/action/download/id/"+url.PathEscape(titleID), "")
 	if err != nil {
-		return "", "", runtimeErr(err)
+		return nil, "", runtimeErr(err)
 	}
 	var r tnDownloadResult
 	if err := json.Unmarshal(raw, &r); err != nil {
-		return "", "", runtimeErr(errBadShape)
+		return nil, "", runtimeErr(errBadShape)
 	}
 	for _, d := range r.Download {
 		if d.ID == qualityID {
-			link := d.DL
-			if link == "" {
-				link = d.IPDL
+			links := entryLinks(d)
+			if len(links) == 0 {
+				return nil, "", errors.New("thirtynama: no download url for quality")
 			}
-			if link == "" {
-				return "", "", errors.New("thirtynama: no download url for quality")
+			// Every signed link must live on an allowed download host.
+			for _, link := range links {
+				u, err := url.Parse(link)
+				if err != nil || !source.HostAllowed(u.Hostname(), cfg.DownloadHosts) {
+					return nil, "", source.ErrHostNotAllowed
+				}
 			}
-			// The signed link must live on an allowed download host.
-			u, err := url.Parse(link)
-			if err != nil || !source.HostAllowed(u.Hostname(), cfg.DownloadHosts) {
-				return "", "", source.ErrHostNotAllowed
-			}
-			return link, d.Size, nil
+			return links, d.Size, nil
 		}
 	}
-	return "", "", errors.New("thirtynama: quality not found")
+	return nil, "", errors.New("thirtynama: quality not found")
 }
 
-// downloads fetches and maps a title's quality entries (without exposing links).
-func (p thirtynama) downloads(ctx context.Context, c *source.Client, cfg source.Config, s source.Session, id string) ([]source.QualityOption, error) {
+// downloads fetches a title's downloadable entries and reports whether it is a
+// series (its entries are season packs).
+func (p thirtynama) downloads(ctx context.Context, c *source.Client, cfg source.Config, s source.Session, id string) ([]source.QualityOption, bool, error) {
 	raw, err := p.call(ctx, c, cfg, s, "/api/v1/action/download/id/"+url.PathEscape(id), "")
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	var r tnDownloadResult
 	if err := json.Unmarshal(raw, &r); err != nil {
-		return nil, errBadShape // odd shape (e.g. a series) — not an auth failure
+		return nil, false, errBadShape
 	}
+	isSeries := bool(r.IsSeries)
 	out := make([]source.QualityOption, 0, len(r.Download))
 	for _, d := range r.Download {
-		if d.DL == "" && d.IPDL == "" {
+		if len(entryLinks(d)) == 0 {
 			continue // not downloadable (e.g. stream-only)
 		}
-		out = append(out, source.QualityOption{
+		q := source.QualityOption{
 			ID:         d.ID,
 			Label:      d.Quality,
 			Size:       d.Size,
 			Resolution: d.Resolution,
 			Encoder:    d.Encoder,
 			Hardsub:    bool(d.Hardsub),
-		})
+		}
+		if isSeries {
+			q.Season = seasonLabel(d)
+			q.Episodes = int(d.TotalEpisode)
+		}
+		out = append(out, q)
 	}
-	return out, nil
+	return out, isSeries, nil
+}
+
+func seasonLabel(d tnDownload) string {
+	if n := int(d.SeasonInt); n > 0 {
+		return fmt.Sprintf("Season %d", n)
+	}
+	return string(d.SeasonName)
 }
 
 // call performs an authenticated API POST and returns result raw JSON, mapping a
@@ -354,6 +372,7 @@ func (p tnPost) genreNames() []string {
 }
 
 type tnDownloadResult struct {
+	IsSeries flexBool     `json:"is_series"`
 	Download []tnDownload `json:"download"`
 }
 
@@ -364,8 +383,40 @@ type tnDownload struct {
 	Resolution string   `json:"resolution"`
 	Encoder    string   `json:"encoder"`
 	Hardsub    flexBool `json:"hardsub"`
-	DL         string   `json:"dl"`
-	IPDL       string   `json:"ipdl"`
+	// A movie exposes its file directly on dl/ipdl. A series season pack instead
+	// carries one link entry PER EPISODE under `link`, plus season info.
+	DL           string   `json:"dl"`
+	IPDL         string   `json:"ipdl"`
+	Link         []tnLink `json:"link"`
+	SeasonName   flexStr  `json:"season_name"`
+	SeasonInt    flexInt  `json:"season_int"`
+	TotalEpisode flexInt  `json:"total_episode"`
+}
+
+type tnLink struct {
+	ID   string `json:"id"`
+	DL   string `json:"dl"`
+	IPDL string `json:"ipdl"`
+}
+
+// entryLinks returns every signed URL for a download entry: one for a movie, one
+// per episode for a series season pack.
+func entryLinks(d tnDownload) []string {
+	if d.DL != "" {
+		return []string{d.DL}
+	}
+	if d.IPDL != "" {
+		return []string{d.IPDL}
+	}
+	out := make([]string, 0, len(d.Link))
+	for _, e := range d.Link {
+		if e.DL != "" {
+			out = append(out, e.DL)
+		} else if e.IPDL != "" {
+			out = append(out, e.IPDL)
+		}
+	}
+	return out
 }
 
 // flexFloat/flexInt/flexBool tolerate numbers, strings, or null (the provider is

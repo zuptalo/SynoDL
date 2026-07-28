@@ -234,6 +234,42 @@ func TestThirtynamaBrowseFiltersAndSort(t *testing.T) {
 	}
 }
 
+// A series' download returns season packs (is_series:true, entries use `link`
+// and carry season info) — each becomes a sendable per-season quality option.
+func TestThirtynamaSeriesDownload(t *testing.T) {
+	// A series season pack's `link` is an array with one signed URL per episode.
+	body := `{"success":true,"result":{"seasons":2,"is_series":true,"download":[
+	  {"id":"s1","season_int":1,"season_name":"Season 1","total_episode":2,"quality":"1080p WEB-DL","size":"800 MB","encoder":"NTb","link":[
+	    {"id":"e1","dl":"https://eu-download-storage-11.divyacamilla.info/download/s1e1"},
+	    {"id":"e2","dl":"https://eu-download-storage-11.divyacamilla.info/download/s1e2"}]},
+	  {"id":"s2","season_int":2,"season_name":"Season 2","total_episode":1,"quality":"1080p WEB-DL","size":"700 MB","encoder":"NTb","link":[
+	    {"id":"e3","dl":"https://eu-download-storage-11.divyacamilla.info/download/s2e1"}]}
+	]}}`
+	cfg, done := fakeProvider(t, func(w http.ResponseWriter, r *http.Request) { w.Write([]byte(body)) })
+	defer done()
+	c := source.NewClient()
+
+	td, err := thirtynama{}.Title(context.Background(), c, cfg, source.Session{}, "12157")
+	if err != nil {
+		t.Fatalf("Title: %v", err)
+	}
+	if td.Type != source.TypeSeries || !td.Sendable || len(td.Qualities) != 2 {
+		t.Fatalf("series title = %+v", td)
+	}
+	if td.Qualities[0].Season != "Season 1" || td.Qualities[0].Episodes != 2 {
+		t.Fatalf("season option = %+v", td.Qualities[0])
+	}
+
+	// Resolving season 1 yields one link per episode.
+	links, size, err := thirtynama{}.ResolveDownload(context.Background(), c, cfg, source.Session{}, "12157", "s1")
+	if err != nil {
+		t.Fatalf("ResolveDownload: %v", err)
+	}
+	if len(links) != 2 || !strings.Contains(links[0], "s1e1") || !strings.Contains(links[1], "s1e2") || size != "800 MB" {
+		t.Fatalf("resolved season links = %q size = %q", links, size)
+	}
+}
+
 func TestThirtynamaTitleAndResolve(t *testing.T) {
 	cfg, done := fakeProvider(t, defaultHandler(t))
 	defer done()
@@ -255,12 +291,12 @@ func TestThirtynamaTitleAndResolve(t *testing.T) {
 		t.Fatal("quality label leaked a URL")
 	}
 
-	link, size, err := thirtynama{}.ResolveDownload(context.Background(), c, cfg, source.Session{}, "217561", "217561512085")
+	links, size, err := thirtynama{}.ResolveDownload(context.Background(), c, cfg, source.Session{}, "217561", "217561512085")
 	if err != nil {
 		t.Fatalf("ResolveDownload: %v", err)
 	}
-	if !strings.Contains(link, "512085") || !strings.Contains(link, "divyacamilla.info") {
-		t.Fatalf("resolved link = %q", link)
+	if len(links) != 1 || !strings.Contains(links[0], "512085") || !strings.Contains(links[0], "divyacamilla.info") {
+		t.Fatalf("resolved links = %q", links)
 	}
 	if size != "11 GB" {
 		t.Fatalf("resolved size = %q, want 11 GB", size)

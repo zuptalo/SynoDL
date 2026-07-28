@@ -119,7 +119,7 @@ async function send(): Promise<void> {
   sending.value = true;
   errorMsg.value = '';
   try {
-    const res = await api.sendSource(props.title.id, selected.value, props.title.title);
+    const res = await api.sendSource(props.title.id, selected.value, props.title.title, props.title.type);
     await toast(`Sending to ${res.destination}`);
     emit('dismiss');
   } catch (e) {
@@ -191,7 +191,7 @@ async function send(): Promise<void> {
         <p v-if="title.plot" class="plot">{{ title.plot }}</p>
 
         <ion-note v-if="!sendable" color="medium" class="unavailable">
-          Sending isn't available for this title yet — series and anime are browse-only for now.
+          No downloadable files for this title yet.
         </ion-note>
 
         <template v-else>
@@ -203,9 +203,13 @@ async function send(): Promise<void> {
               <ion-item v-for="q in qualities" :key="q.id" :class="{ over: tooLarge(q) }">
                 <ion-radio :value="q.id" :disabled="tooLarge(q)" label-placement="end" justify="start">
                   <ion-label>
-                    <h3>{{ q.label }}</h3>
+                    <h3>
+                      <span v-if="q.season" class="season">{{ q.season }} · </span>{{ q.label }}
+                    </h3>
                     <p>
-                      {{ q.size }} · {{ q.resolution }}{{ q.encoder ? ' · ' + q.encoder : '' }}
+                      {{ q.size }}<template v-if="q.resolution"> · {{ q.resolution }}</template
+                      >{{ q.encoder ? ' · ' + q.encoder : ''
+                      }}<template v-if="q.episodes"> · {{ q.episodes }} eps</template>
                       <span v-if="tooLarge(q)" class="over-tag">over limit</span>
                     </p>
                   </ion-label>
@@ -306,6 +310,10 @@ async function send(): Promise<void> {
 .over-tag {
   margin-left: 6px;
   color: var(--ion-color-warning, #e0a030);
+}
+.season {
+  color: var(--ion-color-primary, #3dc2ff);
+  font-weight: 600;
 }
 .error {
   display: block;

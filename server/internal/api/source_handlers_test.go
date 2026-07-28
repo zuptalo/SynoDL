@@ -23,7 +23,7 @@ var (
 	fakeLastQuery  source.SearchQuery
 	fakeTitle      source.TitleDetail
 	fakeTitleErr   error
-	fakeLink       string
+	fakeLinks      []string
 	fakeSize       string
 	fakeResolveErr error
 )
@@ -44,15 +44,15 @@ func (fakeSrc) Search(_ context.Context, _ *source.Client, _ source.Config, _ so
 func (fakeSrc) Title(context.Context, *source.Client, source.Config, source.Session, string) (source.TitleDetail, error) {
 	return fakeTitle, fakeTitleErr
 }
-func (fakeSrc) ResolveDownload(context.Context, *source.Client, source.Config, source.Session, string, string) (string, string, error) {
-	return fakeLink, fakeSize, fakeResolveErr
+func (fakeSrc) ResolveDownload(context.Context, *source.Client, source.Config, source.Session, string, string) ([]string, string, error) {
+	return fakeLinks, fakeSize, fakeResolveErr
 }
 
 func resetFake() {
 	fakeVerifyErr, fakeSearchErr, fakeTitleErr, fakeResolveErr = nil, nil, nil, nil
 	fakeSearch = source.SearchResult{}
 	fakeTitle = source.TitleDetail{}
-	fakeLink = ""
+	fakeLinks = nil
 	fakeSize = ""
 }
 
@@ -227,7 +227,7 @@ func TestSourceSendMovie(t *testing.T) {
 	admin := adminAfterSetup(t, h)
 	configureFake(t, h, admin, "movie") // "movie" exists in the mock DSM
 
-	fakeLink = "http://dl.fake/soul.mkv"
+	fakeLinks = []string{"http://dl.fake/soul.mkv"}
 
 	// Admin send → subfolder under movies parent + task, no leaked link.
 	rec := do(t, h, "POST", "/v1/source/send", `{"titleId":"217561","qualityId":"q1","title":"Soul 2020"}`, admin)
@@ -263,7 +263,7 @@ func TestSourceSendMaxSize(t *testing.T) {
 	h, _ := newStatefulRouter(t)
 	admin := adminAfterSetup(t, h)
 	configureFake(t, h, admin, "movie")
-	fakeLink = "http://dl.fake/x.mkv"
+	fakeLinks = []string{"http://dl.fake/x.mkv"}
 	do(t, h, "PUT", "/v1/source/policy", `{"maxDownloadMB":1024}`, admin) // 1 GB cap
 
 	fakeSize = "2 GB"
@@ -282,7 +282,7 @@ func TestSourceSendDailyLimit(t *testing.T) {
 	h, _ := newStatefulRouter(t)
 	admin := adminAfterSetup(t, h)
 	configureFake(t, h, admin, "movie")
-	fakeLink, fakeSize = "http://dl.fake/x.mkv", "500 MB"
+	fakeLinks, fakeSize = []string{"http://dl.fake/x.mkv"}, "500 MB"
 
 	dl := makeUser(t, h, admin, "dl", `"movie"`)
 	rec := do(t, h, "GET", "/v1/users", "", admin)
