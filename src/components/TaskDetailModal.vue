@@ -30,7 +30,7 @@ import { formatBytes, formatDate, formatSpeed, formatPercent } from '@/utils/for
 import { reasonFor } from '@/services/task-error';
 
 const props = defineProps<{ isOpen: boolean; task: Task | null }>();
-defineEmits<{ (e: 'dismiss'): void }>();
+const emit = defineEmits<{ (e: 'dismiss'): void }>();
 
 const reason = computed(() =>
   props.task?.status === 'error' ? reasonFor(props.task.errorDetail ?? '') : '',
@@ -53,14 +53,20 @@ async function copyLink(): Promise<void> {
 }
 
 async function redownload(): Promise<void> {
-  if (!props.task?.uri) return;
+  const t = props.task;
+  if (!t?.uri) return;
+  const { uri, id } = t;
+  const destination = t.destination || undefined;
   try {
-    await api.createTaskURIs([props.task.uri], {
-      destination: props.task.destination || undefined,
-    });
+    // Replace the existing entry in place: remove the finished/failed task first
+    // so Download Station adds a fresh task instead of a numbered duplicate
+    // ("name (1)") beside the old one. Deleting a task keeps its files on the NAS.
+    await api.deleteTasks([id]);
+    await api.createTaskURIs([uri], { destination });
     await appToast({ message: 'Re-download started.', duration: 1800 });
+    emit('dismiss'); // the old task is gone; close rather than show the "gone" state
   } catch {
-    await appToast({ message: 'Could not start the re-download.', color: 'danger', duration: 2200 });
+    await appToast({ message: 'Could not restart the download.', color: 'danger', duration: 2200 });
   }
 }
 </script>
