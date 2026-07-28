@@ -9,7 +9,15 @@
 # either mode; create the secret (install.sh) to switch a running instance to
 # stateful. Back up = the synodl-data volume PLUS the SECRETS_KEY secret.
 #
-# Single replica, Recreate strategy: the SQLite volume is single-writer.
+# Single replica, but a NODE-LOCAL rolling update for near-zero-downtime deploys:
+# the new pod comes up and passes its readiness probe BEFORE the old one is torn
+# down (maxSurge=1, maxUnavailable=0). This is safe with the single SQLite volume
+# because the PVC uses the k3s local-path provisioner, whose PV is pinned to one
+# node — so both the old and new pod schedule on that same node and a ReadWriteOnce
+# volume can be mounted by both (RWO = one NODE, not one pod). The DB is opened in
+# WAL mode with a 5s busy_timeout (store.Open), which is exactly the multi-process
+# access SQLite is designed for, so the brief handoff overlap is safe. The old pod
+# shuts down gracefully (SIGTERM → drain in-flight → exit) within its grace period.
 #
 # Keel auto-updates this Deployment: it polls ghcr.io/zuptalo/synodl:latest and,
 # when the tag's digest changes (a new production release moves :latest), forces a
@@ -71,10 +79,14 @@ metadata:
 spec:
   replicas: 1
   strategy:
-    # Recreate (stop-then-start), not RollingUpdate: the stateful mode keeps a
-    # single-writer SQLite database on one ReadWriteOnce volume, so two pods must
-    # never hold it at once. Brief downtime on deploy is fine for a home app.
-    type: Recreate
+    # Node-local rolling update: bring the new pod up (and Ready) before removing
+    # the old one, for near-zero-downtime deploys. Safe with the single SQLite
+    # volume because local-path pins both pods to the same node (RWO = one node,
+    # not one pod) and the DB runs in WAL mode with a busy_timeout. See the header.
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
   selector:
     matchLabels:
       app: synodl
@@ -83,6 +95,9 @@ spec:
       labels:
         app: synodl
     spec:
+      # Give the old pod time to finish in-flight requests on SIGTERM (the server
+      # shuts down gracefully) before it's killed, so nothing is dropped mid-deploy.
+      terminationGracePeriodSeconds: 30
       # The image runs as uid/gid 1000; fsGroup makes the mounted SQLite volume
       # group-owned by 1000 so the non-root process can write the database.
       securityContext:
