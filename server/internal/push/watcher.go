@@ -87,15 +87,15 @@ func (w *Watcher) poll(ctx context.Context) {
 			// Only announce as "added" once we're past the startup baseline and the
 			// task is genuinely in flight (not one we discovered already done).
 			if w.primed && t.Status != "finished" && t.Status != "error" {
-				w.notifyEvent(ctx, "added", owner, "Download added", t.Name)
+				w.notifyEvent(ctx, "added", owner, t.ID, "Download added", t.Name)
 			}
 		case t.Status == "finished" && last != "finished" && !notified:
 			owner, _, _ := w.store.GetWatchedOwner(t.ID)
-			w.notifyEvent(ctx, "completed", owner, "Download complete", t.Name)
+			w.notifyEvent(ctx, "completed", owner, t.ID, "Download complete", t.Name)
 			_ = w.store.UpsertWatched(t.ID, t.Status, true)
 		case t.Status == "error" && last != "error":
 			owner, _, _ := w.store.GetWatchedOwner(t.ID)
-			w.notifyEvent(ctx, "failed", owner, "Download failed", t.Name)
+			w.notifyEvent(ctx, "failed", owner, t.ID, "Download failed", t.Name)
 			_ = w.store.UpsertWatched(t.ID, t.Status, notified)
 		case t.Status != last:
 			_ = w.store.UpsertWatched(t.ID, t.Status, notified)
@@ -126,7 +126,7 @@ func (w *Watcher) maybeNotifyUpdate(ctx context.Context) {
 		return
 	}
 	if last != w.version {
-		w.fanOut(ctx, payload("SynoDL updated", "A new version is available."))
+		w.fanOut(ctx, payload("SynoDL updated", "A new version is available.", ""))
 		_ = w.store.SetLastVersionNotified(w.version)
 	}
 }
@@ -134,13 +134,13 @@ func (w *Watcher) maybeNotifyUpdate(ctx context.Context) {
 // notifyEvent sends a task-event notification only to subscribers whose prefs
 // enable that event and whose scope covers this task (any user's, or — when the
 // task is attributed to them — their own).
-func (w *Watcher) notifyEvent(ctx context.Context, event string, ownerUserID int64, title, body string) {
+func (w *Watcher) notifyEvent(ctx context.Context, event string, ownerUserID int64, taskID, title, body string) {
 	subs, err := w.store.OptedInSubscriptions()
 	if err != nil {
 		return
 	}
 	body = truncate(body, 120)
-	msg := payload(title, body)
+	msg := payload(title, body, taskID)
 	for _, sub := range subs {
 		prefs, err := w.store.GetNotificationPrefs(sub.UserID)
 		if err != nil {
@@ -191,9 +191,15 @@ func (w *Watcher) send(ctx context.Context, sub store.Subscription, body []byte)
 	}
 }
 
-// payload is the JSON the service worker reads to show a plain-text notification.
-func payload(title, body string) []byte {
-	b, _ := json.Marshal(map[string]string{"title": title, "body": body})
+// payload is the JSON the service worker reads to show a plain-text
+// notification. taskId (empty for instance-level notices like app updates) lets
+// the client deep-link a tapped notification to that task's detail.
+func payload(title, body, taskID string) []byte {
+	m := map[string]string{"title": title, "body": body}
+	if taskID != "" {
+		m["taskId"] = taskID
+	}
+	b, _ := json.Marshal(m)
 	return b
 }
 

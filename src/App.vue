@@ -42,22 +42,35 @@ window.addEventListener('focus', clearBadge);
 // toast UNLESS the user is already on the Tasks tab, where the change is visible
 // live.
 const inAppMsg = ref('');
-// Tapping "View" jumps to the Tasks tab (the push carries no task id yet, so we
-// can't open a specific task's detail — that needs a payload change). Swipe up
-// dismisses; the button also dismisses via its default role handling.
+const inAppTaskId = ref('');
+function openTask(taskId: string): void {
+  void router.push({ path: '/tabs/tasks', query: taskId ? { task: taskId } : {} });
+}
+// Tapping "View" opens the notification's task detail (or the Tasks list when
+// there's no task). Swipe up dismisses; the button also dismisses.
 const toastButtons = [
   {
     text: 'View',
     handler: (): void => {
+      const id = inAppTaskId.value;
       inAppMsg.value = '';
-      void router.push('/tabs/tasks');
+      openTask(id);
     },
   },
 ];
 const onSwMessage = (e: MessageEvent): void => {
-  const d = e.data as { type?: string; title?: string; body?: string } | undefined;
-  if (!d || d.type !== 'push-notification') return;
+  const d = e.data as
+    | { type?: string; title?: string; body?: string; taskId?: string }
+    | undefined;
+  if (!d) return;
+  // A tapped OS notification (app already open) — route straight to the task.
+  if (d.type === 'open-task') {
+    openTask(d.taskId ?? '');
+    return;
+  }
+  if (d.type !== 'push-notification') return;
   if (router.currentRoute.value.path.startsWith('/tabs/tasks')) return;
+  inAppTaskId.value = d.taskId ?? '';
   inAppMsg.value = d.body ? `${d.title}: ${d.body}` : (d.title ?? '');
 };
 navigator.serviceWorker?.addEventListener('message', onSwMessage);
