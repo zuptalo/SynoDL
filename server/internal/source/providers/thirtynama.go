@@ -121,7 +121,7 @@ func (p thirtynama) Search(ctx context.Context, c *source.Client, cfg source.Con
 			ID:            string(post.ID),
 			Type:          string(post.TitleType),
 			Title:         string(post.Title),
-			PosterURL:     string(post.Image.Cover),
+			PosterURL:     post.posterURL(),
 			IMDbID:        string(post.IMDbID),
 			IMDbScore:     float64(post.IMDbScore),
 			ProviderScore: float64(post.Score),
@@ -353,12 +353,41 @@ type tnPost struct {
 	FreeDownload flexBool   `json:"free_download"`
 	EnglishPlot  flexStr    `json:"english_plot"`
 	Image        struct {
-		Cover flexStr `json:"cover"`
+		Cover  flexStr `json:"cover"`
+		Poster struct {
+			// Sized portrait posters. Coming-soon titles have an empty `cover`
+			// but still carry the provider's default placeholder here (the
+			// "none-*_30NAMA" images), so it doubles as the missing-cover fallback.
+			Big    flexStr `json:"big"`
+			Large  flexStr `json:"large"`
+			Medium flexStr `json:"medium"`
+			Small  flexStr `json:"small"`
+		} `json:"poster"`
 	} `json:"image"`
 	Genre []struct {
 		Name flexStr `json:"name"`
 		Slug flexStr `json:"slug"`
 	} `json:"genre"`
+}
+
+// posterURL picks the best available cover art: the landscape `cover` when the
+// title has real art, otherwise the sized portrait poster (which for coming-soon
+// titles is the provider's default placeholder rather than nothing).
+func (p tnPost) posterURL() string {
+	if c := string(p.Image.Cover); c != "" {
+		return c
+	}
+	for _, s := range []string{
+		string(p.Image.Poster.Big),
+		string(p.Image.Poster.Large),
+		string(p.Image.Poster.Medium),
+		string(p.Image.Poster.Small),
+	} {
+		if s != "" {
+			return s
+		}
+	}
+	return ""
 }
 
 // genreNames returns human genre labels (slug-derived), skipping empties.

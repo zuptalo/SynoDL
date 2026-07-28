@@ -152,7 +152,8 @@ func TestThirtynamaShortQueryBrowses(t *testing.T) {
 func TestThirtynamaToleratesLooseTypes(t *testing.T) {
 	body := `{"success":true,"result":{"page":1,"pages":9,"posts":[
 	  {"id":100,"title_type":"movie","title":"Has Poster","imdb_id":"tt1","imdb_score":"7.1","30nama_score":8,"image":{"cover":"https://x/c.jpg"}},
-	  {"id":200,"title_type":"series","title":"No Poster","imdb_id":false,"imdb_score":false,"30nama_score":false,"image":{"cover":false}}
+	  {"id":200,"title_type":"series","title":"No Poster","imdb_id":false,"imdb_score":false,"30nama_score":false,"image":{"cover":false}},
+	  {"id":300,"title_type":"movie","title":"Coming Soon","coming_soon":true,"image":{"cover":false,"poster":{"big":"https://cdn.30nama.com/none/none-b_30NAMA.jpg?2","medium":"https://cdn.30nama.com/none/none-m_30NAMA.jpg?2"}}}
 	]}}`
 	cfg, done := fakeProvider(t, func(w http.ResponseWriter, r *http.Request) { w.Write([]byte(body)) })
 	defer done()
@@ -160,11 +161,16 @@ func TestThirtynamaToleratesLooseTypes(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Search with a bool cover must not error: %v", err)
 	}
-	if len(res.Items) != 2 || res.Pages != 9 {
+	if len(res.Items) != 3 || res.Pages != 9 {
 		t.Fatalf("got %d items, pages=%d", len(res.Items), res.Pages)
 	}
 	if res.Items[1].PosterURL != "" || res.Items[1].IMDbID != "" || res.Items[1].Title != "No Poster" {
 		t.Fatalf("coverless post mapped wrong: %+v", res.Items[1])
+	}
+	// A coming-soon title with no cover falls back to the provider's placeholder
+	// poster instead of showing nothing.
+	if res.Items[2].PosterURL != "https://cdn.30nama.com/none/none-b_30NAMA.jpg?2" {
+		t.Fatalf("coming-soon poster fallback = %q", res.Items[2].PosterURL)
 	}
 }
 
