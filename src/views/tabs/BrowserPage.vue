@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue';
+import { computed, onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import {
   IonButton,
@@ -19,7 +19,13 @@ import {
   IonToolbar,
   type InfiniteScrollCustomEvent,
 } from '@ionic/vue';
-import { funnelOutline, refreshOutline, settingsOutline, starOutline } from 'ionicons/icons';
+import {
+  closeCircleOutline,
+  funnelOutline,
+  refreshOutline,
+  settingsOutline,
+  starOutline,
+} from 'ionicons/icons';
 import type { CatalogTitle } from '@/services/api';
 import { useSourceCatalog } from '@/composables/useSourceCatalog';
 import { useSession } from '@/composables/useSession';
@@ -37,18 +43,24 @@ const {
   hasMore,
   hasFilters,
   filters,
+  sort,
   query,
   loadStatus,
   runSearch,
   loadMore,
   setQuery,
   applyFilters,
+  clearFilters,
   loadPrefs,
 } = useSourceCatalog();
 
 const filterOpen = ref(false);
 const titleOpen = ref(false);
 const active = ref<CatalogTitle | null>(null);
+
+const sortLabel = computed(
+  () => ({ date: 'Recently added', favorite: 'Popular' })[sort.value] ?? 'Release year',
+);
 
 onMounted(async () => {
   await loadStatus();
@@ -86,6 +98,13 @@ function goSettings(): void {
       <ion-toolbar>
         <ion-title>Discover</ion-title>
         <ion-buttons slot="end">
+          <ion-button
+            v-if="hasFilters && !unavailable && !needsRefresh"
+            aria-label="Clear filters"
+            @click="clearFilters"
+          >
+            <ion-icon slot="icon-only" :icon="closeCircleOutline" />
+          </ion-button>
           <ion-button
             v-if="!unavailable && !needsRefresh"
             :aria-label="'Filters'"
@@ -136,8 +155,11 @@ function goSettings(): void {
 
       <template v-else>
         <div v-if="hasFilters" class="active-filters">
-          <ion-chip v-if="filters.type" outline>{{ filters.type }}</ion-chip>
+          <ion-chip v-if="sort !== 'year'" outline>{{ sortLabel }}</ion-chip>
+          <ion-chip v-if="filters.type" outline class="cap">{{ filters.type }}</ion-chip>
+          <ion-chip v-if="filters.genre?.length" outline>Genre</ion-chip>
           <ion-chip v-if="filters.quality" outline>{{ filters.quality }}</ion-chip>
+          <ion-chip v-if="filters.score" outline>{{ filters.score }}+</ion-chip>
           <ion-chip v-if="filters.language" outline>{{ filters.language }}</ion-chip>
           <ion-chip v-if="filters.country" outline>{{ filters.country }}</ion-chip>
         </div>
@@ -178,7 +200,9 @@ function goSettings(): void {
           </button>
         </div>
 
-        <ion-infinite-scroll v-if="hasMore" @ionInfinite="onInfinite">
+        <!-- Load the next page well before the user hits the bottom so scrolling
+             feels continuous (threshold is a large fraction of the viewport). -->
+        <ion-infinite-scroll v-if="hasMore" threshold="60%" @ionInfinite="onInfinite">
           <ion-infinite-scroll-content />
         </ion-infinite-scroll>
       </template>
@@ -187,6 +211,7 @@ function goSettings(): void {
     <SourceFilterSheet
       :is-open="filterOpen"
       :filters="filters"
+      :sort="sort"
       @dismiss="filterOpen = false"
       @apply="applyFilters"
     />
@@ -224,6 +249,9 @@ function goSettings(): void {
   flex-wrap: wrap;
   gap: 6px;
   padding: 8px 12px 0;
+}
+.active-filters .cap {
+  text-transform: capitalize;
 }
 .grid {
   display: grid;

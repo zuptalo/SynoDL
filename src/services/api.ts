@@ -321,6 +321,7 @@ export interface SourceSearchFilters {
   quality?: string;
   language?: string;
   country?: string;
+  score?: string;
   genre?: string[];
 }
 
@@ -366,8 +367,8 @@ export const api = {
   putSourceSession: (input: SourceSessionInput) =>
     request<{ state: string; lastVerifiedAt: number }>('/v1/source/session', jsonMethod('PUT', input)),
   deleteSourceSession: () => request<{ state: string }>('/v1/source/session', { method: 'DELETE' }),
-  searchSource: (query: string, filters: SourceSearchFilters, page: number) =>
-    request<SourceSearchResult>('/v1/source/search', json({ query, filters, page })),
+  searchSource: (query: string, filters: SourceSearchFilters, page: number, sort: string) =>
+    request<SourceSearchResult>('/v1/source/search', json({ query, filters, page, sort })),
   getSourceTitle: (id: string) =>
     request<TitleDetail>(`/v1/source/title/${encodeURIComponent(id)}`),
   sendSource: (titleId: string, qualityId: string, title: string) =>

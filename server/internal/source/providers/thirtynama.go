@@ -64,7 +64,7 @@ func (p thirtynama) VerifySession(ctx context.Context, c *source.Client, cfg sou
 	// success:false ("search value is empty"), which would look like a bad token.
 	// advanced_search with empty parameters returns success when the session is
 	// valid, so it's a clean auth probe.
-	_, err := p.call(ctx, c, cfg, s, advancedSearchPath(1), "parameters="+url.QueryEscape("{}"))
+	_, err := p.call(ctx, c, cfg, s, advancedSearchPath(1, "favorite"), "parameters="+url.QueryEscape("{}"))
 	if err == nil {
 		return nil
 	}
@@ -92,7 +92,7 @@ func (p thirtynama) Search(ctx context.Context, c *source.Client, cfg source.Con
 		path = fmt.Sprintf("/api/v1/action/full_search/type/all/orderby/relevant/order/desc/page/%d", page)
 		body = "query=" + url.QueryEscape(query)
 	} else {
-		path = advancedSearchPath(page)
+		path = advancedSearchPath(page, q.Sort)
 		body = "parameters=" + url.QueryEscape(buildParams(q.Filters))
 	}
 	raw, err := p.call(ctx, c, cfg, s, path, body)
@@ -248,14 +248,38 @@ func verifyReason(layer string) string {
 	}
 }
 
-func advancedSearchPath(page int) string {
-	return fmt.Sprintf("/api/v1/action/advanced_search/page/%d/orderby/favorite/order/desc", page)
+// typeCodes maps our friendly title-type names to the provider's numeric type
+// codes (from advanced_search_parametres). The API only filters correctly on
+// these codes — the plain names silently return movies.
+var typeCodes = map[string]string{
+	source.TypeMovie:  "15",
+	source.TypeSeries: "16",
+	source.TypeAnime:  "17",
+}
+
+// allowedOrderby is the set of provider orderby fields we expose; anything else
+// falls back to release-year descending (the app default).
+var allowedOrderby = map[string]bool{"year": true, "date": true, "favorite": true}
+
+func orderbyField(sort string) string {
+	if allowedOrderby[sort] {
+		return sort
+	}
+	return "year" // default: release year, descending
+}
+
+func advancedSearchPath(page int, sort string) string {
+	return fmt.Sprintf("/api/v1/action/advanced_search/page/%d/orderby/%s/order/desc", page, orderbyField(sort))
 }
 
 func buildParams(f source.SearchFilters) string {
 	m := map[string]any{}
 	if f.Type != "" {
-		m["type"] = f.Type
+		if code, ok := typeCodes[f.Type]; ok {
+			m["type"] = code
+		} else {
+			m["type"] = f.Type
+		}
 	}
 	if f.Quality != "" {
 		m["quality"] = f.Quality
@@ -268,6 +292,9 @@ func buildParams(f source.SearchFilters) string {
 	}
 	if f.Country != "" {
 		m["country"] = f.Country
+	}
+	if f.Score != "" {
+		m["score"] = f.Score
 	}
 	b, _ := json.Marshal(m)
 	return string(b)
