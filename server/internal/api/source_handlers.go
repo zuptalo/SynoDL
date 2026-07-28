@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -28,6 +29,7 @@ type sourceStatusView struct {
 	Kind           string `json:"kind"`
 	MoviesParent   string `json:"moviesParent"`
 	TVParent       string `json:"tvParent"`
+	MaxDownloadMB  int    `json:"maxDownloadMB"`
 	LastVerifiedAt int64  `json:"lastVerifiedAt"`
 	CanManage      bool   `json:"canManage"`
 }
@@ -115,6 +117,7 @@ func handleSourceStatus(d Deps) http.Handler {
 			return
 		}
 		view := sourceStatusView{State: store.SourceNotConfigured, CanManage: u.IsAdmin}
+		view.MaxDownloadMB, _ = d.Store.GetMaxDownloadMB()
 		if p != nil {
 			view.Configured = true
 			view.Enabled = p.Enabled
@@ -199,6 +202,25 @@ func handleSourceDelete(d Deps) http.Handler {
 			}
 		}
 		httpx.JSON(w, http.StatusOK, map[string]any{"state": store.SourceNotConfigured})
+	})
+}
+
+// handleSourcePolicy sets the instance-wide max download size (admin only).
+func handleSourcePolicy(d Deps) http.Handler {
+	return d.requireAdmin(func(w http.ResponseWriter, r *http.Request, _ *store.User) {
+		var body struct {
+			MaxDownloadMB int `json:"maxDownloadMB"`
+		}
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<12)).Decode(&body); err != nil {
+			httpx.Error(w, http.StatusBadRequest, "bad request")
+			return
+		}
+		if err := d.Store.SetMaxDownloadMB(body.MaxDownloadMB); err != nil {
+			httpx.Error(w, http.StatusInternalServerError, "server")
+			return
+		}
+		mb, _ := d.Store.GetMaxDownloadMB()
+		httpx.JSON(w, http.StatusOK, map[string]any{"maxDownloadMB": mb})
 	})
 }
 
@@ -298,11 +320,33 @@ func handleSourceSend(d Deps) http.Handler {
 			return
 		}
 
-		// Resolve the signed link at send time (never cached).
-		link, err := drv.ResolveDownload(r.Context(), sourceHTTP, cfg, sess, body.TitleID, body.QualityID)
+		// Daily download quota: a per-user rolling-24h cap on how many downloads
+		// they may start (protects the provider's daily download limit).
+		if u.DailyDownloadLimit > 0 {
+			since := time.Now().Add(-24 * time.Hour).Unix()
+			used, _ := d.Store.CountUserDownloadsSince(u.ID, since)
+			if used >= u.DailyDownloadLimit {
+				httpx.JSON(w, http.StatusTooManyRequests,
+					map[string]any{"error": "daily_limit_reached", "limit": u.DailyDownloadLimit})
+				return
+			}
+		}
+
+		// Resolve the signed link (+ size) at send time (never cached).
+		link, size, err := drv.ResolveDownload(r.Context(), sourceHTTP, cfg, sess, body.TitleID, body.QualityID)
 		if err != nil {
 			d.writeSourceRuntimeErr(w, p.ID, err)
 			return
+		}
+
+		// Instance-wide max size: refuse a quality larger than the admin's cap so
+		// the user picks a smaller one.
+		if maxMB, _ := d.Store.GetMaxDownloadMB(); maxMB > 0 {
+			if mb := parseSizeMB(size); mb > 0 && mb > maxMB {
+				httpx.JSON(w, http.StatusRequestEntityTooLarge,
+					map[string]any{"error": "download_too_large", "maxMB": maxMB, "sizeMB": mb})
+				return
+			}
 		}
 
 		absParent := "/" + relParent
@@ -388,6 +432,33 @@ func sanitizeFolderName(title string) string {
 		repl = strings.TrimSpace(repl[:120])
 	}
 	return repl
+}
+
+// parseSizeMB turns a provider size string ("37.55 GB", "700 MB", "1.2 TB") into
+// whole megabytes; 0 when it can't be parsed (so the cap fails open rather than
+// blocking a valid download on an odd label).
+func parseSizeMB(s string) int {
+	f := strings.Fields(strings.ToUpper(strings.TrimSpace(s)))
+	if len(f) < 2 {
+		return 0
+	}
+	v, err := strconv.ParseFloat(f[0], 64)
+	if err != nil {
+		return 0
+	}
+	switch f[1] {
+	case "TB":
+		v *= 1024 * 1024
+	case "GB":
+		v *= 1024
+	case "MB":
+		// already MB
+	case "KB":
+		v /= 1024
+	default:
+		return 0
+	}
+	return int(v + 0.5)
 }
 
 func orElse(v, def string) string {

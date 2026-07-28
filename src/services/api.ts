@@ -94,6 +94,8 @@ export interface AdminUser {
   isEnabled: boolean;
   /** Content-rating cap for the catalog ("" = unrestricted, e.g. "G", "PG-13"). */
   contentRating?: string;
+  /** Rolling-24h download-count limit (0 = unlimited). */
+  dailyDownloadLimit?: number;
 }
 
 /** A SynoDL account (stateful mode). */
@@ -270,6 +272,8 @@ export interface SourceStatus {
   kind: string;
   moviesParent: string;
   tvParent: string;
+  /** Instance-wide max download size in MB (0 = unlimited). */
+  maxDownloadMB: number;
   lastVerifiedAt: number;
   canManage: boolean;
 }
@@ -369,6 +373,8 @@ export const api = {
   putSourceSession: (input: SourceSessionInput) =>
     request<{ state: string; lastVerifiedAt: number }>('/v1/source/session', jsonMethod('PUT', input)),
   deleteSourceSession: () => request<{ state: string }>('/v1/source/session', { method: 'DELETE' }),
+  setSourcePolicy: (maxDownloadMB: number) =>
+    request<{ maxDownloadMB: number }>('/v1/source/policy', jsonMethod('PUT', { maxDownloadMB })),
   searchSource: (query: string, filters: SourceSearchFilters, page: number, sort: string) =>
     request<SourceSearchResult>('/v1/source/search', json({ query, filters, page, sort })),
   getSourceTitle: (id: string) =>
@@ -417,7 +423,13 @@ export const api = {
     request<AdminUser>('/v1/users', json({ username, password, isAdmin })),
   updateUser: (
     id: number,
-    patch: { isEnabled?: boolean; isAdmin?: boolean; password?: string; contentRating?: string },
+    patch: {
+      isEnabled?: boolean;
+      isAdmin?: boolean;
+      password?: string;
+      contentRating?: string;
+      dailyDownloadLimit?: number;
+    },
   ) =>
     request<AdminUser>(`/v1/users/${id}`, jsonMethod('PATCH', patch)),
   deleteUser: (id: number) => request<void>(`/v1/users/${id}`, { method: 'DELETE' }),

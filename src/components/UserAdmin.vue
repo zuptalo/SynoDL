@@ -24,6 +24,7 @@ import {
   closeCircle,
   folderOutline,
   shieldCheckmarkOutline,
+  speedometerOutline,
   trashOutline,
 } from 'ionicons/icons';
 import { onMounted, ref } from 'vue';
@@ -142,6 +143,30 @@ async function setRating(u: AdminUser): Promise<void> {
   }
 }
 
+async function setDailyLimit(u: AdminUser): Promise<void> {
+  const alert = await alertController.create({
+    header: `Daily download limit for ${u.username}`,
+    subHeader: 'Downloads they can start per 24 hours (0 = unlimited).',
+    inputs: [
+      { name: 'n', type: 'number', value: String(u.dailyDownloadLimit ?? 0), min: 0, placeholder: '0' },
+    ],
+    buttons: [
+      { text: 'Cancel', role: 'cancel' },
+      { text: 'Set', role: 'confirm' },
+    ],
+  });
+  await alert.present();
+  const { role, data } = await alert.onDidDismiss();
+  if (role !== 'confirm') return;
+  const n = Math.max(0, Math.floor(Number(data?.values?.n) || 0));
+  try {
+    await api.updateUser(u.id, { dailyDownloadLimit: n });
+    await load();
+  } catch (e) {
+    error.value = messageForError(e);
+  }
+}
+
 async function removeUser(u: AdminUser): Promise<void> {
   const alert = await alertController.create({
     header: `Delete ${u.username}?`,
@@ -205,11 +230,17 @@ async function saveFolders(): Promise<void> {
           <ion-badge v-if="u.isAdmin" color="primary">admin</ion-badge>
         </h3>
         <p v-if="!u.isEnabled" class="disabled">disabled</p>
-        <p v-else-if="u.contentRating" class="rating">only {{ u.contentRating }} titles</p>
+        <p v-else class="limits">
+          <span v-if="u.contentRating">only {{ u.contentRating }}</span>
+          <span v-if="u.dailyDownloadLimit">{{ u.dailyDownloadLimit }}/day</span>
+        </p>
       </ion-label>
       <ion-buttons slot="end">
         <ion-button :title="`Content rating for ${u.username}`" @click="setRating(u)">
           <ion-icon slot="icon-only" :icon="shieldCheckmarkOutline" />
+        </ion-button>
+        <ion-button :title="`Daily download limit for ${u.username}`" @click="setDailyLimit(u)">
+          <ion-icon slot="icon-only" :icon="speedometerOutline" />
         </ion-button>
         <ion-button :title="`Folders for ${u.username}`" @click="openFolders(u)">
           <ion-icon slot="icon-only" :icon="folderOutline" />
@@ -282,6 +313,12 @@ async function saveFolders(): Promise<void> {
 <style scoped>
 .disabled {
   color: var(--app-status-error);
+}
+.limits {
+  display: flex;
+  gap: 10px;
+  color: var(--app-text-dim);
+  font-size: 0.8rem;
 }
 .err {
   display: block;

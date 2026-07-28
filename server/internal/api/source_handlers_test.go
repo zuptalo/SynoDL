@@ -24,6 +24,7 @@ var (
 	fakeTitle      source.TitleDetail
 	fakeTitleErr   error
 	fakeLink       string
+	fakeSize       string
 	fakeResolveErr error
 )
 
@@ -43,8 +44,8 @@ func (fakeSrc) Search(_ context.Context, _ *source.Client, _ source.Config, _ so
 func (fakeSrc) Title(context.Context, *source.Client, source.Config, source.Session, string) (source.TitleDetail, error) {
 	return fakeTitle, fakeTitleErr
 }
-func (fakeSrc) ResolveDownload(context.Context, *source.Client, source.Config, source.Session, string, string) (string, error) {
-	return fakeLink, fakeResolveErr
+func (fakeSrc) ResolveDownload(context.Context, *source.Client, source.Config, source.Session, string, string) (string, string, error) {
+	return fakeLink, fakeSize, fakeResolveErr
 }
 
 func resetFake() {
@@ -52,6 +53,7 @@ func resetFake() {
 	fakeSearch = source.SearchResult{}
 	fakeTitle = source.TitleDetail{}
 	fakeLink = ""
+	fakeSize = ""
 }
 
 // configureFake configures the fake provider via the admin API (verify passes).
@@ -69,21 +71,21 @@ func makeUser(t *testing.T, h http.Handler, admin map[string]string, name string
 	t.Helper()
 	do(t, h, "POST", "/v1/users", `{"username":"`+name+`","password":"example-user-pw","isAdmin":false}`, admin)
 	if folders != "" {
-		var u struct {
-			ID int64 `json:"id"`
-		}
+		var uid int64
 		rec := do(t, h, "GET", "/v1/users", "", admin)
-		var list []struct {
-			ID       int64  `json:"id"`
-			Username string `json:"username"`
+		var wrap struct {
+			Users []struct {
+				ID       int64  `json:"id"`
+				Username string `json:"username"`
+			} `json:"users"`
 		}
-		_ = json.Unmarshal(rec.Body.Bytes(), &list)
-		for _, x := range list {
+		_ = json.Unmarshal(rec.Body.Bytes(), &wrap)
+		for _, x := range wrap.Users {
 			if x.Username == name {
-				u.ID = x.ID
+				uid = x.ID
 			}
 		}
-		do(t, h, "PUT", "/v1/users/"+itoa(u.ID)+"/folders", `{"folders":[`+folders+`]}`, admin)
+		do(t, h, "PUT", "/v1/users/"+itoa(uid)+"/folders", `{"folders":[`+folders+`]}`, admin)
 	}
 	rec := do(t, h, "POST", "/v1/session", `{"username":"`+name+`","password":"example-user-pw"}`, nil)
 	var bl struct {
@@ -253,6 +255,58 @@ func TestSourceSendMovie(t *testing.T) {
 	rec = do(t, h, "POST", "/v1/source/send", `{"titleId":"1","qualityId":"q1","title":"X"}`, admin)
 	if rec.Code != http.StatusConflict || !strings.Contains(rec.Body.String(), "source_needs_refresh") {
 		t.Fatalf("expired send = %d %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestSourceSendMaxSize(t *testing.T) {
+	resetFake()
+	h, _ := newStatefulRouter(t)
+	admin := adminAfterSetup(t, h)
+	configureFake(t, h, admin, "movie")
+	fakeLink = "http://dl.fake/x.mkv"
+	do(t, h, "PUT", "/v1/source/policy", `{"maxDownloadMB":1024}`, admin) // 1 GB cap
+
+	fakeSize = "2 GB"
+	rec := do(t, h, "POST", "/v1/source/send", `{"titleId":"1","qualityId":"q","title":"Big"}`, admin)
+	if rec.Code != http.StatusRequestEntityTooLarge || !strings.Contains(rec.Body.String(), "download_too_large") {
+		t.Fatalf("oversize send = %d %s", rec.Code, rec.Body.String())
+	}
+	fakeSize = "500 MB"
+	if rec := do(t, h, "POST", "/v1/source/send", `{"titleId":"1","qualityId":"q","title":"Small"}`, admin); rec.Code != 200 {
+		t.Fatalf("under-limit send = %d %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestSourceSendDailyLimit(t *testing.T) {
+	resetFake()
+	h, _ := newStatefulRouter(t)
+	admin := adminAfterSetup(t, h)
+	configureFake(t, h, admin, "movie")
+	fakeLink, fakeSize = "http://dl.fake/x.mkv", "500 MB"
+
+	dl := makeUser(t, h, admin, "dl", `"movie"`)
+	rec := do(t, h, "GET", "/v1/users", "", admin)
+	var wrap struct {
+		Users []struct {
+			ID       int64  `json:"id"`
+			Username string `json:"username"`
+		} `json:"users"`
+	}
+	_ = json.Unmarshal(rec.Body.Bytes(), &wrap)
+	var id int64
+	for _, x := range wrap.Users {
+		if x.Username == "dl" {
+			id = x.ID
+		}
+	}
+	do(t, h, "PATCH", "/v1/users/"+itoa(id), `{"dailyDownloadLimit":1}`, admin)
+
+	if rec := do(t, h, "POST", "/v1/source/send", `{"titleId":"1","qualityId":"q","title":"One"}`, dl); rec.Code != 200 {
+		t.Fatalf("first send = %d %s", rec.Code, rec.Body.String())
+	}
+	rec = do(t, h, "POST", "/v1/source/send", `{"titleId":"1","qualityId":"q","title":"Two"}`, dl)
+	if rec.Code != http.StatusTooManyRequests || !strings.Contains(rec.Body.String(), "daily_limit_reached") {
+		t.Fatalf("second send = %d %s", rec.Code, rec.Body.String())
 	}
 }
 

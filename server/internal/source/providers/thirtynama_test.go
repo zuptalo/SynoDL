@@ -255,16 +255,19 @@ func TestThirtynamaTitleAndResolve(t *testing.T) {
 		t.Fatal("quality label leaked a URL")
 	}
 
-	link, err := thirtynama{}.ResolveDownload(context.Background(), c, cfg, source.Session{}, "217561", "217561512085")
+	link, size, err := thirtynama{}.ResolveDownload(context.Background(), c, cfg, source.Session{}, "217561", "217561512085")
 	if err != nil {
 		t.Fatalf("ResolveDownload: %v", err)
 	}
 	if !strings.Contains(link, "512085") || !strings.Contains(link, "divyacamilla.info") {
 		t.Fatalf("resolved link = %q", link)
 	}
+	if size != "11 GB" {
+		t.Fatalf("resolved size = %q, want 11 GB", size)
+	}
 
 	// Unknown quality id.
-	if _, err := (thirtynama{}).ResolveDownload(context.Background(), c, cfg, source.Session{}, "217561", "nope"); err == nil {
+	if _, _, err := (thirtynama{}).ResolveDownload(context.Background(), c, cfg, source.Session{}, "217561", "nope"); err == nil {
 		t.Fatal("want error for unknown quality id")
 	}
 }
@@ -275,7 +278,7 @@ func TestThirtynamaResolveRejectsDisallowedDownloadHost(t *testing.T) {
 		w.Write([]byte(`{"success":true,"result":{"download":[{"id":"q1","quality":"x","dl":"https://evil.example.com/f"}]}}`))
 	})
 	defer done()
-	_, err := thirtynama{}.ResolveDownload(context.Background(), source.NewClient(), cfg, source.Session{}, "1", "q1")
+	_, _, err := thirtynama{}.ResolveDownload(context.Background(), source.NewClient(), cfg, source.Session{}, "1", "q1")
 	if err != source.ErrHostNotAllowed {
 		t.Fatalf("err = %v, want ErrHostNotAllowed", err)
 	}

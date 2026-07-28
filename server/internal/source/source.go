@@ -121,10 +121,10 @@ type Provider interface {
 	Search(ctx context.Context, c *Client, cfg Config, s Session, q SearchQuery) (SearchResult, error)
 	// Title returns a title's detail + qualities (movies are Sendable).
 	Title(ctx context.Context, c *Client, cfg Config, s Session, id string) (TitleDetail, error)
-	// ResolveDownload re-fetches and returns the signed URL for one quality of a
-	// title, at send time (links are never cached). The returned host must be in
-	// cfg.DownloadHosts.
-	ResolveDownload(ctx context.Context, c *Client, cfg Config, s Session, titleID, qualityID string) (string, error)
+	// ResolveDownload re-fetches and returns the signed URL and the human size
+	// ("11 GB") for one quality of a title, at send time (links are never cached).
+	// The returned host must be in cfg.DownloadHosts.
+	ResolveDownload(ctx context.Context, c *Client, cfg Config, s Session, titleID, qualityID string) (link, size string, err error)
 }
 
 var (
