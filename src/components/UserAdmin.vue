@@ -19,7 +19,6 @@ import {
   IonModal,
   IonNote,
   IonTitle,
-  IonToggle,
   IonToolbar,
 } from '@ionic/vue';
 import { addOutline, closeCircle, folderOutline, shieldCheckmarkOutline, speedometerOutline } from 'ionicons/icons';
@@ -130,7 +129,44 @@ async function addUser(): Promise<void> {
   }
 }
 
-async function toggleEnabled(u: AdminUser): Promise<void> {
+// Slide the row back to its resting state after an option is chosen, so a picked
+// swipe action never leaves the item stuck open.
+function closeSlider(ev: Event): void {
+  const el = (ev.target as HTMLElement | null)?.closest('ion-item-sliding') as
+    | (HTMLElement & { close?: () => Promise<void> })
+    | null;
+  void el?.close?.();
+}
+
+async function confirmAction(
+  header: string,
+  message: string,
+  confirmText: string,
+  destructive = false,
+): Promise<boolean> {
+  const alert = await alertController.create({
+    header,
+    message,
+    buttons: [
+      { text: 'Cancel', role: 'cancel' },
+      { text: confirmText, role: destructive ? 'destructive' : 'confirm' },
+    ],
+  });
+  await alert.present();
+  const { role } = await alert.onDidDismiss();
+  return role === 'confirm' || role === 'destructive';
+}
+
+async function toggleEnabled(u: AdminUser, ev: Event): Promise<void> {
+  closeSlider(ev);
+  const disabling = u.isEnabled;
+  const ok = await confirmAction(
+    disabling ? `Disable ${u.username}?` : `Enable ${u.username}?`,
+    disabling ? "They won't be able to sign in until you re-enable them." : 'They will be able to sign in again.',
+    disabling ? 'Disable' : 'Enable',
+    disabling,
+  );
+  if (!ok) return;
   try {
     await api.updateUser(u.id, { isEnabled: !u.isEnabled });
     await load();
@@ -140,8 +176,19 @@ async function toggleEnabled(u: AdminUser): Promise<void> {
 }
 
 // Elevate/demote a user's admin role (you can't change your own).
-async function toggleAdmin(u: AdminUser): Promise<void> {
+async function toggleAdmin(u: AdminUser, ev: Event): Promise<void> {
+  closeSlider(ev);
   if (u.id === currentUserId.value) return;
+  const removing = u.isAdmin;
+  const ok = await confirmAction(
+    removing ? `Remove admin from ${u.username}?` : `Make ${u.username} an admin?`,
+    removing
+      ? 'They lose access to user management, the NAS connection and the download source.'
+      : 'They get full access to user management, the NAS connection and the download source.',
+    removing ? 'Remove admin' : 'Make admin',
+    removing,
+  );
+  if (!ok) return;
   try {
     await api.updateUser(u.id, { isAdmin: !u.isAdmin });
     await load();
@@ -152,7 +199,8 @@ async function toggleAdmin(u: AdminUser): Promise<void> {
 
 // Reset generates a fresh password (after a confirm) and copies the same
 // username + password + install guide the add-user flow produces.
-async function resetPassword(u: AdminUser): Promise<void> {
+async function resetPassword(u: AdminUser, ev: Event): Promise<void> {
+  closeSlider(ev);
   const alert = await alertController.create({
     header: `Reset ${u.username}'s password?`,
     message: "A new password is generated and copied to your clipboard with the sign-in guide, ready to share.",
@@ -237,7 +285,8 @@ async function setDailyLimit(u: AdminUser): Promise<void> {
   }
 }
 
-async function removeUser(u: AdminUser): Promise<void> {
+async function removeUser(u: AdminUser, ev: Event): Promise<void> {
+  closeSlider(ev);
   const alert = await alertController.create({
     header: `Delete ${u.username}?`,
     message: 'This removes the account and its folder access. Downloads already on the NAS are unaffected.',
@@ -292,9 +341,18 @@ async function saveFolders(): Promise<void> {
 <template>
   <ion-list inset>
     <ion-list-header><ion-label>Users</ion-label></ion-list-header>
-    <ion-note class="hint">Swipe a user left for Reset, Enable/Disable and Delete.</ion-note>
+    <ion-note class="hint">
+      Swipe a user right to change their admin role; left for Reset, Enable/Disable and Delete.
+    </ion-note>
 
     <ion-item-sliding v-for="u in users" :key="u.id">
+      <!-- Swipe right: elevate/demote admin (hidden for your own account). -->
+      <ion-item-options v-if="u.id !== currentUserId" side="start">
+        <ion-item-option color="primary" data-testid="admin-role" @click="toggleAdmin(u, $event)">
+          {{ u.isAdmin ? 'Remove admin' : 'Make admin' }}
+        </ion-item-option>
+      </ion-item-options>
+
       <ion-item data-testid="admin-user">
         <ion-label class="ion-text-wrap">
           <!-- Row 1: role in front of the username. -->
@@ -303,7 +361,7 @@ async function saveFolders(): Promise<void> {
             <span :class="{ off: !u.isEnabled }">{{ u.username }}</span>
             <ion-badge v-if="!u.isEnabled" color="medium">disabled</ion-badge>
           </h2>
-          <!-- Row 2: per-user controls + the admin toggle. -->
+          <!-- Row 2: per-user controls. -->
           <div class="row-actions">
             <ion-button size="small" fill="clear" :title="`Content rating for ${u.username}`" @click="setRating(u)">
               <ion-icon slot="icon-only" :icon="shieldCheckmarkOutline" />
@@ -314,16 +372,6 @@ async function saveFolders(): Promise<void> {
             <ion-button size="small" fill="clear" :title="`Folders for ${u.username}`" @click="openFolders(u)">
               <ion-icon slot="icon-only" :icon="folderOutline" />
             </ion-button>
-            <ion-toggle
-              class="admin-toggle"
-              :checked="u.isAdmin"
-              :disabled="u.id === currentUserId"
-              label-placement="start"
-              :aria-label="`Admin: ${u.username}`"
-              @ionChange="toggleAdmin(u)"
-            >
-              Admin
-            </ion-toggle>
           </div>
           <!-- Row 3: the current caps as read-only info. -->
           <p class="limits">
@@ -333,10 +381,11 @@ async function saveFolders(): Promise<void> {
           </p>
         </ion-label>
       </ion-item>
+      <!-- Swipe left: management actions. -->
       <ion-item-options side="end">
-        <ion-item-option @click="toggleEnabled(u)">{{ u.isEnabled ? 'Disable' : 'Enable' }}</ion-item-option>
-        <ion-item-option color="medium" data-testid="admin-reset" @click="resetPassword(u)">Reset</ion-item-option>
-        <ion-item-option color="danger" @click="removeUser(u)">Delete</ion-item-option>
+        <ion-item-option @click="toggleEnabled(u, $event)">{{ u.isEnabled ? 'Disable' : 'Enable' }}</ion-item-option>
+        <ion-item-option color="medium" data-testid="admin-reset" @click="resetPassword(u, $event)">Reset</ion-item-option>
+        <ion-item-option color="danger" @click="removeUser(u, $event)">Delete</ion-item-option>
       </ion-item-options>
     </ion-item-sliding>
 
@@ -428,10 +477,6 @@ async function saveFolders(): Promise<void> {
   align-items: center;
   gap: 2px;
   margin: 2px 0;
-}
-.admin-toggle {
-  margin-left: auto;
-  font-size: 0.85rem;
 }
 .limits {
   display: flex;
