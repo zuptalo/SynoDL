@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { IonIcon, IonLabel, IonPage, IonRouterOutlet, IonTabBar, IonTabButton, IonTabs } from '@ionic/vue';
-import { downloadOutline, globeOutline, optionsOutline } from 'ionicons/icons';
+import { downloadOutline, filmOutline, optionsOutline } from 'ionicons/icons';
 import NasReauthGate from '@/components/NasReauthGate.vue';
 </script>
 
@@ -16,8 +16,8 @@ import NasReauthGate from '@/components/NasReauthGate.vue';
           <ion-label>Tasks</ion-label>
         </ion-tab-button>
         <ion-tab-button tab="browser" href="/tabs/browser" data-testid="tab-browser">
-          <ion-icon aria-hidden="true" :icon="globeOutline" />
-          <ion-label>Browser</ion-label>
+          <ion-icon aria-hidden="true" :icon="filmOutline" />
+          <ion-label>Discover</ion-label>
         </ion-tab-button>
         <ion-tab-button tab="settings" href="/tabs/settings" data-testid="tab-settings">
           <ion-icon aria-hidden="true" :icon="optionsOutline" />

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue';
+import { useRouter } from 'vue-router';
 import {
   IonButton,
   IonButtons,
@@ -35,6 +36,7 @@ const emit = defineEmits<{
 }>();
 
 const { preferredQuality } = useSourceCatalog();
+const router = useRouter();
 
 const loading = ref(false);
 const sending = ref(false);
@@ -75,7 +77,21 @@ watch(
 );
 
 async function toast(message: string): Promise<void> {
-  const t = await toastController.create({ message, duration: 2500, position: 'bottom' });
+  const t = await toastController.create({
+    message,
+    duration: 4000,
+    position: 'top',
+    cssClass: 'app-toast',
+    swipeGesture: 'vertical',
+    buttons: [
+      {
+        text: 'View',
+        handler: (): void => {
+          void router.push('/tabs/tasks');
+        },
+      },
+    ],
+  });
   await t.present();
 }
 
