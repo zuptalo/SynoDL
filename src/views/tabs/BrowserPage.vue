@@ -144,6 +144,15 @@ function openTitle(t: CatalogTitle): void {
   titleOpen.value = true;
 }
 
+// Some provider cover URLs are dead; swap those to the letter fallback instead of
+// showing a broken-image icon or the raw alt text.
+const failedPosters = ref<Set<string>>(new Set());
+function onPosterError(id: string): void {
+  if (!failedPosters.value.has(id)) {
+    failedPosters.value = new Set(failedPosters.value).add(id);
+  }
+}
+
 async function retry(): Promise<void> {
   await loadStatus();
   if (!unavailable.value && !needsRefresh.value) await search(true);
@@ -278,7 +287,13 @@ function goSettings(): void {
             @click="openTitle(t)"
           >
             <div class="poster">
-              <img v-if="t.posterUrl" :src="t.posterUrl" :alt="t.title" loading="lazy" />
+              <img
+                v-if="t.posterUrl && !failedPosters.has(t.id)"
+                :src="t.posterUrl"
+                :alt="t.title"
+                loading="lazy"
+                @error="onPosterError(t.id)"
+              />
               <div v-else class="poster-fallback">{{ t.title.charAt(0) }}</div>
               <span v-if="t.comingSoon" class="badge">Soon</span>
             </div>
@@ -317,9 +332,7 @@ function goSettings(): void {
     <SourceTitleModal
       v-if="active"
       :is-open="titleOpen"
-      :title-id="active.id"
-      :title-name="active.title"
-      :poster-url="active.posterUrl"
+      :title="active"
       @dismiss="titleOpen = false"
       @needs-refresh="retry"
     />

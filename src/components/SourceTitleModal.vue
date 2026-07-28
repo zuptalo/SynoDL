@@ -21,15 +21,14 @@ import {
   toastController,
 } from '@ionic/vue';
 import { cloudDownloadOutline } from 'ionicons/icons';
-import { api, ApiError, type QualityOption } from '@/services/api';
+import { api, ApiError, type CatalogTitle, type QualityOption } from '@/services/api';
 import { useSourceCatalog } from '@/composables/useSourceCatalog';
 
 const props = defineProps<{
   isOpen: boolean;
-  titleId: string;
-  titleName: string;
-  posterUrl: string;
+  title: CatalogTitle;
 }>();
+const posterFailed = ref(false);
 const emit = defineEmits<{
   (e: 'dismiss'): void;
   (e: 'needs-refresh'): void;
@@ -71,8 +70,9 @@ watch(
     errorMsg.value = '';
     qualities.value = [];
     selected.value = '';
+    posterFailed.value = false;
     try {
-      const detail = await api.getSourceTitle(props.titleId);
+      const detail = await api.getSourceTitle(props.title.id);
       sendable.value = detail.sendable;
       qualities.value = detail.qualities;
       // Preselect the preferred quality among those within the size limit,
@@ -119,7 +119,7 @@ async function send(): Promise<void> {
   sending.value = true;
   errorMsg.value = '';
   try {
-    const res = await api.sendSource(props.titleId, selected.value, props.titleName);
+    const res = await api.sendSource(props.title.id, selected.value, props.title.title);
     await toast(`Sending to ${res.destination}`);
     emit('dismiss');
   } catch (e) {
@@ -155,7 +155,7 @@ async function send(): Promise<void> {
   <ion-modal :is-open="isOpen" @didDismiss="emit('dismiss')">
     <ion-header :translucent="true">
       <ion-toolbar>
-        <ion-title class="ion-text-nowrap">{{ titleName }}</ion-title>
+        <ion-title class="ion-text-nowrap">{{ title.title }}</ion-title>
         <ion-buttons slot="end">
           <ion-button @click="emit('dismiss')">Close</ion-button>
         </ion-buttons>
@@ -165,13 +165,30 @@ async function send(): Promise<void> {
       <div v-if="loading" class="centered"><ion-spinner /></div>
 
       <template v-else>
-        <div class="poster-row" v-if="posterUrl">
-          <ion-thumbnail class="poster"><img :src="posterUrl" :alt="titleName" /></ion-thumbnail>
-          <div>
-            <h2>{{ titleName }}</h2>
-            <ion-note v-if="sendable">Choose a quality to send to your NAS.</ion-note>
+        <div class="poster-row">
+          <ion-thumbnail class="poster">
+            <img
+              v-if="title.posterUrl && !posterFailed"
+              :src="title.posterUrl"
+              :alt="title.title"
+              @error="posterFailed = true"
+            />
+            <div v-else class="poster-fallback">{{ title.title.charAt(0) }}</div>
+          </ion-thumbnail>
+          <div class="head">
+            <h2>{{ title.title }}</h2>
+            <p class="meta">
+              <span class="type">{{ title.type }}</span>
+              <span v-if="title.imdbScore">★ {{ title.imdbScore.toFixed(1) }} IMDb</span>
+              <span v-if="title.providerScore">{{ title.providerScore.toFixed(1) }} 30N</span>
+            </p>
+            <p v-if="title.genres?.length" class="genres">
+              {{ title.genres.slice(0, 4).join(' · ') }}
+            </p>
           </div>
         </div>
+
+        <p v-if="title.plot" class="plot">{{ title.plot }}</p>
 
         <ion-note v-if="!sendable" color="medium" class="unavailable">
           Sending isn't available for this title yet — series and anime are browse-only for now.
@@ -239,6 +256,40 @@ async function send(): Promise<void> {
 .poster-row h2 {
   margin: 0 0 4px;
   font-size: 1.1rem;
+}
+.poster-fallback {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.8rem;
+  color: var(--app-text-dim);
+  background: var(--ion-color-step-100, #1c1c1e);
+  border-radius: 8px;
+}
+.head .meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 0 0 4px;
+  font-size: 0.82rem;
+  color: var(--app-text-dim);
+}
+.head .type {
+  text-transform: capitalize;
+}
+.head .genres {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--app-text-dim);
+  text-transform: capitalize;
+}
+.plot {
+  margin: 4px 4px 12px;
+  font-size: 0.9rem;
+  line-height: 1.4;
+  color: var(--app-text);
 }
 .unavailable {
   display: block;

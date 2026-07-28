@@ -124,6 +124,8 @@ func (p thirtynama) Search(ctx context.Context, c *source.Client, cfg source.Con
 			IMDbID:        string(post.IMDbID),
 			IMDbScore:     float64(post.IMDbScore),
 			ProviderScore: float64(post.Score),
+			Plot:          string(post.EnglishPlot),
+			Genres:        post.genreNames(),
 			ComingSoon:    bool(post.ComingSoon),
 			FreeDownload:  bool(post.FreeDownload),
 		})
@@ -330,9 +332,25 @@ type tnPost struct {
 	Score        flexFloat  `json:"30nama_score"`
 	ComingSoon   flexBool   `json:"coming_soon"`
 	FreeDownload flexBool   `json:"free_download"`
+	EnglishPlot  flexStr    `json:"english_plot"`
 	Image        struct {
 		Cover flexStr `json:"cover"`
 	} `json:"image"`
+	Genre []struct {
+		Name flexStr `json:"name"`
+		Slug flexStr `json:"slug"`
+	} `json:"genre"`
+}
+
+// genreNames returns human genre labels (slug-derived), skipping empties.
+func (p tnPost) genreNames() []string {
+	out := make([]string, 0, len(p.Genre))
+	for _, g := range p.Genre {
+		if s := string(g.Slug); s != "" {
+			out = append(out, s)
+		}
+	}
+	return out
 }
 
 type tnDownloadResult struct {
