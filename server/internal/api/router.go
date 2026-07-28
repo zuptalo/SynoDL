@@ -93,6 +93,18 @@ func NewRouter(d Deps) http.Handler {
 		mux.Handle("GET /v1/fs/shares", handleListSharesStateful(d))
 		mux.Handle("GET /v1/fs/list", handleListFolderStateful(d))
 		mux.Handle("POST /v1/fs/folder", handleCreateFolderStateful(d))
+
+		// Download-source catalog (spec 0005): an admin-configured external
+		// provider, browsable/searchable, whose picks are sent to the NAS. The
+		// session material is admin-only, encrypted, and write-only.
+		mux.Handle("GET /v1/source/status", handleSourceStatus(d))
+		mux.Handle("PUT /v1/source/session", handleSourceSession(d))
+		mux.Handle("DELETE /v1/source/session", handleSourceDelete(d))
+		mux.Handle("POST /v1/source/search", handleSourceSearch(d))
+		mux.Handle("GET /v1/source/title/{id}", handleSourceTitle(d))
+		mux.Handle("POST /v1/source/send", handleSourceSend(d))
+		mux.Handle("GET /v1/source/prefs", handleGetSourcePrefs(d))
+		mux.Handle("PUT /v1/source/prefs", handleSetSourcePrefs(d))
 	} else {
 		// Legacy stateless mode: the client authenticates to the NAS and carries
 		// the sid. Kept for dev/e2e continuity until the switch is universal.

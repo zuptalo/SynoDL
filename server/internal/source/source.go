@@ -107,6 +107,10 @@ type TitleDetail struct {
 type Provider interface {
 	// Kind is the stable registry key (e.g. "thirtynama").
 	Kind() string
+	// Hosts returns the provider's fixed outbound allowlist (API + signed
+	// download hosts). The admin never types these; they are provider-defined so
+	// the outbound surface stays bounded and known.
+	Hosts() Config
 	// VerifySession performs a cheap authenticated call; nil means the session
 	// works. On failure it returns *ErrProviderVerify or *ErrNeedsRefresh.
 	VerifySession(ctx context.Context, c *Client, cfg Config, s Session) error

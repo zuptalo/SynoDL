@@ -41,6 +41,17 @@ var errUnauth = errors.New("thirtynama: unauthenticated")
 
 func (thirtynama) Kind() string { return "thirtynama" }
 
+// Hosts is the provider's fixed outbound allowlist: the API host plus the site
+// (for clearance verification) and the signed-download storage domain. The
+// download storage host rotates its subdomain (eu-download-storage-NN.*), so it
+// is allowed by domain suffix.
+func (thirtynama) Hosts() source.Config {
+	return source.Config{
+		APIHosts:      []string{tnAPIHost, "30nama.com"},
+		DownloadHosts: []string{"divyacamilla.info"},
+	}
+}
+
 func (p thirtynama) VerifySession(ctx context.Context, c *source.Client, cfg source.Config, s source.Session) error {
 	// Cheapest authenticated call: a tiny search. Success ⇒ session valid.
 	_, err := p.call(ctx, c, cfg, s,
