@@ -80,17 +80,21 @@ type SearchQuery struct {
 
 // CatalogTitle is one search result (no download links).
 type CatalogTitle struct {
-	ID            string   `json:"id"`
-	Type          string   `json:"type"`
-	Title         string   `json:"title"`
-	PosterURL     string   `json:"posterUrl"`
-	IMDbID        string   `json:"imdbId"`
-	IMDbScore     float64  `json:"imdbScore"`
-	ProviderScore float64  `json:"providerScore"`
-	Plot          string   `json:"plot"`
-	Genres        []string `json:"genres"`
-	ComingSoon    bool     `json:"comingSoon"`
-	FreeDownload  bool     `json:"freeDownload"`
+	ID        string `json:"id"`
+	Type      string `json:"type"`
+	Title     string `json:"title"`
+	PosterURL string `json:"posterUrl"`
+	// A reliable secondary poster (the provider's sized/placeholder image) the
+	// client falls back to when PosterURL fails to load — e.g. a title whose
+	// primary cover URL is present but 404s. Empty when there is no alternative.
+	PosterFallbackURL string   `json:"posterFallbackUrl,omitempty"`
+	IMDbID            string   `json:"imdbId"`
+	IMDbScore         float64  `json:"imdbScore"`
+	ProviderScore     float64  `json:"providerScore"`
+	Plot              string   `json:"plot"`
+	Genres            []string `json:"genres"`
+	ComingSoon        bool     `json:"comingSoon"`
+	FreeDownload      bool     `json:"freeDownload"`
 }
 
 // SearchResult is a page of results.

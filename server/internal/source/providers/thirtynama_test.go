@@ -151,7 +151,7 @@ func TestThirtynamaShortQueryBrowses(t *testing.T) {
 // must not fail the whole page's parse or trip needs-refresh.
 func TestThirtynamaToleratesLooseTypes(t *testing.T) {
 	body := `{"success":true,"result":{"page":1,"pages":9,"posts":[
-	  {"id":100,"title_type":"movie","title":"Has Poster","imdb_id":"tt1","imdb_score":"7.1","30nama_score":8,"image":{"cover":"https://x/c.jpg"}},
+	  {"id":100,"title_type":"movie","title":"Has Poster","imdb_id":"tt1","imdb_score":"7.1","30nama_score":8,"image":{"cover":"https://cdn.30nama.com/cover/100.jpg","poster":{"medium":"https://cdn.30nama.com/poster/100-m.jpg"}}},
 	  {"id":200,"title_type":"series","title":"No Poster","imdb_id":false,"imdb_score":false,"30nama_score":false,"image":{"cover":false}},
 	  {"id":300,"title_type":"movie","title":"Coming Soon","coming_soon":true,"image":{"cover":false,"poster":{"big":"https://cdn.30nama.com/none/none-b_30NAMA.jpg?2","medium":"https://cdn.30nama.com/none/none-m_30NAMA.jpg?2"}}}
 	]}}`
@@ -164,13 +164,19 @@ func TestThirtynamaToleratesLooseTypes(t *testing.T) {
 	if len(res.Items) != 3 || res.Pages != 9 {
 		t.Fatalf("got %d items, pages=%d", len(res.Items), res.Pages)
 	}
+	// A title with a real cover keeps the cover as primary, and offers its sized
+	// poster as the fallback the client tries if the cover fails to load.
+	if res.Items[0].PosterURL != "https://cdn.30nama.com/cover/100.jpg" ||
+		res.Items[0].PosterFallbackURL != "https://cdn.30nama.com/poster/100-m.jpg" {
+		t.Fatalf("cover+fallback mapped wrong: %+v", res.Items[0])
+	}
 	if res.Items[1].PosterURL != "" || res.Items[1].IMDbID != "" || res.Items[1].Title != "No Poster" {
 		t.Fatalf("coverless post mapped wrong: %+v", res.Items[1])
 	}
 	// A coming-soon title with no cover falls back to the provider's placeholder
-	// poster instead of showing nothing.
-	if res.Items[2].PosterURL != "https://cdn.30nama.com/none/none-b_30NAMA.jpg?2" {
-		t.Fatalf("coming-soon poster fallback = %q", res.Items[2].PosterURL)
+	// poster (the sized image) instead of showing nothing.
+	if res.Items[2].PosterURL != "https://cdn.30nama.com/none/none-m_30NAMA.jpg?2" {
+		t.Fatalf("coming-soon poster = %q", res.Items[2].PosterURL)
 	}
 }
 
