@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -185,6 +186,51 @@ func TestThirtynamaFullSearchNestedShape(t *testing.T) {
 	}
 	if len(res.Items) != 1 || res.Items[0].Title != "The Matrix Resurrections 2021" || res.Pages != 2 {
 		t.Fatalf("nested full_search parse: %+v (pages=%d)", res.Items, res.Pages)
+	}
+}
+
+// Browse sends the provider's numeric type code (not the plain name, which the
+// API silently ignores), the score/genre codes, and the chosen orderby;
+// an empty sort defaults to release-year descending.
+func TestThirtynamaBrowseFiltersAndSort(t *testing.T) {
+	var gotPath, gotBody string
+	cfg, done := fakeProvider(t, func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		buf := make([]byte, r.ContentLength)
+		_, _ = r.Body.Read(buf)
+		gotBody = string(buf)
+		w.Write(fixture(t, "advanced_search.json"))
+	})
+	defer done()
+
+	_, err := thirtynama{}.Search(context.Background(), source.NewClient(), cfg, source.Session{},
+		source.SearchQuery{Sort: "favorite", Filters: source.SearchFilters{
+			Type: "series", Score: "8", Genre: []string{"3355"},
+		}})
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	if !strings.Contains(gotPath, "orderby/favorite") {
+		t.Fatalf("path = %q, want orderby/favorite", gotPath)
+	}
+	// Body is url-encoded: parameters=%7B...%7D
+	dec, _ := url.QueryUnescape(gotBody)
+	if !strings.Contains(dec, `"type":"16"`) {
+		t.Fatalf("series must map to code 16; body = %q", dec)
+	}
+	if !strings.Contains(dec, `"score":"8"`) || !strings.Contains(dec, `"genre":["3355"]`) {
+		t.Fatalf("score/genre missing; body = %q", dec)
+	}
+
+	// Empty sort → release-year default; movie → code 15.
+	_, _ = thirtynama{}.Search(context.Background(), source.NewClient(), cfg, source.Session{},
+		source.SearchQuery{Filters: source.SearchFilters{Type: "movie"}})
+	dec2, _ := url.QueryUnescape(gotBody)
+	if !strings.Contains(gotPath, "orderby/year") {
+		t.Fatalf("default sort path = %q, want orderby/year", gotPath)
+	}
+	if !strings.Contains(dec2, `"type":"15"`) {
+		t.Fatalf("movie must map to code 15; body = %q", dec2)
 	}
 }
 

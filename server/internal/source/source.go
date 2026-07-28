@@ -50,6 +50,7 @@ type SearchFilters struct {
 	Quality  string
 	Language string
 	Country  string
+	Score    string
 	Genre    []string
 }
 
@@ -57,6 +58,7 @@ type SearchFilters struct {
 type SearchQuery struct {
 	Query   string
 	Page    int
+	Sort    string // provider orderby field for browse (e.g. "year"); "" = default
 	Filters SearchFilters
 }
 

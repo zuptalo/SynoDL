@@ -50,11 +50,13 @@ type sourceSessionReq struct {
 type sourceSearchReq struct {
 	Query   string `json:"query"`
 	Page    int    `json:"page"`
+	Sort    string `json:"sort"`
 	Filters struct {
 		Type     string   `json:"type"`
 		Quality  string   `json:"quality"`
 		Language string   `json:"language"`
 		Country  string   `json:"country"`
+		Score    string   `json:"score"`
 		Genre    []string `json:"genre"`
 	} `json:"filters"`
 }
@@ -214,10 +216,11 @@ func handleSourceSearch(d Deps) http.Handler {
 			return
 		}
 		res, err := drv.Search(r.Context(), sourceHTTP, cfg, sess, source.SearchQuery{
-			Query: body.Query, Page: body.Page,
+			Query: body.Query, Page: body.Page, Sort: body.Sort,
 			Filters: source.SearchFilters{
 				Type: body.Filters.Type, Quality: body.Filters.Quality,
-				Language: body.Filters.Language, Country: body.Filters.Country, Genre: body.Filters.Genre,
+				Language: body.Filters.Language, Country: body.Filters.Country,
+				Score: body.Filters.Score, Genre: body.Filters.Genre,
 			},
 		})
 		if err != nil {

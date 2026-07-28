@@ -24,6 +24,9 @@ const page = ref(1);
 const pages = ref(0);
 const query = ref('');
 const filters = ref<SourceSearchFilters>({});
+// Default browse sort: release year, descending (newest first).
+const DEFAULT_SORT = 'year';
+const sort = ref(DEFAULT_SORT);
 const loading = ref(false);
 const needsRefresh = ref(false);
 const unavailable = ref(true);
@@ -33,7 +36,15 @@ const preferredQuality = ref('');
 const hasMore = computed(() => page.value < pages.value);
 const hasFilters = computed(() => {
   const f = filters.value;
-  return Boolean(f.type || f.quality || f.language || f.country || (f.genre && f.genre.length));
+  return Boolean(
+    f.type ||
+      f.quality ||
+      f.language ||
+      f.country ||
+      f.score ||
+      (f.genre && f.genre.length) ||
+      sort.value !== DEFAULT_SORT,
+  );
 });
 
 async function loadStatus(): Promise<void> {
@@ -68,7 +79,7 @@ function handleErr(e: unknown): void {
 // results, enforcing the type filter client-side because the provider's type
 // facet is unreliable (browse ignores it; text search has no facets).
 async function fetchPage(reset: boolean): Promise<void> {
-  const res = await api.searchSource(query.value, filters.value, page.value);
+  const res = await api.searchSource(query.value, filters.value, page.value, sort.value);
   needsRefresh.value = false;
   unavailable.value = false;
   pages.value = res.pages;
@@ -112,8 +123,17 @@ async function setQuery(q: string): Promise<void> {
   await runSearch(true);
 }
 
-async function applyFilters(f: SourceSearchFilters): Promise<void> {
+async function applyFilters(f: SourceSearchFilters, newSort?: string): Promise<void> {
   filters.value = f;
+  if (newSort) sort.value = newSort;
+  await runSearch(true);
+}
+
+// Reset every filter and the sort back to the default (latest releases,
+// descending) and reload — the "clear filters" affordance.
+async function clearFilters(): Promise<void> {
+  filters.value = {};
+  sort.value = DEFAULT_SORT;
   await runSearch(true);
 }
 
@@ -141,6 +161,7 @@ export function useSourceCatalog() {
     pages,
     query,
     filters,
+    sort,
     loading,
     needsRefresh,
     unavailable,
@@ -153,6 +174,7 @@ export function useSourceCatalog() {
     loadMore,
     setQuery,
     applyFilters,
+    clearFilters,
     loadPrefs,
     savePref,
   };
