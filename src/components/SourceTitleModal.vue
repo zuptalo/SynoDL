@@ -2,6 +2,7 @@
 import { computed, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import {
+  IonBadge,
   IonButton,
   IonButtons,
   IonContent,
@@ -61,6 +62,11 @@ function sizeMB(size: string): number {
 function tooLarge(q: QualityOption): boolean {
   return maxMB.value > 0 && sizeMB(q.size) > maxMB.value;
 }
+// Whether the currently-selected quality is over the size cap (blocks Send).
+const selectedTooLarge = computed(() => {
+  const q = qualities.value.find((x) => x.id === selected.value);
+  return q ? tooLarge(q) : false;
+});
 
 watch(
   () => props.isOpen,
@@ -196,21 +202,21 @@ async function send(): Promise<void> {
 
         <template v-else>
           <ion-note v-if="maxLabel" color="medium" class="cap-hint">
-            Max download size {{ maxLabel }} (set by admin) — larger options are disabled.
+            Max download size {{ maxLabel }} (set by admin). Options over it are marked and can't be sent.
           </ion-note>
           <ion-radio-group v-model="selected">
             <ion-list :inset="true">
-              <ion-item v-for="q in qualities" :key="q.id" :class="{ over: tooLarge(q) }">
-                <ion-radio :value="q.id" :disabled="tooLarge(q)" label-placement="end" justify="start">
+              <ion-item v-for="q in qualities" :key="q.id">
+                <ion-radio :value="q.id" label-placement="end" justify="start">
                   <ion-label>
                     <h3>
                       <span v-if="q.season" class="season">{{ q.season }} · </span>{{ q.label }}
+                      <ion-badge v-if="tooLarge(q)" color="warning" class="too-large">Too large</ion-badge>
                     </h3>
                     <p>
                       {{ q.size }}<template v-if="q.resolution"> · {{ q.resolution }}</template
                       >{{ q.encoder ? ' · ' + q.encoder : ''
                       }}<template v-if="q.episodes"> · {{ q.episodes }} eps</template>
-                      <span v-if="tooLarge(q)" class="over-tag">over limit</span>
                     </p>
                   </ion-label>
                 </ion-radio>
@@ -219,13 +225,16 @@ async function send(): Promise<void> {
           </ion-radio-group>
         </template>
 
+        <ion-note v-if="selectedTooLarge && !errorMsg" color="warning" class="error">
+          That's over the {{ maxLabel }} limit — pick a smaller quality.
+        </ion-note>
         <ion-note v-if="errorMsg" color="danger" class="error">{{ errorMsg }}</ion-note>
 
         <ion-button
           v-if="sendable"
           expand="block"
           class="send-btn"
-          :disabled="!selected || sending"
+          :disabled="!selected || sending || selectedTooLarge"
           @click="send"
         >
           <ion-spinner v-if="sending" slot="start" name="crescent" />
@@ -304,12 +313,10 @@ async function send(): Promise<void> {
   display: block;
   padding: 0 8px 6px;
 }
-.over {
-  opacity: 0.5;
-}
-.over-tag {
-  margin-left: 6px;
-  color: var(--ion-color-warning, #e0a030);
+.too-large {
+  margin-left: 8px;
+  vertical-align: middle;
+  font-size: 0.7rem;
 }
 .season {
   color: var(--ion-color-primary, #3dc2ff);
