@@ -144,10 +144,10 @@ async function openOverflow(): Promise<void> {
     header: `${all.length} ${plural(all.length)}`,
     buttons: [
       { text: 'Select tasks', data: 'select' },
-      { text: `Clear finished (${finished(all).length})`, role: 'destructive', data: 'clear' },
       { text: 'Pause all', data: 'pause' },
       { text: 'Resume all', data: 'resume' },
       { text: 'Delete all', role: 'destructive', data: 'delete' },
+      { text: `Clear finished (${finished(all).length})`, role: 'destructive', data: 'clear' },
       { text: 'Cancel', role: 'cancel' },
     ],
   });
