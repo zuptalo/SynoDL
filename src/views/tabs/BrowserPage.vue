@@ -6,6 +6,8 @@ import {
   IonButtons,
   IonChip,
   IonContent,
+  IonFab,
+  IonFabButton,
   IonHeader,
   IonIcon,
   IonInfiniteScroll,
@@ -13,13 +15,18 @@ import {
   IonLabel,
   IonNote,
   IonPage,
+  IonRefresher,
+  IonRefresherContent,
   IonSearchbar,
   IonSpinner,
   IonTitle,
   IonToolbar,
   type InfiniteScrollCustomEvent,
+  type RefresherCustomEvent,
+  type ScrollDetail,
 } from '@ionic/vue';
 import {
+  arrowUpOutline,
   closeCircleOutline,
   closeOutline,
   funnelOutline,
@@ -115,6 +122,23 @@ async function onInfinite(e: InfiniteScrollCustomEvent): Promise<void> {
   await e.target.complete();
 }
 
+// Pull-to-refresh: re-check the source and reload the current view.
+async function onRefresh(e: RefresherCustomEvent): Promise<void> {
+  await loadStatus();
+  if (!unavailable.value && !needsRefresh.value) await search(true);
+  await e.target.complete();
+}
+
+// Show a jump-to-top button once the list is scrolled down a screenful or so.
+const showTop = ref(false);
+function onScroll(e: CustomEvent<ScrollDetail>): void {
+  showTop.value = e.detail.scrollTop > 500;
+}
+async function scrollTop(): Promise<void> {
+  const el = await contentRef.value?.$el?.getScrollElement?.();
+  el?.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
 function openTitle(t: CatalogTitle): void {
   active.value = t;
   titleOpen.value = true;
@@ -162,7 +186,11 @@ function goSettings(): void {
       </ion-toolbar>
     </ion-header>
 
-    <ion-content ref="contentRef" :fullscreen="true">
+    <ion-content ref="contentRef" :fullscreen="true" :scroll-events="true" @ionScroll="onScroll">
+      <ion-refresher slot="fixed" @ionRefresh="onRefresh">
+        <ion-refresher-content />
+      </ion-refresher>
+
       <!-- Unavailable: no provider configured (or legacy mode). -->
       <div v-if="unavailable" class="state">
         <ion-icon :icon="starOutline" class="state-icon" />
@@ -260,6 +288,13 @@ function goSettings(): void {
           <ion-infinite-scroll-content />
         </ion-infinite-scroll>
       </template>
+
+      <!-- Appears only once scrolled down; taps back to the top. -->
+      <ion-fab v-show="showTop" slot="fixed" vertical="bottom" horizontal="end">
+        <ion-fab-button size="small" aria-label="Jump to top" @click="scrollTop">
+          <ion-icon :icon="arrowUpOutline" />
+        </ion-fab-button>
+      </ion-fab>
     </ion-content>
 
     <SourceFilterSheet
