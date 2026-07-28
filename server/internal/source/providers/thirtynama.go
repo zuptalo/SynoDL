@@ -53,10 +53,12 @@ func (thirtynama) Hosts() source.Config {
 }
 
 func (p thirtynama) VerifySession(ctx context.Context, c *source.Client, cfg source.Config, s source.Session) error {
-	// Cheapest authenticated call: a tiny search. Success ⇒ session valid.
-	_, err := p.call(ctx, c, cfg, s,
-		"/api/v1/action/full_search/type/all/orderby/relevant/order/desc/page/1",
-		"query="+url.QueryEscape("a"))
+	// Cheapest authenticated call: an empty advanced_search (parameters={}).
+	// NOT full_search — the provider rejects a short/empty `query` with
+	// success:false ("search value is empty"), which would look like a bad token.
+	// advanced_search with empty parameters returns success when the session is
+	// valid, so it's a clean auth probe.
+	_, err := p.call(ctx, c, cfg, s, advancedSearchPath(1), "parameters="+url.QueryEscape("{}"))
 	if err == nil {
 		return nil
 	}
@@ -74,14 +76,17 @@ func (p thirtynama) Search(ctx context.Context, c *source.Client, cfg source.Con
 	if page < 1 {
 		page = 1
 	}
+	query := strings.TrimSpace(q.Query)
 	var path, body string
-	if strings.TrimSpace(q.Query) != "" {
+	// full_search needs a term of at least 2 characters; the provider rejects a
+	// shorter one as "empty". For an empty or single-char query we browse via
+	// advanced_search instead (which also carries the filters).
+	if len([]rune(query)) >= 2 {
 		path = fmt.Sprintf("/api/v1/action/full_search/type/all/orderby/relevant/order/desc/page/%d", page)
-		body = "query=" + url.QueryEscape(q.Query)
+		body = "query=" + url.QueryEscape(query)
 	} else {
-		params := buildParams(q.Filters)
-		path = fmt.Sprintf("/api/v1/action/advanced_search/page/%d/orderby/favorite/order/desc", page)
-		body = "parameters=" + url.QueryEscape(params)
+		path = advancedSearchPath(page)
+		body = "parameters=" + url.QueryEscape(buildParams(q.Filters))
 	}
 	raw, err := p.call(ctx, c, cfg, s, path, body)
 	if err != nil {
@@ -223,6 +228,10 @@ func verifyReason(layer string) string {
 	default:
 		return "invalid_token"
 	}
+}
+
+func advancedSearchPath(page int) string {
+	return fmt.Sprintf("/api/v1/action/advanced_search/page/%d/orderby/favorite/order/desc", page)
 }
 
 func buildParams(f source.SearchFilters) string {
