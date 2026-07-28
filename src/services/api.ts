@@ -315,6 +315,8 @@ export interface CatalogTitle {
   type: string;
   title: string;
   posterUrl: string;
+  /** A reliable secondary poster to try if posterUrl fails to load (may be absent). */
+  posterFallbackUrl?: string;
   imdbId: string;
   imdbScore: number;
   providerScore: number;

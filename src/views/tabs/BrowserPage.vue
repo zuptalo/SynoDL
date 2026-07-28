@@ -150,12 +150,22 @@ function openTitle(t: CatalogTitle): void {
   titleOpen.value = true;
 }
 
-// Some provider cover URLs are dead; swap those to the letter fallback instead of
-// showing a broken-image icon or the raw alt text.
+// Some provider cover URLs are dead (present but 404). On the first load error we
+// retry the title's reliable fallback poster (the provider's sized/placeholder
+// image); only if that also fails do we drop to the letter tile.
 const failedPosters = ref<Set<string>>(new Set());
-function onPosterError(id: string): void {
-  if (!failedPosters.value.has(id)) {
-    failedPosters.value = new Set(failedPosters.value).add(id);
+const fellBackPosters = ref<Set<string>>(new Set());
+function posterFor(t: CatalogTitle): string {
+  if (fellBackPosters.value.has(t.id)) return posterSrc(t.posterFallbackUrl ?? '');
+  return posterSrc(t.posterUrl);
+}
+function onPosterError(t: CatalogTitle): void {
+  if (!fellBackPosters.value.has(t.id) && t.posterFallbackUrl && t.posterFallbackUrl !== t.posterUrl) {
+    fellBackPosters.value = new Set(fellBackPosters.value).add(t.id);
+    return;
+  }
+  if (!failedPosters.value.has(t.id)) {
+    failedPosters.value = new Set(failedPosters.value).add(t.id);
   }
 }
 
@@ -294,11 +304,11 @@ function goSettings(): void {
           >
             <div class="poster">
               <img
-                v-if="t.posterUrl && !failedPosters.has(t.id)"
-                :src="posterSrc(t.posterUrl)"
+                v-if="(t.posterUrl || t.posterFallbackUrl) && !failedPosters.has(t.id)"
+                :src="posterFor(t)"
                 :alt="t.title"
                 loading="lazy"
-                @error="onPosterError(t.id)"
+                @error="onPosterError(t)"
               />
               <div v-else class="poster-fallback">{{ t.title.charAt(0) }}</div>
               <span v-if="t.comingSoon" class="badge">Soon</span>

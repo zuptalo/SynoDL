@@ -31,6 +31,23 @@ const props = defineProps<{
   title: CatalogTitle;
 }>();
 const posterFailed = ref(false);
+// Two-stage poster load: try posterUrl, then the reliable fallback, then the
+// letter tile — so a title whose cover URL 404s still shows its placeholder art.
+const posterFellBack = ref(false);
+const posterSource = computed(() =>
+  posterFellBack.value ? posterSrc(props.title.posterFallbackUrl ?? '') : posterSrc(props.title.posterUrl),
+);
+function onPosterError(): void {
+  if (
+    !posterFellBack.value &&
+    props.title.posterFallbackUrl &&
+    props.title.posterFallbackUrl !== props.title.posterUrl
+  ) {
+    posterFellBack.value = true;
+    return;
+  }
+  posterFailed.value = true;
+}
 const emit = defineEmits<{
   (e: 'dismiss'): void;
   (e: 'needs-refresh'): void;
@@ -165,6 +182,7 @@ watch(
     qualities.value = [];
     selected.value = '';
     posterFailed.value = false;
+    posterFellBack.value = false;
     try {
       const detail = await api.getSourceTitle(props.title.id);
       sendable.value = detail.sendable;
@@ -265,10 +283,10 @@ async function send(): Promise<void> {
         <div class="poster-row">
           <ion-thumbnail class="poster">
             <img
-              v-if="title.posterUrl && !posterFailed"
-              :src="posterSrc(title.posterUrl)"
+              v-if="(title.posterUrl || title.posterFallbackUrl) && !posterFailed"
+              :src="posterSource"
               :alt="title.title"
-              @error="posterFailed = true"
+              @error="onPosterError"
             />
             <div v-else class="poster-fallback">{{ title.title.charAt(0) }}</div>
           </ion-thumbnail>

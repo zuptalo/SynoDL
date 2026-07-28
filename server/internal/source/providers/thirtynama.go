@@ -118,17 +118,18 @@ func (p thirtynama) Search(ctx context.Context, c *source.Client, cfg source.Con
 	out := source.SearchResult{Page: int(r.Page), Pages: int(r.Pages)}
 	for _, post := range r.Posts {
 		out.Items = append(out.Items, source.CatalogTitle{
-			ID:            string(post.ID),
-			Type:          string(post.TitleType),
-			Title:         string(post.Title),
-			PosterURL:     post.posterURL(),
-			IMDbID:        string(post.IMDbID),
-			IMDbScore:     float64(post.IMDbScore),
-			ProviderScore: float64(post.Score),
-			Plot:          string(post.EnglishPlot),
-			Genres:        post.genreNames(),
-			ComingSoon:    bool(post.ComingSoon),
-			FreeDownload:  bool(post.FreeDownload),
+			ID:                string(post.ID),
+			Type:              string(post.TitleType),
+			Title:             string(post.Title),
+			PosterURL:         post.posterURL(),
+			PosterFallbackURL: post.posterFallbackURL(),
+			IMDbID:            string(post.IMDbID),
+			IMDbScore:         float64(post.IMDbScore),
+			ProviderScore:     float64(post.Score),
+			Plot:              string(post.EnglishPlot),
+			Genres:            post.genreNames(),
+			ComingSoon:        bool(post.ComingSoon),
+			FreeDownload:      bool(post.FreeDownload),
 		})
 	}
 	return out, nil
@@ -377,10 +378,18 @@ func (p tnPost) posterURL() string {
 	if c := string(p.Image.Cover); c != "" {
 		return c
 	}
+	return p.posterFallbackURL()
+}
+
+// posterFallbackURL is the reliable sized portrait poster (or the provider's
+// placeholder for titles without art), always on the provider CDN. The client
+// uses it when the primary posterURL fails to load — e.g. a title whose `cover`
+// is a real-looking URL that actually 404s, which would otherwise show nothing.
+func (p tnPost) posterFallbackURL() string {
 	for _, s := range []string{
-		string(p.Image.Poster.Big),
-		string(p.Image.Poster.Large),
 		string(p.Image.Poster.Medium),
+		string(p.Image.Poster.Large),
+		string(p.Image.Poster.Big),
 		string(p.Image.Poster.Small),
 	} {
 		if s != "" {
