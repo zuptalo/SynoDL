@@ -25,6 +25,39 @@ self.addEventListener('activate', (event) => {
   event.waitUntil(self.clients.claim());
 });
 
+// Cache Discover poster images (from the provider's CDN, *.30nama.com) so the
+// grid feels instant on revisits and works offline. CacheFirst, dependency-free;
+// the cache is trimmed to a sane ceiling and the browser evicts under quota.
+const POSTER_CACHE = 'source-posters-v1';
+const POSTER_MAX = 400;
+
+async function cachePoster(request: Request): Promise<Response> {
+  const cache = await caches.open(POSTER_CACHE);
+  const hit = await cache.match(request);
+  if (hit) return hit;
+  const resp = await fetch(request);
+  // Cache successful (200) or opaque cross-origin (type 'opaque') image responses.
+  if (resp && (resp.status === 200 || resp.type === 'opaque')) {
+    await cache.put(request, resp.clone());
+    void trimPosterCache(cache);
+  }
+  return resp;
+}
+
+async function trimPosterCache(cache: Cache): Promise<void> {
+  const keys = await cache.keys();
+  if (keys.length <= POSTER_MAX) return;
+  // keys() is roughly insertion-ordered; drop the oldest overflow.
+  await Promise.all(keys.slice(0, keys.length - POSTER_MAX).map((k) => cache.delete(k)));
+}
+
+self.addEventListener('fetch', (event) => {
+  const url = new URL(event.request.url);
+  if (event.request.destination === 'image' && url.hostname.endsWith('30nama.com')) {
+    event.respondWith(cachePoster(event.request).catch(() => fetch(event.request)));
+  }
+});
+
 // Web Push (spec 0003): the server sends a JSON payload {title, body}. We only
 // show a SYSTEM notification when the user isn't actively looking at the app
 // (spec 1013): if a window is in the foreground we hand the message to the page
