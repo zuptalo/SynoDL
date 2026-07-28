@@ -49,11 +49,17 @@ async function loadStatus(): Promise<void> {
     status.value = s;
     needsRefresh.value = s.state === 'needs_refresh';
     unavailable.value = !s.configured || !s.enabled;
-  } catch {
-    // 404 (legacy mode) or a transport error → treat the catalog as unavailable.
-    status.value = null;
-    unavailable.value = true;
-    needsRefresh.value = false;
+  } catch (e) {
+    // A genuine 404 means legacy/stateless mode — the catalog really is
+    // unavailable. But a transient transport/5xx error (e.g. a brief blip during
+    // a deploy) must NOT masquerade as "no source configured"; keep the last
+    // known state so a passing pull-to-refresh / next poll simply recovers.
+    if (e instanceof ApiError && e.status === 404) {
+      status.value = null;
+      unavailable.value = true;
+      needsRefresh.value = false;
+    }
+    // else: leave status/unavailable/needsRefresh untouched.
   }
 }
 
