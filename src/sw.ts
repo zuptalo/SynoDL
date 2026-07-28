@@ -33,10 +33,14 @@ self.addEventListener('activate', (event) => {
 self.addEventListener('push', (event) => {
   let title = 'SynoDL';
   let body = 'A download update is available.';
+  let taskId = '';
   try {
-    const data = event.data?.json() as { title?: string; body?: string } | undefined;
+    const data = event.data?.json() as
+      | { title?: string; body?: string; taskId?: string }
+      | undefined;
     if (data?.title) title = data.title;
     if (data?.body) body = data.body;
+    if (data?.taskId) taskId = data.taskId;
   } catch {
     if (event.data) body = event.data.text();
   }
@@ -48,11 +52,12 @@ self.addEventListener('push', (event) => {
         // App is open in front — let the page decide (in-app toast off the Tasks
         // tab, nothing on it). No OS notification, no badge.
         for (const c of clients) {
-          c.postMessage({ type: 'push-notification', title, body });
+          c.postMessage({ type: 'push-notification', title, body, taskId });
         }
         return undefined;
       }
       // Backgrounded / closed — show the OS notification + set the app badge.
+      // Stash the task id on the notification so a tap can deep-link to it.
       const nav = self.navigator as Navigator & { setAppBadge?: (n?: number) => Promise<void> };
       return Promise.all([
         self.registration.showNotification(title, {
@@ -60,6 +65,7 @@ self.addEventListener('push', (event) => {
           icon: '/pwa-192x192.png',
           badge: '/pwa-192x192.png',
           tag: 'synodl-download',
+          data: { taskId },
         }),
         nav.setAppBadge ? nav.setAppBadge().catch(() => undefined) : Promise.resolve(),
       ]);
@@ -67,15 +73,22 @@ self.addEventListener('push', (event) => {
   );
 });
 
-// Tapping a notification focuses an open SynoDL tab or opens one.
+// Tapping a notification focuses an open SynoDL tab (and asks it to open the
+// task's detail) or opens a new window deep-linked to that task.
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
+  const taskId = (event.notification.data as { taskId?: string } | undefined)?.taskId ?? '';
+  const url = taskId ? `/tabs/tasks?task=${encodeURIComponent(taskId)}` : '/tabs/tasks';
   event.waitUntil(
     self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clients) => {
       for (const c of clients) {
-        if ('focus' in c) return c.focus();
+        if ('focus' in c) {
+          // An open tab won't reload, so tell the page to route to the task.
+          c.postMessage({ type: 'open-task', taskId });
+          return c.focus();
+        }
       }
-      return self.clients.openWindow('/tabs/tasks');
+      return self.clients.openWindow(url);
     }),
   );
 });

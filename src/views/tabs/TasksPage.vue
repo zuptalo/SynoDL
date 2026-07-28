@@ -19,6 +19,7 @@ import {
 } from '@ionic/vue';
 import { addOutline, checkmarkOutline, ellipsisHorizontal, optionsOutline } from 'ionicons/icons';
 import { computed, ref, watch } from 'vue';
+import { useRoute, useRouter } from 'vue-router';
 import { useTasks } from '@/composables/useTasks';
 import { useTaskFilter } from '@/composables/useTaskFilter';
 import { api } from '@/services/api';
@@ -49,6 +50,22 @@ const detailTask = computed<Task | null>(
 function openDetail(id: string): void {
   detailId.value = id;
 }
+
+// Deep link from a tapped download notification: /tabs/tasks?task=<id> opens
+// that task's detail once the list has loaded (so the sheet resolves the live
+// task), then clears the query so it doesn't reopen on back/refresh.
+const route = useRoute();
+const router = useRouter();
+watch(
+  [() => route.query.task, loaded],
+  ([id, isLoaded]) => {
+    if (isLoaded && typeof id === 'string' && id) {
+      openDetail(id);
+      void router.replace({ query: {} });
+    }
+  },
+  { immediate: true },
+);
 
 // ---- selection mode -------------------------------------------------------
 const selectMode = ref(false);
