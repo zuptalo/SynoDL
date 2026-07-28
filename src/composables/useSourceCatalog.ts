@@ -146,6 +146,18 @@ async function clearFilters(): Promise<void> {
   await runSearch(true);
 }
 
+// Remove a single active filter (or reset the sort) without opening the sheet.
+async function removeFilter(key: keyof SourceSearchFilters | 'sort'): Promise<void> {
+  if (key === 'sort') {
+    sort.value = DEFAULT_SORT;
+  } else {
+    const next = { ...filters.value };
+    delete next[key];
+    filters.value = next;
+  }
+  await runSearch(true);
+}
+
 async function loadPrefs(): Promise<void> {
   try {
     preferredQuality.value = (await api.getSourcePrefs()).preferredQuality;
@@ -184,6 +196,7 @@ export function useSourceCatalog() {
     setQuery,
     applyFilters,
     clearFilters,
+    removeFilter,
     loadPrefs,
     savePref,
   };

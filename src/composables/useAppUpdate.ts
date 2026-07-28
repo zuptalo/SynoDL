@@ -61,6 +61,11 @@ export function useAppUpdate() {
     };
     document.addEventListener('visibilitychange', recheck);
     window.addEventListener('focus', recheck);
+    // An installed DESKTOP PWA can stay open and focused for days, so it never
+    // fires visibilitychange/focus and the browser's own periodic SW check may
+    // not run — the update would sit unnoticed until a manual refresh. Poll for a
+    // waiting worker on an interval so the update page still appears in-session.
+    setInterval(() => void swReg?.update().catch(() => undefined), 15 * 60 * 1000);
   }
 
   async function applyUpdate(targetVersion?: string): Promise<void> {

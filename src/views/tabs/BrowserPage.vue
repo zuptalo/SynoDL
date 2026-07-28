@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue';
+import { computed, nextTick, onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import {
   IonButton,
@@ -21,6 +21,7 @@ import {
 } from '@ionic/vue';
 import {
   closeCircleOutline,
+  closeOutline,
   funnelOutline,
   refreshOutline,
   settingsOutline,
@@ -51,25 +52,62 @@ const {
   setQuery,
   applyFilters,
   clearFilters,
+  removeFilter,
   loadPrefs,
 } = useSourceCatalog();
 
 const filterOpen = ref(false);
 const titleOpen = ref(false);
 const active = ref<CatalogTitle | null>(null);
+const contentRef = ref<{ $el: { getScrollElement: () => Promise<HTMLElement> } } | null>(null);
 
 const sortLabel = computed(
   () => ({ date: 'Recently added', favorite: 'Popular' })[sort.value] ?? 'Release year',
 );
 
+// On a wide/tall desktop screen a page of results may not reach the bottom of
+// the viewport, so ion-infinite-scroll never triggers and the list looks stuck.
+// Keep loading pages until the content overflows the viewport (or nothing more).
+async function fillViewport(): Promise<void> {
+  for (let i = 0; i < 10; i += 1) {
+    if (!hasMore.value || loading.value) return;
+    await nextTick();
+    const el = await contentRef.value?.$el?.getScrollElement?.();
+    if (!el) return;
+    if (el.scrollHeight > el.clientHeight + 48) return; // fills the screen
+    await loadMore();
+  }
+}
+
+async function search(reset: boolean): Promise<void> {
+  await runSearch(reset);
+  await fillViewport();
+}
+
 onMounted(async () => {
   await loadStatus();
   await loadPrefs();
-  if (!unavailable.value && !needsRefresh.value) await runSearch(true);
+  if (!unavailable.value && !needsRefresh.value) await search(true);
 });
 
 async function onSearch(e: CustomEvent): Promise<void> {
   await setQuery(((e.detail as { value?: string }).value ?? '').trim());
+  await fillViewport();
+}
+
+async function onApply(f: typeof filters.value, s: string): Promise<void> {
+  await applyFilters(f, s);
+  await fillViewport();
+}
+
+async function onClear(): Promise<void> {
+  await clearFilters();
+  await fillViewport();
+}
+
+async function onRemoveFilter(key: Parameters<typeof removeFilter>[0]): Promise<void> {
+  await removeFilter(key);
+  await fillViewport();
 }
 
 async function onInfinite(e: InfiniteScrollCustomEvent): Promise<void> {
@@ -84,7 +122,7 @@ function openTitle(t: CatalogTitle): void {
 
 async function retry(): Promise<void> {
   await loadStatus();
-  if (!unavailable.value && !needsRefresh.value) await runSearch(true);
+  if (!unavailable.value && !needsRefresh.value) await search(true);
 }
 
 function goSettings(): void {
@@ -101,7 +139,7 @@ function goSettings(): void {
           <ion-button
             v-if="hasFilters && !unavailable && !needsRefresh"
             aria-label="Clear filters"
-            @click="clearFilters"
+            @click="onClear"
           >
             <ion-icon slot="icon-only" :icon="closeCircleOutline" />
           </ion-button>
@@ -124,7 +162,7 @@ function goSettings(): void {
       </ion-toolbar>
     </ion-header>
 
-    <ion-content :fullscreen="true">
+    <ion-content ref="contentRef" :fullscreen="true">
       <!-- Unavailable: no provider configured (or legacy mode). -->
       <div v-if="unavailable" class="state">
         <ion-icon :icon="starOutline" class="state-icon" />
@@ -154,14 +192,30 @@ function goSettings(): void {
       </div>
 
       <template v-else>
+        <!-- Active filters as removable chips: tap one to drop just that filter
+             without reopening the sheet. -->
         <div v-if="hasFilters" class="active-filters">
-          <ion-chip v-if="sort !== 'year'" outline>{{ sortLabel }}</ion-chip>
-          <ion-chip v-if="filters.type" outline class="cap">{{ filters.type }}</ion-chip>
-          <ion-chip v-if="filters.genre?.length" outline>Genre</ion-chip>
-          <ion-chip v-if="filters.quality" outline>{{ filters.quality }}</ion-chip>
-          <ion-chip v-if="filters.score" outline>{{ filters.score }}+</ion-chip>
-          <ion-chip v-if="filters.language" outline>{{ filters.language }}</ion-chip>
-          <ion-chip v-if="filters.country" outline>{{ filters.country }}</ion-chip>
+          <ion-chip v-if="sort !== 'year'" @click="onRemoveFilter('sort')">
+            {{ sortLabel }}<ion-icon :icon="closeOutline" />
+          </ion-chip>
+          <ion-chip v-if="filters.type" class="cap" @click="onRemoveFilter('type')">
+            {{ filters.type }}<ion-icon :icon="closeOutline" />
+          </ion-chip>
+          <ion-chip v-if="filters.genre?.length" @click="onRemoveFilter('genre')">
+            Genre<ion-icon :icon="closeOutline" />
+          </ion-chip>
+          <ion-chip v-if="filters.quality" @click="onRemoveFilter('quality')">
+            {{ filters.quality }}<ion-icon :icon="closeOutline" />
+          </ion-chip>
+          <ion-chip v-if="filters.score" @click="onRemoveFilter('score')">
+            {{ filters.score }}+<ion-icon :icon="closeOutline" />
+          </ion-chip>
+          <ion-chip v-if="filters.language" @click="onRemoveFilter('language')">
+            {{ filters.language }}<ion-icon :icon="closeOutline" />
+          </ion-chip>
+          <ion-chip v-if="filters.country" @click="onRemoveFilter('country')">
+            {{ filters.country }}<ion-icon :icon="closeOutline" />
+          </ion-chip>
         </div>
 
         <div v-if="errorMsg" class="state">
@@ -213,7 +267,7 @@ function goSettings(): void {
       :filters="filters"
       :sort="sort"
       @dismiss="filterOpen = false"
-      @apply="applyFilters"
+      @apply="onApply"
     />
     <SourceTitleModal
       v-if="active"
