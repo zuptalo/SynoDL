@@ -100,8 +100,10 @@ async function runSearch(reset = true): Promise<void> {
   loading.value = true;
   errorMsg.value = '';
   if (reset) {
+    // Keep the current results on screen while the first fresh page loads
+    // (fetchPage replaces them on arrival) so a refresh/search doesn't flash to
+    // an empty screen. Skeletons only show when there's nothing yet to keep.
     page.value = 1;
-    items.value = [];
   }
   try {
     await fetchPage(reset);

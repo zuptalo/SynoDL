@@ -18,7 +18,7 @@ import {
   IonRefresher,
   IonRefresherContent,
   IonSearchbar,
-  IonSpinner,
+  IonSkeletonText,
   IonTitle,
   IonToolbar,
   type InfiniteScrollCustomEvent,
@@ -251,8 +251,18 @@ function goSettings(): void {
           <ion-button fill="outline" class="cta" @click="retry">Try again</ion-button>
         </div>
 
-        <div v-else-if="loading && items.length === 0" class="state">
-          <ion-spinner />
+        <!-- Skeleton poster placeholders while the first results load, instead of
+             a lone spinner on a black screen. -->
+        <div v-else-if="loading && items.length === 0" class="grid" aria-hidden="true">
+          <div v-for="n in 12" :key="n" class="card">
+            <div class="poster">
+              <ion-skeleton-text :animated="true" class="sk-poster" />
+            </div>
+            <ion-label class="meta">
+              <ion-skeleton-text :animated="true" class="sk-line" />
+              <ion-skeleton-text :animated="true" class="sk-line short" />
+            </ion-label>
+          </div>
         </div>
 
         <div v-else-if="items.length === 0" class="state">
@@ -384,6 +394,19 @@ function goSettings(): void {
   justify-content: center;
   font-size: 2rem;
   color: var(--app-text-dim);
+}
+.sk-poster {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+}
+.sk-line {
+  height: 12px;
+  border-radius: 4px;
+  margin-top: 6px;
+}
+.sk-line.short {
+  width: 45%;
 }
 .badge {
   position: absolute;
