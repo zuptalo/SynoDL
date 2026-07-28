@@ -16,6 +16,14 @@ test('wrong password shows a distinct plain-language error', async ({ page }) =>
 });
 
 test('OTP flow: field appears on demand, wrong code distinct, right code succeeds', async ({ page }) => {
+  // Pin the landing tab to Tasks (default is Discover) for a deterministic URL.
+  await page.addInitScript(() => {
+    try {
+      window.localStorage.setItem('landing.page', 'tasks');
+    } catch {
+      /* ignore */
+    }
+  });
   await page.goto('/');
   await page.getByTestId('login-account').locator('input').fill('otpuser');
   await page.getByTestId('login-password').locator('input').fill('secret');

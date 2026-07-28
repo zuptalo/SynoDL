@@ -55,6 +55,15 @@ export async function tickMock(seconds: number): Promise<void> {
  * Playwright context is always signed out; specs call this once up front.
  */
 export async function login(page: Page, account = 'admin', password = 'secret'): Promise<void> {
+  // The landing tab is a per-device preference (default: Discover). These specs
+  // exercise Tasks, so pin it to Tasks for a deterministic post-login URL.
+  await page.addInitScript(() => {
+    try {
+      window.localStorage.setItem('landing.page', 'tasks');
+    } catch {
+      /* ignore */
+    }
+  });
   await page.goto('/');
   await expect(page).toHaveURL(/\/login/);
   await page.getByTestId('login-account').locator('input').fill(account);

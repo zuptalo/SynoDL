@@ -2,12 +2,13 @@ import { createRouter, createWebHistory } from '@ionic/vue-router';
 import type { RouteRecordRaw } from 'vue-router';
 import { restoreSession } from '@/composables/useSession';
 import { useSession } from '@/composables/useSession';
+import { landingPath } from '@/composables/useLanding';
 import TabsPage from '@/views/TabsPage.vue';
 
 // The five tab roots are statically imported via TabsPage so first tab-switch
 // never stalls on a chunk fetch; only the login page is a separate lazy chunk.
 const routes: Array<RouteRecordRaw> = [
-  { path: '/', redirect: '/tabs/tasks' },
+  { path: '/', redirect: () => landingPath() },
   {
     path: '/login',
     component: () => import('@/views/LoginPage.vue'),
@@ -21,7 +22,7 @@ const routes: Array<RouteRecordRaw> = [
     path: '/tabs',
     component: TabsPage,
     children: [
-      { path: '', redirect: '/tabs/tasks' },
+      { path: '', redirect: () => landingPath() },
       { path: 'tasks', component: () => import('@/views/tabs/TasksPage.vue') },
       { path: 'browser', component: () => import('@/views/tabs/BrowserPage.vue') },
       { path: 'settings', component: () => import('@/views/tabs/SettingsPage.vue') },
@@ -50,13 +51,13 @@ router.beforeEach(async (to) => {
   }
   // Setup is done (or legacy mode): the wizard is off-limits.
   if (to.path === '/setup') {
-    return { path: isAuthenticated.value ? '/tabs/tasks' : '/login' };
+    return { path: isAuthenticated.value ? landingPath() : '/login' };
   }
   if (to.path !== '/login' && !isAuthenticated.value) {
     return { path: '/login' };
   }
   if (to.path === '/login' && isAuthenticated.value) {
-    return { path: '/tabs/tasks' };
+    return { path: landingPath() };
   }
   return true;
 });
