@@ -25,6 +25,7 @@
   /* Semantic surfaces (light). */
   --app-bg: #ffffff;
   --app-card: #f4f4f5;
+  --app-text: #18181b;
   --app-text-dim: #71717a;
 }
 
@@ -33,6 +34,7 @@
 .ion-palette-dark {
   --app-bg: #0a0a0a;
   --app-card: #1c1c1e;
+  --app-text: #f4f4f5;
   --app-text-dim: #8e8e93;
 
   --ion-background-color: #0a0a0a;
