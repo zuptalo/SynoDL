@@ -34,16 +34,12 @@ const errorMsg = ref('');
 const preferredQuality = ref('');
 
 const hasMore = computed(() => page.value < pages.value);
+// Sort is now its own always-visible dropdown, so it doesn't count as an active
+// "filter" (the clear ✕ and the funnel highlight are about the facet filters).
 const hasFilters = computed(() => {
   const f = filters.value;
   return Boolean(
-    f.type ||
-      f.quality ||
-      f.language ||
-      f.country ||
-      f.score ||
-      (f.genre && f.genre.length) ||
-      sort.value !== DEFAULT_SORT,
+    f.type || f.quality || f.language || f.country || f.score || (f.genre && f.genre.length),
   );
 });
 
@@ -140,11 +136,17 @@ async function applyFilters(f: SourceSearchFilters, newSort?: string): Promise<v
   await runSearch(true);
 }
 
-// Reset every filter and the sort back to the default (latest releases,
-// descending) and reload — the "clear filters" affordance.
+// Change the sort order (from the dropdown beside the search bar) and reload.
+async function setSort(s: string): Promise<void> {
+  if (s === sort.value) return;
+  sort.value = s;
+  await runSearch(true);
+}
+
+// Reset every facet filter and reload — the "clear filters" affordance. Sort is
+// independent (its own dropdown), so it is left untouched.
 async function clearFilters(): Promise<void> {
   filters.value = {};
-  sort.value = DEFAULT_SORT;
   await runSearch(true);
 }
 
@@ -197,6 +199,7 @@ export function useSourceCatalog() {
     loadMore,
     setQuery,
     applyFilters,
+    setSort,
     clearFilters,
     removeFilter,
     loadPrefs,
