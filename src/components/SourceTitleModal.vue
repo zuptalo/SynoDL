@@ -19,10 +19,10 @@ import {
   IonThumbnail,
   IonTitle,
   IonToolbar,
-  toastController,
 } from '@ionic/vue';
 import { arrowForwardOutline, cloudDownloadOutline } from 'ionicons/icons';
 import { api, ApiError, posterSrc, type CatalogTitle, type QualityOption } from '@/services/api';
+import { appToast } from '@/services/toast';
 import { useSourceCatalog } from '@/composables/useSourceCatalog';
 import type { Task } from '@/types/task';
 
@@ -223,14 +223,7 @@ watch(
 async function toast(message: string): Promise<void> {
   // A plain confirmation — the send button itself becomes the live "view the
   // download" affordance, so the toast no longer needs its own action.
-  const t = await toastController.create({
-    message,
-    duration: 3000,
-    position: 'top',
-    cssClass: 'app-toast',
-    swipeGesture: 'vertical',
-  });
-  await t.present();
+  await appToast({ message, duration: 3000 });
 }
 
 async function send(): Promise<void> {
