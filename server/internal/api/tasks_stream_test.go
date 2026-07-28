@@ -1,6 +1,7 @@
 package api
 
 import (
+	"bufio"
 	"context"
 	"net/http"
 	"net/http/httptest"
@@ -8,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"synodl/server/internal/config"
 	"synodl/server/internal/syno"
 )
 
@@ -59,6 +61,58 @@ func TestTasksStreamEmitsHeadersSnapshotAndHeartbeat(t *testing.T) {
 	// comments to survive the reverse-proxy read timeout.
 	if !strings.Contains(body, ":\n\n") {
 		t.Errorf("body missing heartbeat comment:\n%s", body)
+	}
+}
+
+// TestTasksStreamThroughMiddlewareChain is the regression guard for the
+// production 500: the logging middleware wraps the ResponseWriter in a
+// statusRecorder, and the SSE loop type-asserts its writer to http.Flusher. If
+// the wrapper doesn't forward Flush the handler answers 500 on every connect
+// (and the client reconnects every couple of seconds). The direct-handler tests
+// above pass an httptest.Recorder, which already satisfies http.Flusher, so they
+// never exercise the wrapped path — this one goes through the full NewRouter
+// chain over a real server.
+func TestTasksStreamThroughMiddlewareChain(t *testing.T) {
+	setStreamIntervals(t, 20*time.Millisecond, 5*time.Millisecond)
+	fake := &fakeSyno{
+		tasks: []syno.Task{{ID: "dbid_1", Name: "live.iso", Status: "downloading"}},
+		stats: syno.Stats{DownloadSpeed: 9},
+	}
+	srv := httptest.NewServer(NewRouter(Deps{
+		Cfg:  config.Config{Env: "dev", MaxTorrentMB: 1, LoginPerMinute: 10, StreamMax: 4},
+		Syno: fake, Version: "test",
+	}))
+	t.Cleanup(srv.Close)
+
+	// Bound the request so we disconnect promptly once we've seen the headers +
+	// first snapshot; closing the body signals the server to end the stream.
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, srv.URL+"/v1/tasks/stream", nil)
+	if err != nil {
+		t.Fatalf("NewRequest: %v", err)
+	}
+	req.Header.Set("X-Syno-Sid", "sid")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("GET /v1/tasks/stream: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200 (a 500 here means the Flusher wrapper regressed)", resp.StatusCode)
+	}
+	if ct := resp.Header.Get("Content-Type"); ct != "text/event-stream" {
+		t.Fatalf("Content-Type = %q, want text/event-stream", ct)
+	}
+	// The first snapshot must actually reach the wire through the wrapped, flushed
+	// writer.
+	line, err := bufio.NewReader(resp.Body).ReadString('\n')
+	if err != nil {
+		t.Fatalf("reading first SSE line: %v", err)
+	}
+	if !strings.HasPrefix(line, "data: ") {
+		t.Fatalf("first SSE line = %q, want a data: frame", line)
 	}
 }
 
