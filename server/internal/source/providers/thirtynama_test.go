@@ -164,19 +164,21 @@ func TestThirtynamaToleratesLooseTypes(t *testing.T) {
 	if len(res.Items) != 3 || res.Pages != 9 {
 		t.Fatalf("got %d items, pages=%d", len(res.Items), res.Pages)
 	}
-	// A title with a real cover keeps the cover as primary, and offers its sized
-	// poster as the fallback the client tries if the cover fails to load.
-	if res.Items[0].PosterURL != "https://cdn.30nama.com/cover/100.jpg" ||
-		res.Items[0].PosterFallbackURL != "https://cdn.30nama.com/poster/100-m.jpg" {
-		t.Fatalf("cover+fallback mapped wrong: %+v", res.Items[0])
+	// A title with both images uses the portrait POSTER as the primary (thumbnail
+	// + grid), the wide cover as the backdrop, and the cover as the load-fallback.
+	if res.Items[0].PosterURL != "https://cdn.30nama.com/poster/100-m.jpg" ||
+		res.Items[0].BackdropURL != "https://cdn.30nama.com/cover/100.jpg" ||
+		res.Items[0].PosterFallbackURL != "https://cdn.30nama.com/cover/100.jpg" {
+		t.Fatalf("poster/backdrop mapped wrong: %+v", res.Items[0])
 	}
 	if res.Items[1].PosterURL != "" || res.Items[1].IMDbID != "" || res.Items[1].Title != "No Poster" {
 		t.Fatalf("coverless post mapped wrong: %+v", res.Items[1])
 	}
-	// A coming-soon title with no cover falls back to the provider's placeholder
-	// poster (the sized image) instead of showing nothing.
-	if res.Items[2].PosterURL != "https://cdn.30nama.com/none/none-m_30NAMA.jpg?2" {
-		t.Fatalf("coming-soon poster = %q", res.Items[2].PosterURL)
+	// A coming-soon title with no cover shows the provider's placeholder poster and
+	// has no distinct backdrop.
+	if res.Items[2].PosterURL != "https://cdn.30nama.com/none/none-m_30NAMA.jpg?2" ||
+		res.Items[2].BackdropURL != "" {
+		t.Fatalf("coming-soon poster/backdrop = %q / %q", res.Items[2].PosterURL, res.Items[2].BackdropURL)
 	}
 }
 

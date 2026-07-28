@@ -123,6 +123,7 @@ func (p thirtynama) Search(ctx context.Context, c *source.Client, cfg source.Con
 			Title:             string(post.Title),
 			PosterURL:         post.posterURL(),
 			PosterFallbackURL: post.posterFallbackURL(),
+			BackdropURL:       post.backdropURL(),
 			IMDbID:            string(post.IMDbID),
 			IMDbScore:         float64(post.IMDbScore),
 			ProviderScore:     float64(post.Score),
@@ -374,18 +375,8 @@ type tnPost struct {
 // posterURL picks the best available cover art: the landscape `cover` when the
 // title has real art, otherwise the sized portrait poster (which for coming-soon
 // titles is the provider's default placeholder rather than nothing).
-func (p tnPost) posterURL() string {
-	if c := string(p.Image.Cover); c != "" {
-		return c
-	}
-	return p.posterFallbackURL()
-}
-
-// posterFallbackURL is the reliable sized portrait poster (or the provider's
-// placeholder for titles without art), always on the provider CDN. The client
-// uses it when the primary posterURL fails to load — e.g. a title whose `cover`
-// is a real-looking URL that actually 404s, which would otherwise show nothing.
-func (p tnPost) posterFallbackURL() string {
+// bestPoster returns the largest-available sized portrait poster (or "").
+func (p tnPost) bestPoster() string {
 	for _, s := range []string{
 		string(p.Image.Poster.Medium),
 		string(p.Image.Poster.Large),
@@ -395,6 +386,52 @@ func (p tnPost) posterFallbackURL() string {
 		if s != "" {
 			return s
 		}
+	}
+	return ""
+}
+
+// isPlaceholderImg reports whether a provider image URL is the generic
+// "no artwork yet" placeholder (used for coming-soon titles without a poster).
+func isPlaceholderImg(u string) bool { return strings.Contains(u, "/none/none-") }
+
+// posterURL is the PORTRAIT poster for grids and the detail thumbnail. The
+// provider's sized `poster.*` is a consistent portrait image, so prefer it; the
+// `cover` is only used when there's no real poster (it is a portrait poster for
+// some titles but a landscape backdrop for others, so it's the wrong shape for a
+// thumbnail). A bare placeholder yields to a real cover when one exists.
+func (p tnPost) posterURL() string {
+	poster := p.bestPoster()
+	if poster != "" && !isPlaceholderImg(poster) {
+		return poster
+	}
+	if c := string(p.Image.Cover); c != "" {
+		return c
+	}
+	return poster // the placeholder (coming-soon with no cover) — better than nothing
+}
+
+// backdropURL is the wide `cover` image, shown large behind the detail header.
+// Empty when the title has no cover (then the header falls back to the poster).
+func (p tnPost) backdropURL() string {
+	if c := string(p.Image.Cover); c != "" && c != p.posterURL() {
+		return c
+	}
+	return ""
+}
+
+// posterFallbackURL is the reliable sized portrait poster (or the provider's
+// placeholder for titles without art), always on the provider CDN. The client
+// uses it when the primary posterURL fails to load — e.g. a title whose `cover`
+// is a real-looking URL that actually 404s, which would otherwise show nothing.
+// posterFallbackURL is the OTHER available image, tried by the client if the
+// primary poster fails to load (a present-but-404 URL).
+func (p tnPost) posterFallbackURL() string {
+	primary := p.posterURL()
+	if c := string(p.Image.Cover); c != "" && c != primary {
+		return c
+	}
+	if ps := p.bestPoster(); ps != "" && ps != primary {
+		return ps
 	}
 	return ""
 }

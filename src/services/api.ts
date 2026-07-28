@@ -317,6 +317,8 @@ export interface CatalogTitle {
   posterUrl: string;
   /** A reliable secondary poster to try if posterUrl fails to load (may be absent). */
   posterFallbackUrl?: string;
+  /** The wide cover image, shown large behind the detail header (may be absent). */
+  backdropUrl?: string;
   imdbId: string;
   imdbScore: number;
   providerScore: number;

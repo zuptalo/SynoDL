@@ -48,6 +48,13 @@ function onPosterError(): void {
   }
   posterFailed.value = true;
 }
+
+// The wide backdrop shown large behind the header. Falls back to nothing (the
+// header just shows the poster) if the title has no distinct cover or it fails.
+const backdropFailed = ref(false);
+const heroSrc = computed(() =>
+  props.title.backdropUrl && !backdropFailed.value ? posterSrc(props.title.backdropUrl) : '',
+);
 const emit = defineEmits<{
   (e: 'dismiss'): void;
   (e: 'needs-refresh'): void;
@@ -183,6 +190,7 @@ watch(
     selected.value = '';
     posterFailed.value = false;
     posterFellBack.value = false;
+    backdropFailed.value = false;
     try {
       const detail = await api.getSourceTitle(props.title.id);
       sendable.value = detail.sendable;
@@ -280,7 +288,13 @@ async function send(): Promise<void> {
       <div v-if="loading" class="centered"><ion-spinner /></div>
 
       <template v-else>
-        <div class="poster-row">
+        <!-- Wide backdrop shown large behind the header; the poster overlaps its
+             lower edge. Absent for titles with no distinct cover. -->
+        <div v-if="heroSrc" class="hero">
+          <img class="hero-bg" :src="heroSrc" alt="" aria-hidden="true" @error="backdropFailed = true" />
+          <div class="hero-shade" />
+        </div>
+        <div class="poster-row" :class="{ 'on-hero': heroSrc }">
           <ion-thumbnail class="poster">
             <img
               v-if="(title.posterUrl || title.posterFallbackUrl) && !posterFailed"
@@ -373,19 +387,50 @@ async function send(): Promise<void> {
   justify-content: center;
   padding-top: 30vh;
 }
+/* Full-bleed backdrop: break out of the content's ion-padding to the top/sides. */
+.hero {
+  position: relative;
+  margin: -16px -16px 0;
+  height: 180px;
+  overflow: hidden;
+}
+.hero-bg {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  filter: brightness(0.62);
+}
+/* Fade the backdrop into the page so the poster/title sit on solid colour. */
+.hero-shade {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    to bottom,
+    rgba(0, 0, 0, 0) 35%,
+    var(--ion-background-color, #0a0a0a) 100%
+  );
+}
 .poster-row {
   display: flex;
   gap: 12px;
   align-items: center;
   margin-bottom: 8px;
 }
+/* With a backdrop, tuck the header up into the hero's faded lower edge (which is
+   ~background colour there, so the text stays readable in both themes). */
+.poster-row.on-hero {
+  margin-top: -34px;
+  position: relative;
+  z-index: 1;
+}
 .poster {
-  --size: 84px;
+  --size: 96px;
   flex: 0 0 auto;
 }
 .poster img {
   object-fit: cover;
   border-radius: 8px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4);
 }
 .poster-row h2 {
   margin: 0 0 4px;
