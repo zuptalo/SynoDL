@@ -5,9 +5,10 @@
  * can't be renewed unattended), this prompts an admin for a fresh code and
  * reconnects; a non-admin is told to ask an admin. Renders nothing itself.
  */
-import { alertController, toastController } from '@ionic/vue';
+import { alertController } from '@ionic/vue';
 import { onMounted, onUnmounted } from 'vue';
 import { api, NAS_REAUTH_EVENT } from '@/services/api';
+import { appToast } from '@/services/toast';
 import { useSession } from '@/composables/useSession';
 
 const { isAdmin } = useSession();
@@ -18,12 +19,11 @@ async function handle(): Promise<void> {
   showing = true;
   try {
     if (!isAdmin.value) {
-      const t = await toastController.create({
+      await appToast({
         message: 'The NAS connection expired — an admin needs to reconnect.',
         duration: 4000,
         color: 'warning',
       });
-      await t.present();
       return;
     }
     const alert = await alertController.create({
@@ -43,12 +43,11 @@ async function handle(): Promise<void> {
       await api.nasReauth((data?.values?.otp ?? '').trim());
       window.location.reload(); // re-fetch everything with the restored session
     } catch {
-      const t = await toastController.create({
+      await appToast({
         message: 'That code was not accepted. Please try again.',
         duration: 3000,
         color: 'danger',
       });
-      await t.present();
     }
   } finally {
     showing = false;

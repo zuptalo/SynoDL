@@ -116,13 +116,33 @@ onUnmounted(() => {
 </template>
 
 <style>
-/* Theme-aware in-app notification toast: adapts to light/dark via Ionic's step
-   colours instead of the default always-dark toast. */
+/* In-app notification toast. A themed, coloured pill (the app's primary green by
+   default, danger/warning/success tones as needed) with white text, rounded
+   corners and a soft shadow — the same in-app notification language as the
+   sibling app, instead of Ionic's default always-dark toast. Slides in from the
+   top (position="top") and is swipe-to-dismiss. */
 ion-toast.app-toast {
-  --background: var(--ion-color-step-50, #1c1c1e);
-  --color: var(--ion-text-color, #fff);
-  --border-radius: 12px;
-  --box-shadow: 0 6px 20px rgba(0, 0, 0, 0.28);
+  --background: rgba(var(--ion-color-primary-rgb, 16, 185, 129), 0.96);
+  --color: #fff;
+  --border-radius: 16px;
+  --box-shadow: 0 6px 22px rgba(0, 0, 0, 0.28);
+  --button-color: #fff;
+  font-weight: 500;
+}
+ion-toast.app-toast::part(button) {
+  color: #fff;
+  font-weight: 600;
+}
+ion-toast.app-toast-danger {
+  --background: rgba(var(--ion-color-danger-rgb, 235, 68, 90), 0.96);
+}
+ion-toast.app-toast-warning {
+  --background: rgba(var(--ion-color-warning-rgb, 234, 179, 8), 0.97);
+  --color: #1a1400;
+  --button-color: #1a1400;
+}
+ion-toast.app-toast-success {
+  --background: rgba(var(--ion-color-success-rgb, 34, 197, 94), 0.96);
 }
 
 /* Server-unreachable banner. Fixed above everything, respects the safe-area
