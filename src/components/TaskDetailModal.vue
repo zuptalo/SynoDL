@@ -17,6 +17,7 @@ import {
   IonList,
   IonModal,
   IonNote,
+  IonProgressBar,
   IonTitle,
   IonToast,
   IonToolbar,
@@ -127,6 +128,11 @@ async function redownload(): Promise<void> {
               {{ formatPercent(task.downloaded, task.size) }} —
               {{ formatBytes(task.downloaded) }} of {{ formatBytes(task.size) }}
             </h2>
+            <ion-progress-bar
+              class="detail-progress-bar"
+              :color="task.status === 'error' ? 'danger' : 'primary'"
+              :value="task.size > 0 ? Math.min(1, task.downloaded / task.size) : 0"
+            />
           </ion-label>
         </ion-item>
         <ion-item>
@@ -171,6 +177,12 @@ async function redownload(): Promise<void> {
 <style scoped>
 .redownload {
   margin: 0.4rem 0.6rem;
+}
+.detail-progress-bar {
+  margin-top: 8px;
+  height: 6px;
+  border-radius: 3px;
+  overflow: hidden;
 }
 </style>
 
