@@ -135,4 +135,9 @@ var migrations = []string{
 		updated_at        INTEGER NOT NULL DEFAULT 0
 	);
 	`,
+	// 0006 — per-user content-rating cap for the download catalog (spec 0005
+	// parental controls). Empty = unrestricted; otherwise the server forces this
+	// rating on the user's source searches so a scoped account only sees titles at
+	// that rating.
+	`ALTER TABLE users ADD COLUMN content_rating TEXT NOT NULL DEFAULT '';`,
 }

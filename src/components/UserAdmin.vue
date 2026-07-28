@@ -19,7 +19,13 @@ import {
   IonToggle,
   IonToolbar,
 } from '@ionic/vue';
-import { addOutline, closeCircle, folderOutline, trashOutline } from 'ionicons/icons';
+import {
+  addOutline,
+  closeCircle,
+  folderOutline,
+  shieldCheckmarkOutline,
+  trashOutline,
+} from 'ionicons/icons';
 import { onMounted, ref } from 'vue';
 import { api, ApiError, type AdminUser } from '@/services/api';
 import { messageForError } from '@/services/syno-errors';
@@ -100,6 +106,42 @@ async function resetPassword(u: AdminUser): Promise<void> {
   }
 }
 
+// Friendly content-rating tiers. The provider filters by an EXACT rating, so a
+// tier maps to one rating value the capped user will be limited to.
+const RATINGS = [
+  { label: 'Unrestricted', value: '' },
+  { label: 'Young kids — G', value: 'G' },
+  { label: 'Kids — PG', value: 'PG' },
+  { label: 'Teens — PG-13', value: 'PG-13' },
+  { label: 'Mature — R', value: 'R' },
+];
+
+async function setRating(u: AdminUser): Promise<void> {
+  const alert = await alertController.create({
+    header: `Content rating for ${u.username}`,
+    subHeader: 'Caps what they can see and download in Discover.',
+    inputs: RATINGS.map((r) => ({
+      type: 'radio' as const,
+      label: r.label,
+      value: r.value,
+      checked: (u.contentRating ?? '') === r.value,
+    })),
+    buttons: [
+      { text: 'Cancel', role: 'cancel' },
+      { text: 'Set', role: 'confirm' },
+    ],
+  });
+  await alert.present();
+  const { role, data } = await alert.onDidDismiss();
+  if (role !== 'confirm') return;
+  try {
+    await api.updateUser(u.id, { contentRating: (data?.values as string) ?? '' });
+    await load();
+  } catch (e) {
+    error.value = messageForError(e);
+  }
+}
+
 async function removeUser(u: AdminUser): Promise<void> {
   const alert = await alertController.create({
     header: `Delete ${u.username}?`,
@@ -163,8 +205,12 @@ async function saveFolders(): Promise<void> {
           <ion-badge v-if="u.isAdmin" color="primary">admin</ion-badge>
         </h3>
         <p v-if="!u.isEnabled" class="disabled">disabled</p>
+        <p v-else-if="u.contentRating" class="rating">only {{ u.contentRating }} titles</p>
       </ion-label>
       <ion-buttons slot="end">
+        <ion-button :title="`Content rating for ${u.username}`" @click="setRating(u)">
+          <ion-icon slot="icon-only" :icon="shieldCheckmarkOutline" />
+        </ion-button>
         <ion-button :title="`Folders for ${u.username}`" @click="openFolders(u)">
           <ion-icon slot="icon-only" :icon="folderOutline" />
         </ion-button>

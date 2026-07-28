@@ -51,6 +51,7 @@ type SearchFilters struct {
 	Language string
 	Country  string
 	Score    string
+	Age      string // content rating (e.g. "G"); set server-side for capped users
 	Genre    []string
 }
 

@@ -20,6 +20,7 @@ var (
 	fakeVerifyErr  error
 	fakeSearch     source.SearchResult
 	fakeSearchErr  error
+	fakeLastQuery  source.SearchQuery
 	fakeTitle      source.TitleDetail
 	fakeTitleErr   error
 	fakeLink       string
@@ -35,7 +36,8 @@ func (fakeSrc) Hosts() source.Config {
 func (fakeSrc) VerifySession(context.Context, *source.Client, source.Config, source.Session) error {
 	return fakeVerifyErr
 }
-func (fakeSrc) Search(context.Context, *source.Client, source.Config, source.Session, source.SearchQuery) (source.SearchResult, error) {
+func (fakeSrc) Search(_ context.Context, _ *source.Client, _ source.Config, _ source.Session, q source.SearchQuery) (source.SearchResult, error) {
+	fakeLastQuery = q
 	return fakeSearch, fakeSearchErr
 }
 func (fakeSrc) Title(context.Context, *source.Client, source.Config, source.Session, string) (source.TitleDetail, error) {
@@ -176,6 +178,44 @@ func TestSourceSearch(t *testing.T) {
 	// Auth required.
 	if rec := do(t, h, "POST", "/v1/source/search", `{"query":"x"}`, nil); rec.Code != http.StatusUnauthorized {
 		t.Fatalf("no-token search = %d, want 401", rec.Code)
+	}
+}
+
+func TestSourceSearchContentRatingCap(t *testing.T) {
+	resetFake()
+	h, _ := newStatefulRouter(t)
+	admin := adminAfterSetup(t, h)
+	configureFake(t, h, admin, "movie")
+
+	kid := makeUser(t, h, admin, "kiddo", "")
+	rec := do(t, h, "GET", "/v1/users", "", admin)
+	var wrap struct {
+		Users []struct {
+			ID       int64  `json:"id"`
+			Username string `json:"username"`
+		} `json:"users"`
+	}
+	_ = json.Unmarshal(rec.Body.Bytes(), &wrap)
+	var kidID int64
+	for _, x := range wrap.Users {
+		if x.Username == "kiddo" {
+			kidID = x.ID
+		}
+	}
+	if pr := do(t, h, "PATCH", "/v1/users/"+itoa(kidID), `{"contentRating":"G"}`, admin); pr.Code != 200 {
+		t.Fatalf("set rating = %d %s", pr.Code, pr.Body.String())
+	}
+
+	// The capped user's search is forced to age=G server-side even though they
+	// never send it (and couldn't override it).
+	do(t, h, "POST", "/v1/source/search", `{"query":"x","filters":{"score":"9"}}`, kid)
+	if fakeLastQuery.Filters.Age != "G" {
+		t.Fatalf("capped user age = %q, want G", fakeLastQuery.Filters.Age)
+	}
+	// An uncapped user (admin) carries no age cap.
+	do(t, h, "POST", "/v1/source/search", `{"query":"x"}`, admin)
+	if fakeLastQuery.Filters.Age != "" {
+		t.Fatalf("uncapped age = %q, want empty", fakeLastQuery.Filters.Age)
 	}
 }
 

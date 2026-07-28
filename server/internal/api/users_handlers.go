@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"strings"
 	"strconv"
 
 	"synodl/server/internal/auth"
@@ -18,6 +19,7 @@ import (
 func userAdminView(u store.User) map[string]any {
 	return map[string]any{
 		"id": u.ID, "username": u.Username, "isAdmin": u.IsAdmin, "isEnabled": u.IsEnabled,
+		"contentRating": u.ContentRating,
 	}
 }
 
@@ -74,9 +76,10 @@ func pathID(r *http.Request) (int64, bool) {
 
 func handleUpdateUser(d Deps) http.Handler {
 	type req struct {
-		IsEnabled *bool   `json:"isEnabled"`
-		IsAdmin   *bool   `json:"isAdmin"`
-		Password  *string `json:"password"`
+		IsEnabled     *bool   `json:"isEnabled"`
+		IsAdmin       *bool   `json:"isAdmin"`
+		Password      *string `json:"password"`
+		ContentRating *string `json:"contentRating"`
 	}
 	return d.requireAdmin(func(w http.ResponseWriter, r *http.Request, actor *store.User) {
 		id, ok := pathID(r)
@@ -122,6 +125,12 @@ func handleUpdateUser(d Deps) http.Handler {
 		}
 		if body.IsAdmin != nil {
 			if err := d.Store.SetUserAdmin(id, *body.IsAdmin); err != nil {
+				httpx.Error(w, http.StatusInternalServerError, "server")
+				return
+			}
+		}
+		if body.ContentRating != nil {
+			if err := d.Store.SetUserContentRating(id, strings.TrimSpace(*body.ContentRating)); err != nil {
 				httpx.Error(w, http.StatusInternalServerError, "server")
 				return
 			}
