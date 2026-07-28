@@ -64,6 +64,19 @@ function handleErr(e: unknown): void {
   errorMsg.value = 'Could not reach the source. Try again.';
 }
 
+// fetchPage loads the current page and appends (or replaces, when reset) the
+// results, enforcing the type filter client-side because the provider's type
+// facet is unreliable (browse ignores it; text search has no facets).
+async function fetchPage(reset: boolean): Promise<void> {
+  const res = await api.searchSource(query.value, filters.value, page.value);
+  needsRefresh.value = false;
+  unavailable.value = false;
+  pages.value = res.pages;
+  const wantType = filters.value.type;
+  const incoming = wantType ? res.items.filter((i) => i.type === wantType) : res.items;
+  items.value = reset ? incoming : [...items.value, ...incoming];
+}
+
 async function runSearch(reset = true): Promise<void> {
   loading.value = true;
   errorMsg.value = '';
@@ -72,11 +85,15 @@ async function runSearch(reset = true): Promise<void> {
     items.value = [];
   }
   try {
-    const res = await api.searchSource(query.value, filters.value, page.value);
-    needsRefresh.value = false;
-    unavailable.value = false;
-    pages.value = res.pages;
-    items.value = reset ? res.items : [...items.value, ...res.items];
+    await fetchPage(reset);
+    // A client-side type filter can leave a page nearly empty; pull a few more
+    // pages so the grid fills while results still exist (bounded).
+    let guard = 0;
+    while (filters.value.type && items.value.length < 12 && page.value < pages.value && guard < 4) {
+      page.value += 1;
+      guard += 1;
+      await fetchPage(false);
+    }
   } catch (e) {
     handleErr(e);
   } finally {

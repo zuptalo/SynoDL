@@ -84,7 +84,7 @@ function goSettings(): void {
   <ion-page>
     <ion-header :translucent="true">
       <ion-toolbar>
-        <ion-title>Browser</ion-title>
+        <ion-title>Discover</ion-title>
         <ion-buttons slot="end">
           <ion-button
             v-if="!unavailable && !needsRefresh"
@@ -240,6 +240,12 @@ function goSettings(): void {
   background: transparent;
   text-align: left;
   cursor: pointer;
+  /* Reset the native button look: iOS renders button text in link-blue and a
+     system font — force the app's own text colour and font instead. */
+  -webkit-appearance: none;
+  appearance: none;
+  font: inherit;
+  color: var(--ion-text-color, #fff);
 }
 .poster {
   position: relative;
@@ -274,7 +280,9 @@ function goSettings(): void {
 }
 .meta h3 {
   font-size: 0.9rem;
+  font-weight: 600;
   margin: 0;
+  color: var(--ion-text-color, #fff);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;

@@ -42,6 +42,18 @@ window.addEventListener('focus', clearBadge);
 // toast UNLESS the user is already on the Tasks tab, where the change is visible
 // live.
 const inAppMsg = ref('');
+// Tapping "View" jumps to the Tasks tab (the push carries no task id yet, so we
+// can't open a specific task's detail — that needs a payload change). Swipe up
+// dismisses; the button also dismisses via its default role handling.
+const toastButtons = [
+  {
+    text: 'View',
+    handler: (): void => {
+      inAppMsg.value = '';
+      void router.push('/tabs/tasks');
+    },
+  },
+];
 const onSwMessage = (e: MessageEvent): void => {
   const d = e.data as { type?: string; title?: string; body?: string } | undefined;
   if (!d || d.type !== 'push-notification') return;
@@ -66,12 +78,26 @@ onUnmounted(() => {
     <InstallGuard />
     <UpdateModal :is-open="updateAvailable" :applying="applying" @confirm="applyUpdate" />
     <ion-toast
+      class="app-toast"
       :is-open="!!inAppMsg"
       :message="inAppMsg"
-      :duration="4000"
+      :duration="6000"
       position="top"
+      swipe-gesture="vertical"
+      :buttons="toastButtons"
       data-testid="inapp-notification"
       @didDismiss="inAppMsg = ''"
     />
   </ion-app>
 </template>
+
+<style>
+/* Theme-aware in-app notification toast: adapts to light/dark via Ionic's step
+   colours instead of the default always-dark toast. */
+ion-toast.app-toast {
+  --background: var(--ion-color-step-50, #1c1c1e);
+  --color: var(--ion-text-color, #fff);
+  --border-radius: 12px;
+  --box-shadow: 0 6px 20px rgba(0, 0, 0, 0.28);
+}
+</style>
