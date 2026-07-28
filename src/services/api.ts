@@ -24,6 +24,16 @@ export const SESSION_EXPIRED_EVENT = 'synodl:session-expired';
 /** Fires when the NAS connection needs an admin 2FA re-auth (503 nas_reauth). */
 export const NAS_REAUTH_EVENT = 'synodl:nas-reauth';
 
+/** Fires on every request with whether the SERVER was reachable (detail.reachable):
+ *  false when fetch itself rejects (network down), true when it responds at all. */
+export const CONNECTIVITY_EVENT = 'synodl:connectivity';
+
+function reportReachable(reachable: boolean): void {
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent(CONNECTIVITY_EVENT, { detail: { reachable } }));
+  }
+}
+
 // Two auth mechanisms coexist during the 0003 transition: the legacy NAS sid
 // (X-Syno-Sid, stateless mode) and the SynoDL session token (X-SynoDL-Session,
 // stateful mode). Only one is ever set; both headers are attached harmlessly and
@@ -45,7 +55,16 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   const headers = new Headers(init.headers);
   if (currentSid) headers.set('X-Syno-Sid', currentSid);
   if (currentToken) headers.set('X-SynoDL-Session', currentToken);
-  const resp = await fetch(path, { ...init, headers });
+  let resp: Response;
+  try {
+    resp = await fetch(path, { ...init, headers });
+  } catch (e) {
+    // fetch only rejects on a network-level failure (server unreachable) — an
+    // HTTP error still resolves. Surface it as a connectivity signal.
+    reportReachable(false);
+    throw e;
+  }
+  reportReachable(true); // the server responded (even a 4xx/5xx means reachable)
   if (!resp.ok) {
     let code = `http_${resp.status}`;
     try {
