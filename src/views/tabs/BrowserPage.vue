@@ -18,6 +18,8 @@ import {
   IonRefresher,
   IonRefresherContent,
   IonSearchbar,
+  IonSelect,
+  IonSelectOption,
   IonSkeletonText,
   IonTitle,
   IonToolbar,
@@ -36,6 +38,13 @@ import {
 } from 'ionicons/icons';
 import { posterSrc, type CatalogTitle } from '@/services/api';
 import { useSourceCatalog } from '@/composables/useSourceCatalog';
+import {
+  SORTS,
+  countryLabel,
+  genreLabel,
+  languageLabel,
+  sortLabel,
+} from '@/services/source-filters';
 import { useSession } from '@/composables/useSession';
 import SourceFilterSheet from '@/components/SourceFilterSheet.vue';
 import SourceTitleModal from '@/components/SourceTitleModal.vue';
@@ -58,6 +67,7 @@ const {
   loadMore,
   setQuery,
   applyFilters,
+  setSort,
   clearFilters,
   removeFilter,
   loadPrefs,
@@ -68,9 +78,15 @@ const titleOpen = ref(false);
 const active = ref<CatalogTitle | null>(null);
 const contentRef = ref<{ $el: { getScrollElement: () => Promise<HTMLElement> } } | null>(null);
 
-const sortLabel = computed(
-  () => ({ date: 'Recently added', favorite: 'Popular' })[sort.value] ?? 'Release year',
-);
+// The sort dropdown (beside the search bar) shows the current order's short label.
+const currentSortLabel = computed(() => sortLabel(sort.value));
+const sortOpen = ref(false);
+async function onSort(value: string): Promise<void> {
+  sortOpen.value = false;
+  await setSort(value);
+  await fillViewport();
+  await scrollTop();
+}
 
 // On a wide/tall desktop screen a page of results may not reach the bottom of
 // the viewport, so ion-infinite-scroll never triggers and the list looks stuck.
@@ -105,8 +121,8 @@ async function onSearch(e: CustomEvent): Promise<void> {
   await scrollTop();
 }
 
-async function onApply(f: typeof filters.value, s: string): Promise<void> {
-  await applyFilters(f, s);
+async function onApply(f: typeof filters.value): Promise<void> {
+  await applyFilters(f);
   await fillViewport();
   await scrollTop();
 }
@@ -204,10 +220,24 @@ function goSettings(): void {
       <ion-toolbar v-if="!unavailable && !needsRefresh">
         <ion-searchbar
           :debounce="400"
-          placeholder="Search movies, series, anime"
+          placeholder="Search for title"
           :value="query"
           @ionInput="onSearch"
         />
+        <!-- Sort dropdown beside the search bar (a native popover select). -->
+        <ion-select
+          slot="end"
+          class="sort-select"
+          :value="sort"
+          interface="popover"
+          aria-label="Sort by"
+          :selected-text="currentSortLabel"
+          @ionChange="(e) => onSort(String(e.detail.value))"
+        >
+          <ion-select-option v-for="s in SORTS" :key="s.value" :value="s.value">
+            {{ s.label }}
+          </ion-select-option>
+        </ion-select>
       </ion-toolbar>
     </ion-header>
 
@@ -248,26 +278,23 @@ function goSettings(): void {
         <!-- Active filters as removable chips: tap one to drop just that filter
              without reopening the sheet. -->
         <div v-if="hasFilters" class="active-filters">
-          <ion-chip v-if="sort !== 'year'" @click="onRemoveFilter('sort')">
-            {{ sortLabel }}<ion-icon :icon="closeOutline" />
-          </ion-chip>
           <ion-chip v-if="filters.type" class="cap" @click="onRemoveFilter('type')">
             {{ filters.type }}<ion-icon :icon="closeOutline" />
           </ion-chip>
           <ion-chip v-if="filters.genre?.length" @click="onRemoveFilter('genre')">
-            Genre<ion-icon :icon="closeOutline" />
+            {{ genreLabel(filters.genre[0]) }}<ion-icon :icon="closeOutline" />
           </ion-chip>
           <ion-chip v-if="filters.quality" @click="onRemoveFilter('quality')">
             {{ filters.quality }}<ion-icon :icon="closeOutline" />
           </ion-chip>
           <ion-chip v-if="filters.score" @click="onRemoveFilter('score')">
-            {{ filters.score }}+<ion-icon :icon="closeOutline" />
+            ★ {{ filters.score }}+<ion-icon :icon="closeOutline" />
           </ion-chip>
           <ion-chip v-if="filters.language" @click="onRemoveFilter('language')">
-            {{ filters.language }}<ion-icon :icon="closeOutline" />
+            {{ languageLabel(filters.language) }}<ion-icon :icon="closeOutline" />
           </ion-chip>
           <ion-chip v-if="filters.country" @click="onRemoveFilter('country')">
-            {{ filters.country }}<ion-icon :icon="closeOutline" />
+            {{ countryLabel(filters.country) }}<ion-icon :icon="closeOutline" />
           </ion-chip>
         </div>
 
@@ -341,7 +368,6 @@ function goSettings(): void {
     <SourceFilterSheet
       :is-open="filterOpen"
       :filters="filters"
-      :sort="sort"
       @dismiss="filterOpen = false"
       @apply="onApply"
     />
@@ -371,6 +397,11 @@ function goSettings(): void {
 }
 .cta {
   margin-top: 8px;
+}
+.sort-select {
+  max-width: 46vw;
+  font-size: 0.85rem;
+  --padding-end: 4px;
 }
 .active-filters {
   display: flex;
