@@ -18,11 +18,13 @@ import {
   IonTitle,
   IonToggle,
   IonToolbar,
+  toastController,
 } from '@ionic/vue';
 import {
   addOutline,
   closeCircle,
   folderOutline,
+  refreshOutline,
   shieldCheckmarkOutline,
   speedometerOutline,
   trashOutline,
@@ -39,6 +41,7 @@ const error = ref('');
 const newUsername = ref('');
 const newPassword = ref('');
 const newIsAdmin = ref(false);
+const showPassword = ref(false);
 const adding = ref(false);
 
 // Folder-scope editor
@@ -58,15 +61,71 @@ async function load(): Promise<void> {
 }
 onMounted(load);
 
+// A strong, unambiguous password. Avoids look-alike characters (0/O, 1/l/I) so
+// it survives being read aloud or retyped if the clipboard hand-off fails.
+function generatePassword(len = 16): string {
+  const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789@#%?';
+  const bytes = new Uint32Array(len);
+  crypto.getRandomValues(bytes);
+  let out = '';
+  for (let i = 0; i < len; i += 1) out += alphabet[bytes[i] % alphabet.length];
+  return out;
+}
+
+function fillGeneratedPassword(): void {
+  newPassword.value = generatePassword();
+  showPassword.value = true; // reveal it so the admin can double-check before adding
+}
+
+// The install/onboarding blurb an admin can hand a new user verbatim.
+function onboardingText(username: string, password: string): string {
+  const url = window.location.origin;
+  return [
+    'Your SynoDL account is ready.',
+    '',
+    `Username: ${username}`,
+    `Password: ${password}`,
+    '',
+    `Open ${url} on your phone, then use your browser's "Add to Home Screen" to install the app and sign in.`,
+  ].join('\n');
+}
+
+async function toast(message: string, color = 'primary'): Promise<void> {
+  const t = await toastController.create({ message, duration: 4000, position: 'top', color, cssClass: 'app-toast' });
+  await t.present();
+}
+
 async function addUser(): Promise<void> {
   adding.value = true;
   error.value = '';
+  // Auto-generate when the admin left the field blank, so the common path is
+  // "type a username, tap Add" and the credentials come back on the clipboard.
+  if (!newPassword.value) newPassword.value = generatePassword();
+  const username = newUsername.value.trim();
+  const password = newPassword.value;
   try {
-    await api.createUser(newUsername.value.trim(), newPassword.value, newIsAdmin.value);
+    await api.createUser(username, password, newIsAdmin.value);
+    // Copy username + password + install instructions so the admin can paste the
+    // whole onboarding message straight to the new user. Do this before clearing
+    // the fields; a clipboard failure is non-fatal (the values are still shown).
+    let copied = false;
+    try {
+      await navigator.clipboard.writeText(onboardingText(username, password));
+      copied = true;
+    } catch {
+      copied = false;
+    }
     newUsername.value = '';
     newPassword.value = '';
     newIsAdmin.value = false;
+    showPassword.value = false;
     await load();
+    await toast(
+      copied
+        ? `Added ${username} — username, password & install link copied to the clipboard.`
+        : `Added ${username}. Password: ${password} (couldn't copy — save it now).`,
+      copied ? 'primary' : 'warning',
+    );
   } catch (e) {
     error.value = e instanceof ApiError && e.status === 409 ? 'That username is already taken.' : messageForError(e);
   } finally {
@@ -262,14 +321,29 @@ async function saveFolders(): Promise<void> {
       <ion-input v-model="newUsername" label="Username" label-placement="stacked" autocapitalize="off" data-testid="admin-new-username" />
     </ion-item>
     <ion-item>
-      <ion-input v-model="newPassword" label="Password (min 8)" label-placement="stacked" type="password" data-testid="admin-new-password" />
+      <ion-input
+        v-model="newPassword"
+        label="Password"
+        label-placement="stacked"
+        :type="showPassword ? 'text' : 'password'"
+        placeholder="Leave blank to auto-generate"
+        data-testid="admin-new-password"
+      />
+      <ion-button slot="end" fill="clear" size="small" title="Generate a strong password" @click="fillGeneratedPassword">
+        <ion-icon slot="icon-only" :icon="refreshOutline" />
+      </ion-button>
+    </ion-item>
+    <ion-item lines="none">
+      <ion-note color="medium" class="pw-hint">
+        On add, the username, password and an install link are copied to your clipboard to share.
+      </ion-note>
     </ion-item>
     <ion-item>
       <ion-toggle v-model="newIsAdmin" data-testid="admin-new-isadmin">Administrator</ion-toggle>
     </ion-item>
     <ion-item lines="none">
       <ion-button
-        :disabled="adding || !newUsername || newPassword.length < 8"
+        :disabled="adding || !newUsername.trim() || (newPassword.length > 0 && newPassword.length < 8)"
         data-testid="admin-add-user"
         @click="addUser"
       >
@@ -323,6 +397,9 @@ async function saveFolders(): Promise<void> {
 .err {
   display: block;
   margin: 0.5rem 1rem;
+}
+.pw-hint {
+  font-size: 0.8rem;
 }
 .hint {
   color: var(--app-text-dim);
