@@ -258,6 +258,69 @@ export async function streamTasks(
   }
 }
 
+// Download-source catalog (spec 0005). Session material is write-only: the
+// server never returns it, so there is no "get session" — only status.
+export interface SourceStatus {
+  configured: boolean;
+  enabled: boolean;
+  state: 'not_configured' | 'active' | 'needs_refresh';
+  providerName: string;
+  lastVerifiedAt: number;
+  canManage: boolean;
+}
+export interface SourceSessionInput {
+  kind: string;
+  displayName?: string;
+  moviesParent: string;
+  tvParent?: string;
+  session: {
+    cfClearance: string;
+    cApiKey: string;
+    cToken: string;
+    userAgent: string;
+    cPlatform?: string;
+    cAppVersion?: string;
+  };
+}
+export interface CatalogTitle {
+  id: string;
+  type: string;
+  title: string;
+  posterUrl: string;
+  imdbId: string;
+  imdbScore: number;
+  providerScore: number;
+  comingSoon: boolean;
+  freeDownload: boolean;
+}
+export interface SourceSearchResult {
+  page: number;
+  pages: number;
+  items: CatalogTitle[];
+}
+export interface QualityOption {
+  id: string;
+  label: string;
+  size: string;
+  resolution: string;
+  encoder: string;
+  hardsub: boolean;
+}
+export interface TitleDetail {
+  id: string;
+  type: string;
+  title: string;
+  sendable: boolean;
+  qualities: QualityOption[];
+}
+export interface SourceSearchFilters {
+  type?: string;
+  quality?: string;
+  language?: string;
+  country?: string;
+  genre?: string[];
+}
+
 export const api = {
   config: () => request<ServerConfig>('/v1/config'),
 
@@ -294,6 +357,21 @@ export const api = {
   getDestinationPrefs: () => request<DestinationPrefs>('/v1/destinations/prefs'),
   setDestinationPrefs: (p: DestinationPrefs) =>
     request<DestinationPrefs>('/v1/destinations/prefs', jsonMethod('PUT', p)),
+
+  // Download-source catalog (spec 0005). Off until an admin configures a provider.
+  getSourceStatus: () => request<SourceStatus>('/v1/source/status'),
+  putSourceSession: (input: SourceSessionInput) =>
+    request<{ state: string; lastVerifiedAt: number }>('/v1/source/session', jsonMethod('PUT', input)),
+  deleteSourceSession: () => request<{ state: string }>('/v1/source/session', { method: 'DELETE' }),
+  searchSource: (query: string, filters: SourceSearchFilters, page: number) =>
+    request<SourceSearchResult>('/v1/source/search', json({ query, filters, page })),
+  getSourceTitle: (id: string) =>
+    request<TitleDetail>(`/v1/source/title/${encodeURIComponent(id)}`),
+  sendSource: (titleId: string, qualityId: string, title: string) =>
+    request<{ destination: string }>('/v1/source/send', json({ titleId, qualityId, title })),
+  getSourcePrefs: () => request<{ preferredQuality: string }>('/v1/source/prefs'),
+  setSourcePrefs: (preferredQuality: string) =>
+    request<{ preferredQuality: string }>('/v1/source/prefs', jsonMethod('PUT', { preferredQuality })),
 
   // Admin: view/edit the stored NAS connection and test it before saving
   // (spec 1002). The password is write-only — the server never returns it.
