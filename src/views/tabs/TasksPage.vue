@@ -300,13 +300,14 @@ async function onDelete(id: string): Promise<void> {
              disabled until at least one task is selected. -->
         <ion-fab-button
           v-if="selectMode"
+          class="app-fab"
           :disabled="selectedCount === 0"
           data-testid="selection-confirm"
           @click="openSelectionActions"
         >
           <ion-icon :icon="checkmarkOutline" />
         </ion-fab-button>
-        <ion-fab-button v-else data-testid="newtask-open" @click="newTaskOpen = true">
+        <ion-fab-button v-else class="app-fab" data-testid="newtask-open" @click="newTaskOpen = true">
           <ion-icon :icon="addOutline" />
         </ion-fab-button>
       </ion-fab>
