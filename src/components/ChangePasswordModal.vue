@@ -66,7 +66,7 @@ async function onSave(): Promise<void> {
         </ion-buttons>
       </ion-toolbar>
     </ion-header>
-    <ion-content :fullscreen="true" class="ion-padding">
+    <ion-content :fullscreen="true" class="ion-padding settings-cards">
       <ion-list inset>
         <ion-item>
           <ion-input

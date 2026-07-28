@@ -173,7 +173,7 @@ async function remove(): Promise<void> {
         </ion-buttons>
       </ion-toolbar>
     </ion-header>
-    <ion-content class="ion-padding">
+    <ion-content class="ion-padding settings-cards">
       <div v-if="loading" class="centered"><ion-spinner /></div>
 
       <template v-else>

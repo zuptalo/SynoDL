@@ -21,6 +21,7 @@ import '@ionic/vue/css/palettes/dark.class.css';
 
 /* Project theme tokens */
 import './theme/variables.css';
+import './theme/settings-cards.css';
 
 const app = createApp(App).use(IonicVue).use(router);
 

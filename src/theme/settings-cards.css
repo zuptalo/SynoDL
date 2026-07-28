@@ -1,0 +1,28 @@
+/*
+ * Grouped-card treatment for settings surfaces. Ionic's default inset lists
+ * barely round (2px) and sit on a fill almost identical to the page, so sections
+ * read as flat bands. Any settings screen (the main Settings tab and every
+ * dive-in modal) adds `class="settings-cards"` to its ion-content to render each
+ * section as a distinct, rounded, filled card using the app's surface tokens.
+ * Global (not scoped) so it also reaches lists inside child components and the
+ * portaled modals.
+ */
+ion-content.settings-cards {
+  --background: var(--app-bg);
+}
+ion-content.settings-cards ion-list {
+  margin: 16px;
+  padding: 0;
+  /* Ionic's .list-inset sets a 2px radius with higher specificity, so override it. */
+  border-radius: 14px !important;
+  overflow: hidden;
+  background: var(--app-card);
+}
+ion-content.settings-cards ion-list ion-item {
+  --background: var(--app-card);
+  --background-hover: var(--app-card);
+}
+ion-content.settings-cards ion-list-header {
+  color: var(--app-text-dim);
+  font-weight: 600;
+}

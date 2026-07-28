@@ -62,6 +62,8 @@ test('logout returns to login and forgets the session', async ({ page }) => {
   await page.getByTestId('tab-settings').click();
   await expect(page.getByTestId('settings-account')).toHaveText('admin');
   await page.getByTestId('settings-logout').click();
+  // Confirm the "Log out?" dialog.
+  await page.locator('ion-alert').getByRole('button', { name: 'Log out' }).click();
   await expect(page).toHaveURL(/\/login/);
   // A reload must not resurrect the session.
   await page.reload();
