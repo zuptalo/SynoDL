@@ -41,6 +41,21 @@ type Session struct {
 type Config struct {
 	APIHosts      []string
 	DownloadHosts []string
+	ImageHosts    []string // poster/cover CDN hosts the image proxy may fetch
+}
+
+// ImageHostAllowed reports whether host is a poster/cover host for ANY registered
+// provider. Used by the (unauthenticated) image proxy to stay bounded to known
+// public CDN image hosts — never an open proxy.
+func ImageHostAllowed(host string) bool {
+	regMu.RLock()
+	defer regMu.RUnlock()
+	for _, p := range registry {
+		if HostAllowed(host, p.Hosts().ImageHosts) {
+			return true
+		}
+	}
+	return false
 }
 
 // SearchFilters mirrors the provider's advanced-search facets. Empty fields are

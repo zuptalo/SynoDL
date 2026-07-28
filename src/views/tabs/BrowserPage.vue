@@ -34,7 +34,7 @@ import {
   settingsOutline,
   starOutline,
 } from 'ionicons/icons';
-import type { CatalogTitle } from '@/services/api';
+import { posterSrc, type CatalogTitle } from '@/services/api';
 import { useSourceCatalog } from '@/composables/useSourceCatalog';
 import { useSession } from '@/composables/useSession';
 import SourceFilterSheet from '@/components/SourceFilterSheet.vue';
@@ -289,7 +289,7 @@ function goSettings(): void {
             <div class="poster">
               <img
                 v-if="t.posterUrl && !failedPosters.has(t.id)"
-                :src="t.posterUrl"
+                :src="posterSrc(t.posterUrl)"
                 :alt="t.title"
                 loading="lazy"
                 @error="onPosterError(t.id)"

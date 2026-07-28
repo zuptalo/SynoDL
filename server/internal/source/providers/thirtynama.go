@@ -55,6 +55,7 @@ func (thirtynama) Hosts() source.Config {
 	return source.Config{
 		APIHosts:      []string{tnAPIHost, "30nama.com"},
 		DownloadHosts: []string{"divyacamilla.info"},
+		ImageHosts:    []string{"cdn.30nama.com"},
 	}
 }
 

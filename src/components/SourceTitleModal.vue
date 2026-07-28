@@ -21,7 +21,7 @@ import {
   toastController,
 } from '@ionic/vue';
 import { cloudDownloadOutline } from 'ionicons/icons';
-import { api, ApiError, type CatalogTitle, type QualityOption } from '@/services/api';
+import { api, ApiError, posterSrc, type CatalogTitle, type QualityOption } from '@/services/api';
 import { useSourceCatalog } from '@/composables/useSourceCatalog';
 
 const props = defineProps<{
@@ -169,7 +169,7 @@ async function send(): Promise<void> {
           <ion-thumbnail class="poster">
             <img
               v-if="title.posterUrl && !posterFailed"
-              :src="title.posterUrl"
+              :src="posterSrc(title.posterUrl)"
               :alt="title.title"
               @error="posterFailed = true"
             />

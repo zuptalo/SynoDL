@@ -32,7 +32,11 @@ func init() { source.Register(fakeSrc{}) }
 
 func (fakeSrc) Kind() string { return "faketest" }
 func (fakeSrc) Hosts() source.Config {
-	return source.Config{APIHosts: []string{"api.fake"}, DownloadHosts: []string{"dl.fake"}}
+	return source.Config{
+		APIHosts:      []string{"api.fake"},
+		DownloadHosts: []string{"dl.fake"},
+		ImageHosts:    []string{"127.0.0.1"}, // lets the image-proxy test hit httptest
+	}
 }
 func (fakeSrc) VerifySession(context.Context, *source.Client, source.Config, source.Session) error {
 	return fakeVerifyErr

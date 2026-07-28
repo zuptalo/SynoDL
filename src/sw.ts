@@ -53,7 +53,12 @@ async function trimPosterCache(cache: Cache): Promise<void> {
 
 self.addEventListener('fetch', (event) => {
   const url = new URL(event.request.url);
-  if (event.request.destination === 'image' && url.hostname.endsWith('30nama.com')) {
+  // Posters come through the same-origin proxy (/v1/source/image); also catch any
+  // direct provider-CDN image as a fallback.
+  const isPoster =
+    url.pathname === '/v1/source/image' ||
+    (event.request.destination === 'image' && url.hostname.endsWith('30nama.com'));
+  if (isPoster) {
     event.respondWith(cachePoster(event.request).catch(() => fetch(event.request)));
   }
 });
