@@ -5,6 +5,7 @@
  * on purpose — a future notifications spec extends this file.
  */
 import { precacheAndRoute, cleanupOutdatedCaches } from 'workbox-precaching';
+import { incrementBadge } from './utils/badge';
 
 declare let self: ServiceWorkerGlobalScope;
 
@@ -94,9 +95,9 @@ self.addEventListener('push', (event) => {
         }
         return undefined;
       }
-      // Backgrounded / closed — show the OS notification + set the app badge.
-      // Stash the task id on the notification so a tap can deep-link to it.
-      const nav = self.navigator as Navigator & { setAppBadge?: (n?: number) => Promise<void> };
+      // Backgrounded / closed — show the OS notification + grow the app badge by
+      // one (the count resets to 0 when the app is next opened). Stash the task id
+      // on the notification so a tap can deep-link to it.
       return Promise.all([
         self.registration.showNotification(title, {
           body,
@@ -105,7 +106,7 @@ self.addEventListener('push', (event) => {
           tag: 'synodl-download',
           data: { taskId },
         }),
-        nav.setAppBadge ? nav.setAppBadge().catch(() => undefined) : Promise.resolve(),
+        incrementBadge(),
       ]);
     }),
   );
