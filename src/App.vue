@@ -6,9 +6,16 @@ import { useRouter } from 'vue-router';
 import { SESSION_EXPIRED_EVENT } from '@/services/api';
 import { useAppUpdate } from '@/composables/useAppUpdate';
 import { useConnectivity } from '@/composables/useConnectivity';
+import { useInstallGuard } from '@/composables/useInstallGuard';
 import { useTheme } from '@/composables/useTheme';
 import UpdateModal from '@/components/UpdateModal.vue';
 import InstallGuard from '@/components/InstallGuard.vue';
+
+// Whether an un-installed browser must install first (spec 1008). While the gate
+// is up we DON'T render the router outlet, so the app never mounts its tabs —
+// no task polling/stream, no destination prefs, no catalog/poster fetches behind
+// the install screen.
+const { mustInstall } = useInstallGuard();
 
 // Apply the persisted dark/light choice at startup (the index.html pre-paint
 // covers the very first frame; this keeps the runtime palette in sync).
@@ -96,7 +103,9 @@ onUnmounted(() => {
       <ion-icon :icon="cloudOfflineOutline" />
       Can't reach the server — reconnecting…
     </div>
-    <ion-router-outlet />
+    <!-- Only mount the app (and thus its network activity) when NOT gated behind
+         the install screen. localhost is exempt, so dev/e2e always render. -->
+    <ion-router-outlet v-if="!mustInstall" />
     <!-- Blocks the app behind an install guide unless running as an installed
          PWA (localhost exempt for dev/e2e). Spec 1008. -->
     <InstallGuard />
