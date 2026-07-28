@@ -78,13 +78,21 @@ function handleErr(e: unknown): void {
 // fetchPage loads the current page and appends (or replaces, when reset) the
 // results, enforcing the type filter client-side because the provider's type
 // facet is unreliable (browse ignores it; text search has no facets).
+// How many titles a "page" should yield after client-side filtering; big enough
+// to fill a wide desktop grid so infinite scroll always has something to trigger.
+const PAGE_TARGET = 24;
+
+// fetchPage loads the current page and appends (or replaces, when reset) the
+// results, dropping upcoming ("coming soon") titles — you can't download those —
+// and enforcing the type filter client-side (the provider's type facet doesn't
+// apply to text search).
 async function fetchPage(reset: boolean): Promise<void> {
   const res = await api.searchSource(query.value, filters.value, page.value, sort.value);
   needsRefresh.value = false;
   unavailable.value = false;
   pages.value = res.pages;
-  const wantType = filters.value.type;
-  const incoming = wantType ? res.items.filter((i) => i.type === wantType) : res.items;
+  let incoming = res.items.filter((i) => !i.comingSoon);
+  if (filters.value.type) incoming = incoming.filter((i) => i.type === filters.value.type);
   items.value = reset ? incoming : [...items.value, ...incoming];
 }
 
@@ -97,10 +105,11 @@ async function runSearch(reset = true): Promise<void> {
   }
   try {
     await fetchPage(reset);
-    // A client-side type filter can leave a page nearly empty; pull a few more
-    // pages so the grid fills while results still exist (bounded).
+    // Dropping upcoming/type-filtered titles can leave a page thin; pull more
+    // pages until we have enough to fill the grid (bounded), so infinite scroll
+    // has content to trigger on — important on wide desktop screens.
     let guard = 0;
-    while (filters.value.type && items.value.length < 12 && page.value < pages.value && guard < 4) {
+    while (items.value.length < PAGE_TARGET && page.value < pages.value && guard < 6) {
       page.value += 1;
       guard += 1;
       await fetchPage(false);

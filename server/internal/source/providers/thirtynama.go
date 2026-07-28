@@ -296,6 +296,9 @@ func buildParams(f source.SearchFilters) string {
 	if f.Score != "" {
 		m["score"] = f.Score
 	}
+	if f.Age != "" {
+		m["age"] = f.Age
+	}
 	b, _ := json.Marshal(m)
 	return string(b)
 }

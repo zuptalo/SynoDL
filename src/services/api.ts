@@ -92,6 +92,8 @@ export interface AdminUser {
   username: string;
   isAdmin: boolean;
   isEnabled: boolean;
+  /** Content-rating cap for the catalog ("" = unrestricted, e.g. "G", "PG-13"). */
+  contentRating?: string;
 }
 
 /** A SynoDL account (stateful mode). */
@@ -413,7 +415,10 @@ export const api = {
   listUsers: () => request<{ users: AdminUser[] }>('/v1/users'),
   createUser: (username: string, password: string, isAdmin: boolean) =>
     request<AdminUser>('/v1/users', json({ username, password, isAdmin })),
-  updateUser: (id: number, patch: { isEnabled?: boolean; isAdmin?: boolean; password?: string }) =>
+  updateUser: (
+    id: number,
+    patch: { isEnabled?: boolean; isAdmin?: boolean; password?: string; contentRating?: string },
+  ) =>
     request<AdminUser>(`/v1/users/${id}`, jsonMethod('PATCH', patch)),
   deleteUser: (id: number) => request<void>(`/v1/users/${id}`, { method: 'DELETE' }),
   getUserFolders: (id: number) => request<{ folders: string[] }>(`/v1/users/${id}/folders`),

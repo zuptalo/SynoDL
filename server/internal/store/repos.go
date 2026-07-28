@@ -140,13 +140,14 @@ func (s *Store) GetOperatorConfig() (*OperatorConfig, error) {
 // User is a SynoDL account (no relation to any NAS account). PasswordHash is a
 // salted hash produced by internal/auth; the plaintext password is never stored.
 type User struct {
-	ID           int64
-	Username     string
-	PasswordHash string
-	IsAdmin      bool
-	IsEnabled    bool
-	CreatedAt    int64
-	UpdatedAt    int64
+	ID            int64
+	Username      string
+	PasswordHash  string
+	IsAdmin       bool
+	IsEnabled     bool
+	ContentRating string
+	CreatedAt     int64
+	UpdatedAt     int64
 }
 
 // CreateUser inserts a user and returns its id. Username uniqueness is
@@ -166,7 +167,7 @@ func (s *Store) CreateUser(username, passwordHash string, isAdmin bool) (int64, 
 func scanUser(row interface{ Scan(...any) error }) (*User, error) {
 	var u User
 	var admin, enabled int
-	if err := row.Scan(&u.ID, &u.Username, &u.PasswordHash, &admin, &enabled, &u.CreatedAt, &u.UpdatedAt); err != nil {
+	if err := row.Scan(&u.ID, &u.Username, &u.PasswordHash, &admin, &enabled, &u.ContentRating, &u.CreatedAt, &u.UpdatedAt); err != nil {
 		return nil, err
 	}
 	u.IsAdmin = admin != 0
@@ -174,7 +175,7 @@ func scanUser(row interface{ Scan(...any) error }) (*User, error) {
 	return &u, nil
 }
 
-const userCols = `id, username, password_hash, is_admin, is_enabled, created_at, updated_at`
+const userCols = `id, username, password_hash, is_admin, is_enabled, content_rating, created_at, updated_at`
 
 // GetUserByUsername looks up a user case-insensitively (for login).
 func (s *Store) GetUserByUsername(username string) (*User, error) {
@@ -240,6 +241,14 @@ func (s *Store) SetUserAdmin(id int64, isAdmin bool) error {
 func (s *Store) SetUserPassword(id int64, passwordHash string) error {
 	_, err := s.db.Exec(`UPDATE users SET password_hash = ?, updated_at = ? WHERE id = ?`,
 		passwordHash, time.Now().Unix(), id)
+	return err
+}
+
+// SetUserContentRating caps the ratings a user may see in the catalog. Empty
+// clears the cap (unrestricted).
+func (s *Store) SetUserContentRating(id int64, rating string) error {
+	_, err := s.db.Exec(`UPDATE users SET content_rating = ?, updated_at = ? WHERE id = ?`,
+		rating, time.Now().Unix(), id)
 	return err
 }
 
@@ -315,7 +324,7 @@ func (s *Store) UserForSession(tokenHash string, now int64) (*User, error) {
 	return u, err
 }
 
-const userColsPrefixed = `u.id, u.username, u.password_hash, u.is_admin, u.is_enabled, u.created_at, u.updated_at`
+const userColsPrefixed = `u.id, u.username, u.password_hash, u.is_admin, u.is_enabled, u.content_rating, u.created_at, u.updated_at`
 
 func (s *Store) DeleteSession(tokenHash string) error {
 	_, err := s.db.Exec(`DELETE FROM sessions WHERE token_hash = ?`, tokenHash)

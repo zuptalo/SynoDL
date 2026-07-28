@@ -204,7 +204,7 @@ func handleSourceDelete(d Deps) http.Handler {
 
 // handleSourceSearch runs a catalog search for any signed-in user.
 func handleSourceSearch(d Deps) http.Handler {
-	return d.requireUser(func(w http.ResponseWriter, r *http.Request, _ *store.User) {
+	return d.requireUser(func(w http.ResponseWriter, r *http.Request, u *store.User) {
 		p, drv, cfg, sess, ok := d.activeSource()
 		if !ok {
 			httpx.JSON(w, http.StatusConflict, map[string]any{"error": "source_unavailable"})
@@ -215,13 +215,18 @@ func handleSourceSearch(d Deps) http.Handler {
 			httpx.Error(w, http.StatusBadRequest, "bad request")
 			return
 		}
+		filters := source.SearchFilters{
+			Type: body.Filters.Type, Quality: body.Filters.Quality,
+			Language: body.Filters.Language, Country: body.Filters.Country,
+			Score: body.Filters.Score, Genre: body.Filters.Genre,
+		}
+		// Parental control: a user with a content-rating cap can ONLY see that
+		// rating. Enforced server-side (the client can't relax or remove it).
+		if u.ContentRating != "" {
+			filters.Age = u.ContentRating
+		}
 		res, err := drv.Search(r.Context(), sourceHTTP, cfg, sess, source.SearchQuery{
-			Query: body.Query, Page: body.Page, Sort: body.Sort,
-			Filters: source.SearchFilters{
-				Type: body.Filters.Type, Quality: body.Filters.Quality,
-				Language: body.Filters.Language, Country: body.Filters.Country,
-				Score: body.Filters.Score, Genre: body.Filters.Genre,
-			},
+			Query: body.Query, Page: body.Page, Sort: body.Sort, Filters: filters,
 		})
 		if err != nil {
 			d.writeSourceRuntimeErr(w, p.ID, err)
