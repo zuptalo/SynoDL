@@ -19,12 +19,12 @@ import {
   IonNote,
   IonProgressBar,
   IonTitle,
-  IonToast,
   IonToolbar,
 } from '@ionic/vue';
 import { copyOutline, refreshOutline } from 'ionicons/icons';
-import { computed, ref } from 'vue';
+import { computed } from 'vue';
 import { api } from '@/services/api';
+import { appToast } from '@/services/toast';
 import type { Task } from '@/types/task';
 import { formatBytes, formatDate, formatSpeed, formatPercent } from '@/utils/format';
 import { reasonFor } from '@/services/task-error';
@@ -42,15 +42,13 @@ const canRedownload = computed(
   () => !!props.task?.uri && ['finished', 'error'].includes(props.task?.status ?? ''),
 );
 
-const toast = ref('');
-
 async function copyLink(): Promise<void> {
   if (!props.task?.uri) return;
   try {
     await navigator.clipboard.writeText(props.task.uri);
-    toast.value = 'Link copied.';
+    await appToast({ message: 'Link copied.', duration: 1800 });
   } catch {
-    toast.value = 'Could not copy the link.';
+    await appToast({ message: 'Could not copy the link.', color: 'danger', duration: 2200 });
   }
 }
 
@@ -60,9 +58,9 @@ async function redownload(): Promise<void> {
     await api.createTaskURIs([props.task.uri], {
       destination: props.task.destination || undefined,
     });
-    toast.value = 'Re-download started.';
+    await appToast({ message: 'Re-download started.', duration: 1800 });
   } catch {
-    toast.value = 'Could not start the re-download.';
+    await appToast({ message: 'Could not start the re-download.', color: 'danger', duration: 2200 });
   }
 }
 </script>
@@ -155,13 +153,6 @@ async function redownload(): Promise<void> {
           <ion-note slot="end">{{ task.type }}</ion-note>
         </ion-item>
       </ion-list>
-      <ion-toast
-        :is-open="!!toast"
-        :message="toast"
-        :duration="1800"
-        position="top"
-        @didDismiss="toast = ''"
-      />
     </ion-content>
     <ion-footer v-if="canRedownload" :translucent="true">
       <ion-toolbar>
