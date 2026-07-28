@@ -87,6 +87,7 @@ type SearchResult struct {
 
 // QualityOption is a downloadable variant of a title. The signed URL it resolves
 // to is NEVER included here — it is fetched at send time (see ResolveDownload).
+// For a series each option is a season pack, so Season/Episodes are set.
 type QualityOption struct {
 	ID         string `json:"id"`
 	Label      string `json:"label"`
@@ -94,6 +95,8 @@ type QualityOption struct {
 	Resolution string `json:"resolution"`
 	Encoder    string `json:"encoder"`
 	Hardsub    bool   `json:"hardsub"`
+	Season     string `json:"season,omitempty"`
+	Episodes   int    `json:"episodes,omitempty"`
 }
 
 // TitleDetail is a title with its qualities. Sendable is false for types this
@@ -123,10 +126,11 @@ type Provider interface {
 	Search(ctx context.Context, c *Client, cfg Config, s Session, q SearchQuery) (SearchResult, error)
 	// Title returns a title's detail + qualities (movies are Sendable).
 	Title(ctx context.Context, c *Client, cfg Config, s Session, id string) (TitleDetail, error)
-	// ResolveDownload re-fetches and returns the signed URL and the human size
-	// ("11 GB") for one quality of a title, at send time (links are never cached).
-	// The returned host must be in cfg.DownloadHosts.
-	ResolveDownload(ctx context.Context, c *Client, cfg Config, s Session, titleID, qualityID string) (link, size string, err error)
+	// ResolveDownload re-fetches and returns the signed URL(s) and the human size
+	// for one quality of a title, at send time (links are never cached): one URL
+	// for a movie, one per episode for a series season pack. Every returned host
+	// must be in cfg.DownloadHosts.
+	ResolveDownload(ctx context.Context, c *Client, cfg Config, s Session, titleID, qualityID string) (links []string, size string, err error)
 }
 
 var (

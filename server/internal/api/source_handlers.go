@@ -67,6 +67,7 @@ type sourceSendReq struct {
 	TitleID   string `json:"titleId"`
 	QualityID string `json:"qualityId"`
 	Title     string `json:"title"`
+	Type      string `json:"type"` // movie/series/anime — picks the parent folder
 }
 
 // activeSource loads the enabled provider, its driver, outbound config, and the
@@ -305,9 +306,14 @@ func handleSourceSend(d Deps) http.Handler {
 			return
 		}
 
-		relParent := strings.Trim(strings.TrimSpace(p.MoviesParent), "/")
+		// Series/anime land under the TV parent; everything else under movies.
+		parent := p.MoviesParent
+		if body.Type == source.TypeSeries || body.Type == source.TypeAnime {
+			parent = p.TVParent
+		}
+		relParent := strings.Trim(strings.TrimSpace(parent), "/")
 		if relParent == "" {
-			httpx.JSON(w, http.StatusConflict, map[string]any{"error": "movies_parent_unset"})
+			httpx.JSON(w, http.StatusConflict, map[string]any{"error": "parent_unset"})
 			return
 		}
 		folderName := sanitizeFolderName(body.Title)
@@ -332,15 +338,16 @@ func handleSourceSend(d Deps) http.Handler {
 			}
 		}
 
-		// Resolve the signed link (+ size) at send time (never cached).
-		link, size, err := drv.ResolveDownload(r.Context(), sourceHTTP, cfg, sess, body.TitleID, body.QualityID)
+		// Resolve the signed link(s) (+ per-file size) at send time (never cached):
+		// one for a movie, one per episode for a series season pack.
+		links, size, err := drv.ResolveDownload(r.Context(), sourceHTTP, cfg, sess, body.TitleID, body.QualityID)
 		if err != nil {
 			d.writeSourceRuntimeErr(w, p.ID, err)
 			return
 		}
 
-		// Instance-wide max size: refuse a quality larger than the admin's cap so
-		// the user picks a smaller one.
+		// Instance-wide max size: refuse a file larger than the admin's cap so the
+		// user picks a smaller one (for a series this is the per-episode size).
 		if maxMB, _ := d.Store.GetMaxDownloadMB(); maxMB > 0 {
 			if mb := parseSizeMB(size); mb > 0 && mb > maxMB {
 				httpx.JSON(w, http.StatusRequestEntityTooLarge,
@@ -354,13 +361,19 @@ func handleSourceSend(d Deps) http.Handler {
 			if e := ensureSubfolder(r.Context(), c, sid, absParent, folderName); e != nil {
 				return e
 			}
-			return c.CreateTaskURIs(r.Context(), sid, []string{link}, syno.CreateOpts{Destination: dest})
+			return c.CreateTaskURIs(r.Context(), sid, links, syno.CreateOpts{Destination: dest})
 		}); err != nil {
 			writeNASError(w, err)
 			return
 		}
-		_ = d.Store.AddTaskClaim(u.ID, folderName, time.Now().Unix())
-		httpx.JSON(w, http.StatusOK, map[string]any{"destination": dest, "created": true, "taskAdded": true})
+		// One claim per file so a whole-season download counts as many toward the
+		// user's daily limit (a season can be dozens of episodes).
+		now := time.Now().Unix()
+		for range links {
+			_ = d.Store.AddTaskClaim(u.ID, folderName, now)
+		}
+		httpx.JSON(w, http.StatusOK,
+			map[string]any{"destination": dest, "created": true, "taskAdded": true, "count": len(links)})
 	})
 }
 

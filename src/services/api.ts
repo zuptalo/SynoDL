@@ -316,6 +316,9 @@ export interface QualityOption {
   resolution: string;
   encoder: string;
   hardsub: boolean;
+  /** For series: the season this pack covers, and its episode count. */
+  season?: string;
+  episodes?: number;
 }
 export interface TitleDetail {
   id: string;
@@ -381,8 +384,8 @@ export const api = {
     request<SourceSearchResult>('/v1/source/search', json({ query, filters, page, sort })),
   getSourceTitle: (id: string) =>
     request<TitleDetail>(`/v1/source/title/${encodeURIComponent(id)}`),
-  sendSource: (titleId: string, qualityId: string, title: string) =>
-    request<{ destination: string }>('/v1/source/send', json({ titleId, qualityId, title })),
+  sendSource: (titleId: string, qualityId: string, title: string, type: string) =>
+    request<{ destination: string }>('/v1/source/send', json({ titleId, qualityId, title, type })),
   getSourcePrefs: () => request<{ preferredQuality: string }>('/v1/source/prefs'),
   setSourcePrefs: (preferredQuality: string) =>
     request<{ preferredQuality: string }>('/v1/source/prefs', jsonMethod('PUT', { preferredQuality })),
