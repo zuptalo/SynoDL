@@ -29,7 +29,7 @@ defineEmits<{ (e: 'dismiss'): void }>();
         </ion-buttons>
       </ion-toolbar>
     </ion-header>
-    <ion-content :fullscreen="true">
+    <ion-content :fullscreen="true" class="settings-cards">
       <UserAdmin data-testid="settings-useradmin" />
     </ion-content>
   </ion-modal>

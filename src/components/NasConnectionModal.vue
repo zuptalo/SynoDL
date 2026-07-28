@@ -127,7 +127,7 @@ async function onSave(): Promise<void> {
         </ion-buttons>
       </ion-toolbar>
     </ion-header>
-    <ion-content :fullscreen="true" class="ion-padding">
+    <ion-content :fullscreen="true" class="ion-padding settings-cards">
       <div v-if="loading" class="center"><ion-spinner name="crescent" /></div>
       <template v-else>
         <ion-list inset>

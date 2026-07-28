@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import {
+  alertController,
   IonButton,
   IonContent,
   IonHeader,
@@ -64,6 +65,17 @@ async function loadHost(): Promise<void> {
 onMounted(loadHost);
 
 async function onLogout(): Promise<void> {
+  const alert = await alertController.create({
+    header: 'Log out?',
+    message: "You'll need to sign in again to use SynoDL.",
+    buttons: [
+      { text: 'Cancel', role: 'cancel' },
+      { text: 'Log out', role: 'destructive' },
+    ],
+  });
+  await alert.present();
+  const { role } = await alert.onDidDismiss();
+  if (role !== 'destructive') return;
   await logout();
   await router.replace('/login');
 }
@@ -76,7 +88,7 @@ async function onLogout(): Promise<void> {
         <ion-title>Settings</ion-title>
       </ion-toolbar>
     </ion-header>
-    <ion-content :fullscreen="true" class="settings-page">
+    <ion-content :fullscreen="true" class="settings-cards">
       <!-- Account -->
       <ion-list inset>
         <ion-list-header>Account</ion-list-header>
@@ -157,8 +169,8 @@ async function onLogout(): Promise<void> {
       </ion-list>
 
       <div class="logout">
-        <ion-button expand="block" color="danger" fill="outline" data-testid="settings-logout" @click="onLogout">
-          Logout
+        <ion-button expand="block" color="danger" data-testid="settings-logout" @click="onLogout">
+          Log out
         </ion-button>
       </div>
 
@@ -186,33 +198,5 @@ async function onLogout(): Promise<void> {
   color: var(--app-text-dim);
   font-size: 0.8rem;
   margin-top: 2rem;
-}
-</style>
-
-<!-- Global (unscoped) so it also reaches the section lists rendered by child
-     components (e.g. PushOptIn's Notifications list). Renders each settings
-     section as a distinct, rounded, filled card — the same grouped-card look as
-     the in-depth settings screens — instead of flat full-width bands. Ionic's
-     default inset lists barely round (2px) and sit on a near-identical fill, so
-     we style them explicitly with the app's own surface tokens for real contrast. -->
-<style>
-ion-content.settings-page {
-  --background: var(--app-bg);
-}
-ion-content.settings-page ion-list {
-  margin: 16px;
-  padding: 0;
-  /* Ionic's .list-inset sets a 2px radius with higher specificity, so override it. */
-  border-radius: 14px !important;
-  overflow: hidden;
-  background: var(--app-card);
-}
-ion-content.settings-page ion-list ion-item {
-  --background: var(--app-card);
-  --background-hover: var(--app-card);
-}
-ion-content.settings-page ion-list-header {
-  color: var(--app-text-dim);
-  font-weight: 600;
 }
 </style>
