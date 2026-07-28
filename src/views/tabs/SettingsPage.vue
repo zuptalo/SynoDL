@@ -119,7 +119,14 @@ async function onLogout(): Promise<void> {
             <h3>Open to</h3>
             <p>Which tab the app starts on</p>
           </ion-label>
-          <ion-segment :value="landing" data-testid="settings-landing" @ion-change="onLanding">
+        </ion-item>
+        <ion-item lines="none">
+          <ion-segment
+            :value="landing"
+            class="landing-segment"
+            data-testid="settings-landing"
+            @ion-change="onLanding"
+          >
             <ion-segment-button value="discover"><ion-label>Discover</ion-label></ion-segment-button>
             <ion-segment-button value="tasks"><ion-label>Tasks</ion-label></ion-segment-button>
           </ion-segment>
@@ -169,7 +176,13 @@ async function onLogout(): Promise<void> {
       </ion-list>
 
       <div class="logout">
-        <ion-button expand="block" color="danger" data-testid="settings-logout" @click="onLogout">
+        <ion-button
+          expand="block"
+          color="danger"
+          class="logout-btn"
+          data-testid="settings-logout"
+          @click="onLogout"
+        >
           Log out
         </ion-button>
       </div>
@@ -190,8 +203,16 @@ async function onLogout(): Promise<void> {
 </template>
 
 <style scoped>
+.landing-segment {
+  width: 100%;
+}
 .logout {
   margin: 2rem 1rem 0;
+}
+/* Force readable white text on the red button in both themes (the danger
+   contrast token resolves dark in the dark palette otherwise). */
+.logout-btn {
+  --color: #fff;
 }
 .version {
   text-align: center;
