@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"html"
 	"net/url"
 	"strconv"
 	"strings"
@@ -120,14 +121,14 @@ func (p thirtynama) Search(ctx context.Context, c *source.Client, cfg source.Con
 		out.Items = append(out.Items, source.CatalogTitle{
 			ID:                string(post.ID),
 			Type:              string(post.TitleType),
-			Title:             string(post.Title),
+			Title:             html.UnescapeString(string(post.Title)),
 			PosterURL:         post.posterURL(),
 			PosterFallbackURL: post.posterFallbackURL(),
 			BackdropURL:       post.backdropURL(),
 			IMDbID:            string(post.IMDbID),
 			IMDbScore:         float64(post.IMDbScore),
 			ProviderScore:     float64(post.Score),
-			Plot:              string(post.EnglishPlot),
+			Plot:              html.UnescapeString(string(post.EnglishPlot)),
 			Genres:            post.genreNames(),
 			ComingSoon:        bool(post.ComingSoon),
 			FreeDownload:      bool(post.FreeDownload),
@@ -197,10 +198,10 @@ func (p thirtynama) downloads(ctx context.Context, c *source.Client, cfg source.
 		}
 		q := source.QualityOption{
 			ID:         d.ID,
-			Label:      d.Quality,
+			Label:      html.UnescapeString(d.Quality),
 			Size:       d.Size,
 			Resolution: d.Resolution,
-			Encoder:    d.Encoder,
+			Encoder:    html.UnescapeString(d.Encoder),
 			Hardsub:    bool(d.Hardsub),
 		}
 		if isSeries {
@@ -216,7 +217,7 @@ func seasonLabel(d tnDownload) string {
 	if n := int(d.SeasonInt); n > 0 {
 		return fmt.Sprintf("Season %d", n)
 	}
-	return string(d.SeasonName)
+	return html.UnescapeString(string(d.SeasonName))
 }
 
 // call performs an authenticated API POST and returns result raw JSON, mapping a

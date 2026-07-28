@@ -182,6 +182,23 @@ func TestThirtynamaToleratesLooseTypes(t *testing.T) {
 	}
 }
 
+// Provider text arrives HTML-encoded (e.g. &#039; for an apostrophe, &amp; for
+// &); it must be decoded so titles/plots read correctly, not literally.
+func TestThirtynamaDecodesHTMLEntities(t *testing.T) {
+	body := `{"success":true,"result":{"page":1,"pages":1,"posts":[
+	  {"id":1,"title_type":"movie","title":"Tom &amp; Jerry","english_plot":"A boy&#039;s room.","image":{"cover":"https://x/c.jpg"}}
+	]}}`
+	cfg, done := fakeProvider(t, func(w http.ResponseWriter, r *http.Request) { w.Write([]byte(body)) })
+	defer done()
+	res, err := thirtynama{}.Search(context.Background(), source.NewClient(), cfg, source.Session{}, source.SearchQuery{})
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	if res.Items[0].Title != "Tom & Jerry" || res.Items[0].Plot != "A boy's room." {
+		t.Fatalf("entities not decoded: title=%q plot=%q", res.Items[0].Title, res.Items[0].Plot)
+	}
+}
+
 // Regression: full_search nests results under result.title.{page,pages,posts};
 // a text query must read that shape (not return empty).
 func TestThirtynamaFullSearchNestedShape(t *testing.T) {
