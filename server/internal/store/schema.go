@@ -104,4 +104,35 @@ var migrations = []string{
 		updated_at   INTEGER NOT NULL DEFAULT 0
 	);
 	`,
+	// 0005 — download-source catalog (spec 0005): an admin-configured external
+	// "source provider" whose session material is encrypted at rest (write-only,
+	// like the NAS password) and whose non-secret config/status is plaintext.
+	// source_prefs holds a per-user preferred quality. Off by default (enabled=0);
+	// api_hosts/download_hosts are newline-joined outbound allowlists.
+	`
+	CREATE TABLE source_providers (
+		id               INTEGER PRIMARY KEY AUTOINCREMENT,
+		kind             TEXT    NOT NULL,
+		display_name     TEXT    NOT NULL DEFAULT '',
+		api_hosts        TEXT    NOT NULL DEFAULT '',
+		download_hosts   TEXT    NOT NULL DEFAULT '',
+		movies_parent    TEXT    NOT NULL DEFAULT '',
+		tv_parent        TEXT    NOT NULL DEFAULT '',
+		enabled          INTEGER NOT NULL DEFAULT 0,
+		state            TEXT    NOT NULL DEFAULT 'not_configured',
+		last_verified_at INTEGER NOT NULL DEFAULT 0,
+		created_at       INTEGER NOT NULL DEFAULT 0,
+		updated_at       INTEGER NOT NULL DEFAULT 0
+	);
+	CREATE TABLE source_provider_secrets (
+		provider_id INTEGER PRIMARY KEY REFERENCES source_providers(id) ON DELETE CASCADE,
+		session_enc BLOB    NOT NULL,
+		updated_at  INTEGER NOT NULL DEFAULT 0
+	);
+	CREATE TABLE source_prefs (
+		user_id           INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+		preferred_quality TEXT    NOT NULL DEFAULT '',
+		updated_at        INTEGER NOT NULL DEFAULT 0
+	);
+	`,
 }

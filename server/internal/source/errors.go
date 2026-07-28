@@ -1,0 +1,48 @@
+package source
+
+import (
+	"errors"
+	"fmt"
+)
+
+// Expiry layers reported with ErrNeedsRefresh. Best-effort: the client can map
+// all of them to a single "source needs refreshing" user state.
+const (
+	LayerClearance = "clearance" // bot-protection (cf_clearance) rejected
+	LayerToken     = "token"     // API auth (c-token) rejected
+	LayerIP        = "ip"        // request/link bound to a different public IP
+)
+
+// ErrNeedsRefresh means the stored provider session no longer works and an admin
+// must re-paste fresh material. It carries a best-effort Layer but never any
+// secret value or raw upstream body.
+type ErrNeedsRefresh struct {
+	Layer string
+}
+
+func (e *ErrNeedsRefresh) Error() string {
+	return fmt.Sprintf("source session needs refresh (%s)", e.Layer)
+}
+
+// AsNeedsRefresh extracts an *ErrNeedsRefresh from an error chain.
+func AsNeedsRefresh(err error) (*ErrNeedsRefresh, bool) {
+	var e *ErrNeedsRefresh
+	if errors.As(err, &e) {
+		return e, true
+	}
+	return nil, false
+}
+
+// ErrHostNotAllowed is returned when an outbound request targets a host outside
+// the provider's configured allowlist. It must never reach a client verbatim
+// (it names an internal host), but it is safe to log.
+var ErrHostNotAllowed = errors.New("source: outbound host not in provider allowlist")
+
+// ErrProviderVerify categorizes a failed configure/refresh verification without
+// echoing upstream detail. Reason is one of: "challenge", "invalid_token",
+// "ip_mismatch", "unreachable".
+type ErrProviderVerify struct {
+	Reason string
+}
+
+func (e *ErrProviderVerify) Error() string { return "source: verify failed: " + e.Reason }

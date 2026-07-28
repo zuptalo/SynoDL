@@ -24,6 +24,7 @@ import UserManagementModal from '@/components/UserManagementModal.vue';
 import PushOptIn from '@/components/PushOptIn.vue';
 import NasConnectionModal from '@/components/NasConnectionModal.vue';
 import ChangePasswordModal from '@/components/ChangePasswordModal.vue';
+import SourceProviderAdmin from '@/components/SourceProviderAdmin.vue';
 
 const router = useRouter();
 const { account, logout, isAdmin, mode, user } = useSession();
@@ -42,6 +43,7 @@ const darkMode = computed({
 const nasOpen = ref(false);
 const pwOpen = ref(false);
 const usersOpen = ref(false);
+const sourceOpen = ref(false);
 
 async function loadHost(): Promise<void> {
   try {
@@ -126,6 +128,15 @@ async function onLogout(): Promise<void> {
         </ion-item>
       </ion-list>
 
+      <!-- Admin-only: configure the external download source (spec 0005). -->
+      <ion-list v-if="stateful && isAdmin" inset>
+        <ion-list-header>Download source</ion-list-header>
+        <ion-item button :detail="false" data-testid="settings-source" @click="sourceOpen = true">
+          <ion-label>Configure download source</ion-label>
+          <ion-icon slot="end" :icon="chevronForward" color="medium" />
+        </ion-item>
+      </ion-list>
+
       <div class="logout">
         <ion-button expand="block" color="danger" fill="outline" data-testid="settings-logout" @click="onLogout">
           Logout
@@ -135,6 +146,7 @@ async function onLogout(): Promise<void> {
       <p class="version" data-testid="settings-version">v{{ version }}</p>
 
       <UserManagementModal v-if="isAdmin" :is-open="usersOpen" @dismiss="usersOpen = false" />
+      <SourceProviderAdmin v-if="isAdmin" :is-open="sourceOpen" @dismiss="sourceOpen = false" />
       <NasConnectionModal :is-open="nasOpen" @dismiss="nasOpen = false" @saved="loadHost" />
       <ChangePasswordModal
         v-if="user"
