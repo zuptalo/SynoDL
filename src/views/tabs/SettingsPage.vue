@@ -10,6 +10,8 @@ import {
   IonListHeader,
   IonNote,
   IonPage,
+  IonSegment,
+  IonSegmentButton,
   IonTitle,
   IonToggle,
   IonToolbar,
@@ -20,6 +22,7 @@ import { useRouter } from 'vue-router';
 import { api } from '@/services/api';
 import { useSession } from '@/composables/useSession';
 import { useTheme } from '@/composables/useTheme';
+import { useLanding } from '@/composables/useLanding';
 import UserManagementModal from '@/components/UserManagementModal.vue';
 import PushOptIn from '@/components/PushOptIn.vue';
 import NasConnectionModal from '@/components/NasConnectionModal.vue';
@@ -29,7 +32,13 @@ import SourceProviderAdmin from '@/components/SourceProviderAdmin.vue';
 const router = useRouter();
 const { account, logout, isAdmin, mode, user } = useSession();
 const { theme, setTheme } = useTheme();
+const { landing, setLanding } = useLanding();
 const nasHost = ref('');
+
+function onLanding(ev: CustomEvent): void {
+  const v = (ev.detail as { value?: string }).value;
+  setLanding(v === 'tasks' ? 'tasks' : 'discover');
+}
 
 // Template scope can't see compile-time globals; re-expose the define.
 const version = __APP_VERSION__;
@@ -92,6 +101,16 @@ async function onLogout(): Promise<void> {
         <ion-list-header>Appearance</ion-list-header>
         <ion-item>
           <ion-toggle v-model="darkMode" data-testid="settings-dark-toggle">Dark mode</ion-toggle>
+        </ion-item>
+        <ion-item lines="none">
+          <ion-label>
+            <h3>Open to</h3>
+            <p>Which tab the app starts on</p>
+          </ion-label>
+          <ion-segment :value="landing" data-testid="settings-landing" @ion-change="onLanding">
+            <ion-segment-button value="discover"><ion-label>Discover</ion-label></ion-segment-button>
+            <ion-segment-button value="tasks"><ion-label>Tasks</ion-label></ion-segment-button>
+          </ion-segment>
         </ion-item>
       </ion-list>
 
