@@ -1,0 +1,163 @@
+package store
+
+import (
+	"bytes"
+	"testing"
+)
+
+func TestSourceProviderConfigRoundTrip(t *testing.T) {
+	s := openTestStore(t)
+
+	// No provider yet.
+	if p, err := s.GetProvider(); err != nil || p != nil {
+		t.Fatalf("GetProvider empty = %v, %v; want nil, nil", p, err)
+	}
+
+	id, err := s.SaveProviderConfig(SourceProvider{
+		Kind:          "thirtynama",
+		DisplayName:   "30nama",
+		APIHosts:      []string{"interface.30nama.com", "30nama.com"},
+		DownloadHosts: []string{"divyacamilla.info"},
+		MoviesParent:  "/movies",
+		TVParent:      "/tv",
+		Enabled:       true,
+		State:         SourceActive,
+	}, 100)
+	if err != nil {
+		t.Fatalf("SaveProviderConfig: %v", err)
+	}
+	if id == 0 {
+		t.Fatal("want non-zero provider id")
+	}
+
+	got, err := s.GetProvider()
+	if err != nil {
+		t.Fatalf("GetProvider: %v", err)
+	}
+	if got.Kind != "thirtynama" || got.DisplayName != "30nama" ||
+		got.MoviesParent != "/movies" || got.TVParent != "/tv" || !got.Enabled {
+		t.Fatalf("provider mismatch: %+v", got)
+	}
+	if len(got.APIHosts) != 2 || got.APIHosts[0] != "interface.30nama.com" {
+		t.Fatalf("api hosts = %v", got.APIHosts)
+	}
+	if len(got.DownloadHosts) != 1 || got.DownloadHosts[0] != "divyacamilla.info" {
+		t.Fatalf("download hosts = %v", got.DownloadHosts)
+	}
+
+	// Update is an upsert on the singleton (same id, new values).
+	id2, err := s.SaveProviderConfig(SourceProvider{
+		Kind: "thirtynama", DisplayName: "30nama HD", MoviesParent: "/media/movies",
+	}, 200)
+	if err != nil {
+		t.Fatalf("SaveProviderConfig update: %v", err)
+	}
+	if id2 != id {
+		t.Fatalf("singleton id changed: %d -> %d", id, id2)
+	}
+	got2, _ := s.GetProvider()
+	if got2.DisplayName != "30nama HD" || got2.MoviesParent != "/media/movies" {
+		t.Fatalf("update not applied: %+v", got2)
+	}
+}
+
+func TestSourceSessionSealedAndWriteOnly(t *testing.T) {
+	s := openTestStore(t)
+	id, _ := s.SaveProviderConfig(SourceProvider{Kind: "thirtynama"}, 1)
+
+	sess := SourceSession{
+		CFClearance: "CFCLEAR-secret-value",
+		CAPIKey:     "APIKEY-secret",
+		CToken:      "TOKEN-secret",
+		UserAgent:   "Mozilla/5.0 test",
+		CPlatform:   "PWA",
+		CAppVersion: "1.2.3",
+	}
+	if err := s.SaveProviderSession(id, sess, 10); err != nil {
+		t.Fatalf("SaveProviderSession: %v", err)
+	}
+
+	// The stored blob must be ciphertext — none of the secret values appear.
+	var sealed []byte
+	if err := s.DB().QueryRow(
+		`SELECT session_enc FROM source_provider_secrets WHERE provider_id=?`, id).
+		Scan(&sealed); err != nil {
+		t.Fatalf("read blob: %v", err)
+	}
+	for _, secret := range [][]byte{
+		[]byte("CFCLEAR-secret-value"), []byte("APIKEY-secret"), []byte("TOKEN-secret"),
+	} {
+		if bytes.Contains(sealed, secret) {
+			t.Fatalf("plaintext secret %q found in stored blob", secret)
+		}
+	}
+
+	// Open recovers it in-process.
+	got, err := s.LoadProviderSession(id)
+	if err != nil {
+		t.Fatalf("LoadProviderSession: %v", err)
+	}
+	if got.CFClearance != sess.CFClearance || got.CToken != sess.CToken ||
+		got.CAPIKey != sess.CAPIKey || got.UserAgent != sess.UserAgent {
+		t.Fatalf("session round-trip mismatch: %+v", got)
+	}
+}
+
+func TestSourceProviderStateTransitionsAndDelete(t *testing.T) {
+	s := openTestStore(t)
+	id, _ := s.SaveProviderConfig(SourceProvider{Kind: "thirtynama", State: SourceNotConfigured}, 1)
+
+	if err := s.SetProviderState(id, SourceActive, 500, 500); err != nil {
+		t.Fatalf("SetProviderState active: %v", err)
+	}
+	p, _ := s.GetProvider()
+	if p.State != SourceActive || p.LastVerifiedAt != 500 {
+		t.Fatalf("state after activate: %+v", p)
+	}
+
+	// needs_refresh without a verify time must not clobber last_verified_at.
+	if err := s.SetProviderState(id, SourceNeedsRefresh, 0, 600); err != nil {
+		t.Fatalf("SetProviderState needs_refresh: %v", err)
+	}
+	p, _ = s.GetProvider()
+	if p.State != SourceNeedsRefresh || p.LastVerifiedAt != 500 {
+		t.Fatalf("state after needs_refresh: %+v", p)
+	}
+
+	// Delete cascades secrets.
+	_ = s.SaveProviderSession(id, SourceSession{CToken: "x"}, 1)
+	if err := s.DeleteProvider(id); err != nil {
+		t.Fatalf("DeleteProvider: %v", err)
+	}
+	if p, _ := s.GetProvider(); p != nil {
+		t.Fatalf("provider still present after delete: %+v", p)
+	}
+	var n int
+	_ = s.DB().QueryRow(`SELECT COUNT(*) FROM source_provider_secrets WHERE provider_id=?`, id).Scan(&n)
+	if n != 0 {
+		t.Fatalf("secrets not cascaded on delete: %d rows", n)
+	}
+}
+
+func TestSourcePrefRoundTrip(t *testing.T) {
+	s := openTestStore(t)
+	uid, err := s.CreateUser("mover", "hash", false)
+	if err != nil {
+		t.Fatalf("CreateUser: %v", err)
+	}
+
+	if q, err := s.GetSourcePref(uid); err != nil || q != "" {
+		t.Fatalf("empty pref = %q, %v; want \"\", nil", q, err)
+	}
+	if err := s.SaveSourcePref(uid, "1080p", 10); err != nil {
+		t.Fatalf("SaveSourcePref: %v", err)
+	}
+	if q, _ := s.GetSourcePref(uid); q != "1080p" {
+		t.Fatalf("pref = %q, want 1080p", q)
+	}
+	// Upsert.
+	_ = s.SaveSourcePref(uid, "4K", 20)
+	if q, _ := s.GetSourcePref(uid); q != "4K" {
+		t.Fatalf("pref after update = %q, want 4K", q)
+	}
+}
