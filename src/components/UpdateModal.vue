@@ -21,20 +21,22 @@ import {
 } from '@ionic/vue';
 import { ref } from 'vue';
 import { api } from '@/services/api';
+import { whatsNew } from '@/services/release-notes';
 
 defineProps<{ isOpen: boolean; applying?: boolean }>();
 const emit = defineEmits<{ (e: 'confirm', version: string): void }>();
 
 const loading = ref(true);
 const version = ref('');
-const notes = ref<{ sha: string; subject: string }[]>([]);
+// Only the changes new since the running build, as plain-language lines.
+const notes = ref<string[]>([]);
 
 async function onPresent(): Promise<void> {
   loading.value = true;
   try {
     const c = await api.config();
     version.value = c.version;
-    notes.value = c.releaseNotes ?? [];
+    notes.value = whatsNew(c.releaseNotes ?? [], __RELEASE_NOTES__);
   } catch {
     version.value = '';
     notes.value = [];
@@ -57,11 +59,11 @@ async function onPresent(): Promise<void> {
         <h2 class="lead" data-testid="update-version">SynoDL{{ version ? ` v${version}` : '' }} is ready</h2>
         <p class="sub">Here's what's new — tap OK to update now.</p>
         <ion-list v-if="notes.length" inset data-testid="update-notes">
-          <ion-item v-for="n in notes" :key="n.sha">
-            <ion-label class="ion-text-wrap">{{ n.subject }}</ion-label>
+          <ion-item v-for="(line, i) in notes" :key="i">
+            <ion-label class="ion-text-wrap">{{ line }}</ion-label>
           </ion-item>
         </ion-list>
-        <p v-else class="sub">A new version is available.</p>
+        <p v-else class="sub">Under-the-hood improvements and fixes.</p>
       </template>
     </ion-content>
     <ion-footer :translucent="true">

@@ -28,7 +28,7 @@ const { reachable } = useConnectivity();
 // A new deploy surfaces a full-screen update page (spec 1003): what's new + a
 // single OK that applies and reloads. An interrupted apply finishes on the next
 // launch (useAppUpdate).
-const { updateAvailable, applying, applyUpdate } = useAppUpdate();
+const { updateAvailable, applying, applyUpdate, checkForUpdate } = useAppUpdate();
 
 // When the NAS ends the session (any request answering 401 "session"),
 // useSession already dropped the sid — this is the navigation half: return to
@@ -76,14 +76,24 @@ const onSwMessage = (e: MessageEvent): void => {
     | { type?: string; title?: string; body?: string; taskId?: string }
     | undefined;
   if (!d) return;
-  // A tapped OS notification (app already open) — route straight to the task.
+  // A tapped OS notification (app already open). An app-update notice carries no
+  // task id — re-check for the waiting worker so the update page surfaces here,
+  // rather than navigating to Tasks.
   if (d.type === 'open-task') {
-    openTask(d.taskId ?? '');
+    if (d.taskId) openTask(d.taskId);
+    else checkForUpdate();
     return;
   }
   if (d.type !== 'push-notification') return;
+  // A foregrounded "new version" push (no task id) never triggers the SW's own
+  // re-check, so the update page wouldn't appear until a relaunch. Pull the
+  // waiting worker now instead of showing a task toast.
+  if (!d.taskId) {
+    checkForUpdate();
+    return;
+  }
   if (router.currentRoute.value.path.startsWith('/tabs/tasks')) return;
-  inAppTaskId.value = d.taskId ?? '';
+  inAppTaskId.value = d.taskId;
   inAppMsg.value = d.body ? `${d.title}: ${d.body}` : (d.title ?? '');
 };
 navigator.serviceWorker?.addEventListener('message', onSwMessage);

@@ -95,5 +95,13 @@ export function useAppUpdate() {
   evaluate(needRefresh.value);
   watch(needRefresh, (w) => evaluate(w));
 
-  return { updateAvailable: showPage, applying, applyUpdate };
+  // Ask the browser to re-check for a new service worker now. Used when a
+  // "new version" push arrives while the app is already foregrounded (no
+  // visibilitychange fires), so the waiting worker is found and the update page
+  // surfaces in-session instead of only after a full relaunch.
+  function checkForUpdate(): void {
+    void swReg?.update().catch(() => undefined);
+  }
+
+  return { updateAvailable: showPage, applying, applyUpdate, checkForUpdate };
 }
