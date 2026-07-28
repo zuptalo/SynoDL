@@ -361,16 +361,20 @@ async function saveFolders(): Promise<void> {
             <span :class="{ off: !u.isEnabled }">{{ u.username }}</span>
             <ion-badge v-if="!u.isEnabled" color="medium">disabled</ion-badge>
           </h2>
-          <!-- Row 2: per-user controls. -->
+          <!-- Row 2: per-user controls — right-aligned, labelled buttons so it's
+               clear they're tappable. -->
           <div class="row-actions">
-            <ion-button size="small" fill="clear" :title="`Content rating for ${u.username}`" @click="setRating(u)">
-              <ion-icon slot="icon-only" :icon="shieldCheckmarkOutline" />
+            <ion-button size="small" fill="outline" :title="`Content rating for ${u.username}`" @click="setRating(u)">
+              <ion-icon slot="start" :icon="shieldCheckmarkOutline" />
+              Rating
             </ion-button>
-            <ion-button size="small" fill="clear" :title="`Daily download limit for ${u.username}`" @click="setDailyLimit(u)">
-              <ion-icon slot="icon-only" :icon="speedometerOutline" />
+            <ion-button size="small" fill="outline" :title="`Daily download limit for ${u.username}`" @click="setDailyLimit(u)">
+              <ion-icon slot="start" :icon="speedometerOutline" />
+              Limit
             </ion-button>
-            <ion-button size="small" fill="clear" :title="`Folders for ${u.username}`" @click="openFolders(u)">
-              <ion-icon slot="icon-only" :icon="folderOutline" />
+            <ion-button size="small" fill="outline" :title="`Folders for ${u.username}`" @click="openFolders(u)">
+              <ion-icon slot="start" :icon="folderOutline" />
+              Folders
             </ion-button>
           </div>
           <!-- Row 3: the current caps as read-only info. -->
@@ -475,8 +479,17 @@ async function saveFolders(): Promise<void> {
 .row-actions {
   display: flex;
   align-items: center;
-  gap: 2px;
-  margin: 2px 0;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 6px 0 2px;
+}
+.row-actions ion-button {
+  --padding-start: 10px;
+  --padding-end: 10px;
+  font-size: 0.8rem;
+  height: 30px;
+  margin: 0;
 }
 .limits {
   display: flex;
