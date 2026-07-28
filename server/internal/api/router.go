@@ -97,6 +97,9 @@ func NewRouter(d Deps) http.Handler {
 		// Download-source catalog (spec 0005): an admin-configured external
 		// provider, browsable/searchable, whose picks are sent to the NAS. The
 		// session material is admin-only, encrypted, and write-only.
+		// Unauthenticated (an <img> can't send the session header) but bounded to
+		// the provider's known image hosts — a same-origin poster proxy + cache.
+		mux.Handle("GET /v1/source/image", handleSourceImage(d))
 		mux.Handle("GET /v1/source/status", handleSourceStatus(d))
 		mux.Handle("PUT /v1/source/session", handleSourceSession(d))
 		mux.Handle("DELETE /v1/source/session", handleSourceDelete(d))

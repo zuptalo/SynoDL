@@ -346,6 +346,12 @@ export interface TitleDetail {
   sendable: boolean;
   qualities: QualityOption[];
 }
+/** Route a provider cover URL through the same-origin, server-cached image proxy
+ *  (empty when there's no poster). */
+export function posterSrc(url: string): string {
+  return url ? `/v1/source/image?u=${encodeURIComponent(url)}` : '';
+}
+
 export interface SourceSearchFilters {
   type?: string;
   quality?: string;
