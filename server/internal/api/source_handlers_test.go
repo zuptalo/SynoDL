@@ -17,10 +17,11 @@ import (
 type fakeSrc struct{}
 
 var (
-	fakeVerifyErr  error
-	fakeSearch     source.SearchResult
-	fakeSearchErr  error
-	fakeLastQuery  source.SearchQuery
+	fakeVerifyErr   error
+	fakeLastSession source.Session
+	fakeSearch      source.SearchResult
+	fakeSearchErr   error
+	fakeLastQuery   source.SearchQuery
 	fakeTitle      source.TitleDetail
 	fakeTitleErr   error
 	fakeLinks      []string
@@ -38,7 +39,8 @@ func (fakeSrc) Hosts() source.Config {
 		ImageHosts:    []string{"127.0.0.1"}, // lets the image-proxy test hit httptest
 	}
 }
-func (fakeSrc) VerifySession(context.Context, *source.Client, source.Config, source.Session) error {
+func (fakeSrc) VerifySession(_ context.Context, _ *source.Client, _ source.Config, s source.Session) error {
+	fakeLastSession = s
 	return fakeVerifyErr
 }
 func (fakeSrc) Search(_ context.Context, _ *source.Client, _ source.Config, _ source.Session, q source.SearchQuery) (source.SearchResult, error) {
@@ -68,6 +70,29 @@ func configureFake(t *testing.T, h http.Handler, admin map[string]string, movies
 	rec := do(t, h, "PUT", "/v1/source/session", body, admin)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("configure provider = %d %s", rec.Code, rec.Body.String())
+	}
+}
+
+// Re-saving an already-configured provider with BLANK secret fields keeps the
+// stored session (so the admin can re-verify or edit folders without re-pasting
+// every cookie/token). The merged session is what gets verified.
+func TestSourceSessionKeepsStoredSecretsWhenBlank(t *testing.T) {
+	resetFake()
+	h, _ := newStatefulRouter(t)
+	admin := adminAfterSetup(t, h)
+	configureFake(t, h, admin, "movie")
+
+	fakeLastSession = source.Session{}
+	// Only change a destination folder; leave the session blank.
+	body := `{"kind":"faketest","displayName":"Fake","moviesParent":"movies","tvParent":"series","session":{}}`
+	rec := do(t, h, "PUT", "/v1/source/session", body, admin)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("re-save with blank session = %d %s", rec.Code, rec.Body.String())
+	}
+	// Verification ran against the MERGED session (stored secrets preserved).
+	if fakeLastSession.CToken != "SECRET-TOKEN-VALUE" || fakeLastSession.CFClearance != "CLR" ||
+		fakeLastSession.UserAgent != "UA" {
+		t.Fatalf("blank re-save did not keep stored secrets: %+v", fakeLastSession)
 	}
 }
 

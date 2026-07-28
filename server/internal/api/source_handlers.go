@@ -152,6 +152,31 @@ func handleSourceSession(d Deps) http.Handler {
 			CToken: body.Session.CToken, UserAgent: body.Session.UserAgent,
 			CPlatform: body.Session.CPlatform, CAppVersion: body.Session.CAppVersion,
 		}
+		// If this provider is already configured, blank secret fields mean "keep the
+		// stored value" — so the admin can re-verify or edit only the destination
+		// folders without re-pasting every cookie/token. Merge before verifying.
+		if pr, err := d.Store.GetProvider(); err == nil && pr != nil && pr.Kind == drv.Kind() {
+			if stored, e := d.Store.LoadProviderSession(pr.ID); e == nil && stored != nil {
+				if sess.CFClearance == "" {
+					sess.CFClearance = stored.CFClearance
+				}
+				if sess.CAPIKey == "" {
+					sess.CAPIKey = stored.CAPIKey
+				}
+				if sess.CToken == "" {
+					sess.CToken = stored.CToken
+				}
+				if sess.UserAgent == "" {
+					sess.UserAgent = stored.UserAgent
+				}
+				if sess.CPlatform == "" {
+					sess.CPlatform = stored.CPlatform
+				}
+				if sess.CAppVersion == "" {
+					sess.CAppVersion = stored.CAppVersion
+				}
+			}
+		}
 		hosts := drv.Hosts()
 
 		// Verify against the provider BEFORE persisting anything.

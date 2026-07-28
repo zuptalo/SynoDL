@@ -63,8 +63,15 @@ func handleTestNASConnection(d Deps) http.Handler {
 		body.NASAddress = strings.TrimSpace(body.NASAddress)
 		body.NASAccount = strings.TrimSpace(body.NASAccount)
 
-		// Fill blanks from the stored config so a partial edit can still be tested.
-		if cur, err := d.Store.GetOperatorConfig(); err == nil {
+		// Did the admin actually change anything, or are they just re-testing the
+		// stored connection? A fresh login re-verifies credentials (and needs an
+		// OTP for a 2FA account), which must NOT be required to confirm an
+		// unchanged connection still works.
+		newPassword := body.NASPassword
+		newOTP := strings.TrimSpace(body.OTP)
+		cur, curErr := d.Store.GetOperatorConfig()
+		if curErr == nil {
+			// Fill blanks from the stored config so a partial edit can still be tested.
 			if body.NASAddress == "" {
 				body.NASAddress = cur.NASAddress
 			}
@@ -76,6 +83,19 @@ func handleTestNASConnection(d Deps) http.Handler {
 			}
 			if body.NASPassword == "" {
 				body.NASPassword = cur.NASPassword
+			}
+			unchanged := newPassword == "" && newOTP == "" &&
+				body.NASAddress == cur.NASAddress && body.NASPort == cur.NASPort &&
+				body.NASTLSVerify == cur.NASTLSVerify && body.NASAccount == cur.NASAccount
+			if unchanged {
+				// Test the CURRENT stored connection using the existing session
+				// (reused, or a stored-password re-login for non-2FA) — no OTP needed.
+				if _, err := d.NAS.SID(r.Context()); err != nil {
+					writeNASError(w, err)
+					return
+				}
+				w.WriteHeader(http.StatusNoContent)
+				return
 			}
 		}
 		if body.NASAddress == "" || body.NASPort <= 0 || body.NASAccount == "" || body.NASPassword == "" {
