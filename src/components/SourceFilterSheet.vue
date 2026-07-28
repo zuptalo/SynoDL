@@ -195,7 +195,7 @@ function clear(): void {
           </ion-select>
         </ion-item>
         <ion-item>
-          <ion-select v-model="genre" label="Genre" interface="action-sheet" placeholder="Any">
+          <ion-select v-model="genre" label="Genre" interface="alert" placeholder="Any">
             <ion-select-option value="">Any genre</ion-select-option>
             <ion-select-option v-for="g in genres" :key="g.value" :value="g.value">
               {{ g.label }}
@@ -203,7 +203,7 @@ function clear(): void {
           </ion-select>
         </ion-item>
         <ion-item>
-          <ion-select v-model="quality" label="Quality" interface="action-sheet" placeholder="Any">
+          <ion-select v-model="quality" label="Quality" interface="alert" placeholder="Any">
             <ion-select-option value="">Any quality</ion-select-option>
             <ion-select-option v-for="q in qualities" :key="q" :value="q">{{ q }}</ion-select-option>
           </ion-select>
@@ -216,7 +216,7 @@ function clear(): void {
           </ion-select>
         </ion-item>
         <ion-item>
-          <ion-select v-model="language" label="Language" interface="action-sheet" placeholder="Any">
+          <ion-select v-model="language" label="Language" interface="alert" placeholder="Any">
             <ion-select-option value="">Any language</ion-select-option>
             <ion-select-option v-for="l in languages" :key="l.value" :value="l.value">
               {{ l.label }}
@@ -224,7 +224,7 @@ function clear(): void {
           </ion-select>
         </ion-item>
         <ion-item>
-          <ion-select v-model="country" label="Country" interface="action-sheet" placeholder="Any">
+          <ion-select v-model="country" label="Country" interface="alert" placeholder="Any">
             <ion-select-option value="">Any country</ion-select-option>
             <ion-select-option v-for="c in countries" :key="c.value" :value="c.value">
               {{ c.label }}
