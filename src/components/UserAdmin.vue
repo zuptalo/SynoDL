@@ -18,7 +18,6 @@ import {
   IonTitle,
   IonToggle,
   IonToolbar,
-  toastController,
 } from '@ionic/vue';
 import {
   addOutline,
@@ -31,6 +30,7 @@ import {
 } from 'ionicons/icons';
 import { onMounted, ref } from 'vue';
 import { api, ApiError, type AdminUser } from '@/services/api';
+import { appToast } from '@/services/toast';
 import { messageForError } from '@/services/syno-errors';
 import FolderPickerModal from '@/components/FolderPickerModal.vue';
 
@@ -91,8 +91,7 @@ function onboardingText(username: string, password: string): string {
 }
 
 async function toast(message: string, color = 'primary'): Promise<void> {
-  const t = await toastController.create({ message, duration: 4000, position: 'top', color, cssClass: 'app-toast' });
-  await t.present();
+  await appToast({ message, duration: 4000, color });
 }
 
 async function addUser(): Promise<void> {

@@ -16,9 +16,9 @@ import {
   IonTextarea,
   IonTitle,
   IonToolbar,
-  toastController,
 } from '@ionic/vue';
 import { api, ApiError, type SourceStatus } from '@/services/api';
+import { appToast } from '@/services/toast';
 
 const props = defineProps<{ isOpen: boolean }>();
 const emit = defineEmits<{ (e: 'dismiss'): void }>();
@@ -95,8 +95,7 @@ function stateLabel(s: SourceStatus | null): string {
 }
 
 async function toast(message: string): Promise<void> {
-  const t = await toastController.create({ message, duration: 2500, position: 'bottom' });
-  await t.present();
+  await appToast({ message, duration: 2500 });
 }
 
 async function save(): Promise<void> {
