@@ -10,6 +10,9 @@ import {
   IonIcon,
   IonInput,
   IonItem,
+  IonItemOption,
+  IonItemOptions,
+  IonItemSliding,
   IonLabel,
   IonList,
   IonListHeader,
@@ -19,28 +22,24 @@ import {
   IonToggle,
   IonToolbar,
 } from '@ionic/vue';
-import {
-  addOutline,
-  closeCircle,
-  folderOutline,
-  refreshOutline,
-  shieldCheckmarkOutline,
-  speedometerOutline,
-  trashOutline,
-} from 'ionicons/icons';
-import { onMounted, ref } from 'vue';
+import { addOutline, closeCircle, folderOutline, shieldCheckmarkOutline, speedometerOutline } from 'ionicons/icons';
+import { computed, onMounted, ref } from 'vue';
 import { api, ApiError, type AdminUser } from '@/services/api';
 import { appToast } from '@/services/toast';
 import { messageForError } from '@/services/syno-errors';
+import { useSession } from '@/composables/useSession';
 import FolderPickerModal from '@/components/FolderPickerModal.vue';
+
+const { user } = useSession();
+const currentUserId = computed(() => user.value?.id ?? -1);
 
 const users = ref<AdminUser[]>([]);
 const error = ref('');
 
-// Add-user form
+// Add-user form. New users are always non-admin; elevate them afterwards via the
+// per-row Admin toggle.
 const newUsername = ref('');
 const newPassword = ref('');
-const newIsAdmin = ref(false);
 const showPassword = ref(false);
 const adding = ref(false);
 
@@ -77,7 +76,7 @@ function fillGeneratedPassword(): void {
   showPassword.value = true; // reveal it so the admin can double-check before adding
 }
 
-// The install/onboarding blurb an admin can hand a new user verbatim.
+// The install/onboarding blurb an admin can hand a user verbatim.
 function onboardingText(username: string, password: string): string {
   const url = window.location.origin;
   return [
@@ -94,29 +93,28 @@ async function toast(message: string, color = 'primary'): Promise<void> {
   await appToast({ message, duration: 4000, color });
 }
 
+// Copy the onboarding message to the clipboard; returns whether it worked so the
+// caller can fall back to showing the password in a toast.
+async function copyOnboarding(username: string, password: string): Promise<boolean> {
+  try {
+    await navigator.clipboard.writeText(onboardingText(username, password));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 async function addUser(): Promise<void> {
   adding.value = true;
   error.value = '';
-  // Auto-generate when the admin left the field blank, so the common path is
-  // "type a username, tap Add" and the credentials come back on the clipboard.
   if (!newPassword.value) newPassword.value = generatePassword();
   const username = newUsername.value.trim();
   const password = newPassword.value;
   try {
-    await api.createUser(username, password, newIsAdmin.value);
-    // Copy username + password + install instructions so the admin can paste the
-    // whole onboarding message straight to the new user. Do this before clearing
-    // the fields; a clipboard failure is non-fatal (the values are still shown).
-    let copied = false;
-    try {
-      await navigator.clipboard.writeText(onboardingText(username, password));
-      copied = true;
-    } catch {
-      copied = false;
-    }
+    await api.createUser(username, password, false);
+    const copied = await copyOnboarding(username, password);
     newUsername.value = '';
     newPassword.value = '';
-    newIsAdmin.value = false;
     showPassword.value = false;
     await load();
     await toast(
@@ -141,25 +139,41 @@ async function toggleEnabled(u: AdminUser): Promise<void> {
   }
 }
 
+// Elevate/demote a user's admin role (you can't change your own).
+async function toggleAdmin(u: AdminUser): Promise<void> {
+  if (u.id === currentUserId.value) return;
+  try {
+    await api.updateUser(u.id, { isAdmin: !u.isAdmin });
+    await load();
+  } catch (e) {
+    error.value = messageForError(e);
+  }
+}
+
+// Reset generates a fresh password (after a confirm) and copies the same
+// username + password + install guide the add-user flow produces.
 async function resetPassword(u: AdminUser): Promise<void> {
   const alert = await alertController.create({
-    header: `Reset password for ${u.username}`,
-    inputs: [{ name: 'pw', type: 'password', placeholder: 'New password (min 8 characters)' }],
+    header: `Reset ${u.username}'s password?`,
+    message: "A new password is generated and copied to your clipboard with the sign-in guide, ready to share.",
     buttons: [
       { text: 'Cancel', role: 'cancel' },
-      { text: 'Set', role: 'confirm' },
+      { text: 'Reset', role: 'confirm' },
     ],
   });
   await alert.present();
-  const { role, data } = await alert.onDidDismiss();
+  const { role } = await alert.onDidDismiss();
   if (role !== 'confirm') return;
-  const pw = data?.values?.pw ?? '';
-  if (pw.length < 8) {
-    error.value = 'Password must be at least 8 characters.';
-    return;
-  }
+  const pw = generatePassword();
   try {
     await api.updateUser(u.id, { password: pw });
+    const copied = await copyOnboarding(u.username, pw);
+    await toast(
+      copied
+        ? `Reset ${u.username} — new password & sign-in guide copied to the clipboard.`
+        : `New password for ${u.username}: ${pw} (couldn't copy — save it now).`,
+      copied ? 'primary' : 'warning',
+    );
   } catch (e) {
     error.value = messageForError(e);
   }
@@ -205,9 +219,7 @@ async function setDailyLimit(u: AdminUser): Promise<void> {
   const alert = await alertController.create({
     header: `Daily download limit for ${u.username}`,
     subHeader: 'Downloads they can start per 24 hours (0 = unlimited).',
-    inputs: [
-      { name: 'n', type: 'number', value: String(u.dailyDownloadLimit ?? 0), min: 0, placeholder: '0' },
-    ],
+    inputs: [{ name: 'n', type: 'number', value: String(u.dailyDownloadLimit ?? 0), min: 0, placeholder: '0' }],
     buttons: [
       { text: 'Cancel', role: 'cancel' },
       { text: 'Set', role: 'confirm' },
@@ -280,40 +292,53 @@ async function saveFolders(): Promise<void> {
 <template>
   <ion-list inset>
     <ion-list-header><ion-label>Users</ion-label></ion-list-header>
+    <ion-note class="hint">Swipe a user left for Reset, Enable/Disable and Delete.</ion-note>
 
-    <ion-item v-for="u in users" :key="u.id" data-testid="admin-user">
-      <ion-label>
-        <h3>
-          {{ u.username }}
-          <ion-badge v-if="u.isAdmin" color="primary">admin</ion-badge>
-        </h3>
-        <p v-if="!u.isEnabled" class="disabled">disabled</p>
-        <p v-else class="limits">
-          <span v-if="u.contentRating">only {{ u.contentRating }}</span>
-          <span v-if="u.dailyDownloadLimit">{{ u.dailyDownloadLimit }}/day</span>
-        </p>
-      </ion-label>
-      <ion-buttons slot="end">
-        <ion-button :title="`Content rating for ${u.username}`" @click="setRating(u)">
-          <ion-icon slot="icon-only" :icon="shieldCheckmarkOutline" />
-        </ion-button>
-        <ion-button :title="`Daily download limit for ${u.username}`" @click="setDailyLimit(u)">
-          <ion-icon slot="icon-only" :icon="speedometerOutline" />
-        </ion-button>
-        <ion-button :title="`Folders for ${u.username}`" @click="openFolders(u)">
-          <ion-icon slot="icon-only" :icon="folderOutline" />
-        </ion-button>
-        <ion-button size="small" @click="resetPassword(u)">Reset</ion-button>
-        <ion-toggle
-          :checked="u.isEnabled"
-          :aria-label="`Enabled: ${u.username}`"
-          @ionChange="toggleEnabled(u)"
-        />
-        <ion-button color="danger" @click="removeUser(u)">
-          <ion-icon slot="icon-only" :icon="trashOutline" />
-        </ion-button>
-      </ion-buttons>
-    </ion-item>
+    <ion-item-sliding v-for="u in users" :key="u.id">
+      <ion-item data-testid="admin-user">
+        <ion-label class="ion-text-wrap">
+          <!-- Row 1: role in front of the username. -->
+          <h2 class="uname">
+            <ion-badge v-if="u.isAdmin" color="primary">Admin</ion-badge>
+            <span :class="{ off: !u.isEnabled }">{{ u.username }}</span>
+            <ion-badge v-if="!u.isEnabled" color="medium">disabled</ion-badge>
+          </h2>
+          <!-- Row 2: per-user controls + the admin toggle. -->
+          <div class="row-actions">
+            <ion-button size="small" fill="clear" :title="`Content rating for ${u.username}`" @click="setRating(u)">
+              <ion-icon slot="icon-only" :icon="shieldCheckmarkOutline" />
+            </ion-button>
+            <ion-button size="small" fill="clear" :title="`Daily download limit for ${u.username}`" @click="setDailyLimit(u)">
+              <ion-icon slot="icon-only" :icon="speedometerOutline" />
+            </ion-button>
+            <ion-button size="small" fill="clear" :title="`Folders for ${u.username}`" @click="openFolders(u)">
+              <ion-icon slot="icon-only" :icon="folderOutline" />
+            </ion-button>
+            <ion-toggle
+              class="admin-toggle"
+              :checked="u.isAdmin"
+              :disabled="u.id === currentUserId"
+              label-placement="start"
+              :aria-label="`Admin: ${u.username}`"
+              @ionChange="toggleAdmin(u)"
+            >
+              Admin
+            </ion-toggle>
+          </div>
+          <!-- Row 3: the current caps as read-only info. -->
+          <p class="limits">
+            <span>{{ u.contentRating ? `Rating ${u.contentRating}` : 'No rating cap' }}</span>
+            <span>·</span>
+            <span>{{ u.dailyDownloadLimit ? `${u.dailyDownloadLimit}/day` : 'No daily limit' }}</span>
+          </p>
+        </ion-label>
+      </ion-item>
+      <ion-item-options side="end">
+        <ion-item-option @click="toggleEnabled(u)">{{ u.isEnabled ? 'Disable' : 'Enable' }}</ion-item-option>
+        <ion-item-option color="medium" data-testid="admin-reset" @click="resetPassword(u)">Reset</ion-item-option>
+        <ion-item-option color="danger" @click="removeUser(u)">Delete</ion-item-option>
+      </ion-item-options>
+    </ion-item-sliding>
 
     <ion-list-header><ion-label>Add a user</ion-label></ion-list-header>
     <ion-item>
@@ -329,16 +354,14 @@ async function saveFolders(): Promise<void> {
         data-testid="admin-new-password"
       />
       <ion-button slot="end" fill="clear" size="small" title="Generate a strong password" @click="fillGeneratedPassword">
-        <ion-icon slot="icon-only" :icon="refreshOutline" />
+        <ion-icon slot="icon-only" :icon="addOutline" />
       </ion-button>
     </ion-item>
     <ion-item lines="none">
       <ion-note color="medium" class="pw-hint">
         On add, the username, password and an install link are copied to your clipboard to share.
+        New users start as non-admins — use the Admin toggle to elevate them.
       </ion-note>
-    </ion-item>
-    <ion-item>
-      <ion-toggle v-model="newIsAdmin" data-testid="admin-new-isadmin">Administrator</ion-toggle>
     </ion-item>
     <ion-item lines="none">
       <ion-button
@@ -384,12 +407,35 @@ async function saveFolders(): Promise<void> {
 </template>
 
 <style scoped>
-.disabled {
-  color: var(--app-status-error);
+.hint {
+  display: block;
+  padding: 0 1rem 0.25rem;
+  color: var(--app-text-dim);
+  font-size: 0.8rem;
+}
+.uname {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.uname .off {
+  color: var(--app-text-dim);
+  text-decoration: line-through;
+}
+.row-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin: 2px 0;
+}
+.admin-toggle {
+  margin-left: auto;
+  font-size: 0.85rem;
 }
 .limits {
   display: flex;
-  gap: 10px;
+  gap: 8px;
   color: var(--app-text-dim);
   font-size: 0.8rem;
 }
@@ -399,10 +445,6 @@ async function saveFolders(): Promise<void> {
 }
 .pw-hint {
   font-size: 0.8rem;
-}
-.hint {
-  color: var(--app-text-dim);
-  font-size: 0.85rem;
 }
 .chips {
   display: flex;
