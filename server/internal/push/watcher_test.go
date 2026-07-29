@@ -19,9 +19,10 @@ func (f *fakeSender) Send(_ context.Context, sub store.Subscription, payload []b
 	return f.gone, nil
 }
 
-// newWatcherStore returns a store with one admin user + an opted-in subscription
-// (default prefs: completed+failed for own tasks). Returns the user id so tests
-// can attribute tasks / tune prefs.
+// newWatcherStore returns a store with one admin user + an opted-in subscription.
+// An admin's effective scope defaults to "any" (everyone's tasks); tests that
+// want the "own" path set it explicitly. Returns the user id so tests can
+// attribute tasks / tune prefs.
 func newWatcherStore(t *testing.T) (*store.Store, int64) {
 	t.Helper()
 	c, _ := store.NewCipher("kdf-input-for-tests")
@@ -66,7 +67,9 @@ func TestWatcherNotifiesOnCompletionOnce(t *testing.T) {
 }
 
 func TestWatcherOwnScopeSkipsUnattributedTask(t *testing.T) {
-	st, _ := newWatcherStore(t) // no claim → task can't be attributed
+	st, uid := newWatcherStore(t) // no claim → task can't be attributed
+	// This admin opted down to "own", so unattributed tasks must be skipped.
+	_ = st.SaveNotificationPrefs(uid, store.NotificationPrefs{NotifyCompleted: true, Scope: "own"}, 0)
 	fs := &fakeSender{}
 	tasks := []Task{{ID: "t1", Name: "someone-elses.iso", Status: "downloading"}}
 	w := NewWatcher(st, func(context.Context) ([]Task, error) { return tasks, nil }, fs, "v1", time.Hour)
@@ -74,7 +77,44 @@ func TestWatcherOwnScopeSkipsUnattributedTask(t *testing.T) {
 	tasks[0].Status = "finished"
 	w.poll(context.Background())
 	if len(fs.sent) != 0 {
-		t.Fatalf("own-scope (default) must not notify for an unattributed task: %v", fs.sent)
+		t.Fatalf("own-scope must not notify for an unattributed task: %v", fs.sent)
+	}
+}
+
+// A non-admin's effective scope is always "own" — even the default — so they're
+// never notified about a task they didn't create.
+func TestWatcherNonAdminDefaultSkipsUnattributed(t *testing.T) {
+	st, _ := newWatcherStore(t)
+	// Drop the seeded admin's subscription (an admin defaults to "any" and would
+	// legitimately be notified) so only the non-admin below is under test.
+	_ = st.DeleteSubscription("https://push.example/one")
+	uid, _ := st.CreateUser("regular", "h", false)
+	_ = st.SaveSubscription(uid, "https://push.example/regular", "p", "a", true)
+	fs := &fakeSender{}
+	tasks := []Task{{ID: "t1", Name: "someone-elses.iso", Status: "downloading"}}
+	w := NewWatcher(st, func(context.Context) ([]Task, error) { return tasks, nil }, fs, "v1", time.Hour)
+	w.poll(context.Background())
+	tasks[0].Status = "finished"
+	w.poll(context.Background())
+	for _, p := range fs.sent {
+		if contains(p, "someone-elses.iso") {
+			t.Fatalf("non-admin must not be notified about others' tasks: %v", fs.sent)
+		}
+	}
+}
+
+// An admin with no explicit preference defaults to "any", so they hear about a
+// task nobody has been attributed for (the seeded admin has default prefs).
+func TestWatcherAdminDefaultNotifiesUnattributed(t *testing.T) {
+	st, _ := newWatcherStore(t) // admin, no prefs row → effective scope "any"
+	fs := &fakeSender{}
+	tasks := []Task{{ID: "t1", Name: "unclaimed.iso", Status: "downloading"}}
+	w := NewWatcher(st, func(context.Context) ([]Task, error) { return tasks, nil }, fs, "v1", time.Hour)
+	w.poll(context.Background())
+	tasks[0].Status = "finished"
+	w.poll(context.Background())
+	if len(fs.sent) != 1 || !contains(fs.sent[0], "unclaimed.iso") {
+		t.Fatalf("admin default (any) must be notified about an unattributed task: %v", fs.sent)
 	}
 }
 

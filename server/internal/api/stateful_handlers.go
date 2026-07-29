@@ -60,7 +60,7 @@ func (d Deps) filterFolders(u *store.User, folders []syno.Folder) []syno.Folder 
 // enforcement is added in Increment 3.
 
 func handleListTasksStateful(d Deps) http.Handler {
-	return d.requireUser(func(w http.ResponseWriter, r *http.Request, _ *store.User) {
+	return d.requireUser(func(w http.ResponseWriter, r *http.Request, u *store.User) {
 		var tasks []syno.Task
 		var stats syno.Stats
 		err := d.NAS.Do(r.Context(), func(c syno.Client, sid string) error {
@@ -76,10 +76,13 @@ func handleListTasksStateful(d Deps) http.Handler {
 			writeNASError(w, err)
 			return
 		}
-		if tasks == nil {
-			tasks = []syno.Task{}
+		// Per-user ownership: hide other people's tasks in "own" scope and label
+		// each remaining row "added by <user>" for admins.
+		views := d.decorateTasks(u, tasks)
+		if views == nil {
+			views = []taskView{}
 		}
-		httpx.JSON(w, http.StatusOK, map[string]any{"tasks": tasks, "stats": stats})
+		httpx.JSON(w, http.StatusOK, map[string]any{"tasks": views, "stats": stats})
 	})
 }
 

@@ -24,22 +24,23 @@ var (
 	streamHeartbeat = 15 * time.Second
 )
 
-// snapshotFunc fetches one task-list + stats snapshot from the NAS. The two
-// stateful/stateless variants differ only in how they obtain the sid, so they
-// share the SSE loop below by passing a closure.
-type snapshotFunc func(ctx context.Context) ([]syno.Task, syno.Stats, error)
+// snapshotFunc fetches one task-list + stats snapshot from the NAS, already
+// projected to the per-user view (ownership filter + "added by"). The two
+// stateful/stateless variants differ in how they obtain the sid and whether
+// they attribute tasks, so they share the SSE loop below by passing a closure.
+type snapshotFunc func(ctx context.Context) ([]taskView, syno.Stats, error)
 
 // handleTasksStream is the stateless (dev/e2e) live stream: the client carries
 // the NAS sid in X-Syno-Sid, exactly like GET /v1/tasks.
 func handleTasksStream(d Deps, lim *streamLimiter) http.Handler {
 	return requireSid(func(w http.ResponseWriter, r *http.Request, sid string) {
-		snap := func(ctx context.Context) ([]syno.Task, syno.Stats, error) {
+		snap := func(ctx context.Context) ([]taskView, syno.Stats, error) {
 			tasks, err := d.Syno.ListTasks(ctx, sid)
 			if err != nil {
 				return nil, syno.Stats{}, err
 			}
 			stats, _ := d.Syno.Stats(ctx, sid) // stats failure degrades to zeros
-			return tasks, stats, nil
+			return asViews(tasks), stats, nil
 		}
 		runTaskStream(w, r, lim, snap, writeSynoError)
 	})
@@ -47,9 +48,11 @@ func handleTasksStream(d Deps, lim *streamLimiter) http.Handler {
 
 // handleTasksStreamStateful is the production live stream: the client carries a
 // SynoDL session token and NAS calls go through the shared stored connection.
+// Each snapshot is filtered/labelled for the requesting user so the live stream
+// honors the same ownership rules as the polled list.
 func handleTasksStreamStateful(d Deps, lim *streamLimiter) http.Handler {
-	return d.requireUser(func(w http.ResponseWriter, r *http.Request, _ *store.User) {
-		snap := func(ctx context.Context) ([]syno.Task, syno.Stats, error) {
+	return d.requireUser(func(w http.ResponseWriter, r *http.Request, u *store.User) {
+		snap := func(ctx context.Context) ([]taskView, syno.Stats, error) {
 			var tasks []syno.Task
 			var stats syno.Stats
 			err := d.NAS.Do(ctx, func(c syno.Client, sid string) error {
@@ -64,7 +67,7 @@ func handleTasksStreamStateful(d Deps, lim *streamLimiter) http.Handler {
 			if err != nil {
 				return nil, syno.Stats{}, err
 			}
-			return tasks, stats, nil
+			return d.decorateTasks(u, tasks), stats, nil
 		}
 		runTaskStream(w, r, lim, snap, writeNASError)
 	})
@@ -149,9 +152,9 @@ func runTaskStream(w http.ResponseWriter, r *http.Request, lim *streamLimiter, s
 
 // marshalSnapshot renders the same {tasks, stats} shape as GET /v1/tasks so the
 // stream and the poll are byte-compatible on the client.
-func marshalSnapshot(tasks []syno.Task, stats syno.Stats) []byte {
+func marshalSnapshot(tasks []taskView, stats syno.Stats) []byte {
 	if tasks == nil {
-		tasks = []syno.Task{}
+		tasks = []taskView{}
 	}
 	b, _ := json.Marshal(map[string]any{"tasks": tasks, "stats": stats})
 	return b

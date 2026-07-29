@@ -91,6 +91,82 @@ func (s *Store) ClaimOwner(nameHint string, since int64) (userID int64, ok bool,
 	return userID, true, nil
 }
 
+// TaskOwner is a task's attributed creator (spec 1013 — task ownership).
+type TaskOwner struct {
+	UserID   int64
+	Username string
+}
+
+// TaskOwners maps every attributed DSM task id to its creator (id + username),
+// so the Tasks list can label each row "added by <user>" and filter by owner.
+// Unattributed tasks (no claim matched, or created outside SynoDL) are absent.
+func (s *Store) TaskOwners() (map[string]TaskOwner, error) {
+	rows, err := s.db.Query(`
+		SELECT wt.nas_task_id, u.id, u.username
+		FROM watched_tasks wt
+		JOIN users u ON u.id = wt.owner_user_id
+		WHERE wt.owner_user_id IS NOT NULL`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[string]TaskOwner{}
+	for rows.Next() {
+		var id string
+		var o TaskOwner
+		if err := rows.Scan(&id, &o.UserID, &o.Username); err != nil {
+			return nil, err
+		}
+		out[id] = o
+	}
+	return out, rows.Err()
+}
+
+// PendingClaimNames returns the DSM task names a user has un-consumed claims for,
+// created at/after `since`. The Tasks list treats a task matching one of these as
+// already the user's own during the brief window between creating it and the
+// watcher attributing it (so a fresh download shows up immediately, not after the
+// next poll).
+func (s *Store) PendingClaimNames(userID, since int64) (map[string]bool, error) {
+	rows, err := s.db.Query(
+		`SELECT name_hint FROM task_claims WHERE user_id = ? AND created_at >= ?`, userID, since)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[string]bool{}
+	for rows.Next() {
+		var n string
+		if err := rows.Scan(&n); err != nil {
+			return nil, err
+		}
+		out[n] = true
+	}
+	return out, rows.Err()
+}
+
+// EffectiveNotificationScope resolves the scope that governs BOTH which tasks a
+// user sees in the list and which they're notified about. A non-admin is always
+// "own" (their own downloads only). An admin defaults to "any" (everyone's) so
+// they oversee the instance out of the box, but may opt down to "own".
+func (s *Store) EffectiveNotificationScope(userID int64, isAdmin bool) (string, error) {
+	if !isAdmin {
+		return "own", nil
+	}
+	var scope string
+	err := s.db.QueryRow(`SELECT scope FROM notification_prefs WHERE user_id = ?`, userID).Scan(&scope)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "any", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	if scope != "any" {
+		scope = "own"
+	}
+	return scope, nil
+}
+
 // SetWatchedOwner stamps the attributed owner on a watched task.
 func (s *Store) SetWatchedOwner(taskID string, userID int64) error {
 	_, err := s.db.Exec(`UPDATE watched_tasks SET owner_user_id = ? WHERE nas_task_id = ?`, userID, taskID)

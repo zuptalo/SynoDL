@@ -106,6 +106,7 @@ const errorReason = computed(() =>
           <span v-if="active">↓ {{ formatSpeed(task.downloadSpeed) }}</span>
           <span v-if="active && task.uploadSpeed > 0">↑ {{ formatSpeed(task.uploadSpeed) }}</span>
           <span v-if="active">{{ eta }}</span>
+          <span v-if="task.addedBy" class="added-by" data-testid="task-added-by">added by {{ task.addedBy }}</span>
         </div>
         <ion-progress-bar
           v-if="task.status !== 'finished'"
@@ -157,6 +158,10 @@ const errorReason = computed(() =>
 }
 .reason {
   color: var(--app-status-error);
+}
+.added-by {
+  font-style: italic;
+  opacity: 0.85;
 }
 ion-progress-bar {
   height: 3px;

@@ -11,6 +11,11 @@ import {
 } from '@ionic/vue';
 import { onMounted, ref } from 'vue';
 import { api, type NotifPrefs } from '@/services/api';
+import { useSession } from '@/composables/useSession';
+
+// Only admins choose scope: a regular user always sees and is notified about just
+// their own downloads. Admins default to everyone's and can narrow to their own.
+const { isAdmin } = useSession();
 
 const supported =
   'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
@@ -93,6 +98,9 @@ async function currentSub(): Promise<PushSubscription | null> {
 
 onMounted(async () => {
   if (!supported) return;
+  // Load prefs first so an admin's scope choice is available even before (or
+  // without) enabling push — it also governs what they see in the Tasks list.
+  await loadPrefs();
   // iOS delivers Web Push only to an installed (home-screen) PWA.
   const standalone =
     window.matchMedia('(display-mode: standalone)').matches ||
@@ -121,7 +129,6 @@ onMounted(async () => {
   } catch {
     /* leave off */
   }
-  await loadPrefs();
 });
 
 async function onToggle(ev: CustomEvent): Promise<void> {
@@ -200,7 +207,7 @@ async function unsubscribe(): Promise<void> {
           When a download finishes
         </ion-toggle>
       </ion-item>
-      <ion-item>
+      <ion-item :lines="isAdmin ? 'full' : 'none'">
         <ion-toggle
           :checked="prefs.notifyFailed"
           data-testid="notif-failed"
@@ -209,14 +216,25 @@ async function unsubscribe(): Promise<void> {
           When a download fails
         </ion-toggle>
       </ion-item>
-      <ion-item lines="none">
+    </template>
+
+    <!-- Admin-only: whose downloads to show and notify about. Non-admins always
+         see and hear about only their own, so there's no choice to offer them.
+         This governs both the Tasks list and notifications. -->
+    <template v-if="isAdmin && !iosNeedsInstall">
+      <ion-item>
         <ion-label>
-          <p>For</p>
+          <p>Show &amp; notify me about</p>
         </ion-label>
         <ion-segment :value="prefs.scope" data-testid="notif-scope" @ion-change="setScope">
           <ion-segment-button value="own"><ion-label>My downloads</ion-label></ion-segment-button>
           <ion-segment-button value="any"><ion-label>Everyone's</ion-label></ion-segment-button>
         </ion-segment>
+      </ion-item>
+      <ion-item lines="none">
+        <ion-note class="scope-hint">
+          Applies to the Tasks list and notifications. "Everyone's" also shows who added each task.
+        </ion-note>
       </ion-item>
     </template>
 
@@ -228,5 +246,9 @@ async function unsubscribe(): Promise<void> {
 .err {
   display: block;
   margin: 0.5rem 1rem;
+}
+.scope-hint {
+  font-size: 0.8rem;
+  color: var(--app-text-dim);
 }
 </style>

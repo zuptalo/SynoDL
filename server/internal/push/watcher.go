@@ -149,7 +149,18 @@ func (w *Watcher) notifyEvent(ctx context.Context, event string, ownerUserID int
 		if !prefEnabled(prefs, event) {
 			continue
 		}
-		if prefs.Scope != "any" && sub.UserID != ownerUserID {
+		// Effective scope is role-aware: a non-admin only ever hears about their
+		// own tasks; an admin defaults to everyone's (matching what they see in
+		// the list) but may opt down to "own".
+		isAdmin := false
+		if u, e := w.store.GetUserByID(sub.UserID); e == nil {
+			isAdmin = u.IsAdmin
+		}
+		scope, e := w.store.EffectiveNotificationScope(sub.UserID, isAdmin)
+		if e != nil {
+			continue
+		}
+		if scope != "any" && sub.UserID != ownerUserID {
 			continue // "own" scope: only this user's own (attributed) tasks
 		}
 		w.send(ctx, sub, msg)

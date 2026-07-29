@@ -110,6 +110,14 @@ async function redownload(): Promise<void> {
             <h2 data-testid="detail-destination">{{ task.destination || '—' }}</h2>
           </ion-label>
         </ion-item>
+        <!-- Attribution is sent only to admins, so this row simply doesn't
+             appear for a regular user. -->
+        <ion-item v-if="task.addedBy">
+          <ion-label class="ion-text-wrap">
+            <p>Added by</p>
+            <h2 data-testid="detail-added-by">{{ task.addedBy }}</h2>
+          </ion-label>
+        </ion-item>
         <ion-item v-if="task.uri">
           <ion-label class="ion-text-wrap">
             <p>Link</p>
