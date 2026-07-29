@@ -482,9 +482,30 @@ function goSettings(): void {
 }
 .grid {
   display: grid;
+  /* Phones: compact tiles so a couple fit per row. Wider screens (tablets,
+     desktop) get a larger minimum so posters scale up instead of packing a dozen
+     tiny tiles across a wide window. */
   grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
   gap: 12px;
   padding: 12px;
+}
+@media (min-width: 700px) {
+  .grid {
+    grid-template-columns: repeat(auto-fill, minmax(185px, 1fr));
+    gap: 16px;
+    padding: 16px;
+  }
+}
+@media (min-width: 1100px) {
+  .grid {
+    grid-template-columns: repeat(auto-fill, minmax(215px, 1fr));
+  }
+}
+@media (min-width: 1600px) {
+  .grid {
+    grid-template-columns: repeat(auto-fill, minmax(245px, 1fr));
+    gap: 20px;
+  }
 }
 .card {
   display: flex;
