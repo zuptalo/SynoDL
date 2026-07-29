@@ -4,9 +4,10 @@
 # PR by itself the moment every REQUIRED check is green — and not a second
 # before. Branch protection is what makes that safe; see the safety gate below.
 #
-# Merge method is a MERGE COMMIT on purpose: release.yml verifies the merge
-# commit, and the feature branch's history stays joined into main (linear
-# history is intentionally NOT required).
+# Merge method is SQUASH: this repository allows squash merges only (merge
+# commits are disabled), so `--merge` fails with "Merge commits are not allowed"
+# and the auto-merge never engages. release.yml re-verifies whatever commit lands
+# on main, so a squash commit is fine; each PR becomes one tidy commit.
 name: Auto-merge PRs
 
 on:
@@ -49,14 +50,14 @@ jobs:
             echo "::warning::main has no required status checks — skipping auto-merge. Run scripts/setup-branch-protection.sh once, then re-open or push to this PR."
           fi
 
-      - name: Enable auto-merge (merge commit)
+      - name: Enable auto-merge (squash)
         if: steps.protection.outputs.ok == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           gh pr merge "${{ github.event.pull_request.number }}" \
             --repo "${{ github.repository }}" \
-            --auto --merge
+            --auto --squash
 
       # GitHub deliberately does not let a push made with the run's own GITHUB_TOKEN
       # trigger other workflows (anti-infinite-loop safeguard) — so once GitHub's
