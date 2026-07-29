@@ -130,7 +130,9 @@ async function onToggleOrder(): Promise<void> {
 // Keep loading pages until the content overflows the viewport (or nothing more).
 async function fillViewport(): Promise<void> {
   for (let i = 0; i < 10; i += 1) {
-    if (!hasMore.value || loading.value) return;
+    // Bail out as soon as the source is unavailable/needs-refresh/errored so we
+    // don't keep firing page requests at a failing (rate-limited) provider.
+    if (!hasMore.value || loading.value || needsRefresh.value || unavailable.value || errorMsg.value) return;
     await nextTick();
     const el = await contentRef.value?.$el?.getScrollElement?.();
     if (!el) return;

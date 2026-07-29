@@ -60,11 +60,13 @@ func (fakeSrc) Parameters(context.Context, *source.Client, source.Config, source
 }
 
 func resetFake() {
-	fakeVerifyErr, fakeSearchErr, fakeTitleErr, fakeResolveErr = nil, nil, nil, nil
+	fakeVerifyErr, fakeSearchErr, fakeTitleErr, fakeResolveErr, fakeParamsErr = nil, nil, nil, nil, nil
 	fakeSearch = source.SearchResult{}
+	fakeParams = source.SearchParameters{}
 	fakeTitle = source.TitleDetail{}
 	fakeLinks = nil
 	fakeSize = ""
+	sourceFailStreak.Store(0) // the streak is a package global — isolate each test
 }
 
 // configureFake configures the fake provider via the admin API (verify passes).
@@ -223,8 +225,22 @@ func TestSourceSearch(t *testing.T) {
 		t.Fatalf("search = %d %s", rec.Code, rec.Body.String())
 	}
 
-	// Expired session → 409 needs-refresh(token) and the stored state flips.
+	// A transient auth failure does NOT nuke the session — it returns a retryable
+	// "busy" and the stored state stays active (a lone Cloudflare blip shouldn't
+	// flip the whole source into needs_refresh).
 	fakeSearchErr = &source.ErrNeedsRefresh{Layer: source.LayerToken}
+	for i := 0; i < sourceFailThreshold-1; i++ {
+		rec = do(t, h, "POST", "/v1/source/search", `{"query":"x"}`, admin)
+		if rec.Code != http.StatusServiceUnavailable || !strings.Contains(rec.Body.String(), "source_busy") {
+			t.Fatalf("transient search #%d = %d %s", i, rec.Code, rec.Body.String())
+		}
+	}
+	if rec := do(t, h, "GET", "/v1/source/status", "", admin); !strings.Contains(rec.Body.String(), `"state":"active"`) {
+		t.Fatalf("state should stay active through transient failures: %s", rec.Body.String())
+	}
+
+	// The threshold-th consecutive failure IS treated as a dead session → 409
+	// needs-refresh(token) and the stored state flips.
 	rec = do(t, h, "POST", "/v1/source/search", `{"query":"x"}`, admin)
 	if rec.Code != http.StatusConflict || !strings.Contains(rec.Body.String(), "source_needs_refresh") ||
 		!strings.Contains(rec.Body.String(), `"layer":"token"`) {
@@ -232,6 +248,15 @@ func TestSourceSearch(t *testing.T) {
 	}
 	if rec := do(t, h, "GET", "/v1/source/status", "", admin); !strings.Contains(rec.Body.String(), `"state":"needs_refresh"`) {
 		t.Fatalf("state should be needs_refresh: %s", rec.Body.String())
+	}
+
+	// A subsequent SUCCESS clears the streak and restores the session to active.
+	fakeSearchErr = nil
+	if rec := do(t, h, "POST", "/v1/source/search", `{"query":"x"}`, admin); rec.Code != 200 {
+		t.Fatalf("recovery search = %d %s", rec.Code, rec.Body.String())
+	}
+	if rec := do(t, h, "GET", "/v1/source/status", "", admin); !strings.Contains(rec.Body.String(), `"state":"active"`) {
+		t.Fatalf("state should recover to active after a success: %s", rec.Body.String())
 	}
 
 	// Auth required.
@@ -307,11 +332,12 @@ func TestSourceSendMovie(t *testing.T) {
 		t.Fatalf("non-admin send = %d %s", rec.Code, rec.Body.String())
 	}
 
-	// Expired session at resolve → 409 needs-refresh.
+	// A lone auth failure at resolve is treated as transient (retryable "busy"),
+	// not a dead session — same hysteresis as the browse paths.
 	fakeResolveErr = &source.ErrNeedsRefresh{Layer: source.LayerToken}
 	rec = do(t, h, "POST", "/v1/source/send", `{"titleId":"1","qualityId":"q1","title":"X"}`, admin)
-	if rec.Code != http.StatusConflict || !strings.Contains(rec.Body.String(), "source_needs_refresh") {
-		t.Fatalf("expired send = %d %s", rec.Code, rec.Body.String())
+	if rec.Code != http.StatusServiceUnavailable || !strings.Contains(rec.Body.String(), "source_busy") {
+		t.Fatalf("transient send = %d %s", rec.Code, rec.Body.String())
 	}
 }
 

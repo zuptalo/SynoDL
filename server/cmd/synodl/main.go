@@ -119,6 +119,11 @@ func main() {
 			watcher.SetUpdateNotifyDelay(25 * time.Second)
 			go watcher.Run(context.Background())
 		}
+		// Keep the download-source session warm: a single gentle probe every 15
+		// minutes keeps it from idle-expiring, self-heals a source stuck in
+		// needs_refresh after a transient blip, and flags a genuine expiry early so
+		// an admin is prompted to re-paste before a user hits it cold.
+		go deps.RunSourceKeepAlive(context.Background(), 15*time.Minute)
 		slog.Info("synodl stateful mode", "dataDir", cfg.DataDir)
 	} else {
 		deps.Syno = syno.NewHTTPClient(cfg.SynoURL, cfg.SynoTLSInsecure)
