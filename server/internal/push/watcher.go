@@ -4,9 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"log/slog"
+	"strings"
 	"time"
 
 	"synodl/server/internal/store"
+	"synodl/server/internal/tasktitle"
 )
 
 // attributionWindowSecs bounds how far back a task-ownership claim may be to
@@ -15,10 +17,15 @@ import (
 const attributionWindowSecs = 30 * 60
 
 // Task is the minimal task shape the watcher needs (decoupled from syno.Task).
+// Destination/URI feed the human-readable notification title; Size is the real
+// on-disk size used to backfill download history on completion.
 type Task struct {
-	ID     string
-	Name   string
-	Status string
+	ID          string
+	Name        string
+	Status      string
+	Destination string
+	URI         string
+	Size        int64
 }
 
 // pushSender is the subset of *Sender the watcher uses (fakeable in tests).
@@ -98,6 +105,9 @@ func (w *Watcher) poll(ctx context.Context) {
 		if err != nil {
 			continue
 		}
+		// Human-readable body (clean title + episode marker) instead of the raw
+		// release-scene file name.
+		body := tasktitle.Display(t.Name, t.Destination, t.URI)
 		switch {
 		case !found:
 			// First sight: attribute the task to whoever created it (a pending
@@ -105,19 +115,25 @@ func (w *Watcher) poll(ctx context.Context) {
 			// finished when first seen is marked notified so we never push a stale
 			// completion.
 			_ = w.store.UpsertWatched(t.ID, t.Status, t.Status == "finished")
-			owner := w.attribute(t)
+			w.attribute(t) // stamp owner from a pending name claim (direct adds)
+			owner := w.ownerOf(t)
 			// Only announce as "added" once we're past the startup baseline and the
 			// task is genuinely in flight (not one we discovered already done).
 			if w.primed && t.Status != "finished" && t.Status != "error" {
-				w.notifyEvent(ctx, "added", owner, t.ID, "Download added", t.Name)
+				w.notifyEvent(ctx, "added", owner, t.ID, "Download added", body)
+			}
+			// If it was already finished on first sight, still backfill its size.
+			if t.Status == "finished" {
+				w.backfillSize(t)
 			}
 		case t.Status == "finished" && last != "finished" && !notified:
-			owner, _, _ := w.store.GetWatchedOwner(t.ID)
-			w.notifyEvent(ctx, "completed", owner, t.ID, "Download complete", t.Name)
+			owner := w.ownerOf(t)
+			w.notifyEvent(ctx, "completed", owner, t.ID, "Download complete", body)
+			w.backfillSize(t)
 			_ = w.store.UpsertWatched(t.ID, t.Status, true)
 		case t.Status == "error" && last != "error":
-			owner, _, _ := w.store.GetWatchedOwner(t.ID)
-			w.notifyEvent(ctx, "failed", owner, t.ID, "Download failed", t.Name)
+			owner := w.ownerOf(t)
+			w.notifyEvent(ctx, "failed", owner, t.ID, "Download failed", body)
 			_ = w.store.UpsertWatched(t.ID, t.Status, notified)
 		case t.Status != last:
 			_ = w.store.UpsertWatched(t.ID, t.Status, notified)
@@ -135,6 +151,32 @@ func (w *Watcher) attribute(t Task) int64 {
 	}
 	_ = w.store.SetWatchedOwner(t.ID, owner)
 	return owner
+}
+
+// ownerOf resolves the SynoDL user who added a task: the stamped watched owner
+// (a matched name claim, used by direct adds), else the catalog owner attributed
+// by destination folder (a Discover send — its claim is by folder name and can't
+// match the file-named task, so destination is the reliable source). Returns 0
+// when unattributable (e.g. a task created outside SynoDL).
+func (w *Watcher) ownerOf(t Task) int64 {
+	if owner, ok, _ := w.store.GetWatchedOwner(t.ID); ok && owner != 0 {
+		return owner
+	}
+	if m, err := w.store.SourceDownloads(); err == nil {
+		if d, ok := m[strings.Trim(strings.TrimSpace(t.Destination), "/")]; ok && d.OwnerID != 0 {
+			return d.OwnerID
+		}
+	}
+	return 0
+}
+
+// backfillSize records the task's real on-disk size onto its download-history
+// row (matched by destination + name). A no-match is benign — the download
+// simply isn't tracked here, or a size was already recorded.
+func (w *Watcher) backfillSize(t Task) {
+	if _, err := w.store.CompleteDownloadHistory(t.Destination, t.Name, t.Size, w.now().Unix()); err != nil {
+		slog.Warn("history size backfill failed", "err", err)
+	}
 }
 
 func (w *Watcher) maybeNotifyUpdate(ctx context.Context) {
@@ -163,6 +205,14 @@ func (w *Watcher) notifyEvent(ctx context.Context, event string, ownerUserID int
 	}
 	body = truncate(body, 120)
 	msg := payload(title, body, taskID)
+	// Resolve the owner's username once, for the attribution suffix shown only to
+	// all-scope (admin/owner) subscribers about someone else's download.
+	ownerName := ""
+	if ownerUserID != 0 {
+		if u, e := w.store.GetUserByID(ownerUserID); e == nil {
+			ownerName = u.Username
+		}
+	}
 	for _, sub := range subs {
 		prefs, err := w.store.GetNotificationPrefs(sub.UserID)
 		if err != nil {
@@ -185,7 +235,14 @@ func (w *Watcher) notifyEvent(ctx context.Context, event string, ownerUserID int
 		if scope != "any" && sub.UserID != ownerUserID {
 			continue // "own" scope: only this user's own (attributed) tasks
 		}
-		w.send(ctx, sub, msg)
+		// An all-scope subscriber seeing SOMEONE ELSE's download also gets who
+		// added it; a subscriber is never told "added by <themselves>", and a
+		// non-admin ("own" scope) never reaches here for another user's task.
+		out := msg
+		if scope == "any" && ownerName != "" && sub.UserID != ownerUserID {
+			out = payload(title, body+" · added by "+ownerName, taskID)
+		}
+		w.send(ctx, sub, out)
 	}
 }
 

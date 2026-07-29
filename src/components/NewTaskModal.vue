@@ -14,6 +14,8 @@ import {
   IonListHeader,
   IonModal,
   IonNote,
+  IonSelect,
+  IonSelectOption,
   IonTextarea,
   IonTitle,
   IonToggle,
@@ -21,13 +23,17 @@ import {
 } from '@ionic/vue';
 import { createOutline, folderOutline } from 'ionicons/icons';
 import { computed, ref, watch } from 'vue';
-import { api, ApiError } from '@/services/api';
+import { api, ApiError, type StatCategory } from '@/services/api';
 import { batch, extractUrls } from '@/services/url-detect';
 import { messageForError } from '@/services/syno-errors';
 import { useDestinationPrefs } from '@/composables/useDestinationPrefs';
+import { useSession } from '@/composables/useSession';
 import FolderPickerModal from '@/components/FolderPickerModal.vue';
 
 const { defaultDest, favorites } = useDestinationPrefs();
+const { mode } = useSession();
+// The media category only feeds statistics, which exist in stateful mode.
+const stateful = computed(() => mode.value === 'stateful');
 
 const props = defineProps<{ isOpen: boolean }>();
 const emit = defineEmits<{
@@ -44,6 +50,9 @@ const password = ref('');
 const withExtract = ref(false);
 const unzipPassword = ref('');
 const file = ref<File | null>(null);
+// 'auto' lets the server classify from the folder + file type; a specific choice
+// overrides that. Only sent (and shown) in stateful mode.
+const category = ref<StatCategory | 'auto'>('auto');
 const busy = ref(false);
 const error = ref('');
 const progress = ref('');
@@ -67,6 +76,7 @@ watch(
       withExtract.value = false;
       unzipPassword.value = '';
       file.value = null;
+      category.value = 'auto';
       error.value = '';
     }
   },
@@ -136,6 +146,7 @@ async function submit(): Promise<void> {
         username: withCredentials.value ? username.value : undefined,
         password: withCredentials.value ? password.value : undefined,
         unzipPassword: withExtract.value ? unzipPassword.value : undefined,
+        category: stateful.value ? category.value : undefined,
       };
       const chunks = batch(urls.value, BATCH_SIZE);
       let added = 0;
@@ -151,6 +162,7 @@ async function submit(): Promise<void> {
       await api.createTaskFile(file.value, {
         destination: destination.value || undefined,
         unzipPassword: withExtract.value ? unzipPassword.value : undefined,
+        category: stateful.value ? category.value : undefined,
       });
     }
     emit('created');
@@ -205,6 +217,20 @@ async function submit(): Promise<void> {
         <ion-item v-if="destination" button :detail="false" data-testid="newtask-newfolder" @click="newFolderHere">
           <ion-icon slot="start" :icon="createOutline" color="primary" />
           <ion-label color="primary">New folder in “{{ destination }}”</ion-label>
+        </ion-item>
+
+        <!-- Media category for statistics (stateful only). Auto = classify from
+             the folder + file type; a choice here overrides that. -->
+        <ion-item v-if="stateful">
+          <ion-select v-model="category" label="Category" interface="popover" data-testid="newtask-category">
+            <ion-select-option value="auto">Auto-detect</ion-select-option>
+            <ion-select-option value="movie">Movie</ion-select-option>
+            <ion-select-option value="series">TV series</ion-select-option>
+            <ion-select-option value="anime">Anime</ion-select-option>
+            <ion-select-option value="musicVideo">Music video</ion-select-option>
+            <ion-select-option value="music">Music</ion-select-option>
+            <ion-select-option value="other">Other</ion-select-option>
+          </ion-select>
         </ion-item>
 
         <ion-list-header><ion-label>Task URL(s)</ion-label></ion-list-header>

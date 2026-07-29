@@ -25,6 +25,7 @@ import { useSession } from '@/composables/useSession';
 import { useTheme } from '@/composables/useTheme';
 import { useLanding } from '@/composables/useLanding';
 import UserManagementModal from '@/components/UserManagementModal.vue';
+import StatisticsModal from '@/components/StatisticsModal.vue';
 import PushOptIn from '@/components/PushOptIn.vue';
 import NasConnectionModal from '@/components/NasConnectionModal.vue';
 import ChangePasswordModal from '@/components/ChangePasswordModal.vue';
@@ -53,6 +54,7 @@ const darkMode = computed({
 const nasOpen = ref(false);
 const pwOpen = ref(false);
 const usersOpen = ref(false);
+const statsOpen = ref(false);
 const sourceOpen = ref(false);
 
 async function loadHost(): Promise<void> {
@@ -157,6 +159,16 @@ async function onLogout(): Promise<void> {
       <!-- Notifications (stateful only). -->
       <PushOptIn v-if="stateful" />
 
+      <!-- Statistics (stateful): own stats for everyone; admins get a user picker
+           inside to view any user or all combined. -->
+      <ion-list v-if="stateful && user" inset>
+        <ion-list-header>Statistics</ion-list-header>
+        <ion-item button :detail="false" data-testid="settings-statistics" @click="statsOpen = true">
+          <ion-label>Download statistics</ion-label>
+          <ion-icon slot="end" :icon="chevronForward" color="medium" />
+        </ion-item>
+      </ion-list>
+
       <!-- Admin-only: user management behind its own dive-in section. -->
       <ion-list v-if="isAdmin" inset>
         <ion-list-header>Users</ion-list-header>
@@ -189,6 +201,7 @@ async function onLogout(): Promise<void> {
 
       <p class="version" data-testid="settings-version">v{{ version }}</p>
 
+      <StatisticsModal :is-open="statsOpen" :is-admin="isAdmin" @dismiss="statsOpen = false" />
       <UserManagementModal v-if="isAdmin" :is-open="usersOpen" @dismiss="usersOpen = false" />
       <SourceProviderAdmin v-if="isAdmin" :is-open="sourceOpen" @dismiss="sourceOpen = false" />
       <NasConnectionModal :is-open="nasOpen" @dismiss="nasOpen = false" @saved="loadHost" />

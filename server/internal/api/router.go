@@ -84,6 +84,11 @@ func NewRouter(d Deps) http.Handler {
 		mux.Handle("GET /v1/destinations/prefs", handleGetDestinationPrefs(d))
 		mux.Handle("PUT /v1/destinations/prefs", handleSetDestinationPrefs(d))
 
+		// Download statistics (spec 0006): read-only aggregates over download
+		// history. Visibility is role-gated inside the handlers (own vs. all).
+		mux.Handle("GET /v1/stats/summary", handleGetStatsSummary(d))
+		mux.Handle("GET /v1/stats/timeseries", handleGetStatsTimeseries(d))
+
 		mux.Handle("GET /v1/tasks", handleListTasksStateful(d))
 		mux.Handle("GET /v1/tasks/stream", handleTasksStreamStateful(d, streamLim))
 		mux.Handle("POST /v1/tasks", handleCreateTaskStateful(d))

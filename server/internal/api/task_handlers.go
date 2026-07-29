@@ -55,6 +55,9 @@ type createTaskJSON struct {
 	Username      string   `json:"username"`
 	Password      string   `json:"password"`
 	UnzipPassword string   `json:"unzipPassword"`
+	// Category is the user's media-category choice for statistics ("" / "auto" =
+	// let the server classify from folder + file type). Stateful mode only.
+	Category string `json:"category"`
 }
 
 // handleCreateTask accepts either a JSON body (URL/magnet list) or a

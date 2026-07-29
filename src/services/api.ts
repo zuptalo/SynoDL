@@ -400,6 +400,45 @@ export interface SourceSearchFilters {
   yearTo?: string;
 }
 
+// --- Statistics (spec 0006) -------------------------------------------------
+
+/** Media categories, client spelling (server uses snake_case music_video). */
+export type StatCategory = 'movie' | 'series' | 'anime' | 'musicVideo' | 'music' | 'other';
+/** Download source filter. "all" is catalog + direct combined. */
+export type StatSource = 'catalog' | 'direct' | 'all';
+
+/**
+ * One category's RAW aggregates. The server sends raw counts (not a pre-computed
+ * average) so the client can combine categories/sources/users exactly — an
+ * average of averages would be wrong. Derive the average with `avgSize()`.
+ */
+export interface StatCategoryStat {
+  count: number; // all downloads, incl. paused/canceled
+  completed: number; // downloads with a known size
+  sumBytes: number; // sum of known sizes
+}
+
+/** Per-source stats keyed by category. The server sends catalog + direct; the
+ *  combined "all" view is derived on the client. */
+export type StatSourceStats = Record<StatCategory, StatCategoryStat>;
+
+export interface StatUserSummary {
+  userId: number;
+  username: string;
+  bySource: Record<'catalog' | 'direct', StatSourceStats>;
+}
+
+/** Average size in bytes over completed downloads, or null when none completed. */
+export function avgSize(s: { completed: number; sumBytes: number }): number | null {
+  return s.completed > 0 ? Math.round(s.sumBytes / s.completed) : null;
+}
+
+export interface StatsTimeseries {
+  userId: number | 'all';
+  source: string;
+  days: { date: string; count: number }[];
+}
+
 export const api = {
   config: () => request<ServerConfig>('/v1/config'),
 
@@ -486,14 +525,24 @@ export const api = {
 
   createTaskURIs: (
     uris: string[],
-    opts: { destination?: string; username?: string; password?: string; unzipPassword?: string } = {},
+    opts: {
+      destination?: string;
+      username?: string;
+      password?: string;
+      unzipPassword?: string;
+      category?: StatCategory | 'auto';
+    } = {},
   ) => request<void>('/v1/tasks', json({ uris, ...opts })),
 
-  createTaskFile: (file: File, opts: { destination?: string; unzipPassword?: string } = {}) => {
+  createTaskFile: (
+    file: File,
+    opts: { destination?: string; unzipPassword?: string; category?: StatCategory | 'auto' } = {},
+  ) => {
     const form = new FormData();
     form.set('torrent', file, file.name);
     if (opts.destination) form.set('destination', opts.destination);
     if (opts.unzipPassword) form.set('unzipPassword', opts.unzipPassword);
+    if (opts.category) form.set('category', opts.category);
     return request<void>('/v1/tasks', { method: 'POST', body: form });
   },
 
@@ -530,6 +579,17 @@ export const api = {
   // Admin: clear a user's daily download count (fresh allowance now).
   resetUserDownloads: (id: number) =>
     request<void>(`/v1/users/${id}/downloads/reset`, { method: 'POST' }),
+
+  // Download statistics (spec 0006). Read-only; the server gates visibility by
+  // role (a non-admin only ever gets their own row).
+  getStatsSummary: () => request<{ users: StatUserSummary[] }>('/v1/stats/summary'),
+  getStatsTimeseries: (opts: { source?: StatSource; userId?: number | 'all' } = {}) => {
+    const q = new URLSearchParams();
+    if (opts.source) q.set('source', opts.source);
+    if (opts.userId !== undefined) q.set('userId', String(opts.userId));
+    const qs = q.toString();
+    return request<StatsTimeseries>(`/v1/stats/timeseries${qs ? `?${qs}` : ''}`);
+  },
 
   // Web Push (stateful mode, Increment 4).
   pushKey: () => request<{ publicKey: string }>('/v1/push/key'),

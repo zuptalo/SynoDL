@@ -243,6 +243,73 @@ func TestWatcherAppUpdatePush(t *testing.T) {
 	}
 }
 
+// A catalog download owned by a regular user is attributed by destination. The
+// all-scope admin is notified with a readable title AND "added by <user>"; the
+// owner (own scope) gets the same readable title but is never told they added it.
+func TestWatcherReadableTitleAndAttribution(t *testing.T) {
+	st, _ := newWatcherStore(t) // seeded admin (any scope) subscribed at /one
+	alice, _ := st.CreateUser("alice", "h", false)
+	_ = st.SaveSubscription(alice, "https://push.example/alice", "p", "a", true)
+	// Catalog send attributed to alice by its destination folder.
+	_ = st.SaveSourceDownload(store.SourceDownload{
+		Destination: "tv/Rick and Morty", MediaType: "series", Title: "Rick and Morty", OwnerID: alice,
+	}, time.Now().Unix())
+
+	fs := &fakeSender{}
+	tasks := []Task{{
+		ID: "t1", Name: "Rick.and.Morty.S01E05.1080p.WEB-DL.mkv",
+		Status: "downloading", Destination: "tv/Rick and Morty",
+	}}
+	w := NewWatcher(st, func(context.Context) ([]Task, error) { return tasks, nil }, fs, "v1", time.Hour)
+	w.poll(context.Background())
+	tasks[0].Status = "finished"
+	w.poll(context.Background())
+
+	if len(fs.sent) != 2 {
+		t.Fatalf("want 2 completion pushes (admin + owner), got %d: %v", len(fs.sent), fs.sent)
+	}
+	var adminMsg, ownerMsg string
+	for _, m := range fs.sent {
+		if contains(m, "added by alice") {
+			adminMsg = m
+		} else {
+			ownerMsg = m
+		}
+	}
+	if adminMsg == "" || !contains(adminMsg, "Rick and Morty · S01E05") {
+		t.Fatalf("admin push should have readable title + attribution: %v", fs.sent)
+	}
+	if ownerMsg == "" || !contains(ownerMsg, "Rick and Morty · S01E05") || contains(ownerMsg, "added by") {
+		t.Fatalf("owner push should have readable title and NO attribution: %v", fs.sent)
+	}
+	// The raw release-scene name must not appear in either body.
+	for _, m := range fs.sent {
+		if contains(m, "1080p") {
+			t.Fatalf("raw file name leaked into notification: %q", m)
+		}
+	}
+}
+
+// On completion, the task's real size is backfilled onto its history row.
+func TestWatcherBackfillsSizeOnCompletion(t *testing.T) {
+	st, uid := newWatcherStore(t)
+	_ = st.AddDownloadHistory(store.DownloadHistory{
+		UserID: uid, Source: store.SourceCatalog, Category: store.CategoryMovie,
+		Destination: "movies/Dune", TaskName: "Dune.mkv", CreatedAt: 1000,
+	})
+	fs := &fakeSender{}
+	tasks := []Task{{ID: "t1", Name: "Dune.mkv", Status: "downloading", Destination: "movies/Dune", Size: 4096}}
+	w := NewWatcher(st, func(context.Context) ([]Task, error) { return tasks, nil }, fs, "v1", time.Hour)
+	w.poll(context.Background())
+	tasks[0].Status = "finished"
+	w.poll(context.Background())
+
+	sum, _ := st.StatsSummary([]int64{uid})
+	if len(sum) != 1 || sum[0].AvgSize[store.CategoryMovie] != 4096 {
+		t.Fatalf("size not backfilled: %+v", sum)
+	}
+}
+
 func contains(s, sub string) bool {
 	return len(s) >= len(sub) && (indexOf(s, sub) >= 0)
 }

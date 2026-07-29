@@ -9,9 +9,20 @@ import (
 
 	"synodl/server/internal/authz"
 	"synodl/server/internal/httpx"
+	"synodl/server/internal/mediaclass"
 	"synodl/server/internal/store"
 	"synodl/server/internal/syno"
 )
+
+// directCategory resolves a directly-added download's media category: the user's
+// explicit choice when it's a known category, otherwise a folder + file-type
+// heuristic. An unknown/"auto"/absent choice never fails the download.
+func directCategory(choice, destination, fileName string) string {
+	if store.ValidCategory(choice) {
+		return choice
+	}
+	return mediaclass.Classify(destination, fileName)
+}
 
 // grantsFor loads a user's folder grants (empty for admins, who are unrestricted).
 func (d Deps) grantsFor(u *store.User) []string {
@@ -117,8 +128,15 @@ func handleCreateTaskStateful(d Deps) http.Handler {
 				writeNASError(w, err)
 				return
 			}
-			// Record who created it so the watcher can attribute notifications.
-			_ = d.Store.AddTaskClaim(u.ID, header.Filename, time.Now().Unix())
+			// Record who created it so the watcher can attribute notifications,
+			// plus durable direct-download history for the Statistics section.
+			now := time.Now().Unix()
+			_ = d.Store.AddTaskClaim(u.ID, header.Filename, now)
+			_ = d.Store.AddDownloadHistory(store.DownloadHistory{
+				UserID: u.ID, Source: store.SourceDirect,
+				Category:    directCategory(r.FormValue("category"), opts.Destination, header.Filename),
+				Destination: opts.Destination, TaskName: header.Filename, CreatedAt: now,
+			})
 			w.WriteHeader(http.StatusCreated)
 			return
 		}
@@ -152,10 +170,18 @@ func handleCreateTaskStateful(d Deps) http.Handler {
 			writeNASError(w, err)
 			return
 		}
-		// Record who created each task so the watcher can attribute notifications.
+		// Record who created each task so the watcher can attribute notifications,
+		// plus durable direct-download history for the Statistics section (the
+		// category is the user's choice, else classified from folder + file type).
 		now := time.Now().Unix()
 		for _, uri := range uris {
-			_ = d.Store.AddTaskClaim(u.ID, titleHint(uri), now)
+			name := titleHint(uri)
+			_ = d.Store.AddTaskClaim(u.ID, name, now)
+			_ = d.Store.AddDownloadHistory(store.DownloadHistory{
+				UserID: u.ID, Source: store.SourceDirect,
+				Category:    directCategory(req.Category, opts.Destination, name),
+				Destination: opts.Destination, TaskName: name, CreatedAt: now,
+			})
 		}
 		w.WriteHeader(http.StatusCreated)
 	})
