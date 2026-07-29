@@ -136,9 +136,33 @@ async function setQuery(q: string): Promise<void> {
   await runSearch(true);
 }
 
+// Persist the current facet filters + sort to the server so the view follows the
+// user across devices. Fire-and-forget — a failure never blocks browsing.
+async function saveView(): Promise<void> {
+  try {
+    await api.setSourceView(filters.value, sort.value);
+  } catch {
+    /* non-fatal */
+  }
+}
+
+// Load the saved view (filters + sort) from the server WITHOUT searching — the
+// caller reloads the grid. Called on mount and when the app returns to the
+// foreground so a change made on another device shows up here.
+async function loadView(): Promise<void> {
+  try {
+    const v = await api.getSourceView();
+    filters.value = v.filters ?? {};
+    sort.value = v.sort || DEFAULT_SORT;
+  } catch {
+    /* non-fatal — keep whatever we have */
+  }
+}
+
 async function applyFilters(f: SourceSearchFilters, newSort?: string): Promise<void> {
   filters.value = f;
   if (newSort) sort.value = newSort;
+  void saveView();
   await runSearch(true);
 }
 
@@ -146,6 +170,7 @@ async function applyFilters(f: SourceSearchFilters, newSort?: string): Promise<v
 async function setSort(s: string): Promise<void> {
   if (s === sort.value) return;
   sort.value = s;
+  void saveView();
   await runSearch(true);
 }
 
@@ -153,6 +178,7 @@ async function setSort(s: string): Promise<void> {
 // independent (its own dropdown), so it is left untouched.
 async function clearFilters(): Promise<void> {
   filters.value = {};
+  void saveView();
   await runSearch(true);
 }
 
@@ -165,6 +191,7 @@ async function removeFilter(key: keyof SourceSearchFilters | 'sort'): Promise<vo
     delete next[key];
     filters.value = next;
   }
+  void saveView();
   await runSearch(true);
 }
 
@@ -210,5 +237,6 @@ export function useSourceCatalog() {
     removeFilter,
     loadPrefs,
     savePref,
+    loadView,
   };
 }
