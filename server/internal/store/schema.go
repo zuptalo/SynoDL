@@ -184,4 +184,28 @@ var migrations = []string{
 	// name-based ownership claim never matched a source send — attribute those by
 	// destination instead (reliable, like the metadata above).
 	`ALTER TABLE source_downloads ADD COLUMN owner_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL;`,
+	// 0013 — durable per-download history for the Statistics section (spec 0006).
+	// One append-only row per downloaded file, written at create time (so paused/
+	// canceled downloads still count, matching the daily-limit accounting) and
+	// backfilled with the real size by the completion watcher. This is a statistics/
+	// attribution log, NOT a live task mirror — the NAS stays the source of truth
+	// for current task state; only a completion timestamp + final size are kept.
+	// History begins at rollout: nothing seeds it from the size-less download_events
+	// or the folder-deduplicated source_downloads. Rows cascade away with the user.
+	`
+	CREATE TABLE download_history (
+		id           INTEGER PRIMARY KEY AUTOINCREMENT,
+		user_id      INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+		source       TEXT    NOT NULL,               -- 'catalog' | 'direct'
+		category     TEXT    NOT NULL,               -- movie|series|anime|music_video|music|other
+		destination  TEXT    NOT NULL DEFAULT '',    -- folder; correlation key for size backfill
+		task_name    TEXT    NOT NULL DEFAULT '',    -- expected file name; correlation key
+		created_at   INTEGER NOT NULL,               -- when the download was added
+		completed_at INTEGER,                         -- set when the watcher observes it finish
+		size_bytes   INTEGER,                         -- real size; NULL until completed
+		task_id      TEXT                             -- DSM task id once correlated (diagnostic)
+	);
+	CREATE INDEX idx_download_history_user      ON download_history(user_id, created_at);
+	CREATE INDEX idx_download_history_correlate ON download_history(destination, task_name, completed_at);
+	`,
 }

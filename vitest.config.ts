@@ -37,6 +37,8 @@ export default defineConfig({
         'src/services/app-update.ts',
         // PWA install-guard UA detection (spec 1008).
         'src/services/install-detect.ts',
+        // Download-history time bucketing (spec 0006).
+        'src/services/stats-buckets.ts',
       ],
       thresholds: { lines: 80, functions: 80, statements: 80, branches: 80 },
     },

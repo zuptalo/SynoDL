@@ -18,6 +18,7 @@ Specs are grouped by category band; status moves
 | [0003](specs/0003-stateful-multi-user/spec.md) | Stateful multi-user rework — setup wizard, SynoDL accounts, folder access, and Web Push | 🟢 shipped |
 | [0004](specs/0004-task-list-bulk/spec.md) | Task-list bulk actions, selection mode, app badge, and newest-first sort | 🟢 shipped |
 | [0005](specs/0005-source-catalog/spec.md) | Download-source catalog — browse, search, and send an admin-configured provider to Download Station | 🟡 in-progress |
+| [0006](specs/0006-per-user-download/spec.md) | Per-User Download Statistics and Richer Notifications | 🟡 in-progress |
 
 ## ⚡ Ad-hoc (1001–1999)
 

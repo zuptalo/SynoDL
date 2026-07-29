@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"net/url"
+	"path"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -15,6 +17,24 @@ import (
 	"synodl/server/internal/store"
 	"synodl/server/internal/syno"
 )
+
+// fileNameFromURI extracts the download's file name (the last path segment,
+// percent-decoded) from a link — this is the name Download Station reports for
+// the task, so download history can be correlated to it on completion.
+func fileNameFromURI(uri string) string {
+	u, err := url.Parse(uri)
+	if err != nil {
+		return ""
+	}
+	name := path.Base(u.Path)
+	if dec, err := url.PathUnescape(name); err == nil {
+		name = dec
+	}
+	if name == "." || name == "/" {
+		return ""
+	}
+	return name
+}
 
 // sourceHTTP is the shared outbound client for provider calls (HTTP/2, host-
 // allowlisted). Safe for concurrent use; one per process.
@@ -495,6 +515,20 @@ func handleSourceSend(d Deps) http.Handler {
 			Destination: dest, MediaType: body.Type, Title: body.Title,
 			Year: strings.TrimSpace(body.Year), IMDbScore: body.IMDbScore, OwnerID: u.ID,
 		}, now)
+		// Record durable per-file history for the Statistics section: one row per
+		// selected file (size unknown until the watcher sees it finish). The
+		// task_name is the file the watcher will report, so it can backfill the size
+		// by (destination, name). Category comes from the catalog type.
+		cat := body.Type
+		if !store.ValidCategory(cat) {
+			cat = store.CategoryOther
+		}
+		for _, link := range selected {
+			_ = d.Store.AddDownloadHistory(store.DownloadHistory{
+				UserID: u.ID, Source: store.SourceCatalog, Category: cat,
+				Destination: dest, TaskName: fileNameFromURI(link), CreatedAt: now,
+			})
+		}
 		httpx.JSON(w, http.StatusOK,
 			map[string]any{"destination": dest, "created": true, "taskAdded": true, "count": len(selected)})
 	})
