@@ -24,8 +24,11 @@ const page = ref(1);
 const pages = ref(0);
 const query = ref('');
 const filters = ref<SourceSearchFilters>({});
-// Default browse sort: release year, descending (newest first).
-const DEFAULT_SORT = 'year';
+// Default browse sort when the user hasn't chosen one: most popular. Once the
+// user picks a sort (or sets a filter), their choice is persisted server-side
+// and loadView() restores it on every open — this default only fills the gap
+// for a brand-new account with no saved view.
+const DEFAULT_SORT = 'favorite';
 const sort = ref(DEFAULT_SORT);
 const loading = ref(false);
 const needsRefresh = ref(false);
