@@ -207,7 +207,13 @@ async function fetchWithRetry(reset: boolean): Promise<void> {
   }
 }
 
+// Each fresh search (reset) gets a new generation. If a newer one starts while an
+// older is still paginating, the older bails at its next checkpoint — so we never
+// keep hitting the provider for a filter combo the user already moved past.
+let searchGen = 0;
+
 async function runSearch(reset = true): Promise<void> {
+  const gen = reset ? ++searchGen : searchGen;
   loading.value = true;
   errorMsg.value = '';
   if (reset) {
@@ -218,6 +224,7 @@ async function runSearch(reset = true): Promise<void> {
   }
   try {
     await fetchWithRetry(reset);
+    if (gen !== searchGen) return; // superseded by a newer search
     // Dropping upcoming/type-filtered titles can leave a page thin; pull more
     // pages until we have enough to fill the grid (bounded), so infinite scroll
     // has content to trigger on — important on wide desktop screens.
@@ -226,12 +233,34 @@ async function runSearch(reset = true): Promise<void> {
       page.value += 1;
       guard += 1;
       await fetchPage(false);
+      if (gen !== searchGen) return; // superseded mid-pagination — stop calling the provider
     }
   } catch (e) {
-    handleErr(e);
+    if (gen === searchGen) handleErr(e); // ignore errors from a superseded search
   } finally {
-    loading.value = false;
+    if (gen === searchGen) loading.value = false;
   }
+}
+
+// Coalesce rapid filter/sort changes into ONE search: each change restarts a
+// short timer and only the final combo is requested — no request per keystroke or
+// toggle. Callers await the shared promise so post-search UI (scroll-to-top,
+// viewport fill) still runs once the results are in.
+let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+let debounceWaiters: Array<() => void> = [];
+const SEARCH_DEBOUNCE_MS = 300;
+
+function debouncedSearch(): Promise<void> {
+  return new Promise((resolve) => {
+    debounceWaiters.push(resolve);
+    if (debounceTimer) clearTimeout(debounceTimer);
+    debounceTimer = setTimeout(() => {
+      debounceTimer = null;
+      const waiters = debounceWaiters;
+      debounceWaiters = [];
+      void runSearch(true).finally(() => waiters.forEach((w) => w()));
+    }, SEARCH_DEBOUNCE_MS);
+  });
 }
 
 async function loadMore(): Promise<void> {
@@ -276,7 +305,7 @@ async function applyFilters(f: SourceSearchFilters, newSort?: string): Promise<v
   filters.value = f;
   if (newSort) sort.value = newSort;
   void saveView();
-  await runSearch(true);
+  await debouncedSearch();
 }
 
 // Change the sort field (from the dropdown beside the search bar) and reload.
@@ -284,14 +313,14 @@ async function setSort(s: string): Promise<void> {
   if (s === sort.value) return;
   sort.value = s;
   void saveView();
-  await runSearch(true);
+  await debouncedSearch();
 }
 
 // Flip the sort direction (the asc/desc toggle inside the same sort control).
 async function toggleOrder(): Promise<void> {
   order.value = order.value === 'asc' ? 'desc' : 'asc';
   void saveView();
-  await runSearch(true);
+  await debouncedSearch();
 }
 
 // Reset every facet filter and reload — the "clear filters" affordance. Sort is
@@ -299,7 +328,7 @@ async function toggleOrder(): Promise<void> {
 async function clearFilters(): Promise<void> {
   filters.value = {};
   void saveView();
-  await runSearch(true);
+  await debouncedSearch();
 }
 
 // Remove a single active filter (or reset the sort) without opening the sheet.
@@ -313,7 +342,7 @@ async function removeFilter(key: keyof SourceSearchFilters | 'sort'): Promise<vo
     filters.value = next;
   }
   void saveView();
-  await runSearch(true);
+  await debouncedSearch();
 }
 
 async function loadPrefs(): Promise<void> {
