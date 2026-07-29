@@ -1,13 +1,20 @@
-# Auto-merge every green PR: main is the only long-lived branch, and a PR that
-# passes the full gate set (CI gate + Roadmap up to date + Version guard) needs
-# no babysitting. This enables GitHub's native auto-merge, so GitHub merges the
-# PR by itself the moment every REQUIRED check is green — and not a second
-# before. Branch protection is what makes that safe; see the safety gate below.
+# Auto-merge every green PR: main is the only long-lived branch, and a PR whose
+# required checks pass needs no babysitting.
 #
-# Merge method is SQUASH: this repository allows squash merges only (merge
-# commits are disabled), so `--merge` fails with "Merge commits are not allowed"
-# and the auto-merge never engages. release.yml re-verifies whatever commit lands
-# on main, so a squash commit is fine; each PR becomes one tidy commit.
+# We do NOT use GitHub's native auto-merge or read the branch-protection API:
+#  - `gh pr merge --auto` is unreliable here (it silently no-ops while GitHub is
+#    still computing mergeability, and errors "clean status" once already green);
+#  - the branch-protection REST API returns 403 on a private repo without GitHub
+#    Pro, which made the old safety gate conclude "unprotected" and SKIP the merge
+#    step entirely (the real reason nothing ever self-merged).
+#
+# Instead we poll `mergeable_state` from the pulls API (free, and it already
+# encodes branch protection: "clean"/"unstable" mean every REQUIRED check has
+# passed) and merge directly the moment the PR is mergeable. A direct squash merge
+# also respects branch protection server-side, so a red PR can't slip through.
+#
+# Merge method is SQUASH: this repo allows squash merges only (merge commits are
+# disabled). release.yml re-verifies whatever lands on main.
 name: Auto-merge PRs
 
 on:
@@ -16,104 +23,62 @@ on:
     branches: [main] # base branch == main (all PRs)
 
 permissions:
-  contents: write # github-actions[bot] performs the eventual merge
-  pull-requests: write # enable auto-merge on the PR
-  actions: write # dispatch release.yml after the merge (see below)
+  contents: write # github-actions[bot] performs the merge
+  pull-requests: write
+  actions: write # dispatch release.yml after a self-merge (see below)
 
 jobs:
-  enable-auto-merge:
-    name: Enable auto-merge
-    # Same-repo PRs only (a fork's token is read-only and couldn't enable it
-    # anyway), and never on drafts.
+  auto-merge:
+    name: Auto-merge
+    # Same-repo PRs only (a fork's token is read-only), never on drafts.
     if: >-
       github.event.pull_request.draft == false &&
       github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     steps:
-      # SAFETY GATE: on a repo where main has no required status checks yet,
-      # `gh pr merge --auto` doesn't schedule — it merges IMMEDIATELY, red CI
-      # and all. Refuse to touch the PR until branch protection is configured
-      # (scripts/setup-branch-protection.sh), so an unprotected repo degrades
-      # to manual merging instead of check-less auto-merging.
-      - name: Require branch protection with required checks on main
-        id: protection
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          set -euo pipefail
-          checks=$(gh api "repos/${{ github.repository }}/branches/main/protection/required_status_checks/contexts" --jq 'length' 2>/dev/null || echo 0)
-          if [ "${checks:-0}" -ge 1 ]; then
-            echo "ok=true" >> "$GITHUB_OUTPUT"
-            echo "main requires $checks status check(s) — safe to enable auto-merge."
-          else
-            echo "ok=false" >> "$GITHUB_OUTPUT"
-            echo "::warning::main has no required status checks — skipping auto-merge. Run scripts/setup-branch-protection.sh once, then re-open or push to this PR."
-          fi
-
-      - name: Enable auto-merge (squash)
-        if: steps.protection.outputs.ok == 'true'
+      - name: Merge once the required checks are green
+        id: merge
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR: ${{ github.event.pull_request.number }}
           REPO: ${{ github.repository }}
         run: |
-          set -euo pipefail
-          # Native `gh pr merge --auto` proved unreliable here (it silently no-ops
-          # while GitHub is still computing mergeability, and errors "clean status"
-          # once checks are already green), so we don't depend on it. Instead we
-          # POLL until the PR is mergeable and merge it directly — and we outlast
-          # the slowest check (the ~4-min e2e) so a PR that goes green late still
-          # gets merged in the same run. `--auto` is still attempted as a harmless
-          # best-effort while checks run, in case it does stick.
-          #
-          # ~8-min ceiling (80 × 6 s); the loop exits the moment the PR merges.
+          set -uo pipefail
+          # ~8-min ceiling (80 × 6 s), comfortably past the slowest check (e2e ~4
+          # min); the loop exits the instant the PR merges.
           for i in $(seq 1 80); do
             if [ "$(gh api "repos/$REPO/pulls/$PR" --jq '.merged')" = "true" ]; then
-              echo "PR #$PR merged."
+              echo "PR #$PR already merged."
               exit 0
             fi
+            # mergeable_state: clean = mergeable + all required checks passed;
+            # unstable = mergeable, only a NON-required check (e.g. an informational
+            # scan) is failing — still safe to merge. blocked/behind/unknown/dirty =
+            # not ready (or conflicting) → wait.
             state=$(gh api "repos/$REPO/pulls/$PR" --jq '.mergeable_state')
             case "$state" in
-              clean|unstable|has_hooks)
-                # Required checks pass → merge now. (unstable = mergeable, only a
-                # non-required check like an informational scan is failing.)
-                gh pr merge "$PR" --repo "$REPO" --squash && exit 0 || true
-                ;;
-              *)
-                # blocked / behind / unknown → not ready yet; best-effort schedule
-                # native auto-merge (also nudges GitHub to recompute mergeability),
-                # then keep polling until the checks pass.
-                gh pr merge "$PR" --repo "$REPO" --auto --squash 2>/dev/null || true
+              clean | unstable | has_hooks)
+                if gh pr merge "$PR" --repo "$REPO" --squash; then
+                  echo "merged=true" >> "$GITHUB_OUTPUT"
+                  echo "Merged #$PR."
+                  exit 0
+                fi
                 ;;
             esac
             sleep 6
           done
-          echo "::warning::#$PR still not mergeable after ~8 min — merge manually once green."
+          echo "::warning::#$PR not mergeable after ~8 min — merge manually once green."
 
-      # GitHub deliberately does not let a push made with the run's own GITHUB_TOKEN
-      # trigger other workflows (anti-infinite-loop safeguard) — so once GitHub's
-      # platform completes the auto-merge above, release.yml's `push: branches:
-      # [main]` never fires. workflow_dispatch IS exempt from that suppression even
-      # when called with GITHUB_TOKEN, so: poll until the PR actually merges, then
-      # explicitly dispatch release.yml.
-      - name: Wait for the merge, then dispatch the release workflow
-        if: steps.protection.outputs.ok == 'true'
+      - name: Dispatch the release after a self-merge
+        if: steps.merge.outputs.merged == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          # ~60 minutes at 20s/poll — comfortably past the slowest observed e2e run.
-          for i in $(seq 1 180); do
-            state=$(gh pr view "${{ github.event.pull_request.number }}" --repo "${{ github.repository }}" --json state -q .state)
-            if [ "$state" = "MERGED" ]; then
-              echo "PR merged — dispatching release.yml on main"
-              gh workflow run release.yml --repo "${{ github.repository }}" --ref main
-              exit 0
-            fi
-            if [ "$state" = "CLOSED" ]; then
-              echo "PR closed without merging — nothing to dispatch"
-              exit 0
-            fi
-            sleep 20
-          done
-          echo "::warning::Timed out waiting for the PR to merge; release.yml was not dispatched. Run it manually: gh workflow run release.yml --ref main"
+          # A push made with the run's own GITHUB_TOKEN doesn't trigger other
+          # workflows (anti-loop safeguard), so release.yml's `push: [main]` won't
+          # fire after the merge above. workflow_dispatch is exempt — kick it off.
+          # (Only on a SELF-merge: a human merge from a personal token already
+          # triggers release.yml via push, so we must not double-dispatch.)
+          echo "Dispatching release.yml on main after self-merge of #${{ github.event.pull_request.number }}"
+          gh workflow run release.yml --repo "${{ github.repository }}" --ref main
