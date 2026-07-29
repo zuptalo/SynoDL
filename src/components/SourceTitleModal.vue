@@ -15,6 +15,8 @@ import {
   IonNote,
   IonRadio,
   IonRadioGroup,
+  IonSegment,
+  IonSegmentButton,
   IonSpinner,
   IonThumbnail,
   IonTitle,
@@ -92,6 +94,55 @@ const selectedTooLarge = computed(() => {
   const q = qualities.value.find((x) => x.id === selected.value);
   return q ? tooLarge(q) : false;
 });
+
+// ---- quality tier tabs (4K / 1080p / 720p …) ------------------------------
+// Group options by resolution tier so the user can jump between quality classes.
+// The label's resolution token is the reliable signal — many encodes are cropped
+// (e.g. 1920x1040), so the raw pixel height alone would misclassify them.
+interface Tier {
+  key: string;
+  label: string;
+  rank: number;
+}
+function tierOf(q: QualityOption): Tier {
+  const s = `${q.label} ${q.resolution}`;
+  if (/2160p|\buhd\b|\b4k\b|3840x/i.test(s)) return { key: '4k', label: '4K', rank: 4 };
+  if (/1080p|1920x/i.test(s)) return { key: '1080', label: '1080p', rank: 3 };
+  if (/720p|1280x/i.test(s)) return { key: '720', label: '720p', rank: 2 };
+  if (/480p|854x|640x/i.test(s)) return { key: '480', label: '480p', rank: 1 };
+  return { key: 'other', label: 'Other', rank: 0 };
+}
+// Distinct tiers present, highest quality first (the tab order).
+const tiers = computed<Tier[]>(() => {
+  const map = new Map<string, Tier>();
+  for (const q of qualities.value) {
+    const t = tierOf(q);
+    if (!map.has(t.key)) map.set(t.key, t);
+  }
+  return [...map.values()].sort((a, b) => b.rank - a.rank);
+});
+const activeTier = ref('');
+// The active tier's options, largest file first.
+const visibleQualities = computed(() =>
+  qualities.value
+    .filter((q) => tierOf(q).key === activeTier.value)
+    .slice()
+    .sort((a, b) => sizeMB(b.size) - sizeMB(a.size)),
+);
+// The first sendable option in a tier (largest usable), else its first option.
+function firstUsableIn(tierKey: string): string {
+  const list = qualities.value
+    .filter((q) => tierOf(q).key === tierKey)
+    .slice()
+    .sort((a, b) => sizeMB(b.size) - sizeMB(a.size));
+  return (list.find((q) => !tooLarge(q)) ?? list[0])?.id ?? '';
+}
+function onTier(key: string): void {
+  activeTier.value = key;
+  // Keep the current pick if it's in this tier; else select its first usable.
+  const cur = qualities.value.find((q) => q.id === selected.value);
+  if (!cur || tierOf(cur).key !== key) selected.value = firstUsableIn(key);
+}
 
 // ---- post-send live state -------------------------------------------------
 // After a successful send we don't dismiss; the Send button becomes a live
@@ -195,13 +246,19 @@ watch(
       const detail = await api.getSourceTitle(props.title.id);
       sendable.value = detail.sendable;
       qualities.value = detail.qualities;
-      // Preselect the preferred quality among those within the size limit,
-      // otherwise the first usable one.
-      const usable = detail.qualities.filter((q) => !tooLarge(q));
-      const preferred = usable.find((q) =>
+      // Default to the highest-quality tab, selecting its first usable option
+      // (largest that's within the size limit). The user's preferred quality, if
+      // it lives in that top tier, wins over the plain first.
+      const topTier = tiers.value[0]?.key ?? '';
+      activeTier.value = topTier;
+      const inTop = detail.qualities
+        .filter((q) => tierOf(q).key === topTier && !tooLarge(q))
+        .slice()
+        .sort((a, b) => sizeMB(b.size) - sizeMB(a.size));
+      const preferred = inTop.find((q) =>
         preferredQuality.value ? q.label.toLowerCase().includes(preferredQuality.value.toLowerCase()) : false,
       );
-      selected.value = preferred?.id ?? usable[0]?.id ?? '';
+      selected.value = preferred?.id ?? firstUsableIn(topTier);
     } catch (e) {
       if (e instanceof ApiError && e.code === 'source_needs_refresh') {
         emit('needs-refresh');
@@ -320,9 +377,21 @@ async function send(): Promise<void> {
           <ion-note v-if="maxLabel" color="medium" class="cap-hint">
             Max download size {{ maxLabel }} (set by admin). Options over it are marked and can't be sent.
           </ion-note>
+          <!-- Quality tiers as tabs (highest first); scrolls when there are many. -->
+          <ion-segment
+            v-if="tiers.length > 1"
+            :value="activeTier"
+            scrollable
+            class="tier-tabs"
+            @ionChange="(e) => onTier(String(e.detail.value))"
+          >
+            <ion-segment-button v-for="t in tiers" :key="t.key" :value="t.key">
+              <ion-label>{{ t.label }}</ion-label>
+            </ion-segment-button>
+          </ion-segment>
           <ion-radio-group v-model="selected">
             <ion-list :inset="true">
-              <ion-item v-for="q in qualities" :key="q.id">
+              <ion-item v-for="q in visibleQualities" :key="q.id">
                 <ion-radio :value="q.id" label-placement="end" justify="start">
                   <ion-label>
                     <h3>
@@ -471,6 +540,9 @@ async function send(): Promise<void> {
 .cap-hint {
   display: block;
   padding: 0 8px 6px;
+}
+.tier-tabs {
+  margin: 2px 8px 8px;
 }
 .too-large {
   margin-left: 8px;
