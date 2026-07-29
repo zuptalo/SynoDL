@@ -145,4 +145,8 @@ var migrations = []string{
 	// (0 = unlimited), to balance quality vs. the provider's daily download cap.
 	`ALTER TABLE operator_config ADD COLUMN max_download_mb INTEGER NOT NULL DEFAULT 0;`,
 	`ALTER TABLE users ADD COLUMN daily_download_limit INTEGER NOT NULL DEFAULT 0;`,
+	// 0008 — remember each user's Discover view (facet filters as JSON + the sort
+	// order) on the server so it follows them across devices.
+	`ALTER TABLE source_prefs ADD COLUMN filters TEXT NOT NULL DEFAULT '';`,
+	`ALTER TABLE source_prefs ADD COLUMN sort TEXT NOT NULL DEFAULT '';`,
 }

@@ -432,6 +432,44 @@ func handleSetSourcePrefs(d Deps) http.Handler {
 	})
 }
 
+// handleGetSourceView / handleSetSourceView — per-user Discover view (facet
+// filters + sort) so it follows the user across devices. The server treats
+// `filters` as an opaque JSON blob owned by the client.
+func handleGetSourceView(d Deps) http.Handler {
+	return d.requireUser(func(w http.ResponseWriter, r *http.Request, u *store.User) {
+		filters, sort, err := d.Store.GetSourceView(u.ID)
+		if err != nil {
+			httpx.Error(w, http.StatusInternalServerError, "server")
+			return
+		}
+		// Pass the stored filters JSON through verbatim (default {}), so the client
+		// gets an object rather than a JSON-encoded string.
+		httpx.JSON(w, http.StatusOK, map[string]any{"filters": json.RawMessage(orElse(filters, "{}")), "sort": sort})
+	})
+}
+
+func handleSetSourceView(d Deps) http.Handler {
+	return d.requireUser(func(w http.ResponseWriter, r *http.Request, u *store.User) {
+		var body struct {
+			Filters json.RawMessage `json:"filters"`
+			Sort    string          `json:"sort"`
+		}
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<14)).Decode(&body); err != nil {
+			httpx.Error(w, http.StatusBadRequest, "bad request")
+			return
+		}
+		filters := strings.TrimSpace(string(body.Filters))
+		if filters == "" || filters == "null" {
+			filters = "{}"
+		}
+		if err := d.Store.SaveSourceView(u.ID, filters, strings.TrimSpace(body.Sort), time.Now().Unix()); err != nil {
+			httpx.Error(w, http.StatusInternalServerError, "server")
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	})
+}
+
 // ensureSubfolder creates name under absParent, tolerating "already exists" by
 // confirming the folder is present (so a repeat send reuses it).
 func ensureSubfolder(ctx context.Context, c syno.Client, sid, absParent, name string) error {

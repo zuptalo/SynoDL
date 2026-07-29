@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, ref } from 'vue';
+import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import {
+  onIonViewWillEnter,
   IonButton,
   IonButtons,
   IonChip,
@@ -71,6 +72,7 @@ const {
   clearFilters,
   removeFilter,
   loadPrefs,
+  loadView,
 } = useSourceCatalog();
 
 const filterOpen = ref(false);
@@ -107,11 +109,29 @@ async function search(reset: boolean): Promise<void> {
   await fillViewport();
 }
 
-onMounted(async () => {
+// Re-check the source and re-apply the server-saved view (filters + sort), then
+// reload — so opening/returning to Discover reflects the latest, including a
+// change made on another device.
+async function refreshView(): Promise<void> {
   await loadStatus();
-  await loadPrefs();
+  await loadView();
   if (!unavailable.value && !needsRefresh.value) await search(true);
+}
+
+onMounted(async () => {
+  await loadPrefs();
+  await refreshView();
 });
+// Re-entering the Discover tab, and bringing the app to the foreground while on
+// it, both re-sync the saved view from the server.
+onIonViewWillEnter(refreshView);
+function onForeground(): void {
+  if (document.visibilityState === 'visible' && router.currentRoute.value.path.startsWith('/tabs/browser')) {
+    void refreshView();
+  }
+}
+onMounted(() => document.addEventListener('visibilitychange', onForeground));
+onUnmounted(() => document.removeEventListener('visibilitychange', onForeground));
 
 async function onSearch(e: CustomEvent): Promise<void> {
   await setQuery(((e.detail as { value?: string }).value ?? '').trim());

@@ -109,6 +109,8 @@ func NewRouter(d Deps) http.Handler {
 		mux.Handle("POST /v1/source/send", handleSourceSend(d))
 		mux.Handle("GET /v1/source/prefs", handleGetSourcePrefs(d))
 		mux.Handle("PUT /v1/source/prefs", handleSetSourcePrefs(d))
+		mux.Handle("GET /v1/source/view", handleGetSourceView(d))
+		mux.Handle("PUT /v1/source/view", handleSetSourceView(d))
 	} else {
 		// Legacy stateless mode: the client authenticates to the NAS and carries
 		// the sid. Kept for dev/e2e continuity until the switch is universal.

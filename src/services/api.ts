@@ -418,6 +418,10 @@ export const api = {
   getSourcePrefs: () => request<{ preferredQuality: string }>('/v1/source/prefs'),
   setSourcePrefs: (preferredQuality: string) =>
     request<{ preferredQuality: string }>('/v1/source/prefs', jsonMethod('PUT', { preferredQuality })),
+  // Per-user Discover view (facet filters + sort), synced across devices.
+  getSourceView: () => request<{ filters: SourceSearchFilters; sort: string }>('/v1/source/view'),
+  setSourceView: (filters: SourceSearchFilters, sort: string) =>
+    request<void>('/v1/source/view', jsonMethod('PUT', { filters, sort })),
 
   // Admin: view/edit the stored NAS connection and test it before saving
   // (spec 1002). The password is write-only — the server never returns it.
