@@ -32,7 +32,9 @@ test('multi-URL input counts links, creates one task per URL with the picked des
   await expect(page.getByTestId('newtask-error')).toHaveCount(0);
   const items = page.getByTestId('task-item');
   await expect(items).toHaveCount(2);
-  await expect(items.filter({ hasText: 'one.iso' })).toHaveCount(1);
+  // Both land in the media folder tv-show/Friends, so the rows are titled after
+  // that folder (the readable title) rather than the raw file/magnet name.
+  await expect(items.filter({ hasText: 'Friends' })).toHaveCount(2);
 });
 
 test('a large mixed-delimiter paste is parsed and added in batches of ten', async ({ page }) => {
