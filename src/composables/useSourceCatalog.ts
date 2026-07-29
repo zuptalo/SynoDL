@@ -175,16 +175,18 @@ function handleErr(e: unknown): void {
 const PAGE_TARGET = 24;
 
 // fetchPage loads the current page and appends (or replaces, when reset) the
-// results, dropping upcoming ("coming soon") titles — you can't download those —
-// and enforcing the type filter client-side (the provider's type facet doesn't
-// apply to text search).
+// results, dropping upcoming ("coming soon") titles — you can't download those.
+// Type filtering is done SERVER-SIDE (the provider's type code for browse, and
+// the full_search path for text search); there's no client-side type re-filter,
+// because the filter value is now the provider's numeric code (e.g. "15") which
+// never equals a result's type string ("movie") — that mismatch was dropping
+// every result.
 async function fetchPage(reset: boolean): Promise<void> {
   const res = await api.searchSource(query.value, filters.value, page.value, sort.value, order.value);
   needsRefresh.value = false;
   unavailable.value = false;
   pages.value = res.pages;
-  let incoming = res.items.filter((i) => !i.comingSoon);
-  if (filters.value.type) incoming = incoming.filter((i) => i.type === filters.value.type);
+  const incoming = res.items.filter((i) => !i.comingSoon);
   items.value = reset ? incoming : [...items.value, ...incoming];
 }
 
