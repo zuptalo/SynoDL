@@ -69,6 +69,9 @@ type sourceSendReq struct {
 	QualityID string `json:"qualityId"`
 	Title     string `json:"title"`
 	Type      string `json:"type"` // movie/series/anime — picks the parent folder
+	// Episodes, 1-based, select which episodes of a series season pack to send.
+	// Empty means everything (a movie, or the whole season).
+	Episodes []int `json:"episodes,omitempty"`
 }
 
 // activeSource loads the enabled provider, its driver, outbound config, and the
@@ -352,23 +355,19 @@ func handleSourceSend(d Deps) http.Handler {
 			return
 		}
 
-		// Daily download quota: a per-user rolling-24h cap on how many downloads
-		// they may start (protects the provider's daily download limit).
-		if u.DailyDownloadLimit > 0 {
-			since := time.Now().Add(-24 * time.Hour).Unix()
-			used, _ := d.Store.CountUserDownloadsSince(u.ID, since)
-			if used >= u.DailyDownloadLimit {
-				httpx.JSON(w, http.StatusTooManyRequests,
-					map[string]any{"error": "daily_limit_reached", "limit": u.DailyDownloadLimit})
-				return
-			}
-		}
-
 		// Resolve the signed link(s) (+ per-file size) at send time (never cached):
 		// one for a movie, one per episode for a series season pack.
 		links, size, err := drv.ResolveDownload(r.Context(), sourceHTTP, cfg, sess, body.TitleID, body.QualityID)
 		if err != nil {
 			d.writeSourceRuntimeErr(w, p.ID, err)
+			return
+		}
+
+		// Narrow a series to the picked episodes (1-based). Empty selection, a
+		// single-file title, or a movie sends everything.
+		selected, err := selectEpisodes(links, body.Episodes)
+		if err != nil {
+			httpx.Error(w, http.StatusBadRequest, "bad episode selection")
 			return
 		}
 
@@ -382,24 +381,64 @@ func handleSourceSend(d Deps) http.Handler {
 			}
 		}
 
+		// Daily download quota: a per-user rolling-24h cap on how many downloads
+		// they may start (protects the provider's daily download limit). The whole
+		// selection must fit the remaining allowance — so a big season can't blow
+		// past the cap in one send. The client turns this into an offer to send
+		// just the first `remaining`.
+		if u.DailyDownloadLimit > 0 {
+			since := time.Now().Add(-24 * time.Hour).Unix()
+			used, _ := d.Store.CountUserDownloadsSince(u.ID, since)
+			remaining := u.DailyDownloadLimit - used
+			if remaining < 0 {
+				remaining = 0
+			}
+			if len(selected) > remaining {
+				httpx.JSON(w, http.StatusTooManyRequests, map[string]any{
+					"error": "daily_limit_exceeded", "limit": u.DailyDownloadLimit,
+					"used": used, "remaining": remaining, "requested": len(selected),
+				})
+				return
+			}
+		}
+
 		absParent := "/" + relParent
 		if err := d.NAS.Do(r.Context(), func(c syno.Client, sid string) error {
 			if e := ensureSubfolder(r.Context(), c, sid, absParent, folderName); e != nil {
 				return e
 			}
-			return c.CreateTaskURIs(r.Context(), sid, links, syno.CreateOpts{Destination: dest})
+			return c.CreateTaskURIs(r.Context(), sid, selected, syno.CreateOpts{Destination: dest})
 		}); err != nil {
 			writeNASError(w, err)
 			return
 		}
-		// One claim per file so a whole-season download counts as many toward the
-		// user's daily limit (a season can be dozens of episodes).
+		// Record the downloads durably (daily-limit count) and one claim per file
+		// (notification attribution) — a whole season counts as many.
 		now := time.Now().Unix()
-		for range links {
+		_ = d.Store.AddDownloadEvents(u.ID, len(selected), now)
+		for range selected {
 			_ = d.Store.AddTaskClaim(u.ID, folderName, now)
 		}
 		httpx.JSON(w, http.StatusOK,
-			map[string]any{"destination": dest, "created": true, "taskAdded": true, "count": len(links)})
+			map[string]any{"destination": dest, "created": true, "taskAdded": true, "count": len(selected)})
+	})
+}
+
+// handleGetSourceQuota reports the signed-in user's daily download allowance so
+// the client can warn before a big season blows past it. limit 0 = unlimited
+// (remaining is then -1).
+func handleGetSourceQuota(d Deps) http.Handler {
+	return d.requireUser(func(w http.ResponseWriter, _ *http.Request, u *store.User) {
+		limit := u.DailyDownloadLimit
+		used, remaining := 0, -1
+		if limit > 0 {
+			used, _ = d.Store.CountUserDownloadsSince(u.ID, time.Now().Add(-24*time.Hour).Unix())
+			remaining = limit - used
+			if remaining < 0 {
+				remaining = 0
+			}
+		}
+		httpx.JSON(w, http.StatusOK, map[string]any{"limit": limit, "used": used, "remaining": remaining})
 	})
 }
 

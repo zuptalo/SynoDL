@@ -275,13 +275,47 @@ func (s *Store) SetUserDailyDownloadLimit(id int64, limit int) error {
 	return err
 }
 
-// CountUserDownloadsSince counts a user's catalog downloads (task claims) started
-// at or after `since` — used to enforce the daily download limit.
+// CountUserDownloadsSince counts a user's catalog downloads started at or after
+// `since` — used to enforce the daily download limit. Backed by the durable
+// download_events log (NOT task_claims, which the watcher consumes on
+// attribution), so the count is stable across a task's lifetime.
 func (s *Store) CountUserDownloadsSince(userID, since int64) (int, error) {
 	var n int
 	err := s.db.QueryRow(
-		`SELECT COUNT(*) FROM task_claims WHERE user_id = ? AND created_at >= ?`, userID, since).Scan(&n)
+		`SELECT COUNT(*) FROM download_events WHERE user_id = ? AND created_at >= ?`, userID, since).Scan(&n)
 	return n, err
+}
+
+// AddDownloadEvents records n downloads for a user (one file/episode each) at
+// `now`, counting toward their rolling daily limit.
+func (s *Store) AddDownloadEvents(userID int64, n int, now int64) error {
+	if n <= 0 {
+		return nil
+	}
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	stmt, err := tx.Prepare(`INSERT INTO download_events (user_id, created_at) VALUES (?, ?)`)
+	if err != nil {
+		_ = tx.Rollback()
+		return err
+	}
+	defer stmt.Close()
+	for i := 0; i < n; i++ {
+		if _, err := stmt.Exec(userID, now); err != nil {
+			_ = tx.Rollback()
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
+// ResetUserDownloads clears a user's download log, giving them a fresh daily
+// allowance immediately (the admin "reset today's count" action).
+func (s *Store) ResetUserDownloads(userID int64) error {
+	_, err := s.db.Exec(`DELETE FROM download_events WHERE user_id = ?`, userID)
+	return err
 }
 
 // GetMaxDownloadMB returns the instance-wide maximum download size in MB

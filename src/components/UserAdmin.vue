@@ -315,6 +315,23 @@ async function setDailyLimit(u: AdminUser): Promise<void> {
   }
 }
 
+// Clear a user's daily download count so they get a fresh allowance right away.
+async function resetCount(u: AdminUser): Promise<void> {
+  const ok = await confirmAction(
+    `Reset ${u.username}'s daily count?`,
+    'They get their full daily download allowance again, starting now.',
+    'Reset count',
+  );
+  if (!ok) return;
+  try {
+    await api.resetUserDownloads(u.id);
+    await load();
+    await toast(`Reset ${u.username}'s daily download count.`);
+  } catch (e) {
+    error.value = messageForError(e);
+  }
+}
+
 async function removeUser(u: AdminUser, ev: Event): Promise<void> {
   closeSlider(ev);
   const alert = await alertController.create({
@@ -409,11 +426,23 @@ async function saveFolders(): Promise<void> {
               Folders
             </ion-button>
           </div>
-          <!-- Row 3: the current caps as read-only info. -->
+          <!-- Row 3: the current caps as read-only info, plus today's download
+               usage and a one-tap reset when they're capped. -->
           <p class="limits">
             <span>{{ u.contentRating ? `Rating ${u.contentRating}` : 'No rating cap' }}</span>
             <span>·</span>
-            <span>{{ u.dailyDownloadLimit ? `${u.dailyDownloadLimit}/day` : 'No daily limit' }}</span>
+            <span v-if="u.dailyDownloadLimit">{{ u.downloadsUsed ?? 0 }}/{{ u.dailyDownloadLimit }} today</span>
+            <span v-else>No daily limit</span>
+            <ion-button
+              v-if="u.dailyDownloadLimit && (u.downloadsUsed ?? 0) > 0"
+              class="reset-count"
+              size="small"
+              fill="clear"
+              :title="`Reset ${u.username}'s daily count`"
+              @click="resetCount(u)"
+            >
+              Reset count
+            </ion-button>
           </p>
         </ion-label>
       </ion-item>
@@ -530,9 +559,17 @@ async function saveFolders(): Promise<void> {
 }
 .limits {
   display: flex;
+  align-items: center;
   gap: 8px;
   color: var(--app-text-dim);
   font-size: 0.8rem;
+}
+.reset-count {
+  --padding-start: 6px;
+  --padding-end: 6px;
+  height: 24px;
+  margin: 0;
+  font-size: 0.72rem;
 }
 .err {
   display: block;
