@@ -107,7 +107,10 @@ func main() {
 						return e
 					}
 					for _, t := range tasks {
-						out = append(out, push.Task{ID: t.ID, Name: t.Name, Status: t.Status})
+						out = append(out, push.Task{
+							ID: t.ID, Name: t.Name, Status: t.Status,
+							Destination: t.Destination, URI: t.URI, Size: t.Size,
+						})
 					}
 					return nil
 				})
