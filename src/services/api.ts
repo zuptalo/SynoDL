@@ -449,11 +449,19 @@ export const api = {
   getSourceTitle: (id: string) =>
     request<TitleDetail>(`/v1/source/title/${encodeURIComponent(id)}`),
   // episodes (1-based) narrow a series to specific episodes; omit for a movie or
-  // the whole season.
-  sendSource: (titleId: string, qualityId: string, title: string, type: string, episodes?: number[]) =>
+  // the whole season. year + imdbScore are remembered so the Tasks list can label
+  // the download.
+  sendSource: (
+    titleId: string,
+    qualityId: string,
+    title: string,
+    type: string,
+    episodes?: number[],
+    meta?: { year?: string; imdbScore?: number },
+  ) =>
     request<{ destination: string; count: number }>(
       '/v1/source/send',
-      json({ titleId, qualityId, title, type, episodes }),
+      json({ titleId, qualityId, title, type, episodes, ...meta }),
     ),
   // The provider's live filter facets (genres, types, qualities, …) so the filter
   // UI stays in step with the source. Refreshed on open/foreground.

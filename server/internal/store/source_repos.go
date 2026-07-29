@@ -227,6 +227,55 @@ func (s *Store) SaveSourceView(userID int64, filters, sort, order string, now in
 	return err
 }
 
+// SourceDownload is the catalog metadata remembered for a Discover send, keyed by
+// its destination subfolder, so the Tasks list can label the download.
+type SourceDownload struct {
+	Destination string
+	MediaType   string // movie / series / anime
+	Title       string
+	Year        string
+	IMDbScore   float64
+}
+
+// normDest strips leading/trailing slashes so a stored destination matches the
+// (share-relative, variably-slashed) destination DSM reports on each task.
+func normDest(dest string) string { return strings.Trim(strings.TrimSpace(dest), "/") }
+
+// SaveSourceDownload upserts the catalog metadata for a title's destination
+// folder (a re-send overwrites it).
+func (s *Store) SaveSourceDownload(d SourceDownload, now int64) error {
+	_, err := s.db.Exec(`
+		INSERT INTO source_downloads (destination, media_type, title, year, imdb_score, created_at)
+		VALUES (?, ?, ?, ?, ?, ?)
+		ON CONFLICT(destination) DO UPDATE SET
+			media_type = excluded.media_type,
+			title      = excluded.title,
+			year       = excluded.year,
+			imdb_score = excluded.imdb_score,
+			created_at = excluded.created_at`,
+		normDest(d.Destination), d.MediaType, d.Title, d.Year, d.IMDbScore, now)
+	return err
+}
+
+// SourceDownloads returns all remembered Discover-send metadata, keyed by the
+// normalized destination folder, for joining onto the task list.
+func (s *Store) SourceDownloads() (map[string]SourceDownload, error) {
+	rows, err := s.db.Query(`SELECT destination, media_type, title, year, imdb_score FROM source_downloads`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[string]SourceDownload{}
+	for rows.Next() {
+		var d SourceDownload
+		if err := rows.Scan(&d.Destination, &d.MediaType, &d.Title, &d.Year, &d.IMDbScore); err != nil {
+			return nil, err
+		}
+		out[d.Destination] = d
+	}
+	return out, rows.Err()
+}
+
 func orDefault(v, def string) string {
 	if v == "" {
 		return def

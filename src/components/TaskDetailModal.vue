@@ -36,6 +36,12 @@ const reason = computed(() =>
   props.task?.status === 'error' ? reasonFor(props.task.errorDetail ?? '') : '',
 );
 
+// Capitalized media type (Movie / Series) for a Discover-sent download.
+const mediaLabel = computed(() => {
+  const t = props.task?.mediaType;
+  return t ? t[0].toUpperCase() + t.slice(1) : '';
+});
+
 // Re-download makes sense for a task that has finished or failed and still knows
 // its source link (spec 1007).
 const canRedownload = computed(
@@ -116,6 +122,16 @@ async function redownload(): Promise<void> {
           <ion-label class="ion-text-wrap">
             <p>Added by</p>
             <h2 data-testid="detail-added-by">{{ task.addedBy }}</h2>
+          </ion-label>
+        </ion-item>
+        <!-- Catalog metadata for a download sent from Discover. -->
+        <ion-item v-if="task.mediaType">
+          <ion-label class="ion-text-wrap">
+            <p>Catalog</p>
+            <h2 data-testid="detail-media">
+              {{ mediaLabel }}<template v-if="task.year"> · {{ task.year }}</template
+              ><template v-if="task.imdbScore"> · ★ {{ task.imdbScore.toFixed(1) }}</template>
+            </h2>
           </ion-label>
         </ion-item>
         <ion-item v-if="task.uri">

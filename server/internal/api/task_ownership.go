@@ -1,6 +1,7 @@
 package api
 
 import (
+	"strings"
 	"time"
 
 	"synodl/server/internal/store"
@@ -19,11 +20,16 @@ import (
 // covering the gap before the watcher attributes it durably.
 const claimBridgeWindowSecs = 30 * 60
 
-// taskView is a task plus its (admin-only) attribution. AddedBy is omitted for
-// non-admins so a regular user never learns who else uses the instance.
+// taskView is a task plus its (admin-only) attribution and, for downloads sent
+// from Discover, the catalog metadata (movie/series, IMDb rating, year). AddedBy
+// is omitted for non-admins so a regular user never learns who else uses the
+// instance; the media fields are shown to everyone.
 type taskView struct {
 	syno.Task
-	AddedBy string `json:"addedBy,omitempty"`
+	AddedBy   string  `json:"addedBy,omitempty"`
+	MediaType string  `json:"mediaType,omitempty"` // movie / series / anime
+	IMDbScore float64 `json:"imdbScore,omitempty"`
+	Year      string  `json:"year,omitempty"`
 }
 
 // asViews wraps tasks with no attribution — used by the legacy stateless stream,
@@ -58,6 +64,8 @@ func (d Deps) decorateTasks(u *store.User, tasks []syno.Task) []taskView {
 	if scope != "any" {
 		pending, _ = d.Store.PendingClaimNames(u.ID, time.Now().Unix()-claimBridgeWindowSecs)
 	}
+	// Catalog metadata for Discover-sent downloads, keyed by destination folder.
+	media, _ := d.Store.SourceDownloads()
 
 	out := make([]taskView, 0, len(tasks))
 	for _, t := range tasks {
@@ -71,6 +79,12 @@ func (d Deps) decorateTasks(u *store.User, tasks []syno.Task) []taskView {
 		v := taskView{Task: t}
 		if u.IsAdmin && attributed {
 			v.AddedBy = owner.Username
+		}
+		// Match the task to its title folder to label it movie/series + rating/year.
+		if m, ok := media[strings.Trim(strings.TrimSpace(t.Destination), "/")]; ok {
+			v.MediaType = m.MediaType
+			v.IMDbScore = m.IMDbScore
+			v.Year = m.Year
 		}
 		out = append(out, v)
 	}

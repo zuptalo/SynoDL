@@ -358,6 +358,7 @@ async function send(episodesOverride?: number[]): Promise<void> {
       props.title.title,
       props.title.type,
       episodes,
+      { year: titleParts.value.year, imdbScore: props.title.imdbScore },
     );
     // Stay open and flip the button into a live status control; poll the task
     // list for the download(s) we just created so the button tracks their state.
