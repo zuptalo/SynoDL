@@ -16,10 +16,11 @@ import (
 // Admin-only user management + per-user folder grants (spec 0003, Increment 3).
 // All handlers are wrapped in requireAdmin at the router.
 
-func userAdminView(u store.User) map[string]any {
+func userAdminView(u store.User, ownerID int64) map[string]any {
 	return map[string]any{
 		"id": u.ID, "username": u.Username, "isAdmin": u.IsAdmin, "isEnabled": u.IsEnabled,
 		"contentRating": u.ContentRating, "dailyDownloadLimit": u.DailyDownloadLimit,
+		"isOwner": u.ID == ownerID,
 	}
 }
 
@@ -30,9 +31,10 @@ func handleListUsers(d Deps) http.Handler {
 			httpx.Error(w, http.StatusInternalServerError, "server")
 			return
 		}
+		ownerID, _ := d.Store.OwnerID()
 		out := make([]map[string]any, 0, len(users))
 		for _, u := range users {
-			out = append(out, userAdminView(u))
+			out = append(out, userAdminView(u, ownerID))
 		}
 		httpx.JSON(w, http.StatusOK, map[string]any{"users": out})
 	})
@@ -65,7 +67,8 @@ func handleCreateUser(d Deps) http.Handler {
 			return
 		}
 		u, _ := d.Store.GetUserByID(id)
-		httpx.JSON(w, http.StatusCreated, userAdminView(*u))
+		ownerID, _ := d.Store.OwnerID()
+		httpx.JSON(w, http.StatusCreated, userAdminView(*u, ownerID))
 	})
 }
 
@@ -95,6 +98,20 @@ func handleUpdateUser(d Deps) http.Handler {
 		}
 		if _, err := d.Store.GetUserByID(id); errors.Is(err, store.ErrNotFound) {
 			httpx.Error(w, http.StatusNotFound, "no such user")
+			return
+		}
+		// The owner (the first user created) is protected: only the owner can
+		// change their own account. This stops another admin from disabling,
+		// demoting, or resetting the owner and locking them out.
+		ownerID, _ := d.Store.OwnerID()
+		if id == ownerID && actor.ID != ownerID {
+			httpx.Error(w, http.StatusForbidden, "only the owner can change the owner account")
+			return
+		}
+		// The owner can't be demoted or disabled at all — not even by themselves —
+		// so the instance always keeps a full-access admin.
+		if id == ownerID && ((body.IsEnabled != nil && !*body.IsEnabled) || (body.IsAdmin != nil && !*body.IsAdmin)) {
+			httpx.Error(w, http.StatusBadRequest, "the owner account cannot be demoted or disabled")
 			return
 		}
 		// An admin can't disable or demote their own account — that could lock
@@ -143,7 +160,7 @@ func handleUpdateUser(d Deps) http.Handler {
 			}
 		}
 		u, _ := d.Store.GetUserByID(id)
-		httpx.JSON(w, http.StatusOK, userAdminView(*u))
+		httpx.JSON(w, http.StatusOK, userAdminView(*u, ownerID))
 	})
 }
 
@@ -152,6 +169,11 @@ func handleDeleteUser(d Deps) http.Handler {
 		id, ok := pathID(r)
 		if !ok {
 			httpx.Error(w, http.StatusBadRequest, "bad user id")
+			return
+		}
+		// The owner account can never be deleted — by anyone, including itself.
+		if ownerID, _ := d.Store.OwnerID(); id == ownerID {
+			httpx.Error(w, http.StatusForbidden, "the owner account cannot be deleted")
 			return
 		}
 		if id == actor.ID {

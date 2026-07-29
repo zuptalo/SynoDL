@@ -111,6 +111,8 @@ export interface AdminUser {
   username: string;
   isAdmin: boolean;
   isEnabled: boolean;
+  /** True for the instance owner — the first account. Protected from other admins. */
+  isOwner?: boolean;
   /** Content-rating cap for the catalog ("" = unrestricted, e.g. "G", "PG-13"). */
   contentRating?: string;
   /** Rolling-24h download-count limit (0 = unlimited). */

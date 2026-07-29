@@ -219,6 +219,17 @@ func (s *Store) CountUsers() (int, error) {
 	return n, err
 }
 
+// OwnerID is the id of the instance owner — the first user created (the setup
+// admin). Returns 0 when there are no users. The owner is protected: only they
+// can change their own account, so other admins can't lock them out.
+func (s *Store) OwnerID() (int64, error) {
+	var id sql.NullInt64
+	if err := s.db.QueryRow(`SELECT MIN(id) FROM users`).Scan(&id); err != nil {
+		return 0, err
+	}
+	return id.Int64, nil
+}
+
 // SetUserEnabled toggles a user; disabling also drops their sessions (immediate
 // lockout) via the caller pairing with DeleteUserSessions, or here directly.
 func (s *Store) SetUserEnabled(id int64, enabled bool) error {
