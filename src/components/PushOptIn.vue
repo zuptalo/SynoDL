@@ -222,10 +222,12 @@ async function unsubscribe(): Promise<void> {
          see and hear about only their own, so there's no choice to offer them.
          This governs both the Tasks list and notifications. -->
     <template v-if="isAdmin && !iosNeedsInstall">
+      <!-- Label on its own full-width line above the segment, so it doesn't get
+           squeezed into a narrow column and wrap one word per line. -->
+      <ion-item lines="none">
+        <ion-label class="scope-label">Show &amp; notify me about</ion-label>
+      </ion-item>
       <ion-item>
-        <ion-label>
-          <p>Show &amp; notify me about</p>
-        </ion-label>
         <ion-segment :value="prefs.scope" data-testid="notif-scope" @ion-change="setScope">
           <ion-segment-button value="own"><ion-label>My downloads</ion-label></ion-segment-button>
           <ion-segment-button value="any"><ion-label>Everyone's</ion-label></ion-segment-button>
@@ -246,6 +248,9 @@ async function unsubscribe(): Promise<void> {
 .err {
   display: block;
   margin: 0.5rem 1rem;
+}
+.scope-label {
+  white-space: normal;
 }
 .scope-hint {
   font-size: 0.8rem;
