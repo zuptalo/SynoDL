@@ -35,6 +35,36 @@ const currentUserId = computed(() => user.value?.id ?? -1);
 const users = ref<AdminUser[]>([]);
 const error = ref('');
 
+// The owner (the first account) sorts first, then the other admins, then
+// everyone else — each group alphabetically.
+const sortedUsers = computed(() =>
+  [...users.value].sort((a, b) => {
+    const rank = (u: AdminUser): number => (u.isOwner ? 0 : u.isAdmin ? 1 : 2);
+    return rank(a) - rank(b) || a.username.localeCompare(b.username);
+  }),
+);
+const currentUserIsOwner = computed(() => users.value.find((u) => u.isOwner)?.id === currentUserId.value);
+
+// Owner protection. The owner can never be demoted, disabled, or deleted — not
+// even by themselves — so a full-access account always survives. And only the
+// owner may reset the owner's password; other admins can't touch it. The server
+// enforces all of this too (these guards just hide the affordances).
+function canToggleAdmin(u: AdminUser): boolean {
+  return !u.isOwner && u.id !== currentUserId.value;
+}
+function canToggleEnabled(u: AdminUser): boolean {
+  return !u.isOwner && u.id !== currentUserId.value;
+}
+function canReset(u: AdminUser): boolean {
+  return !u.isOwner || currentUserIsOwner.value;
+}
+function canDelete(u: AdminUser): boolean {
+  return !u.isOwner && u.id !== currentUserId.value;
+}
+function hasEndActions(u: AdminUser): boolean {
+  return canToggleEnabled(u) || canReset(u) || canDelete(u);
+}
+
 // Add-user form. New users are always non-admin; elevate them afterwards via the
 // per-row Admin toggle.
 const newUsername = ref('');
@@ -340,14 +370,15 @@ async function saveFolders(): Promise<void> {
 
 <template>
   <ion-list inset>
-    <ion-list-header><ion-label>Users</ion-label></ion-list-header>
+    <ion-list-header><ion-label>Existing users</ion-label></ion-list-header>
     <ion-note class="hint">
-      Swipe a user right to change their admin role; left for Reset, Enable/Disable and Delete.
+      Swipe a user right to change their admin role; left for Reset, Enable/Disable and Delete. The
+      owner account is protected — only the owner can change it.
     </ion-note>
 
-    <ion-item-sliding v-for="u in users" :key="u.id">
-      <!-- Swipe right: elevate/demote admin (hidden for your own account). -->
-      <ion-item-options v-if="u.id !== currentUserId" side="start">
+    <ion-item-sliding v-for="u in sortedUsers" :key="u.id">
+      <!-- Swipe right: elevate/demote admin (not for yourself or the owner). -->
+      <ion-item-options v-if="canToggleAdmin(u)" side="start">
         <ion-item-option color="primary" data-testid="admin-role" @click="toggleAdmin(u, $event)">
           {{ u.isAdmin ? 'Remove admin' : 'Make admin' }}
         </ion-item-option>
@@ -357,7 +388,8 @@ async function saveFolders(): Promise<void> {
         <ion-label class="ion-text-wrap">
           <!-- Row 1: role in front of the username. -->
           <h2 class="uname">
-            <ion-badge v-if="u.isAdmin" color="primary">Admin</ion-badge>
+            <ion-badge v-if="u.isOwner" color="success">Owner</ion-badge>
+            <ion-badge v-else-if="u.isAdmin" color="primary">Admin</ion-badge>
             <span :class="{ off: !u.isEnabled }">{{ u.username }}</span>
             <ion-badge v-if="!u.isEnabled" color="medium">disabled</ion-badge>
           </h2>
@@ -385,14 +417,19 @@ async function saveFolders(): Promise<void> {
           </p>
         </ion-label>
       </ion-item>
-      <!-- Swipe left: management actions. -->
-      <ion-item-options side="end">
-        <ion-item-option @click="toggleEnabled(u, $event)">{{ u.isEnabled ? 'Disable' : 'Enable' }}</ion-item-option>
-        <ion-item-option color="medium" data-testid="admin-reset" @click="resetPassword(u, $event)">Reset</ion-item-option>
-        <ion-item-option color="danger" @click="removeUser(u, $event)">Delete</ion-item-option>
+      <!-- Swipe left: management actions (all hidden on the protected owner
+           account for anyone but the owner). -->
+      <ion-item-options v-if="hasEndActions(u)" side="end">
+        <ion-item-option v-if="canToggleEnabled(u)" @click="toggleEnabled(u, $event)">
+          {{ u.isEnabled ? 'Disable' : 'Enable' }}
+        </ion-item-option>
+        <ion-item-option v-if="canReset(u)" color="medium" data-testid="admin-reset" @click="resetPassword(u, $event)">Reset</ion-item-option>
+        <ion-item-option v-if="canDelete(u)" color="danger" @click="removeUser(u, $event)">Delete</ion-item-option>
       </ion-item-options>
     </ion-item-sliding>
+  </ion-list>
 
+  <ion-list inset>
     <ion-list-header><ion-label>Add a user</ion-label></ion-list-header>
     <ion-item>
       <ion-input v-model="newUsername" label="Username" label-placement="stacked" autocapitalize="off" data-testid="admin-new-username" />
