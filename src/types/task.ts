@@ -17,6 +17,7 @@ export interface Task {
   destination: string;
   uri?: string; // source URL/magnet, for copy + re-download
   errorDetail?: string; // DSM status_extra.error_detail for errored tasks (raw keyword)
+  addedBy?: string; // SynoDL user who created it — sent to admins only (spec 1013)
 }
 
 export interface Stats {

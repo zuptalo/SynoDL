@@ -26,11 +26,20 @@ func handleGetNotifPrefs(d Deps) http.Handler {
 			httpx.Error(w, http.StatusInternalServerError, "server")
 			return
 		}
+		// Report the EFFECTIVE scope (role-aware) so the UI matches what the user
+		// actually sees/hears: a non-admin is always "own"; an admin defaults to
+		// "any" until they opt down. Otherwise a fresh admin would show "own" here
+		// while the server treats them as "any".
+		scope, err := d.Store.EffectiveNotificationScope(u.ID, u.IsAdmin)
+		if err != nil {
+			httpx.Error(w, http.StatusInternalServerError, "server")
+			return
+		}
 		httpx.JSON(w, http.StatusOK, notifPrefsView{
 			NotifyAdded:     p.NotifyAdded,
 			NotifyCompleted: p.NotifyCompleted,
 			NotifyFailed:    p.NotifyFailed,
-			Scope:           p.Scope,
+			Scope:           scope,
 		})
 	})
 }

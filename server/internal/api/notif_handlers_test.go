@@ -10,15 +10,17 @@ func TestNotifPrefsDefaultsThenUpdate(t *testing.T) {
 	h, _ := newStatefulRouter(t)
 	admin := adminAfterSetup(t, h)
 
-	// Defaults: completions + failures for my own tasks; added off; scope own.
+	// Defaults: completions + failures; added off. This is the setup admin, whose
+	// effective scope defaults to "any" (they oversee everyone's tasks until they
+	// opt down).
 	rec := do(t, h, "GET", "/v1/notifications/prefs", "", admin)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("get prefs = %d %s", rec.Code, rec.Body.String())
 	}
 	var p notifPrefsView
 	_ = json.Unmarshal(rec.Body.Bytes(), &p)
-	if p.NotifyAdded || !p.NotifyCompleted || !p.NotifyFailed || p.Scope != "own" {
-		t.Fatalf("default prefs = %+v", p)
+	if p.NotifyAdded || !p.NotifyCompleted || !p.NotifyFailed || p.Scope != "any" {
+		t.Fatalf("default admin prefs = %+v", p)
 	}
 
 	// Update and read back.
