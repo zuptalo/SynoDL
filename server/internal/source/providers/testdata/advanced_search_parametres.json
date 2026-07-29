@@ -33,6 +33,13 @@
       { "name": "4K", "value": "4K" },
       { "name": "BluRay", "value": "BluRay" }
     ],
+    "channel": [
+      { "name": "همه", "value": "" },
+      { "name": "Netflix", "value": "Netflix" },
+      { "name": "HBO", "value": "HBO" }
+    ],
+    "encoder": ["30nama", "YIFY", "", "RARBG"],
+    "age": ["G", "PG", "PG-13", "R"],
     "min_year": 1890,
     "max_year": 2026
   }

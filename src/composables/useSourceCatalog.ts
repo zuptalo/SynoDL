@@ -23,6 +23,7 @@ import {
   countryOptions,
   genreOptions,
   languageOptions,
+  passthroughOptions,
   qualityOptions,
   scoreOptions,
   typeOptions,
@@ -72,8 +73,17 @@ const filterOptions = computed(() => {
     scores: withAny(p ? scoreOptions(p.scores) : SCORES, 'Any rating'),
     languages: withAny(p ? languageOptions(p.languages) : LANGUAGES, 'Any language'),
     countries: withAny(p ? countryOptions(p.countries) : COUNTRIES, 'Any country'),
+    // Advanced facets only exist when the live parameters are loaded.
+    channels: withAny(p ? passthroughOptions(p.channels) : [], 'Any channel'),
+    encoders: withAny(p ? passthroughOptions(p.encoders) : [], 'Any encoder'),
+    ages: withAny(p ? passthroughOptions(p.ages) : [], 'Any rating'),
   };
 });
+// Year bounds for the range inputs (fall back to a sensible window).
+const yearBounds = computed(() => ({
+  min: parameters.value?.minYear || 1900,
+  max: parameters.value?.maxYear || new Date().getFullYear() + 1,
+}));
 
 // Resolve a facet value to its human label (for the active-filter chips).
 function optionLabel(list: Option[], value?: string): string {
@@ -97,7 +107,23 @@ const hasMore = computed(() => page.value < pages.value);
 const hasFilters = computed(() => {
   const f = filters.value;
   return Boolean(
-    f.type || f.quality || f.language || f.country || f.score || (f.genre && f.genre.length),
+    f.type ||
+      f.quality ||
+      f.language ||
+      f.country ||
+      f.score ||
+      (f.genre && f.genre.length) ||
+      f.age ||
+      f.channel ||
+      f.encoder ||
+      f.x265 ||
+      f.threeD ||
+      f.stream ||
+      f.cast ||
+      f.director ||
+      f.creator ||
+      f.yearFrom ||
+      f.yearTo,
   );
 });
 
@@ -327,6 +353,7 @@ export function useSourceCatalog() {
     savePref,
     loadView,
     filterOptions,
+    yearBounds,
     optionLabel,
     loadParameters,
   };

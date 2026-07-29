@@ -82,6 +82,36 @@ func TestThirtynamaParameters(t *testing.T) {
 	if p.MinYear != 1890 || p.MaxYear != 2026 {
 		t.Fatalf("year bounds = %d..%d", p.MinYear, p.MaxYear)
 	}
+	// Channel is an object facet; encoder/age are plain string lists with blanks
+	// dropped.
+	if _, ok := facetByValue(p.Channels, "Netflix"); !ok {
+		t.Fatalf("channel Netflix missing: %+v", p.Channels)
+	}
+	if len(p.Encoders) != 3 { // "30nama", "YIFY", "RARBG" — the "" is dropped
+		t.Fatalf("encoders = %+v, want 3", p.Encoders)
+	}
+	if e, ok := facetByValue(p.Encoders, "YIFY"); !ok || e.Name != "YIFY" {
+		t.Fatalf("encoder YIFY = %+v", e)
+	}
+	if _, ok := facetByValue(p.Ages, "PG-13"); !ok {
+		t.Fatalf("age PG-13 missing: %+v", p.Ages)
+	}
+}
+
+func TestThirtynamaBuildParamsAdvancedFacets(t *testing.T) {
+	body := buildParams(source.SearchFilters{
+		Channel: "Netflix", Encoder: "YIFY", X265: "true", ThreeD: "true", Stream: "true",
+		Cast: "brad pitt", Director: "nolan", Creator: "creator x", YearFrom: "2000", YearTo: "2010",
+	})
+	for _, want := range []string{
+		`"channel":"Netflix"`, `"encoder":"YIFY"`, `"x265":"true"`, `"3d":"true"`, `"stream":"true"`,
+		`"cast":"brad pitt"`, `"director":"nolan"`, `"creator":"creator x"`,
+		`"min_year":"2000"`, `"max_year":"2010"`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("params %s missing %s", body, want)
+		}
+	}
 }
 
 func fixture(t *testing.T, name string) []byte {

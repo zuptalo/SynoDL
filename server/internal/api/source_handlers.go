@@ -61,6 +61,17 @@ type sourceSearchReq struct {
 		Country  string   `json:"country"`
 		Score    string   `json:"score"`
 		Genre    []string `json:"genre"`
+		Age      string   `json:"age"`
+		Channel  string   `json:"channel"`
+		Encoder  string   `json:"encoder"`
+		X265     string   `json:"x265"`
+		ThreeD   string   `json:"threeD"`
+		Stream   string   `json:"stream"`
+		Cast     string   `json:"cast"`
+		Director string   `json:"director"`
+		Creator  string   `json:"creator"`
+		YearFrom string   `json:"yearFrom"`
+		YearTo   string   `json:"yearTo"`
 	} `json:"filters"`
 }
 
@@ -271,9 +282,14 @@ func handleSourceSearch(d Deps) http.Handler {
 			Type: body.Filters.Type, Quality: body.Filters.Quality,
 			Language: body.Filters.Language, Country: body.Filters.Country,
 			Score: body.Filters.Score, Genre: body.Filters.Genre,
+			Age: body.Filters.Age, Channel: body.Filters.Channel, Encoder: body.Filters.Encoder,
+			X265: body.Filters.X265, ThreeD: body.Filters.ThreeD, Stream: body.Filters.Stream,
+			Cast: body.Filters.Cast, Director: body.Filters.Director, Creator: body.Filters.Creator,
+			YearFrom: body.Filters.YearFrom, YearTo: body.Filters.YearTo,
 		}
 		// Parental control: a user with a content-rating cap can ONLY see that
-		// rating. Enforced server-side (the client can't relax or remove it).
+		// rating. Enforced server-side (the client can't relax or remove it) — it
+		// overrides any age the client asked for.
 		if u.ContentRating != "" {
 			filters.Age = u.ContentRating
 		}

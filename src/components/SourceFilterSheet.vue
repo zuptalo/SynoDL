@@ -5,12 +5,16 @@ import {
   IonButtons,
   IonContent,
   IonHeader,
+  IonInput,
   IonItem,
+  IonLabel,
   IonList,
+  IonListHeader,
   IonModal,
   IonSelect,
   IonSelectOption,
   IonTitle,
+  IonToggle,
   IonToolbar,
 } from '@ionic/vue';
 import type { SourceSearchFilters } from '@/services/api';
@@ -18,7 +22,7 @@ import { useSourceCatalog } from '@/composables/useSourceCatalog';
 
 // Filter options track the provider's live facets (falling back to built-in
 // lists), so the sheet always offers what the source currently supports.
-const { filterOptions } = useSourceCatalog();
+const { filterOptions, yearBounds } = useSourceCatalog();
 
 const props = defineProps<{ isOpen: boolean; filters: SourceSearchFilters }>();
 const emit = defineEmits<{
@@ -27,13 +31,25 @@ const emit = defineEmits<{
 }>();
 
 // Local working copy so Cancel discards edits. Genre is single-select here (sent
-// to the API as a one-element array).
+// to the API as a one-element array). Toggles are booleans locally, mapped to the
+// provider's "true" flag on apply.
 const type = ref('');
 const genre = ref('');
 const quality = ref('');
 const language = ref('');
 const country = ref('');
 const score = ref('');
+const channel = ref('');
+const encoder = ref('');
+const age = ref('');
+const cast = ref('');
+const director = ref('');
+const creator = ref('');
+const yearFrom = ref('');
+const yearTo = ref('');
+const x265 = ref(false);
+const threeD = ref(false);
+const stream = ref(false);
 
 watch(
   () => props.isOpen,
@@ -46,6 +62,17 @@ watch(
     language.value = f.language ?? '';
     country.value = f.country ?? '';
     score.value = f.score ?? '';
+    channel.value = f.channel ?? '';
+    encoder.value = f.encoder ?? '';
+    age.value = f.age ?? '';
+    cast.value = f.cast ?? '';
+    director.value = f.director ?? '';
+    creator.value = f.creator ?? '';
+    yearFrom.value = f.yearFrom ?? '';
+    yearTo.value = f.yearTo ?? '';
+    x265.value = f.x265 === 'true';
+    threeD.value = f.threeD === 'true';
+    stream.value = f.stream === 'true';
   },
 );
 
@@ -57,6 +84,20 @@ function apply(): void {
   if (language.value) f.language = language.value;
   if (country.value) f.country = country.value;
   if (score.value) f.score = score.value;
+  if (channel.value) f.channel = channel.value;
+  if (encoder.value) f.encoder = encoder.value;
+  if (age.value) f.age = age.value;
+  const castV = cast.value.trim();
+  if (castV) f.cast = castV;
+  const directorV = director.value.trim();
+  if (directorV) f.director = directorV;
+  const creatorV = creator.value.trim();
+  if (creatorV) f.creator = creatorV;
+  if (String(yearFrom.value).trim()) f.yearFrom = String(yearFrom.value).trim();
+  if (String(yearTo.value).trim()) f.yearTo = String(yearTo.value).trim();
+  if (x265.value) f.x265 = 'true';
+  if (threeD.value) f.threeD = 'true';
+  if (stream.value) f.stream = 'true';
   emit('apply', f);
   emit('dismiss');
 }
@@ -68,6 +109,17 @@ function clear(): void {
   language.value = '';
   country.value = '';
   score.value = '';
+  channel.value = '';
+  encoder.value = '';
+  age.value = '';
+  cast.value = '';
+  director.value = '';
+  creator.value = '';
+  yearFrom.value = '';
+  yearTo.value = '';
+  x265.value = false;
+  threeD.value = false;
+  stream.value = false;
 }
 </script>
 
@@ -132,6 +184,73 @@ function clear(): void {
               {{ c.label }}
             </ion-select-option>
           </ion-select>
+        </ion-item>
+      </ion-list>
+
+      <ion-list :inset="true">
+        <ion-list-header><ion-label>More filters</ion-label></ion-list-header>
+        <ion-item v-if="filterOptions.channels.length > 1">
+          <ion-select v-model="channel" label="Channel" interface="alert" placeholder="Any">
+            <ion-select-option v-for="c in filterOptions.channels" :key="c.value" :value="c.value">
+              {{ c.label }}
+            </ion-select-option>
+          </ion-select>
+        </ion-item>
+        <ion-item v-if="filterOptions.encoders.length > 1">
+          <ion-select v-model="encoder" label="Encoder" interface="alert" placeholder="Any">
+            <ion-select-option v-for="e in filterOptions.encoders" :key="e.value" :value="e.value">
+              {{ e.label }}
+            </ion-select-option>
+          </ion-select>
+        </ion-item>
+        <ion-item v-if="filterOptions.ages.length > 1">
+          <ion-select v-model="age" label="Content rating" interface="alert" placeholder="Any">
+            <ion-select-option v-for="a in filterOptions.ages" :key="a.value" :value="a.value">
+              {{ a.label }}
+            </ion-select-option>
+          </ion-select>
+        </ion-item>
+        <ion-item>
+          <ion-input
+            v-model="yearFrom"
+            type="number"
+            label="Year from"
+            label-placement="fixed"
+            :placeholder="String(yearBounds.min)"
+            :min="yearBounds.min"
+            :max="yearBounds.max"
+            inputmode="numeric"
+          />
+        </ion-item>
+        <ion-item>
+          <ion-input
+            v-model="yearTo"
+            type="number"
+            label="Year to"
+            label-placement="fixed"
+            :placeholder="String(yearBounds.max)"
+            :min="yearBounds.min"
+            :max="yearBounds.max"
+            inputmode="numeric"
+          />
+        </ion-item>
+        <ion-item>
+          <ion-input v-model="cast" label="Cast" label-placement="fixed" placeholder="Actor name" />
+        </ion-item>
+        <ion-item>
+          <ion-input v-model="director" label="Director" label-placement="fixed" placeholder="Name" />
+        </ion-item>
+        <ion-item>
+          <ion-input v-model="creator" label="Creator" label-placement="fixed" placeholder="Name" />
+        </ion-item>
+        <ion-item>
+          <ion-toggle v-model="x265">x265 / HEVC only</ion-toggle>
+        </ion-item>
+        <ion-item>
+          <ion-toggle v-model="threeD">3D only</ion-toggle>
+        </ion-item>
+        <ion-item>
+          <ion-toggle v-model="stream">Streamable only</ion-toggle>
         </ion-item>
       </ion-list>
     </ion-content>

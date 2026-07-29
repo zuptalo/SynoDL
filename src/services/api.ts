@@ -350,6 +350,9 @@ export interface SourceParameters {
   scores: SourceFacet[];
   languages: SourceFacet[];
   countries: SourceFacet[];
+  channels: SourceFacet[];
+  encoders: SourceFacet[];
+  ages: SourceFacet[];
   minYear: number;
   maxYear: number;
 }
@@ -384,6 +387,17 @@ export interface SourceSearchFilters {
   country?: string;
   score?: string;
   genre?: string[];
+  age?: string;
+  channel?: string;
+  encoder?: string;
+  x265?: string; // "true" to require x265/HEVC
+  threeD?: string; // "true" to require 3D
+  stream?: string; // "true" to require a streamable copy
+  cast?: string;
+  director?: string;
+  creator?: string;
+  yearFrom?: string;
+  yearTo?: string;
 }
 
 export const api = {
