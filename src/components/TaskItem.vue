@@ -14,8 +14,13 @@ import { computed, ref } from 'vue';
 import type { Task } from '@/types/task';
 import { formatBytes, formatEta, formatPercent, formatSpeed, progressOf } from '@/utils/format';
 import { reasonFor } from '@/services/task-error';
+import { taskTitle } from '@/services/task-title';
 
 const props = defineProps<{ task: Task; selectMode?: boolean; selected?: boolean }>();
+
+// A readable title (the download's folder name) plus the season/episode for a
+// series, in place of Download Station's raw file name.
+const heading = computed(() => taskTitle(props.task));
 const emit = defineEmits<{
   (e: 'pause', id: string): void;
   (e: 'resume', id: string): void;
@@ -89,7 +94,9 @@ const errorReason = computed(() =>
         data-testid="task-select"
       />
       <ion-label>
-        <h2 class="name">{{ task.name }}</h2>
+        <h2 class="name">
+          {{ heading.title }}<span v-if="heading.episode" class="ep">{{ heading.episode }}</span>
+        </h2>
         <div class="meta">
           <span class="status" :style="{ color: statusColorVar }" data-testid="task-status">
             {{ task.status }}
@@ -127,6 +134,15 @@ const errorReason = computed(() =>
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.ep {
+  margin-left: 6px;
+  padding: 1px 6px;
+  border-radius: 6px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--ion-color-primary);
+  background: rgba(var(--ion-color-primary-rgb, 16, 185, 129), 0.14);
 }
 .meta {
   display: flex;
