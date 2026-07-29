@@ -235,6 +235,8 @@ type SourceDownload struct {
 	Title       string
 	Year        string
 	IMDbScore   float64
+	OwnerID     int64  // who sent it (0 = unknown)
+	OwnerName   string // their username (joined; "" when unknown)
 }
 
 // normDest strips leading/trailing slashes so a stored destination matches the
@@ -244,23 +246,32 @@ func normDest(dest string) string { return strings.Trim(strings.TrimSpace(dest),
 // SaveSourceDownload upserts the catalog metadata for a title's destination
 // folder (a re-send overwrites it).
 func (s *Store) SaveSourceDownload(d SourceDownload, now int64) error {
+	var owner any // NULL when unknown, so ON DELETE SET NULL applies
+	if d.OwnerID != 0 {
+		owner = d.OwnerID
+	}
 	_, err := s.db.Exec(`
-		INSERT INTO source_downloads (destination, media_type, title, year, imdb_score, created_at)
-		VALUES (?, ?, ?, ?, ?, ?)
+		INSERT INTO source_downloads (destination, media_type, title, year, imdb_score, owner_user_id, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(destination) DO UPDATE SET
-			media_type = excluded.media_type,
-			title      = excluded.title,
-			year       = excluded.year,
-			imdb_score = excluded.imdb_score,
-			created_at = excluded.created_at`,
-		normDest(d.Destination), d.MediaType, d.Title, d.Year, d.IMDbScore, now)
+			media_type    = excluded.media_type,
+			title         = excluded.title,
+			year          = excluded.year,
+			imdb_score    = excluded.imdb_score,
+			owner_user_id = excluded.owner_user_id,
+			created_at    = excluded.created_at`,
+		normDest(d.Destination), d.MediaType, d.Title, d.Year, d.IMDbScore, owner, now)
 	return err
 }
 
-// SourceDownloads returns all remembered Discover-send metadata, keyed by the
-// normalized destination folder, for joining onto the task list.
+// SourceDownloads returns all remembered Discover-send metadata (incl. who sent
+// it), keyed by the normalized destination folder, for joining onto the task list.
 func (s *Store) SourceDownloads() (map[string]SourceDownload, error) {
-	rows, err := s.db.Query(`SELECT destination, media_type, title, year, imdb_score FROM source_downloads`)
+	rows, err := s.db.Query(`
+		SELECT sd.destination, sd.media_type, sd.title, sd.year, sd.imdb_score,
+		       COALESCE(sd.owner_user_id, 0), COALESCE(u.username, '')
+		FROM source_downloads sd
+		LEFT JOIN users u ON u.id = sd.owner_user_id`)
 	if err != nil {
 		return nil, err
 	}
@@ -268,7 +279,7 @@ func (s *Store) SourceDownloads() (map[string]SourceDownload, error) {
 	out := map[string]SourceDownload{}
 	for rows.Next() {
 		var d SourceDownload
-		if err := rows.Scan(&d.Destination, &d.MediaType, &d.Title, &d.Year, &d.IMDbScore); err != nil {
+		if err := rows.Scan(&d.Destination, &d.MediaType, &d.Title, &d.Year, &d.IMDbScore, &d.OwnerID, &d.OwnerName); err != nil {
 			return nil, err
 		}
 		out[d.Destination] = d

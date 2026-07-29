@@ -89,6 +89,43 @@ func TestDecorateTasksOwnershipAndAttribution(t *testing.T) {
 	}
 }
 
+// A Discover-sent task is attributed to its sender by DESTINATION FOLDER — even
+// though DSM names the task after the file (no name-based claim can match). The
+// sender sees it in own-scope; an admin gets "added by"; other users don't see it.
+func TestDecorateTasksSourceOwnershipByDestination(t *testing.T) {
+	st := ownershipStore(t)
+	adminID, _ := st.CreateUser("boss", "h", true)
+	bobID, _ := st.CreateUser("bob", "h", false)
+	carolID, _ := st.CreateUser("carol", "h", false)
+	admin, _ := st.GetUserByID(adminID)
+	bob, _ := st.GetUserByID(bobID)
+	carol, _ := st.GetUserByID(carolID)
+	d := Deps{Store: st}
+
+	// Bob sent this from Discover; note the task NAME is the file, which matches no
+	// claim — only the destination folder ties it to bob.
+	if err := st.SaveSourceDownload(store.SourceDownload{
+		Destination: "movies/Esther 1986", MediaType: "movie", Title: "Esther 1986", OwnerID: bobID,
+	}, 100); err != nil {
+		t.Fatalf("SaveSourceDownload: %v", err)
+	}
+	tasks := []syno.Task{{ID: "t1", Name: "Esther.1986.1080p.mkv", Destination: "/movies/Esther 1986"}}
+
+	// Bob (own scope) sees his own task despite no name-based attribution.
+	if v := d.decorateTasks(bob, tasks); len(v) != 1 || v[0].ID != "t1" {
+		t.Fatalf("bob should see his source download by destination, got %+v", v)
+	}
+	// Carol (own scope) does NOT see bob's task.
+	if v := d.decorateTasks(carol, tasks); len(v) != 0 {
+		t.Fatalf("carol must not see bob's task, got %+v", v)
+	}
+	// Admin sees it, labelled "added by bob".
+	av := d.decorateTasks(admin, tasks)
+	if len(av) != 1 || av[0].AddedBy != "bob" {
+		t.Fatalf("admin should see t1 added by bob, got %+v", av)
+	}
+}
+
 // Catalog metadata from a Discover send is joined onto tasks by their
 // destination folder (regardless of the leading slash DSM may report).
 func TestDecorateTasksMediaMetadata(t *testing.T) {

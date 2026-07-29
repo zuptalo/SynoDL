@@ -70,6 +70,15 @@ func (d Deps) decorateTasks(u *store.User, tasks []syno.Task) []taskView {
 	out := make([]taskView, 0, len(tasks))
 	for _, t := range tasks {
 		owner, attributed := owners[t.ID]
+		// A task sent from Discover is attributed by its destination FOLDER, which
+		// is reliable — the name-based claim can't match it because DSM names the
+		// task after the file, not the folder. This is the primary owner source for
+		// source downloads.
+		md, hasMedia := media[strings.Trim(strings.TrimSpace(t.Destination), "/")]
+		if hasMedia && md.OwnerID != 0 {
+			owner = store.TaskOwner{UserID: md.OwnerID, Username: md.OwnerName}
+			attributed = true
+		}
 		if scope != "any" {
 			mine := attributed && owner.UserID == u.ID
 			if !mine && !pending[t.Name] {
@@ -80,11 +89,11 @@ func (d Deps) decorateTasks(u *store.User, tasks []syno.Task) []taskView {
 		if u.IsAdmin && attributed {
 			v.AddedBy = owner.Username
 		}
-		// Match the task to its title folder to label it movie/series + rating/year.
-		if m, ok := media[strings.Trim(strings.TrimSpace(t.Destination), "/")]; ok {
-			v.MediaType = m.MediaType
-			v.IMDbScore = m.IMDbScore
-			v.Year = m.Year
+		// Label it movie/series + rating/year from the same folder match.
+		if hasMedia {
+			v.MediaType = md.MediaType
+			v.IMDbScore = md.IMDbScore
+			v.Year = md.Year
 		}
 		out = append(out, v)
 	}

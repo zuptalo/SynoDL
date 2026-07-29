@@ -179,4 +179,9 @@ var migrations = []string{
 		created_at  INTEGER NOT NULL DEFAULT 0
 	);
 	`,
+	// 0012 — remember WHO sent each Discover download, keyed by its destination
+	// folder. Download Station names a task after the file, not the folder, so the
+	// name-based ownership claim never matched a source send — attribute those by
+	// destination instead (reliable, like the metadata above).
+	`ALTER TABLE source_downloads ADD COLUMN owner_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL;`,
 }
