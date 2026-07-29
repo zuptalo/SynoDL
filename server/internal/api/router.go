@@ -108,6 +108,7 @@ func NewRouter(d Deps) http.Handler {
 		mux.Handle("POST /v1/source/search", handleSourceSearch(d))
 		mux.Handle("GET /v1/source/title/{id}", handleSourceTitle(d))
 		mux.Handle("POST /v1/source/send", handleSourceSend(d))
+		mux.Handle("GET /v1/source/parameters", handleSourceParameters(d))
 		mux.Handle("GET /v1/source/quota", handleGetSourceQuota(d))
 		mux.Handle("GET /v1/source/prefs", handleGetSourcePrefs(d))
 		mux.Handle("PUT /v1/source/prefs", handleSetSourcePrefs(d))

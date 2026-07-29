@@ -41,13 +41,7 @@ import {
 import { posterSrc, type CatalogTitle } from '@/services/api';
 import { splitYear } from '@/services/title-year';
 import { useSourceCatalog } from '@/composables/useSourceCatalog';
-import {
-  SORTS,
-  countryLabel,
-  genreLabel,
-  languageLabel,
-  sortLabel,
-} from '@/services/source-filters';
+import { SORTS, sortLabel } from '@/services/source-filters';
 import { useSession } from '@/composables/useSession';
 import SourceFilterSheet from '@/components/SourceFilterSheet.vue';
 import SourceTitleModal from '@/components/SourceTitleModal.vue';
@@ -77,7 +71,17 @@ const {
   removeFilter,
   loadPrefs,
   loadView,
+  loadParameters,
+  filterOptions,
+  optionLabel,
 } = useSourceCatalog();
+
+// Chip labels use the same (live-or-built-in) option lists as the filter sheet.
+const typeChip = computed(() => optionLabel(filterOptions.value.types, filters.value.type));
+const genreChip = computed(() => optionLabel(filterOptions.value.genres, filters.value.genre?.[0]));
+const scoreChip = computed(() => optionLabel(filterOptions.value.scores, filters.value.score));
+const languageChip = computed(() => optionLabel(filterOptions.value.languages, filters.value.language));
+const countryChip = computed(() => optionLabel(filterOptions.value.countries, filters.value.country));
 
 // The release year is embedded at the end of the provider's title; show it as a
 // separate detail and strip it from the displayed name (the raw title is still
@@ -139,7 +143,10 @@ async function search(reset: boolean): Promise<void> {
 async function refreshView(): Promise<void> {
   await loadStatus();
   await loadView();
-  if (!unavailable.value && !needsRefresh.value) await search(true);
+  if (!unavailable.value && !needsRefresh.value) {
+    void loadParameters(); // refresh the filter facets from the source (non-blocking)
+    await search(true);
+  }
 }
 
 onMounted(async () => {
@@ -336,22 +343,22 @@ function goSettings(): void {
              without reopening the sheet. -->
         <div v-if="hasFilters" class="active-filters">
           <ion-chip v-if="filters.type" class="cap" @click="onRemoveFilter('type')">
-            {{ filters.type }}<ion-icon :icon="closeOutline" />
+            {{ typeChip }}<ion-icon :icon="closeOutline" />
           </ion-chip>
           <ion-chip v-if="filters.genre?.length" @click="onRemoveFilter('genre')">
-            {{ genreLabel(filters.genre[0]) }}<ion-icon :icon="closeOutline" />
+            {{ genreChip }}<ion-icon :icon="closeOutline" />
           </ion-chip>
           <ion-chip v-if="filters.quality" @click="onRemoveFilter('quality')">
             {{ filters.quality }}<ion-icon :icon="closeOutline" />
           </ion-chip>
           <ion-chip v-if="filters.score" @click="onRemoveFilter('score')">
-            ★ {{ filters.score }}+<ion-icon :icon="closeOutline" />
+            ★ {{ scoreChip }}<ion-icon :icon="closeOutline" />
           </ion-chip>
           <ion-chip v-if="filters.language" @click="onRemoveFilter('language')">
-            {{ languageLabel(filters.language) }}<ion-icon :icon="closeOutline" />
+            {{ languageChip }}<ion-icon :icon="closeOutline" />
           </ion-chip>
           <ion-chip v-if="filters.country" @click="onRemoveFilter('country')">
-            {{ countryLabel(filters.country) }}<ion-icon :icon="closeOutline" />
+            {{ countryChip }}<ion-icon :icon="closeOutline" />
           </ion-chip>
         </div>
 

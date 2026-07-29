@@ -336,6 +336,23 @@ export interface SourceSearchResult {
   pages: number;
   items: CatalogTitle[];
 }
+/** One selectable value in a filter facet, from the provider's parameters. */
+export interface SourceFacet {
+  value: string;
+  name?: string;
+  slug?: string;
+}
+/** The provider's live filter facets (GET /v1/source/parameters). */
+export interface SourceParameters {
+  genres: SourceFacet[];
+  types: SourceFacet[];
+  qualities: SourceFacet[];
+  scores: SourceFacet[];
+  languages: SourceFacet[];
+  countries: SourceFacet[];
+  minYear: number;
+  maxYear: number;
+}
 export interface QualityOption {
   id: string;
   label: string;
@@ -424,6 +441,9 @@ export const api = {
       '/v1/source/send',
       json({ titleId, qualityId, title, type, episodes }),
     ),
+  // The provider's live filter facets (genres, types, qualities, …) so the filter
+  // UI stays in step with the source. Refreshed on open/foreground.
+  getSourceParameters: () => request<SourceParameters>('/v1/source/parameters'),
   // The signed-in user's daily download allowance (limit 0 = unlimited, remaining -1).
   getSourceQuota: () => request<{ limit: number; used: number; remaining: number }>('/v1/source/quota'),
   getSourcePrefs: () => request<{ preferredQuality: string }>('/v1/source/prefs'),

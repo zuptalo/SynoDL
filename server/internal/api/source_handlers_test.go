@@ -27,6 +27,8 @@ var (
 	fakeLinks      []string
 	fakeSize       string
 	fakeResolveErr error
+	fakeParams     source.SearchParameters
+	fakeParamsErr  error
 )
 
 func init() { source.Register(fakeSrc{}) }
@@ -52,6 +54,9 @@ func (fakeSrc) Title(context.Context, *source.Client, source.Config, source.Sess
 }
 func (fakeSrc) ResolveDownload(context.Context, *source.Client, source.Config, source.Session, string, string) ([]string, string, error) {
 	return fakeLinks, fakeSize, fakeResolveErr
+}
+func (fakeSrc) Parameters(context.Context, *source.Client, source.Config, source.Session) (source.SearchParameters, error) {
+	return fakeParams, fakeParamsErr
 }
 
 func resetFake() {
@@ -172,6 +177,29 @@ func TestSourceStatusAndAdminConfig(t *testing.T) {
 	do(t, h, "DELETE", "/v1/source/session", "", admin)
 	if rec := do(t, h, "GET", "/v1/source/status", "", admin); !strings.Contains(rec.Body.String(), `"configured":false`) {
 		t.Fatalf("after delete = %s", rec.Body.String())
+	}
+}
+
+func TestSourceParameters(t *testing.T) {
+	resetFake()
+	h, _ := newStatefulRouter(t)
+	admin := adminAfterSetup(t, h)
+
+	// Unavailable before configuration.
+	if rec := do(t, h, "GET", "/v1/source/parameters", "", admin); rec.Code != http.StatusConflict {
+		t.Fatalf("params unconfigured = %d", rec.Code)
+	}
+
+	configureFake(t, h, admin, "movie")
+	fakeParams = source.SearchParameters{
+		Genres:  []source.FacetOption{{Value: "3362", Slug: "drama", Name: "درام"}},
+		Types:   []source.FacetOption{{Value: "15", Name: "Movie"}},
+		MinYear: 1890, MaxYear: 2026,
+	}
+	rec := do(t, h, "GET", "/v1/source/parameters", "", admin)
+	if rec.Code != 200 || !strings.Contains(rec.Body.String(), `"slug":"drama"`) ||
+		!strings.Contains(rec.Body.String(), `"maxYear":2026`) {
+		t.Fatalf("params = %d %s", rec.Code, rec.Body.String())
 	}
 }
 

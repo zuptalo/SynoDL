@@ -14,9 +14,10 @@ export interface Option {
 
 // Sort orders the provider actually honors (orderby, always descending).
 export const SORTS: Option[] = [
+  { value: 'favorite', label: 'Most popular' },
+  { value: 'imdb', label: 'IMDb rating' },
   { value: 'year', label: 'Release year' },
   { value: 'date', label: 'Recently added' },
-  { value: 'favorite', label: 'Most popular' },
 ];
 
 export const TYPES: Option[] = [

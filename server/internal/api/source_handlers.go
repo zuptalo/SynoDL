@@ -295,6 +295,25 @@ func handleSourceSearch(d Deps) http.Handler {
 	})
 }
 
+// handleSourceParameters returns the provider's live filter facets (genres,
+// types, qualities, languages, countries, score bands, year range) so the filter
+// UI stays in step with the source. The client refreshes this on open/foreground.
+func handleSourceParameters(d Deps) http.Handler {
+	return d.requireUser(func(w http.ResponseWriter, r *http.Request, _ *store.User) {
+		p, drv, cfg, sess, ok := d.activeSource()
+		if !ok {
+			httpx.JSON(w, http.StatusConflict, map[string]any{"error": "source_unavailable"})
+			return
+		}
+		params, err := drv.Parameters(r.Context(), sourceHTTP, cfg, sess)
+		if err != nil {
+			d.writeSourceRuntimeErr(w, p.ID, err)
+			return
+		}
+		httpx.JSON(w, http.StatusOK, params)
+	})
+}
+
 // handleSourceTitle returns a title's qualities (movies are sendable).
 func handleSourceTitle(d Deps) http.Handler {
 	return d.requireUser(func(w http.ResponseWriter, r *http.Request, _ *store.User) {
