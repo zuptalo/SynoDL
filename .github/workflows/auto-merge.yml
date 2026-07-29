@@ -54,10 +54,30 @@ jobs:
         if: steps.protection.outputs.ok == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
         run: |
-          gh pr merge "${{ github.event.pull_request.number }}" \
-            --repo "${{ github.repository }}" \
-            --auto --squash
+          set -euo pipefail
+          # On the pull_request "opened"/"synchronize" event GitHub often hasn't
+          # finished computing mergeability yet (mergeable_state: unknown), and in
+          # that window `gh pr merge --auto` silently no-ops — leaving the PR
+          # unmerged with no retry. Poll until GitHub reports auto-merge is
+          # actually enabled (auto_merge != null), or the PR is already merged.
+          for i in $(seq 1 20); do
+            if [ "$(gh api "repos/$REPO/pulls/$PR" --jq '.merged')" = "true" ]; then
+              echo "PR #$PR already merged."
+              exit 0
+            fi
+            if [ "$(gh api "repos/$REPO/pulls/$PR" --jq '.auto_merge != null')" = "true" ]; then
+              echo "auto-merge enabled on attempt $i."
+              exit 0
+            fi
+            # Querying the PR above also nudges GitHub to (re)compute mergeability,
+            # so the next attempt is likelier to stick.
+            gh pr merge "$PR" --repo "$REPO" --auto --squash 2>/dev/null || true
+            sleep 6
+          done
+          echo "::warning::auto-merge did not engage after retries — merge #$PR manually once green."
 
       # GitHub deliberately does not let a push made with the run's own GITHUB_TOKEN
       # trigger other workflows (anti-infinite-loop safeguard) — so once GitHub's
