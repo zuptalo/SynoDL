@@ -137,6 +137,44 @@ func (p thirtynama) Search(ctx context.Context, c *source.Client, cfg source.Con
 	return out, nil
 }
 
+// Parameters fetches the provider's advanced-search facet lists so the filter UI
+// reflects the live source. Options whose value is empty (the provider's "All"
+// entry) are dropped — the client supplies its own "Any".
+func (p thirtynama) Parameters(ctx context.Context, c *source.Client, cfg source.Config, s source.Session) (source.SearchParameters, error) {
+	raw, err := p.call(ctx, c, cfg, s, "/api/v1/action/advanced_search_parametres", "")
+	if err != nil {
+		return source.SearchParameters{}, runtimeErr(err)
+	}
+	var r tnParams
+	if err := json.Unmarshal(raw, &r); err != nil {
+		return source.SearchParameters{}, runtimeErr(errBadShape)
+	}
+	return source.SearchParameters{
+		Genres:    facetOptions(r.Genre),
+		Types:     facetOptions(r.Type),
+		Qualities: facetOptions(r.Quality),
+		Scores:    facetOptions(r.Score),
+		Languages: facetOptions(r.Language),
+		Countries: facetOptions(r.Country),
+		MinYear:   int(r.MinYear),
+		MaxYear:   int(r.MaxYear),
+	}, nil
+}
+
+// facetOptions converts the provider's facet entries to our shape, dropping the
+// empty "All" entry and any entry missing a value.
+func facetOptions(in []tnFacet) []source.FacetOption {
+	out := make([]source.FacetOption, 0, len(in))
+	for _, f := range in {
+		v := string(f.Value)
+		if v == "" {
+			continue
+		}
+		out = append(out, source.FacetOption{Value: v, Name: html.UnescapeString(string(f.Name)), Slug: string(f.Slug)})
+	}
+	return out
+}
+
 func (p thirtynama) Title(ctx context.Context, c *source.Client, cfg source.Config, s source.Session, id string) (source.TitleDetail, error) {
 	quals, isSeries, err := p.downloads(ctx, c, cfg, s, id)
 	if err != nil {
@@ -283,7 +321,7 @@ var typeCodes = map[string]string{
 
 // allowedOrderby is the set of provider orderby fields we expose; anything else
 // falls back to release-year descending (the app default).
-var allowedOrderby = map[string]bool{"year": true, "date": true, "favorite": true}
+var allowedOrderby = map[string]bool{"year": true, "date": true, "favorite": true, "imdb": true}
 
 func orderbyField(sort string) string {
 	if allowedOrderby[sort] {
@@ -455,6 +493,26 @@ func (p tnPost) genreNames() []string {
 		}
 	}
 	return out
+}
+
+// tnParams is the advanced_search_parametres result. Facet values are loosely
+// typed (numbers, strings, or a compound like "17&124913"), so flexNumStr keeps
+// each as its textual form.
+type tnParams struct {
+	Genre    []tnFacet `json:"genre"`
+	Type     []tnFacet `json:"type"`
+	Quality  []tnFacet `json:"quality"`
+	Score    []tnFacet `json:"score"`
+	Country  []tnFacet `json:"country"`
+	Language []tnFacet `json:"language"`
+	MinYear  flexInt   `json:"min_year"`
+	MaxYear  flexInt   `json:"max_year"`
+}
+
+type tnFacet struct {
+	Name  flexStr    `json:"name"`
+	Slug  flexStr    `json:"slug"`
+	Value flexNumStr `json:"value"`
 }
 
 type tnDownloadResult struct {

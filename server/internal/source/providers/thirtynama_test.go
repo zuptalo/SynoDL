@@ -27,6 +27,63 @@ func fakeProvider(t *testing.T, handler http.HandlerFunc) (source.Config, func()
 	return cfg, func() { apiBase = prev; srv.Close() }
 }
 
+func facetByValue(opts []source.FacetOption, value string) (source.FacetOption, bool) {
+	for _, o := range opts {
+		if o.Value == value {
+			return o, true
+		}
+	}
+	return source.FacetOption{}, false
+}
+
+func TestThirtynamaParameters(t *testing.T) {
+	cfg, done := fakeProvider(t, func(w http.ResponseWriter, r *http.Request) {
+		if !strings.Contains(r.URL.Path, "advanced_search_parametres") {
+			t.Fatalf("unexpected path %s", r.URL.Path)
+		}
+		w.Write(fixture(t, "advanced_search_parametres.json"))
+	})
+	defer done()
+
+	p, err := thirtynama{}.Parameters(context.Background(), source.NewClient(), cfg, source.Session{})
+	if err != nil {
+		t.Fatalf("Parameters: %v", err)
+	}
+
+	// The empty "All" (value "") entry is dropped from every facet.
+	if _, ok := facetByValue(p.Genres, ""); ok {
+		t.Fatal("empty All entry should be dropped")
+	}
+	if len(p.Genres) != 2 {
+		t.Fatalf("genres = %+v, want 2", p.Genres)
+	}
+	// Numeric values become their digits, slugs are preserved.
+	if g, ok := facetByValue(p.Genres, "3373"); !ok || g.Slug != "sci-fi" {
+		t.Fatalf("sci-fi genre = %+v", g)
+	}
+	// A compound type value survives verbatim.
+	if _, ok := facetByValue(p.Types, "17&124913"); !ok {
+		t.Fatalf("compound type value missing: %+v", p.Types)
+	}
+	// Float and negative score values keep their textual form.
+	if _, ok := facetByValue(p.Scores, "8.5"); !ok {
+		t.Fatalf("score 8.5 missing: %+v", p.Scores)
+	}
+	if _, ok := facetByValue(p.Scores, "-5"); !ok {
+		t.Fatalf("score -5 missing: %+v", p.Scores)
+	}
+	// ISO country/language codes pass through for the client to localize.
+	if _, ok := facetByValue(p.Countries, "US"); !ok {
+		t.Fatalf("country US missing: %+v", p.Countries)
+	}
+	if _, ok := facetByValue(p.Languages, "en"); !ok {
+		t.Fatalf("language en missing: %+v", p.Languages)
+	}
+	if p.MinYear != 1890 || p.MaxYear != 2026 {
+		t.Fatalf("year bounds = %d..%d", p.MinYear, p.MaxYear)
+	}
+}
+
 func fixture(t *testing.T, name string) []byte {
 	t.Helper()
 	b, err := os.ReadFile(filepath.Join("testdata", name))

@@ -14,9 +14,20 @@ import {
   api,
   ApiError,
   type CatalogTitle,
+  type SourceParameters,
   type SourceSearchFilters,
   type SourceStatus,
 } from '@/services/api';
+import { COUNTRIES, GENRES, LANGUAGES, QUALITIES, SCORES, TYPES } from '@/services/source-filters';
+import {
+  countryOptions,
+  genreOptions,
+  languageOptions,
+  qualityOptions,
+  scoreOptions,
+  typeOptions,
+  type Option,
+} from '@/services/facet-labels';
 
 const status = ref<SourceStatus | null>(null);
 const items = ref<CatalogTitle[]>([]);
@@ -39,6 +50,46 @@ const needsRefresh = ref(false);
 const unavailable = ref(true);
 const errorMsg = ref('');
 const preferredQuality = ref('');
+
+// The provider's live filter facets (fetched on open/foreground). Null until
+// loaded — the UI then falls back to the built-in lists.
+const parameters = ref<SourceParameters | null>(null);
+
+// Ensure a single leading "Any" option, whether the source list has one or not.
+function withAny(opts: Option[], anyLabel: string): Option[] {
+  return [{ value: '', label: anyLabel }, ...opts.filter((o) => o.value !== '')];
+}
+const qualityStatic: Option[] = QUALITIES.map((q) => ({ value: q, label: q }));
+
+// Filter options for the sheet + chips: the provider's live facets when loaded,
+// otherwise the built-in lists. Each carries a leading "Any" entry.
+const filterOptions = computed(() => {
+  const p = parameters.value;
+  return {
+    types: withAny(p ? typeOptions(p.types) : TYPES, 'Any type'),
+    genres: withAny(p ? genreOptions(p.genres) : GENRES, 'Any genre'),
+    qualities: withAny(p ? qualityOptions(p.qualities) : qualityStatic, 'Any quality'),
+    scores: withAny(p ? scoreOptions(p.scores) : SCORES, 'Any rating'),
+    languages: withAny(p ? languageOptions(p.languages) : LANGUAGES, 'Any language'),
+    countries: withAny(p ? countryOptions(p.countries) : COUNTRIES, 'Any country'),
+  };
+});
+
+// Resolve a facet value to its human label (for the active-filter chips).
+function optionLabel(list: Option[], value?: string): string {
+  if (!value) return '';
+  return list.find((o) => o.value === value)?.label ?? value;
+}
+
+// Refresh the provider's facet lists. Fire-and-forget — a failure just keeps the
+// built-in lists. Called on open and when the app returns to the foreground.
+async function loadParameters(): Promise<void> {
+  try {
+    parameters.value = await api.getSourceParameters();
+  } catch {
+    /* keep whatever we have (built-in lists cover it) */
+  }
+}
 
 const hasMore = computed(() => page.value < pages.value);
 // Sort is now its own always-visible dropdown, so it doesn't count as an active
@@ -275,5 +326,8 @@ export function useSourceCatalog() {
     loadPrefs,
     savePref,
     loadView,
+    filterOptions,
+    optionLabel,
+    loadParameters,
   };
 }

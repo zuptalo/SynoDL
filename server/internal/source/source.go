@@ -70,6 +70,29 @@ type SearchFilters struct {
 	Genre    []string
 }
 
+// FacetOption is one selectable value in a filter facet. Name is the provider's
+// own label (may be non-English); Slug is its English slug when the provider
+// gives one (genres do). The client resolves the display label from Value/Slug.
+type FacetOption struct {
+	Value string `json:"value"`
+	Name  string `json:"name,omitempty"`
+	Slug  string `json:"slug,omitempty"`
+}
+
+// SearchParameters is the provider's current set of filter facets — what the
+// advanced-search UI should offer. Empty slices are fine (the client falls back
+// to its built-in list).
+type SearchParameters struct {
+	Genres    []FacetOption `json:"genres"`
+	Types     []FacetOption `json:"types"`
+	Qualities []FacetOption `json:"qualities"`
+	Scores    []FacetOption `json:"scores"`
+	Languages []FacetOption `json:"languages"`
+	Countries []FacetOption `json:"countries"`
+	MinYear   int           `json:"minYear"`
+	MaxYear   int           `json:"maxYear"`
+}
+
 // SearchQuery is one catalog query.
 type SearchQuery struct {
 	Query   string
@@ -147,6 +170,10 @@ type Provider interface {
 	VerifySession(ctx context.Context, c *Client, cfg Config, s Session) error
 	// Search returns a page of catalog results for the query/filters.
 	Search(ctx context.Context, c *Client, cfg Config, s Session, q SearchQuery) (SearchResult, error)
+	// Parameters returns the provider's current facet options (genres, types,
+	// qualities, languages, countries, score bands, year bounds) so the filter UI
+	// stays in step with the source instead of a hardcoded list.
+	Parameters(ctx context.Context, c *Client, cfg Config, s Session) (SearchParameters, error)
 	// Title returns a title's detail + qualities (movies are Sendable).
 	Title(ctx context.Context, c *Client, cfg Config, s Session, id string) (TitleDetail, error)
 	// ResolveDownload re-fetches and returns the signed URL(s) and the human size

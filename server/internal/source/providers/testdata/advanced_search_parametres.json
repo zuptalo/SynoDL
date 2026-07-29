@@ -1,0 +1,39 @@
+{
+  "success": true,
+  "msg": null,
+  "result": {
+    "genre": [
+      { "name": "همه", "value": "" },
+      { "name": "درام", "slug": "drama", "value": 3362 },
+      { "name": "علمی-تخیلی", "slug": "sci-fi", "value": 3373 }
+    ],
+    "type": [
+      { "name": "همه", "value": "" },
+      { "name": "فیلم", "value": 15 },
+      { "name": "سریال", "value": 16 },
+      { "name": "انیمه (سریال)", "value": "17&124913" }
+    ],
+    "score": [
+      { "name": "همه", "value": "" },
+      { "name": "بالای 9.0", "value": 9 },
+      { "name": "بالای 8.5", "value": 8.5 },
+      { "name": "زیر 5.0", "value": "-5" }
+    ],
+    "country": [
+      { "name": "همه", "value": "" },
+      { "name": "آمریکا", "value": "US" },
+      { "name": "ژاپن", "value": "JP" }
+    ],
+    "language": [
+      { "name": "همه", "value": "" },
+      { "name": "انگلیسی", "value": "en" }
+    ],
+    "quality": [
+      { "name": "همه", "value": "" },
+      { "name": "4K", "value": "4K" },
+      { "name": "BluRay", "value": "BluRay" }
+    ],
+    "min_year": 1890,
+    "max_year": 2026
+  }
+}

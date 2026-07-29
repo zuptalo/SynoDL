@@ -14,7 +14,11 @@ import {
   IonToolbar,
 } from '@ionic/vue';
 import type { SourceSearchFilters } from '@/services/api';
-import { COUNTRIES, GENRES, LANGUAGES, QUALITIES, SCORES, TYPES } from '@/services/source-filters';
+import { useSourceCatalog } from '@/composables/useSourceCatalog';
+
+// Filter options track the provider's live facets (falling back to built-in
+// lists), so the sheet always offers what the source currently supports.
+const { filterOptions } = useSourceCatalog();
 
 const props = defineProps<{ isOpen: boolean; filters: SourceSearchFilters }>();
 const emit = defineEmits<{
@@ -89,44 +93,42 @@ function clear(): void {
       <ion-list :inset="true">
         <ion-item>
           <ion-select v-model="type" label="Type" interface="popover">
-            <ion-select-option v-for="t in TYPES" :key="t.value" :value="t.value">
+            <ion-select-option v-for="t in filterOptions.types" :key="t.value" :value="t.value">
               {{ t.label }}
             </ion-select-option>
           </ion-select>
         </ion-item>
         <ion-item>
           <ion-select v-model="genre" label="Genre" interface="alert" placeholder="Any">
-            <ion-select-option value="">Any genre</ion-select-option>
-            <ion-select-option v-for="g in GENRES" :key="g.value" :value="g.value">
+            <ion-select-option v-for="g in filterOptions.genres" :key="g.value" :value="g.value">
               {{ g.label }}
             </ion-select-option>
           </ion-select>
         </ion-item>
         <ion-item>
           <ion-select v-model="quality" label="Quality" interface="alert" placeholder="Any">
-            <ion-select-option value="">Any quality</ion-select-option>
-            <ion-select-option v-for="q in QUALITIES" :key="q" :value="q">{{ q }}</ion-select-option>
+            <ion-select-option v-for="q in filterOptions.qualities" :key="q.value" :value="q.value">
+              {{ q.label }}
+            </ion-select-option>
           </ion-select>
         </ion-item>
         <ion-item>
           <ion-select v-model="score" label="Min rating" interface="popover">
-            <ion-select-option v-for="s in SCORES" :key="s.value" :value="s.value">
+            <ion-select-option v-for="s in filterOptions.scores" :key="s.value" :value="s.value">
               {{ s.label }}
             </ion-select-option>
           </ion-select>
         </ion-item>
         <ion-item>
           <ion-select v-model="language" label="Language" interface="alert" placeholder="Any">
-            <ion-select-option value="">Any language</ion-select-option>
-            <ion-select-option v-for="l in LANGUAGES" :key="l.value" :value="l.value">
+            <ion-select-option v-for="l in filterOptions.languages" :key="l.value" :value="l.value">
               {{ l.label }}
             </ion-select-option>
           </ion-select>
         </ion-item>
         <ion-item>
           <ion-select v-model="country" label="Country" interface="alert" placeholder="Any">
-            <ion-select-option value="">Any country</ion-select-option>
-            <ion-select-option v-for="c in COUNTRIES" :key="c.value" :value="c.value">
+            <ion-select-option v-for="c in filterOptions.countries" :key="c.value" :value="c.value">
               {{ c.label }}
             </ion-select-option>
           </ion-select>
