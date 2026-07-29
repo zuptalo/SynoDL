@@ -165,4 +165,18 @@ var migrations = []string{
 	);
 	CREATE INDEX idx_download_events_user ON download_events(user_id, created_at);
 	`,
+	// 0011 — remember the catalog metadata for a Discover send (spec 1013), keyed
+	// by the destination subfolder, so the Tasks list can show whether a download
+	// is a movie or series plus its IMDb rating and year. One row per title folder;
+	// a re-send upserts.
+	`
+	CREATE TABLE source_downloads (
+		destination TEXT PRIMARY KEY,
+		media_type  TEXT NOT NULL DEFAULT '',
+		title       TEXT NOT NULL DEFAULT '',
+		year        TEXT NOT NULL DEFAULT '',
+		imdb_score  REAL NOT NULL DEFAULT 0,
+		created_at  INTEGER NOT NULL DEFAULT 0
+	);
+	`,
 }

@@ -21,6 +21,12 @@ const props = defineProps<{ task: Task; selectMode?: boolean; selected?: boolean
 // A readable title (the download's folder name) plus the season/episode for a
 // series, in place of Download Station's raw file name.
 const heading = computed(() => taskTitle(props.task));
+
+// For downloads sent from Discover, a capitalized media type (Movie / Series) to
+// show alongside the rating and year.
+const mediaLabel = computed(() =>
+  props.task.mediaType ? props.task.mediaType[0].toUpperCase() + props.task.mediaType.slice(1) : '',
+);
 const emit = defineEmits<{
   (e: 'pause', id: string): void;
   (e: 'resume', id: string): void;
@@ -97,6 +103,11 @@ const errorReason = computed(() =>
         <h2 class="name">
           {{ heading.title }}<span v-if="heading.episode" class="ep">{{ heading.episode }}</span>
         </h2>
+        <div v-if="task.mediaType" class="media" data-testid="task-media">
+          <span class="type">{{ mediaLabel }}</span>
+          <span v-if="task.year">{{ task.year }}</span>
+          <span v-if="task.imdbScore">★ {{ task.imdbScore.toFixed(1) }}</span>
+        </div>
         <div class="meta">
           <span class="status" :style="{ color: statusColorVar }" data-testid="task-status">
             {{ task.status }}
@@ -141,6 +152,21 @@ const errorReason = computed(() =>
   padding: 1px 6px;
   border-radius: 6px;
   font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--ion-color-primary);
+  background: rgba(var(--ion-color-primary-rgb, 16, 185, 129), 0.14);
+}
+.media {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.75rem;
+  color: var(--app-text-dim);
+  margin-top: 0.15rem;
+}
+.media .type {
+  padding: 1px 6px;
+  border-radius: 6px;
   font-weight: 600;
   color: var(--ion-color-primary);
   background: rgba(var(--ion-color-primary-rgb, 16, 185, 129), 0.14);

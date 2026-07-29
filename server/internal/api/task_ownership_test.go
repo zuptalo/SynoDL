@@ -89,6 +89,38 @@ func TestDecorateTasksOwnershipAndAttribution(t *testing.T) {
 	}
 }
 
+// Catalog metadata from a Discover send is joined onto tasks by their
+// destination folder (regardless of the leading slash DSM may report).
+func TestDecorateTasksMediaMetadata(t *testing.T) {
+	st := ownershipStore(t)
+	adminID, _ := st.CreateUser("boss", "h", true)
+	admin, _ := st.GetUserByID(adminID)
+	d := Deps{Store: st}
+
+	if err := st.SaveSourceDownload(store.SourceDownload{
+		Destination: "tv-show/Severance 2022 -", MediaType: "series", Title: "Severance 2022 -",
+		Year: "2022 –", IMDbScore: 8.7,
+	}, 100); err != nil {
+		t.Fatalf("SaveSourceDownload: %v", err)
+	}
+
+	tasks := []syno.Task{
+		{ID: "t1", Name: "Severance.S01E01.mkv", Destination: "/tv-show/Severance 2022 -"}, // leading slash
+		{ID: "t2", Name: "random.iso", Destination: "home/Downloads"},                      // no metadata
+	}
+	views := d.decorateTasks(admin, tasks)
+	byID := map[string]taskView{}
+	for _, v := range views {
+		byID[v.ID] = v
+	}
+	if byID["t1"].MediaType != "series" || byID["t1"].Year != "2022 –" || byID["t1"].IMDbScore != 8.7 {
+		t.Fatalf("t1 metadata not joined: %+v", byID["t1"])
+	}
+	if byID["t2"].MediaType != "" || byID["t2"].IMDbScore != 0 {
+		t.Fatalf("t2 should carry no catalog metadata: %+v", byID["t2"])
+	}
+}
+
 // A just-created task shows for its creator via a pending claim, before the
 // watcher has durably attributed it.
 func TestDecorateTasksPendingClaimBridge(t *testing.T) {

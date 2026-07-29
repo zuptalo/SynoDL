@@ -72,6 +72,9 @@ type sourceSendReq struct {
 	// Episodes, 1-based, select which episodes of a series season pack to send.
 	// Empty means everything (a movie, or the whole season).
 	Episodes []int `json:"episodes,omitempty"`
+	// Catalog metadata carried through so the Tasks list can label the download.
+	Year      string  `json:"year,omitempty"`
+	IMDbScore float64 `json:"imdbScore,omitempty"`
 }
 
 // activeSource loads the enabled provider, its driver, outbound config, and the
@@ -419,6 +422,12 @@ func handleSourceSend(d Deps) http.Handler {
 		for range selected {
 			_ = d.Store.AddTaskClaim(u.ID, folderName, now)
 		}
+		// Remember the catalog metadata for this title's folder so the Tasks list
+		// can show whether it's a movie or series plus its rating and year.
+		_ = d.Store.SaveSourceDownload(store.SourceDownload{
+			Destination: dest, MediaType: body.Type, Title: body.Title,
+			Year: strings.TrimSpace(body.Year), IMDbScore: body.IMDbScore,
+		}, now)
 		httpx.JSON(w, http.StatusOK,
 			map[string]any{"destination": dest, "created": true, "taskAdded": true, "count": len(selected)})
 	})
