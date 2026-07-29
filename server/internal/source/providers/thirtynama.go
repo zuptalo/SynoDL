@@ -91,7 +91,13 @@ func (p thirtynama) Search(ctx context.Context, c *source.Client, cfg source.Con
 	// advanced_search instead (which also carries the filters).
 	useFull := len([]rune(query)) >= 2
 	if useFull {
-		path = fmt.Sprintf("/api/v1/action/full_search/type/all/orderby/relevant/order/desc/page/%d", page)
+		// full_search takes the type in the PATH (type/{code}, or type/all). This
+		// makes a text search honor the type filter server-side too.
+		typeSeg := "all"
+		if t := typeParam(q.Filters.Type); t != "" {
+			typeSeg = url.PathEscape(t)
+		}
+		path = fmt.Sprintf("/api/v1/action/full_search/type/%s/orderby/relevant/order/desc/page/%d", typeSeg, page)
 		body = "query=" + url.QueryEscape(query)
 	} else {
 		path = advancedSearchPath(page, q.Sort, q.Order)
@@ -360,14 +366,23 @@ func advancedSearchPath(page int, sort, order string) string {
 	return fmt.Sprintf("/api/v1/action/advanced_search/page/%d/orderby/%s/order/%s", page, orderbyField(sort), orderDir(order))
 }
 
+// typeParam resolves a type filter to the provider's code: our friendly names
+// (movie/series/anime) map through typeCodes; a value that's already a code (from
+// the live facet list, e.g. "15") passes through. Empty stays empty.
+func typeParam(t string) string {
+	if t == "" {
+		return ""
+	}
+	if code, ok := typeCodes[t]; ok {
+		return code
+	}
+	return t
+}
+
 func buildParams(f source.SearchFilters) string {
 	m := map[string]any{}
-	if f.Type != "" {
-		if code, ok := typeCodes[f.Type]; ok {
-			m["type"] = code
-		} else {
-			m["type"] = f.Type
-		}
+	if t := typeParam(f.Type); t != "" {
+		m["type"] = t
 	}
 	if f.Quality != "" {
 		m["quality"] = f.Quality

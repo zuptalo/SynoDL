@@ -361,6 +361,38 @@ func TestThirtynamaBrowseFiltersAndSort(t *testing.T) {
 	if !strings.Contains(gotPath, "orderby/favorite/order/asc") {
 		t.Fatalf("ascending path = %q, want orderby/favorite/order/asc", gotPath)
 	}
+
+	// A type value that's already a provider code (from the live facet list, e.g.
+	// "15" for Movies) passes straight through — it must NOT be dropped or altered.
+	_, _ = thirtynama{}.Search(context.Background(), source.NewClient(), cfg, source.Session{},
+		source.SearchQuery{Filters: source.SearchFilters{Type: "15"}})
+	if dec, _ := url.QueryUnescape(gotBody); !strings.Contains(dec, `"type":"15"`) {
+		t.Fatalf("numeric type code must pass through; body = %q", dec)
+	}
+}
+
+// A text search filters by type through the full_search PATH (type/{code}),
+// and maps a friendly name to the provider code just like browse.
+func TestThirtynamaFullSearchTypeInPath(t *testing.T) {
+	var gotPath string
+	cfg, done := fakeProvider(t, func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		w.Write(fixture(t, "advanced_search.json"))
+	})
+	defer done()
+
+	// No type → the wildcard segment.
+	_, _ = thirtynama{}.Search(context.Background(), source.NewClient(), cfg, source.Session{},
+		source.SearchQuery{Query: "matrix"})
+	if !strings.Contains(gotPath, "full_search/type/all/") {
+		t.Fatalf("untyped text search path = %q, want type/all", gotPath)
+	}
+	// Friendly name → code in the path.
+	_, _ = thirtynama{}.Search(context.Background(), source.NewClient(), cfg, source.Session{},
+		source.SearchQuery{Query: "matrix", Filters: source.SearchFilters{Type: "series"}})
+	if !strings.Contains(gotPath, "full_search/type/16/") {
+		t.Fatalf("typed text search path = %q, want type/16", gotPath)
+	}
 }
 
 // A series' download returns season packs (is_series:true, entries use `link`
