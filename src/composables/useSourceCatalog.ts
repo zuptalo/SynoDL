@@ -105,6 +105,25 @@ async function fetchPage(reset: boolean): Promise<void> {
   items.value = reset ? incoming : [...items.value, ...incoming];
 }
 
+// A rolling deploy makes the backend briefly unreachable. Retry a transient
+// transport failure (a rejected fetch, or a 5xx) a few times before surfacing
+// the hard error, so the catalog rides out an update instead of forcing the user
+// to pull-to-refresh repeatedly. A real ApiError (needs-refresh, unavailable) is
+// not retried — it's a definite answer.
+async function fetchWithRetry(reset: boolean): Promise<void> {
+  const attempts = 4;
+  for (let i = 0; ; i += 1) {
+    try {
+      await fetchPage(reset);
+      return;
+    } catch (e) {
+      const transient = !(e instanceof ApiError) || e.status >= 500;
+      if (!transient || i >= attempts - 1) throw e;
+      await new Promise((r) => setTimeout(r, 1000));
+    }
+  }
+}
+
 async function runSearch(reset = true): Promise<void> {
   loading.value = true;
   errorMsg.value = '';
@@ -115,7 +134,7 @@ async function runSearch(reset = true): Promise<void> {
     page.value = 1;
   }
   try {
-    await fetchPage(reset);
+    await fetchWithRetry(reset);
     // Dropping upcoming/type-filtered titles can leave a page thin; pull more
     // pages until we have enough to fill the grid (bounded), so infinite scroll
     // has content to trigger on — important on wide desktop screens.

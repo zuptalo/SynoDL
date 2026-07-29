@@ -32,13 +32,14 @@ type pushSender interface {
 // 1004). It also fires a one-off app-update notice when the running version
 // changes. It works while every client is offline (the whole point).
 type Watcher struct {
-	store    *store.Store
-	tasks    func(ctx context.Context) ([]Task, error)
-	sender   pushSender
-	version  string
-	interval time.Duration
-	primed   bool // baseline poll done — new tasks now count as "added"
-	now      func() time.Time
+	store       *store.Store
+	tasks       func(ctx context.Context) ([]Task, error)
+	sender      pushSender
+	version     string
+	interval    time.Duration
+	notifyDelay time.Duration // grace before announcing a version change (see Run)
+	primed      bool          // baseline poll done — new tasks now count as "added"
+	now         func() time.Time
 }
 
 // NewWatcher wires the watcher. tasks returns the current NAS task list; a
@@ -47,13 +48,21 @@ func NewWatcher(st *store.Store, tasks func(context.Context) ([]Task, error), se
 	return &Watcher{store: st, tasks: tasks, sender: sender, version: version, interval: interval, now: time.Now}
 }
 
+// SetUpdateNotifyDelay holds back the "app updated" push for d after startup, so
+// a rolling deploy's replacement pod is actually serving before clients are told
+// a new version is available. Without it, the push fired the instant the new
+// process started and tapping it landed on a not-yet-ready backend.
+func (w *Watcher) SetUpdateNotifyDelay(d time.Duration) { w.notifyDelay = d }
+
 // Run polls until ctx is cancelled.
 func (w *Watcher) Run(ctx context.Context) {
-	w.maybeNotifyUpdate(ctx)
 	// Prime the baseline immediately so existing tasks aren't announced as newly
 	// "added"; only tasks first seen AFTER this count as added.
 	w.poll(ctx)
 	w.primed = true
+	// Announce a version change only after the startup grace, off the poll loop,
+	// so clients aren't told to reload before this instance can serve them.
+	go w.announceUpdateAfterGrace(ctx)
 	t := time.NewTicker(w.interval)
 	defer t.Stop()
 	for {
@@ -64,6 +73,19 @@ func (w *Watcher) Run(ctx context.Context) {
 			w.poll(ctx)
 		}
 	}
+}
+
+// announceUpdateAfterGrace waits out the startup grace (interruptible by ctx),
+// then fires the one-off version-changed notice.
+func (w *Watcher) announceUpdateAfterGrace(ctx context.Context) {
+	if w.notifyDelay > 0 {
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(w.notifyDelay):
+		}
+	}
+	w.maybeNotifyUpdate(ctx)
 }
 
 func (w *Watcher) poll(ctx context.Context) {
