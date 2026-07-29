@@ -7,8 +7,11 @@
  */
 import type { Task } from '@/types/task';
 
-// S01E05 / s1.e5 / S01 E05 …
-const SE_RE = /\bS(\d{1,2})[\s._-]?E(\d{1,3})\b/i;
+// S01E05 / s1.e5 / S01 E05 … anywhere in a file name or URL. We bound on
+// NON-alphanumerics (or the string edges) rather than \b, because the source
+// separates with underscores — "X_Men_97_S01E01_1080p_…" — and \b treats "_" as
+// a word char, so it would never fire between "_" and "S" (the original bug).
+const SE_RE = /(?:^|[^a-z0-9])s(\d{1,2})[^a-z0-9]?e(\d{1,3})(?=$|[^a-z0-9])/i;
 
 function episodeOf(...sources: (string | undefined)[]): string {
   for (const s of sources) {
