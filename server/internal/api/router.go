@@ -69,6 +69,7 @@ func NewRouter(d Deps) http.Handler {
 		mux.Handle("DELETE /v1/users/{id}", handleDeleteUser(d))
 		mux.Handle("GET /v1/users/{id}/folders", handleGetUserFolders(d))
 		mux.Handle("PUT /v1/users/{id}/folders", handleSetUserFolders(d))
+		mux.Handle("POST /v1/users/{id}/downloads/reset", handleResetUserDownloads(d))
 
 		// Web Push subscriptions (Increment 4).
 		mux.Handle("GET /v1/push/key", handlePushKey(d))
@@ -107,6 +108,7 @@ func NewRouter(d Deps) http.Handler {
 		mux.Handle("POST /v1/source/search", handleSourceSearch(d))
 		mux.Handle("GET /v1/source/title/{id}", handleSourceTitle(d))
 		mux.Handle("POST /v1/source/send", handleSourceSend(d))
+		mux.Handle("GET /v1/source/quota", handleGetSourceQuota(d))
 		mux.Handle("GET /v1/source/prefs", handleGetSourcePrefs(d))
 		mux.Handle("PUT /v1/source/prefs", handleSetSourcePrefs(d))
 		mux.Handle("GET /v1/source/view", handleGetSourceView(d))

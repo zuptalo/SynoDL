@@ -152,4 +152,17 @@ var migrations = []string{
 	// 0009 — remember the sort DIRECTION too ("asc"/"desc"; "" = the app default,
 	// descending), so a reversed Discover sort follows the user across devices.
 	`ALTER TABLE source_prefs ADD COLUMN sort_order TEXT NOT NULL DEFAULT '';`,
+	// 0010 — a durable per-download log for the daily quota (spec 1013). The count
+	// used to be derived from task_claims, but the watcher deletes those on
+	// attribution, so the count decayed and couldn't back an accurate "remaining"
+	// or an admin reset. One row per file/episode sent; an admin reset just clears
+	// a user's rows.
+	`
+	CREATE TABLE download_events (
+		id         INTEGER PRIMARY KEY AUTOINCREMENT,
+		user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+		created_at INTEGER NOT NULL
+	);
+	CREATE INDEX idx_download_events_user ON download_events(user_id, created_at);
+	`,
 }

@@ -117,6 +117,8 @@ export interface AdminUser {
   contentRating?: string;
   /** Rolling-24h download-count limit (0 = unlimited). */
   dailyDownloadLimit?: number;
+  /** Downloads started in the last 24h (for the admin to see who's near their cap). */
+  downloadsUsed?: number;
 }
 
 /** A SynoDL account (stateful mode). */
@@ -415,8 +417,15 @@ export const api = {
     request<SourceSearchResult>('/v1/source/search', json({ query, filters, page, sort, order })),
   getSourceTitle: (id: string) =>
     request<TitleDetail>(`/v1/source/title/${encodeURIComponent(id)}`),
-  sendSource: (titleId: string, qualityId: string, title: string, type: string) =>
-    request<{ destination: string }>('/v1/source/send', json({ titleId, qualityId, title, type })),
+  // episodes (1-based) narrow a series to specific episodes; omit for a movie or
+  // the whole season.
+  sendSource: (titleId: string, qualityId: string, title: string, type: string, episodes?: number[]) =>
+    request<{ destination: string; count: number }>(
+      '/v1/source/send',
+      json({ titleId, qualityId, title, type, episodes }),
+    ),
+  // The signed-in user's daily download allowance (limit 0 = unlimited, remaining -1).
+  getSourceQuota: () => request<{ limit: number; used: number; remaining: number }>('/v1/source/quota'),
   getSourcePrefs: () => request<{ preferredQuality: string }>('/v1/source/prefs'),
   setSourcePrefs: (preferredQuality: string) =>
     request<{ preferredQuality: string }>('/v1/source/prefs', jsonMethod('PUT', { preferredQuality })),
@@ -476,6 +485,9 @@ export const api = {
   getUserFolders: (id: number) => request<{ folders: string[] }>(`/v1/users/${id}/folders`),
   setUserFolders: (id: number, folders: string[]) =>
     request<{ folders: string[] }>(`/v1/users/${id}/folders`, jsonMethod('PUT', { folders })),
+  // Admin: clear a user's daily download count (fresh allowance now).
+  resetUserDownloads: (id: number) =>
+    request<void>(`/v1/users/${id}/downloads/reset`, { method: 'POST' }),
 
   // Web Push (stateful mode, Increment 4).
   pushKey: () => request<{ publicKey: string }>('/v1/push/key'),

@@ -2,9 +2,11 @@
 import { computed, onUnmounted, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import {
+  alertController,
   IonBadge,
   IonButton,
   IonButtons,
+  IonCheckbox,
   IonContent,
   IonHeader,
   IonIcon,
@@ -71,6 +73,60 @@ const sendable = ref(true);
 const qualities = ref<QualityOption[]>([]);
 const selected = ref('');
 const errorMsg = ref('');
+
+// ---- per-episode selection (series) ---------------------------------------
+// The selected quality; for a series this is a season pack with an episode
+// count. The user can pick a subset of episodes (1-based); by default all are
+// selected. A movie has no episode count and this whole block stays hidden.
+const selectedQuality = computed(() => qualities.value.find((q) => q.id === selected.value));
+const episodeCount = computed(() => selectedQuality.value?.episodes ?? 0);
+const isSeriesPack = computed(() => episodeCount.value > 1);
+const selectedEpisodes = ref<number[]>([]);
+const allEpisodes = computed(() => Array.from({ length: episodeCount.value }, (_, i) => i + 1));
+const allEpisodesSelected = computed(
+  () => episodeCount.value > 0 && selectedEpisodes.value.length === episodeCount.value,
+);
+// Reset the selection to "all episodes" whenever the chosen quality changes.
+watch(selected, () => {
+  selectedEpisodes.value = isSeriesPack.value ? allEpisodes.value.slice() : [];
+});
+function toggleEpisode(n: number, ev: CustomEvent): void {
+  const on = (ev.detail as { checked: boolean }).checked;
+  const set = new Set(selectedEpisodes.value);
+  if (on) set.add(n);
+  else set.delete(n);
+  selectedEpisodes.value = [...set].sort((a, b) => a - b);
+}
+function toggleAllEpisodes(on: boolean): void {
+  selectedEpisodes.value = on ? allEpisodes.value.slice() : [];
+}
+// The episodes argument to send: the picked subset for a series, or undefined
+// for a movie / the whole season (server treats empty as everything).
+function episodeArg(): number[] | undefined {
+  if (!isSeriesPack.value) return undefined;
+  if (selectedEpisodes.value.length === 0 || allEpisodesSelected.value) return undefined;
+  return selectedEpisodes.value.slice();
+}
+// How many downloads this send will start (episodes, or 1 for a movie).
+const sendCount = computed(() => {
+  if (!isSeriesPack.value) return 1;
+  return selectedEpisodes.value.length || episodeCount.value;
+});
+
+// ---- daily download allowance ---------------------------------------------
+const quota = ref<{ limit: number; used: number; remaining: number } | null>(null);
+const remainingLabel = computed(() => {
+  const q = quota.value;
+  if (!q || q.limit <= 0) return '';
+  return `${q.remaining} of ${q.limit} downloads left today`;
+});
+async function loadQuota(): Promise<void> {
+  try {
+    quota.value = await api.getSourceQuota();
+  } catch {
+    quota.value = null;
+  }
+}
 
 // Instance-wide max download size (MB, 0 = unlimited) from the source status.
 const maxMB = computed(() => status.value?.maxDownloadMB ?? 0);
@@ -259,6 +315,7 @@ watch(
         preferredQuality.value ? q.label.toLowerCase().includes(preferredQuality.value.toLowerCase()) : false,
       );
       selected.value = preferred?.id ?? firstUsableIn(topTier);
+      void loadQuota(); // show the daily allowance alongside the qualities
     } catch (e) {
       if (e instanceof ApiError && e.code === 'source_needs_refresh') {
         emit('needs-refresh');
@@ -283,18 +340,28 @@ async function toast(message: string): Promise<void> {
   await appToast({ message, duration: 3000 });
 }
 
-async function send(): Promise<void> {
+async function send(episodesOverride?: number[]): Promise<void> {
   if (!selected.value || sending.value) return;
+  // A series with nothing ticked has nothing to send.
+  if (isSeriesPack.value && !episodesOverride && selectedEpisodes.value.length === 0) return;
   sending.value = true;
   errorMsg.value = '';
   try {
-    const res = await api.sendSource(props.title.id, selected.value, props.title.title, props.title.type);
+    const episodes = episodesOverride ?? episodeArg();
+    const res = await api.sendSource(
+      props.title.id,
+      selected.value,
+      props.title.title,
+      props.title.type,
+      episodes,
+    );
     // Stay open and flip the button into a live status control; poll the task
     // list for the download(s) we just created so the button tracks their state.
     sent.value = true;
     sentDest.value = res.destination;
     startPolling();
-    await toast('Sent to your NAS');
+    void loadQuota(); // reflect the allowance we just used
+    await toast(res.count > 1 ? `Sent ${res.count} episodes to your NAS` : 'Sent to your NAS');
   } catch (e) {
     if (e instanceof ApiError) {
       if (e.code === 'source_needs_refresh') {
@@ -308,8 +375,8 @@ async function send(): Promise<void> {
         errorMsg.value = maxLabel.value
           ? `The admin set a max download size of ${maxLabel.value}. Pick a smaller quality.`
           : 'That download exceeds the admin size limit. Pick a smaller quality.';
-      } else if (e.code === 'daily_limit_reached') {
-        errorMsg.value = "You've reached your daily download limit set by the admin. Try again later.";
+      } else if (e.code === 'daily_limit_exceeded' || e.code === 'daily_limit_reached') {
+        await offerOverLimit();
       } else if (e.code === 'send_failed') {
         errorMsg.value = 'The download link could not be used. Try again.';
       } else {
@@ -321,6 +388,33 @@ async function send(): Promise<void> {
   } finally {
     sending.value = false;
   }
+}
+
+// When a send would exceed the daily allowance, offer to send just what fits
+// (the first N episodes) or cancel and pick fewer.
+async function offerOverLimit(): Promise<void> {
+  await loadQuota();
+  const remaining = quota.value?.remaining ?? 0;
+  const buttons: Parameters<typeof alertController.create>[0]['buttons'] = [];
+  if (remaining > 0) {
+    buttons.push({
+      text: `Send first ${remaining}`,
+      handler: () => {
+        const base = selectedEpisodes.value.length ? selectedEpisodes.value : allEpisodes.value;
+        void send(base.slice(0, remaining));
+      },
+    });
+  }
+  buttons.push({ text: remaining > 0 ? 'Pick fewer' : 'OK', role: 'cancel' });
+  const alert = await alertController.create({
+    header: 'Daily download limit',
+    message:
+      remaining > 0
+        ? `You can start ${remaining} more download${remaining === 1 ? '' : 's'} today, but this is ${sendCount.value} episodes. Send the first ${remaining}, or pick fewer and try again.`
+        : "You've used today's download allowance. Try again tomorrow, or ask an admin to reset your count.",
+    buttons,
+  });
+  await alert.present();
 }
 </script>
 
@@ -408,6 +502,37 @@ async function send(): Promise<void> {
               </ion-item>
             </ion-list>
           </ion-radio-group>
+
+          <!-- Series: pick which episodes to download (all by default). -->
+          <template v-if="!sent && isSeriesPack">
+            <div class="ep-head">
+              <span class="ep-title">Episodes ({{ selectedEpisodes.length }}/{{ episodeCount }})</span>
+              <ion-button
+                size="small"
+                fill="clear"
+                data-testid="ep-select-all"
+                @click="toggleAllEpisodes(!allEpisodesSelected)"
+              >
+                {{ allEpisodesSelected ? 'Clear all' : 'Select all' }}
+              </ion-button>
+            </div>
+            <ion-list :inset="true" class="ep-list">
+              <ion-item v-for="n in allEpisodes" :key="n">
+                <ion-checkbox
+                  :checked="selectedEpisodes.includes(n)"
+                  label-placement="end"
+                  justify="start"
+                  @ion-change="(e) => toggleEpisode(n, e)"
+                >
+                  Episode {{ n }}
+                </ion-checkbox>
+              </ion-item>
+            </ion-list>
+          </template>
+
+          <ion-note v-if="!sent && remainingLabel" color="medium" class="cap-hint" data-testid="quota-hint">
+            {{ remainingLabel }}
+          </ion-note>
         </template>
 
         <ion-note v-if="!sent && selectedTooLarge && !errorMsg" color="warning" class="error">
@@ -431,12 +556,12 @@ async function send(): Promise<void> {
           v-else-if="sendable"
           expand="block"
           class="send-btn"
-          :disabled="!selected || sending || selectedTooLarge"
-          @click="send"
+          :disabled="!selected || sending || selectedTooLarge || (isSeriesPack && selectedEpisodes.length === 0)"
+          @click="send()"
         >
           <ion-spinner v-if="sending" slot="start" name="crescent" />
           <ion-icon v-else slot="start" :icon="cloudDownloadOutline" />
-          Send to NAS
+          {{ isSeriesPack ? `Send ${sendCount} to NAS` : 'Send to NAS' }}
         </ion-button>
       </template>
     </ion-content>
@@ -444,6 +569,22 @@ async function send(): Promise<void> {
 </template>
 
 <style scoped>
+.ep-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 1rem;
+  margin-top: 4px;
+}
+.ep-title {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--app-text-dim);
+}
+.ep-list {
+  max-height: 40vh;
+  overflow-y: auto;
+}
 .centered {
   display: flex;
   justify-content: center;

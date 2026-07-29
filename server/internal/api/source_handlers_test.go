@@ -334,8 +334,13 @@ func TestSourceSendDailyLimit(t *testing.T) {
 		t.Fatalf("first send = %d %s", rec.Code, rec.Body.String())
 	}
 	rec = do(t, h, "POST", "/v1/source/send", `{"titleId":"1","qualityId":"q","title":"Two"}`, dl)
-	if rec.Code != http.StatusTooManyRequests || !strings.Contains(rec.Body.String(), "daily_limit_reached") {
+	if rec.Code != http.StatusTooManyRequests || !strings.Contains(rec.Body.String(), "daily_limit_exceeded") {
 		t.Fatalf("second send = %d %s", rec.Code, rec.Body.String())
+	}
+	// The rejection carries the remaining allowance so the client can offer to
+	// send just what fits.
+	if !strings.Contains(rec.Body.String(), `"remaining":0`) {
+		t.Fatalf("over-limit response missing remaining: %s", rec.Body.String())
 	}
 }
 

@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strings"
 	"strconv"
+	"time"
 
 	"synodl/server/internal/auth"
 	"synodl/server/internal/authz"
@@ -32,11 +33,38 @@ func handleListUsers(d Deps) http.Handler {
 			return
 		}
 		ownerID, _ := d.Store.OwnerID()
+		since := time.Now().Add(-24 * time.Hour).Unix()
 		out := make([]map[string]any, 0, len(users))
 		for _, u := range users {
-			out = append(out, userAdminView(u, ownerID))
+			v := userAdminView(u, ownerID)
+			// How many downloads they've started in the last 24h, so the admin can
+			// see who's near their cap (and decide whether to reset it).
+			used, _ := d.Store.CountUserDownloadsSince(u.ID, since)
+			v["downloadsUsed"] = used
+			out = append(out, v)
 		}
 		httpx.JSON(w, http.StatusOK, map[string]any{"users": out})
+	})
+}
+
+// handleResetUserDownloads clears a user's daily download count, giving them a
+// fresh allowance immediately.
+func handleResetUserDownloads(d Deps) http.Handler {
+	return d.requireAdmin(func(w http.ResponseWriter, r *http.Request, _ *store.User) {
+		id, ok := pathID(r)
+		if !ok {
+			httpx.Error(w, http.StatusBadRequest, "bad user id")
+			return
+		}
+		if _, err := d.Store.GetUserByID(id); errors.Is(err, store.ErrNotFound) {
+			httpx.Error(w, http.StatusNotFound, "no such user")
+			return
+		}
+		if err := d.Store.ResetUserDownloads(id); err != nil {
+			httpx.Error(w, http.StatusInternalServerError, "server")
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
 	})
 }
 
