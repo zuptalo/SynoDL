@@ -113,6 +113,10 @@ func main() {
 				})
 				return out, derr
 			}, push.NewSender(*v), version, 30*time.Second)
+			// Hold the "app updated" push back ~25s so a rolling deploy's new pod is
+			// past its readiness probe and actually serving before clients are told
+			// to reload — otherwise tapping the notice hit a not-yet-ready backend.
+			watcher.SetUpdateNotifyDelay(25 * time.Second)
 			go watcher.Run(context.Background())
 		}
 		slog.Info("synodl stateful mode", "dataDir", cfg.DataDir)

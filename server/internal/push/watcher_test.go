@@ -197,6 +197,31 @@ func TestWatcherPrunesGoneSubscription(t *testing.T) {
 	}
 }
 
+// The version-changed push is held back until the startup grace elapses; if the
+// instance is cancelled during the grace (a deploy that never becomes ready), no
+// premature notice fires.
+func TestWatcherUpdatePushWaitsForGrace(t *testing.T) {
+	st, _ := newWatcherStore(t)
+	_ = st.SetLastVersionNotified("v1")
+	fs := &fakeSender{}
+	w := NewWatcher(st, func(context.Context) ([]Task, error) { return nil, nil }, fs, "v2", time.Hour)
+	w.SetUpdateNotifyDelay(time.Hour) // effectively "not yet"
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // instance goes away before the grace elapses
+	w.announceUpdateAfterGrace(ctx)
+	if len(fs.sent) != 0 {
+		t.Fatalf("no push should fire before the grace elapses: %v", fs.sent)
+	}
+
+	// With no delay it fires immediately.
+	w.SetUpdateNotifyDelay(0)
+	w.announceUpdateAfterGrace(context.Background())
+	if len(fs.sent) != 1 || !contains(fs.sent[0], "new version") {
+		t.Fatalf("expected the update push once the grace is clear, got %v", fs.sent)
+	}
+}
+
 func TestWatcherAppUpdatePush(t *testing.T) {
 	st, _ := newWatcherStore(t)
 	fs := &fakeSender{}
