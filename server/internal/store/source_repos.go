@@ -200,27 +200,30 @@ func (s *Store) SaveSourcePref(userID int64, preferredQuality string, now int64)
 }
 
 // GetSourceView returns the user's saved Discover view: the facet filters (as the
-// opaque JSON blob the client stored) and the sort order. Empty when unset.
-func (s *Store) GetSourceView(userID int64) (filters, sort string, err error) {
+// opaque JSON blob the client stored), the sort field, and its direction
+// ("asc"/"desc"; "" = the app default). Empty when unset.
+func (s *Store) GetSourceView(userID int64) (filters, sort, order string, err error) {
 	err = s.db.QueryRow(
-		`SELECT filters, sort FROM source_prefs WHERE user_id = ?`, userID).Scan(&filters, &sort)
+		`SELECT filters, sort, sort_order FROM source_prefs WHERE user_id = ?`, userID).
+		Scan(&filters, &sort, &order)
 	if errors.Is(err, sql.ErrNoRows) {
-		return "", "", nil
+		return "", "", "", nil
 	}
-	return filters, sort, err
+	return filters, sort, order, err
 }
 
-// SaveSourceView upserts the user's Discover view (filters JSON + sort), leaving
-// the preferred quality on the same row untouched.
-func (s *Store) SaveSourceView(userID int64, filters, sort string, now int64) error {
+// SaveSourceView upserts the user's Discover view (filters JSON + sort field +
+// direction), leaving the preferred quality on the same row untouched.
+func (s *Store) SaveSourceView(userID int64, filters, sort, order string, now int64) error {
 	_, err := s.db.Exec(`
-		INSERT INTO source_prefs (user_id, filters, sort, updated_at)
-		VALUES (?, ?, ?, ?)
+		INSERT INTO source_prefs (user_id, filters, sort, sort_order, updated_at)
+		VALUES (?, ?, ?, ?, ?)
 		ON CONFLICT(user_id) DO UPDATE SET
 		  filters    = excluded.filters,
 		  sort       = excluded.sort,
+		  sort_order = excluded.sort_order,
 		  updated_at = excluded.updated_at`,
-		userID, filters, sort, now)
+		userID, filters, sort, order, now)
 	return err
 }
 

@@ -411,8 +411,8 @@ export const api = {
   deleteSourceSession: () => request<{ state: string }>('/v1/source/session', { method: 'DELETE' }),
   setSourcePolicy: (maxDownloadMB: number) =>
     request<{ maxDownloadMB: number }>('/v1/source/policy', jsonMethod('PUT', { maxDownloadMB })),
-  searchSource: (query: string, filters: SourceSearchFilters, page: number, sort: string) =>
-    request<SourceSearchResult>('/v1/source/search', json({ query, filters, page, sort })),
+  searchSource: (query: string, filters: SourceSearchFilters, page: number, sort: string, order: string) =>
+    request<SourceSearchResult>('/v1/source/search', json({ query, filters, page, sort, order })),
   getSourceTitle: (id: string) =>
     request<TitleDetail>(`/v1/source/title/${encodeURIComponent(id)}`),
   sendSource: (titleId: string, qualityId: string, title: string, type: string) =>
@@ -420,10 +420,10 @@ export const api = {
   getSourcePrefs: () => request<{ preferredQuality: string }>('/v1/source/prefs'),
   setSourcePrefs: (preferredQuality: string) =>
     request<{ preferredQuality: string }>('/v1/source/prefs', jsonMethod('PUT', { preferredQuality })),
-  // Per-user Discover view (facet filters + sort), synced across devices.
-  getSourceView: () => request<{ filters: SourceSearchFilters; sort: string }>('/v1/source/view'),
-  setSourceView: (filters: SourceSearchFilters, sort: string) =>
-    request<void>('/v1/source/view', jsonMethod('PUT', { filters, sort })),
+  // Per-user Discover view (facet filters + sort field + direction), synced across devices.
+  getSourceView: () => request<{ filters: SourceSearchFilters; sort: string; order: string }>('/v1/source/view'),
+  setSourceView: (filters: SourceSearchFilters, sort: string, order: string) =>
+    request<void>('/v1/source/view', jsonMethod('PUT', { filters, sort, order })),
 
   // Admin: view/edit the stored NAS connection and test it before saving
   // (spec 1002). The password is write-only — the server never returns it.

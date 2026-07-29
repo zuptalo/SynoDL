@@ -53,6 +53,7 @@ type sourceSearchReq struct {
 	Query   string `json:"query"`
 	Page    int    `json:"page"`
 	Sort    string `json:"sort"`
+	Order   string `json:"order"` // "asc" / "desc"; "" = provider default (descending)
 	Filters struct {
 		Type     string   `json:"type"`
 		Quality  string   `json:"quality"`
@@ -274,7 +275,7 @@ func handleSourceSearch(d Deps) http.Handler {
 			filters.Age = u.ContentRating
 		}
 		res, err := drv.Search(r.Context(), sourceHTTP, cfg, sess, source.SearchQuery{
-			Query: body.Query, Page: body.Page, Sort: body.Sort, Filters: filters,
+			Query: body.Query, Page: body.Page, Sort: body.Sort, Order: body.Order, Filters: filters,
 		})
 		if err != nil {
 			d.writeSourceRuntimeErr(w, p.ID, err)
@@ -437,14 +438,14 @@ func handleSetSourcePrefs(d Deps) http.Handler {
 // `filters` as an opaque JSON blob owned by the client.
 func handleGetSourceView(d Deps) http.Handler {
 	return d.requireUser(func(w http.ResponseWriter, r *http.Request, u *store.User) {
-		filters, sort, err := d.Store.GetSourceView(u.ID)
+		filters, sort, order, err := d.Store.GetSourceView(u.ID)
 		if err != nil {
 			httpx.Error(w, http.StatusInternalServerError, "server")
 			return
 		}
 		// Pass the stored filters JSON through verbatim (default {}), so the client
 		// gets an object rather than a JSON-encoded string.
-		httpx.JSON(w, http.StatusOK, map[string]any{"filters": json.RawMessage(orElse(filters, "{}")), "sort": sort})
+		httpx.JSON(w, http.StatusOK, map[string]any{"filters": json.RawMessage(orElse(filters, "{}")), "sort": sort, "order": order})
 	})
 }
 
@@ -453,6 +454,7 @@ func handleSetSourceView(d Deps) http.Handler {
 		var body struct {
 			Filters json.RawMessage `json:"filters"`
 			Sort    string          `json:"sort"`
+			Order   string          `json:"order"`
 		}
 		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<14)).Decode(&body); err != nil {
 			httpx.Error(w, http.StatusBadRequest, "bad request")
@@ -462,7 +464,7 @@ func handleSetSourceView(d Deps) http.Handler {
 		if filters == "" || filters == "null" {
 			filters = "{}"
 		}
-		if err := d.Store.SaveSourceView(u.ID, filters, strings.TrimSpace(body.Sort), time.Now().Unix()); err != nil {
+		if err := d.Store.SaveSourceView(u.ID, filters, strings.TrimSpace(body.Sort), strings.TrimSpace(body.Order), time.Now().Unix()); err != nil {
 			httpx.Error(w, http.StatusInternalServerError, "server")
 			return
 		}
