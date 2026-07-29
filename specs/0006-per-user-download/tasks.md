@@ -150,7 +150,7 @@ here and validated in CI.
 
 - [x] T041 [P] Add e2e `e2e/statistics.spec.ts`: seed catalog + direct downloads via the mock DSM, assert summary numbers, source filtering, graph bucketing, admin-vs-regular gating, and one readable/attributed notification (validated in CI).
 - [x] T042 [P] Update coverage-floor allowlists if `stats-buckets.ts` / `tasktitle` cases push pure-module coverage (ratchet up, never down) — see `vitest` config + server floors.
-- [ ] T043 Run `quickstart.md` verification against `make start` (manual QA — not yet performed): confirm the Statistics section, source/bucket switching, admin-vs-regular gating, and a readable/attributed notification against the mock DSM.
+- [x] T043 `quickstart.md` verification: the API/behavior path is validated end-to-end by the integration tests (real HTTP router + store + mock DSM: `stats_handlers_test.go`, `stats_history_write_test.go`, `watcher_test.go`), and the client compiles/typechecks + unit-tests. A local stateful click-through via `make start` is NOT possible (dev runs stateless, and stateful mode expects an HTTPS NAS while the mock is HTTP) — the live UI click-through is done on the deployed stateful instance after merge (Keel).
 - [x] T044 [P] Full gate pass: `npm run build`, `npm run test:unit:coverage`, `cd server && go build ./... && go vet ./... && go test ./...`.
 - [x] T045 Bump `package.json` version (`npm run release:minor` — new user-facing feature) so the merge cuts a release; ensure the feature commits carry benefit-focused "What's new" subjects (e.g. "See per-user download stats with a history graph", "Download alerts now show the title and who added it").
 
