@@ -66,7 +66,7 @@ func (p thirtynama) VerifySession(ctx context.Context, c *source.Client, cfg sou
 	// success:false ("search value is empty"), which would look like a bad token.
 	// advanced_search with empty parameters returns success when the session is
 	// valid, so it's a clean auth probe.
-	_, err := p.call(ctx, c, cfg, s, advancedSearchPath(1, "favorite"), "parameters="+url.QueryEscape("{}"))
+	_, err := p.call(ctx, c, cfg, s, advancedSearchPath(1, "favorite", ""), "parameters="+url.QueryEscape("{}"))
 	if err == nil {
 		return nil
 	}
@@ -94,7 +94,7 @@ func (p thirtynama) Search(ctx context.Context, c *source.Client, cfg source.Con
 		path = fmt.Sprintf("/api/v1/action/full_search/type/all/orderby/relevant/order/desc/page/%d", page)
 		body = "query=" + url.QueryEscape(query)
 	} else {
-		path = advancedSearchPath(page, q.Sort)
+		path = advancedSearchPath(page, q.Sort, q.Order)
 		body = "parameters=" + url.QueryEscape(buildParams(q.Filters))
 	}
 	raw, err := p.call(ctx, c, cfg, s, path, body)
@@ -292,8 +292,17 @@ func orderbyField(sort string) string {
 	return "year" // default: release year, descending
 }
 
-func advancedSearchPath(page int, sort string) string {
-	return fmt.Sprintf("/api/v1/action/advanced_search/page/%d/orderby/%s/order/desc", page, orderbyField(sort))
+// orderDir clamps the direction to the provider's two values; anything but an
+// explicit "asc" browses descending (the app default, e.g. most popular first).
+func orderDir(order string) string {
+	if order == "asc" {
+		return "asc"
+	}
+	return "desc"
+}
+
+func advancedSearchPath(page int, sort, order string) string {
+	return fmt.Sprintf("/api/v1/action/advanced_search/page/%d/orderby/%s/order/%s", page, orderbyField(sort), orderDir(order))
 }
 
 func buildParams(f source.SearchFilters) string {

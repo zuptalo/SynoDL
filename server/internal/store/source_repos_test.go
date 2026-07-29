@@ -171,22 +171,22 @@ func TestSourceViewRoundTrip(t *testing.T) {
 	// Seed a quality pref first so we can prove the view save doesn't clobber it.
 	_ = s.SaveSourcePref(uid, "1080p", 5)
 
-	if f, so, err := s.GetSourceView(uid); err != nil || f != "" || so != "" {
-		t.Fatalf("empty view = %q/%q, %v", f, so, err)
+	if f, so, ord, err := s.GetSourceView(uid); err != nil || f != "" || so != "" || ord != "" {
+		t.Fatalf("empty view = %q/%q/%q, %v", f, so, ord, err)
 	}
-	if err := s.SaveSourceView(uid, `{"type":"movie"}`, "favorite", 10); err != nil {
+	if err := s.SaveSourceView(uid, `{"type":"movie"}`, "favorite", "asc", 10); err != nil {
 		t.Fatalf("SaveSourceView: %v", err)
 	}
-	f, so, _ := s.GetSourceView(uid)
-	if f != `{"type":"movie"}` || so != "favorite" {
-		t.Fatalf("view = %q/%q, want {\"type\":\"movie\"}/favorite", f, so)
+	f, so, ord, _ := s.GetSourceView(uid)
+	if f != `{"type":"movie"}` || so != "favorite" || ord != "asc" {
+		t.Fatalf("view = %q/%q/%q, want {\"type\":\"movie\"}/favorite/asc", f, so, ord)
 	}
 	// The quality pref on the same row survives a view update, and vice versa.
 	if q, _ := s.GetSourcePref(uid); q != "1080p" {
 		t.Fatalf("quality clobbered by view save: %q", q)
 	}
 	_ = s.SaveSourcePref(uid, "4K", 15)
-	if f2, so2, _ := s.GetSourceView(uid); f2 != `{"type":"movie"}` || so2 != "favorite" {
-		t.Fatalf("view clobbered by quality save: %q/%q", f2, so2)
+	if f2, so2, ord2, _ := s.GetSourceView(uid); f2 != `{"type":"movie"}` || so2 != "favorite" || ord2 != "asc" {
+		t.Fatalf("view clobbered by quality save: %q/%q/%q", f2, so2, ord2)
 	}
 }

@@ -29,6 +29,7 @@ import {
   type ScrollDetail,
 } from '@ionic/vue';
 import {
+  arrowDownOutline,
   arrowUpOutline,
   closeCircleOutline,
   closeOutline,
@@ -62,6 +63,7 @@ const {
   hasFilters,
   filters,
   sort,
+  order,
   query,
   loadStatus,
   runSearch,
@@ -69,6 +71,7 @@ const {
   setQuery,
   applyFilters,
   setSort,
+  toggleOrder,
   clearFilters,
   removeFilter,
   loadPrefs,
@@ -86,6 +89,16 @@ const sortOpen = ref(false);
 async function onSort(value: string): Promise<void> {
   sortOpen.value = false;
   await setSort(value);
+  await fillViewport();
+  await scrollTop();
+}
+
+// The direction toggle folded into the same sort control: its arrow flips to
+// show whether the current sort runs descending (default) or ascending.
+const orderIcon = computed(() => (order.value === 'asc' ? arrowUpOutline : arrowDownOutline));
+const orderLabel = computed(() => (order.value === 'asc' ? 'Ascending' : 'Descending'));
+async function onToggleOrder(): Promise<void> {
+  await toggleOrder();
   await fillViewport();
   await scrollTop();
 }
@@ -244,20 +257,33 @@ function goSettings(): void {
           :value="query"
           @ionInput="onSearch"
         />
-        <!-- Sort dropdown beside the search bar (a native popover select). -->
-        <ion-select
-          slot="end"
-          class="sort-select"
-          :value="sort"
-          interface="popover"
-          aria-label="Sort by"
-          :selected-text="currentSortLabel"
-          @ionChange="(e) => onSort(String(e.detail.value))"
-        >
-          <ion-select-option v-for="s in SORTS" :key="s.value" :value="s.value">
-            {{ s.label }}
-          </ion-select-option>
-        </ion-select>
+        <!-- Sort control beside the search bar: the field popover plus a direction
+             toggle whose arrow shows ascending vs descending — one control, no
+             second dropdown. -->
+        <div slot="end" class="sort-control">
+          <ion-select
+            class="sort-select"
+            :value="sort"
+            interface="popover"
+            aria-label="Sort by"
+            :selected-text="currentSortLabel"
+            @ionChange="(e) => onSort(String(e.detail.value))"
+          >
+            <ion-select-option v-for="s in SORTS" :key="s.value" :value="s.value">
+              {{ s.label }}
+            </ion-select-option>
+          </ion-select>
+          <ion-button
+            class="order-toggle"
+            fill="clear"
+            size="small"
+            :aria-label="`Sort direction: ${orderLabel}`"
+            :title="orderLabel"
+            @click="onToggleOrder"
+          >
+            <ion-icon slot="icon-only" :icon="orderIcon" />
+          </ion-button>
+        </div>
       </ion-toolbar>
     </ion-header>
 
@@ -418,10 +444,20 @@ function goSettings(): void {
 .cta {
   margin-top: 8px;
 }
+.sort-control {
+  display: flex;
+  align-items: center;
+}
 .sort-select {
-  max-width: 46vw;
+  max-width: 40vw;
   font-size: 0.85rem;
   --padding-end: 4px;
+}
+.order-toggle {
+  --padding-start: 4px;
+  --padding-end: 6px;
+  margin: 0;
+  height: 32px;
 }
 .active-filters {
   display: flex;

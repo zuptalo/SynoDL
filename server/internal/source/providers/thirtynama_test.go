@@ -244,6 +244,10 @@ func TestThirtynamaBrowseFiltersAndSort(t *testing.T) {
 	if !strings.Contains(gotPath, "orderby/favorite") {
 		t.Fatalf("path = %q, want orderby/favorite", gotPath)
 	}
+	// No explicit order → the provider default, descending.
+	if !strings.Contains(gotPath, "order/desc") {
+		t.Fatalf("path = %q, want order/desc by default", gotPath)
+	}
 	// Body is url-encoded: parameters=%7B...%7D
 	dec, _ := url.QueryUnescape(gotBody)
 	if !strings.Contains(dec, `"type":"16"`) {
@@ -262,6 +266,13 @@ func TestThirtynamaBrowseFiltersAndSort(t *testing.T) {
 	}
 	if !strings.Contains(dec2, `"type":"15"`) {
 		t.Fatalf("movie must map to code 15; body = %q", dec2)
+	}
+
+	// An explicit ascending order reverses the browse.
+	_, _ = thirtynama{}.Search(context.Background(), source.NewClient(), cfg, source.Session{},
+		source.SearchQuery{Sort: "favorite", Order: "asc"})
+	if !strings.Contains(gotPath, "orderby/favorite/order/asc") {
+		t.Fatalf("ascending path = %q, want orderby/favorite/order/asc", gotPath)
 	}
 }
 

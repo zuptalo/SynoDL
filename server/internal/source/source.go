@@ -75,6 +75,7 @@ type SearchQuery struct {
 	Query   string
 	Page    int
 	Sort    string // provider orderby field for browse (e.g. "year"); "" = default
+	Order   string // "asc" / "desc"; "" = provider default (descending)
 	Filters SearchFilters
 }
 

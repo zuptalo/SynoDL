@@ -24,12 +24,16 @@ const page = ref(1);
 const pages = ref(0);
 const query = ref('');
 const filters = ref<SourceSearchFilters>({});
-// Default browse sort when the user hasn't chosen one: most popular. Once the
-// user picks a sort (or sets a filter), their choice is persisted server-side
-// and loadView() restores it on every open — this default only fills the gap
-// for a brand-new account with no saved view.
+// Default browse sort when the user hasn't chosen one: most popular, descending.
+// Once the user picks a sort/direction (or sets a filter), their choice is
+// persisted server-side and loadView() restores it on every open — these
+// defaults only fill the gap for a brand-new account with no saved view.
 const DEFAULT_SORT = 'favorite';
+const DEFAULT_ORDER = 'desc';
 const sort = ref(DEFAULT_SORT);
+// Sort direction, folded into the same dropdown as the sort field. "desc" is the
+// natural reading of every sort option (most popular / newest / highest first).
+const order = ref(DEFAULT_ORDER);
 const loading = ref(false);
 const needsRefresh = ref(false);
 const unavailable = ref(true);
@@ -92,7 +96,7 @@ const PAGE_TARGET = 24;
 // and enforcing the type filter client-side (the provider's type facet doesn't
 // apply to text search).
 async function fetchPage(reset: boolean): Promise<void> {
-  const res = await api.searchSource(query.value, filters.value, page.value, sort.value);
+  const res = await api.searchSource(query.value, filters.value, page.value, sort.value, order.value);
   needsRefresh.value = false;
   unavailable.value = false;
   pages.value = res.pages;
@@ -143,20 +147,21 @@ async function setQuery(q: string): Promise<void> {
 // user across devices. Fire-and-forget — a failure never blocks browsing.
 async function saveView(): Promise<void> {
   try {
-    await api.setSourceView(filters.value, sort.value);
+    await api.setSourceView(filters.value, sort.value, order.value);
   } catch {
     /* non-fatal */
   }
 }
 
-// Load the saved view (filters + sort) from the server WITHOUT searching — the
-// caller reloads the grid. Called on mount and when the app returns to the
-// foreground so a change made on another device shows up here.
+// Load the saved view (filters + sort + direction) from the server WITHOUT
+// searching — the caller reloads the grid. Called on mount and when the app
+// returns to the foreground so a change made on another device shows up here.
 async function loadView(): Promise<void> {
   try {
     const v = await api.getSourceView();
     filters.value = v.filters ?? {};
     sort.value = v.sort || DEFAULT_SORT;
+    order.value = v.order || DEFAULT_ORDER;
   } catch {
     /* non-fatal — keep whatever we have */
   }
@@ -169,10 +174,17 @@ async function applyFilters(f: SourceSearchFilters, newSort?: string): Promise<v
   await runSearch(true);
 }
 
-// Change the sort order (from the dropdown beside the search bar) and reload.
+// Change the sort field (from the dropdown beside the search bar) and reload.
 async function setSort(s: string): Promise<void> {
   if (s === sort.value) return;
   sort.value = s;
+  void saveView();
+  await runSearch(true);
+}
+
+// Flip the sort direction (the asc/desc toggle inside the same sort control).
+async function toggleOrder(): Promise<void> {
+  order.value = order.value === 'asc' ? 'desc' : 'asc';
   void saveView();
   await runSearch(true);
 }
@@ -189,6 +201,7 @@ async function clearFilters(): Promise<void> {
 async function removeFilter(key: keyof SourceSearchFilters | 'sort'): Promise<void> {
   if (key === 'sort') {
     sort.value = DEFAULT_SORT;
+    order.value = DEFAULT_ORDER;
   } else {
     const next = { ...filters.value };
     delete next[key];
@@ -223,6 +236,7 @@ export function useSourceCatalog() {
     query,
     filters,
     sort,
+    order,
     loading,
     needsRefresh,
     unavailable,
@@ -236,6 +250,7 @@ export function useSourceCatalog() {
     setQuery,
     applyFilters,
     setSort,
+    toggleOrder,
     clearFilters,
     removeFilter,
     loadPrefs,

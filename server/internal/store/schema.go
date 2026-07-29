@@ -149,4 +149,7 @@ var migrations = []string{
 	// order) on the server so it follows them across devices.
 	`ALTER TABLE source_prefs ADD COLUMN filters TEXT NOT NULL DEFAULT '';`,
 	`ALTER TABLE source_prefs ADD COLUMN sort TEXT NOT NULL DEFAULT '';`,
+	// 0009 — remember the sort DIRECTION too ("asc"/"desc"; "" = the app default,
+	// descending), so a reversed Discover sort follows the user across devices.
+	`ALTER TABLE source_prefs ADD COLUMN sort_order TEXT NOT NULL DEFAULT '';`,
 }
