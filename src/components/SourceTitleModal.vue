@@ -28,12 +28,16 @@ import { arrowForwardOutline, cloudDownloadOutline } from 'ionicons/icons';
 import { api, ApiError, posterSrc, type CatalogTitle, type QualityOption } from '@/services/api';
 import { appToast } from '@/services/toast';
 import { useSourceCatalog } from '@/composables/useSourceCatalog';
+import { splitYear } from '@/services/title-year';
 import type { Task } from '@/types/task';
 
 const props = defineProps<{
   isOpen: boolean;
   title: CatalogTitle;
 }>();
+// Clean title + separate release year for the header (the raw title is still what
+// send() uses, so the created subfolder keeps the year).
+const titleParts = computed(() => splitYear(props.title.title));
 const posterFailed = ref(false);
 // Two-stage poster load: try posterUrl, then the reliable fallback, then the
 // letter tile — so a title whose cover URL 404s still shows its placeholder art.
@@ -449,9 +453,10 @@ async function offerOverLimit(): Promise<void> {
             <div v-else class="poster-fallback">{{ title.title.charAt(0) }}</div>
           </ion-thumbnail>
           <div class="head">
-            <h2>{{ title.title }}</h2>
+            <h2>{{ titleParts.title }}</h2>
             <p class="meta">
               <span class="type">{{ title.type }}</span>
+              <span v-if="titleParts.year" class="year">{{ titleParts.year }}</span>
               <span v-if="title.imdbScore">★ {{ title.imdbScore.toFixed(1) }} IMDb</span>
               <span v-if="title.providerScore">{{ title.providerScore.toFixed(1) }} 30N</span>
             </p>

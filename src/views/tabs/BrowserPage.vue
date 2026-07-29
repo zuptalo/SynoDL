@@ -39,6 +39,7 @@ import {
   starOutline,
 } from 'ionicons/icons';
 import { posterSrc, type CatalogTitle } from '@/services/api';
+import { splitYear } from '@/services/title-year';
 import { useSourceCatalog } from '@/composables/useSourceCatalog';
 import {
   SORTS,
@@ -77,6 +78,16 @@ const {
   loadPrefs,
   loadView,
 } = useSourceCatalog();
+
+// The release year is embedded at the end of the provider's title; show it as a
+// separate detail and strip it from the displayed name (the raw title is still
+// what we send, so the created folder keeps the year).
+function displayTitle(raw: string): string {
+  return splitYear(raw).title;
+}
+function yearOf(raw: string): string {
+  return splitYear(raw).year;
+}
 
 const filterOpen = ref(false);
 const titleOpen = ref(false);
@@ -387,9 +398,10 @@ function goSettings(): void {
               <span v-if="t.comingSoon" class="badge">Soon</span>
             </div>
             <ion-label class="meta">
-              <h3>{{ t.title }}</h3>
+              <h3>{{ displayTitle(t.title) }}</h3>
               <p>
                 <span v-if="t.imdbScore">★ {{ t.imdbScore.toFixed(1) }}</span>
+                <span v-if="yearOf(t.title)" class="year">{{ yearOf(t.title) }}</span>
                 <span class="type">{{ t.type }}</span>
               </p>
             </ion-label>
@@ -552,5 +564,8 @@ function goSettings(): void {
 }
 .meta .type {
   text-transform: capitalize;
+}
+.meta .year {
+  font-variant-numeric: tabular-nums;
 }
 </style>
