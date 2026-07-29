@@ -16,6 +16,7 @@ import {
   IonLabel,
   IonNote,
   IonPage,
+  IonProgressBar,
   IonRefresher,
   IonRefresherContent,
   IonSearchbar,
@@ -109,6 +110,7 @@ const contentRef = ref<{ $el: { getScrollElement: () => Promise<HTMLElement> } }
 const currentSortLabel = computed(() => sortLabel(sort.value));
 const sortOpen = ref(false);
 async function onSort(value: string): Promise<void> {
+  if (loading.value) return;
   sortOpen.value = false;
   await setSort(value);
   await fillViewport();
@@ -120,6 +122,7 @@ async function onSort(value: string): Promise<void> {
 const orderIcon = computed(() => (order.value === 'asc' ? arrowUpOutline : arrowDownOutline));
 const orderLabel = computed(() => (order.value === 'asc' ? 'Ascending' : 'Descending'));
 async function onToggleOrder(): Promise<void> {
+  if (loading.value) return;
   await toggleOrder();
   await fillViewport();
   await scrollTop();
@@ -188,12 +191,14 @@ async function onApply(f: typeof filters.value): Promise<void> {
 }
 
 async function onClear(): Promise<void> {
+  if (loading.value) return;
   await clearFilters();
   await fillViewport();
   await scrollTop();
 }
 
 async function onRemoveFilter(key: Parameters<typeof removeFilter>[0]): Promise<void> {
+  if (loading.value) return; // don't change the query while a search is in flight
   await removeFilter(key);
   await fillViewport();
   await scrollTop();
@@ -264,6 +269,7 @@ function goSettings(): void {
           <ion-button
             v-if="hasFilters && !unavailable && !needsRefresh"
             aria-label="Clear filters"
+            :disabled="loading"
             @click="onClear"
           >
             <ion-icon slot="icon-only" :icon="closeCircleOutline" />
@@ -271,6 +277,7 @@ function goSettings(): void {
           <ion-button
             v-if="!unavailable && !needsRefresh"
             :aria-label="'Filters'"
+            :disabled="loading"
             @click="filterOpen = true"
           >
             <ion-icon slot="icon-only" :icon="funnelOutline" :color="hasFilters ? 'primary' : undefined" />
@@ -279,18 +286,20 @@ function goSettings(): void {
       </ion-toolbar>
       <ion-toolbar v-if="!unavailable && !needsRefresh">
         <ion-searchbar
-          :debounce="400"
+          :debounce="450"
           placeholder="Search for title"
           :value="query"
           @ionInput="onSearch"
         />
         <!-- Sort control beside the search bar: the field popover plus a direction
              toggle whose arrow shows ascending vs descending — one control, no
-             second dropdown. -->
+             second dropdown. Both are disabled while a search is running so the
+             query in flight can't be changed out from under itself. -->
         <div slot="end" class="sort-control">
           <ion-select
             class="sort-select"
             :value="sort"
+            :disabled="loading"
             interface="popover"
             aria-label="Sort by"
             :selected-text="currentSortLabel"
@@ -304,6 +313,7 @@ function goSettings(): void {
             class="order-toggle"
             fill="clear"
             size="small"
+            :disabled="loading"
             :aria-label="`Sort direction: ${orderLabel}`"
             :title="orderLabel"
             @click="onToggleOrder"
@@ -312,6 +322,14 @@ function goSettings(): void {
           </ion-button>
         </div>
       </ion-toolbar>
+      <!-- A slim bar signals a search is running even when results are already on
+           screen (the provider can take a few seconds), so a slow filter/sort
+           change never looks like nothing happened. -->
+      <ion-progress-bar
+        v-if="loading && !unavailable && !needsRefresh"
+        type="indeterminate"
+        data-testid="search-loading"
+      />
     </ion-header>
 
     <ion-content ref="contentRef" :fullscreen="true" :scroll-events="true" @ionScroll="onScroll">
@@ -350,7 +368,7 @@ function goSettings(): void {
       <template v-else>
         <!-- Active filters as removable chips: tap one to drop just that filter
              without reopening the sheet. -->
-        <div v-if="hasFilters" class="active-filters">
+        <div v-if="hasFilters" class="active-filters" :class="{ busy: loading }">
           <ion-chip v-if="filters.type" class="cap" @click="onRemoveFilter('type')">
             {{ typeChip }}<ion-icon :icon="closeOutline" />
           </ion-chip>
@@ -522,6 +540,12 @@ function goSettings(): void {
   flex-wrap: wrap;
   gap: 6px;
   padding: 8px 12px 0;
+}
+/* While a search runs, the chips are dimmed and non-interactive so a slow query
+   can't be changed mid-flight (the handlers also guard against it). */
+.active-filters.busy {
+  opacity: 0.55;
+  pointer-events: none;
 }
 .active-filters .cap {
   text-transform: capitalize;
