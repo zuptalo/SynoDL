@@ -58,26 +58,42 @@ jobs:
           REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
-          # On the pull_request "opened"/"synchronize" event GitHub often hasn't
-          # finished computing mergeability yet (mergeable_state: unknown), and in
-          # that window `gh pr merge --auto` silently no-ops — leaving the PR
-          # unmerged with no retry. Poll until GitHub reports auto-merge is
-          # actually enabled (auto_merge != null), or the PR is already merged.
-          for i in $(seq 1 20); do
+          # Getting a PR to merge itself has two failure windows:
+          #  1. Right after the event GitHub hasn't computed mergeability yet
+          #     (mergeable_state: unknown); in that window `gh pr merge --auto`
+          #     silently no-ops.
+          #  2. When required checks are ALREADY green, `--auto` errors with
+          #     "Pull request is in clean status" instead of merging — so a PR that
+          #     went green before this ran would never merge.
+          # Handle both: poll, and once required checks pass (state clean/unstable)
+          # merge directly; otherwise schedule native auto-merge. Retry through the
+          # "unknown" window.
+          for i in $(seq 1 30); do
             if [ "$(gh api "repos/$REPO/pulls/$PR" --jq '.merged')" = "true" ]; then
-              echo "PR #$PR already merged."
+              echo "PR #$PR merged."
               exit 0
             fi
-            if [ "$(gh api "repos/$REPO/pulls/$PR" --jq '.auto_merge != null')" = "true" ]; then
-              echo "auto-merge enabled on attempt $i."
-              exit 0
-            fi
-            # Querying the PR above also nudges GitHub to (re)compute mergeability,
-            # so the next attempt is likelier to stick.
-            gh pr merge "$PR" --repo "$REPO" --auto --squash 2>/dev/null || true
+            state=$(gh api "repos/$REPO/pulls/$PR" --jq '.mergeable_state')
+            case "$state" in
+              clean|unstable|has_hooks)
+                # Required checks pass → merge now (--auto would just error here).
+                # A non-required check failing (unstable, e.g. an informational scan)
+                # still leaves the PR mergeable.
+                gh pr merge "$PR" --repo "$REPO" --squash && exit 0 || true
+                ;;
+              *)
+                # blocked / behind / unknown → not ready; schedule native auto-merge
+                # (also nudges GitHub to recompute mergeability for the next loop).
+                gh pr merge "$PR" --repo "$REPO" --auto --squash 2>/dev/null || true
+                if [ "$(gh api "repos/$REPO/pulls/$PR" --jq '.auto_merge != null')" = "true" ]; then
+                  echo "native auto-merge scheduled on attempt $i."
+                  exit 0
+                fi
+                ;;
+            esac
             sleep 6
           done
-          echo "::warning::auto-merge did not engage after retries — merge #$PR manually once green."
+          echo "::warning::could not merge/schedule #$PR after retries — merge manually once green."
 
       # GitHub deliberately does not let a push made with the run's own GITHUB_TOKEN
       # trigger other workflows (anti-infinite-loop safeguard) — so once GitHub's
