@@ -487,11 +487,13 @@ func handleSourceSend(d Deps) http.Handler {
 		for range selected {
 			_ = d.Store.AddTaskClaim(u.ID, folderName, now)
 		}
-		// Remember the catalog metadata for this title's folder so the Tasks list
-		// can show whether it's a movie or series plus its rating and year.
+		// Remember the catalog metadata + WHO sent it for this title's folder, so
+		// the Tasks list can label it and attribute ownership by destination (the
+		// name-based claim can't match a source send — DSM names the task after the
+		// file, not the folder).
 		_ = d.Store.SaveSourceDownload(store.SourceDownload{
 			Destination: dest, MediaType: body.Type, Title: body.Title,
-			Year: strings.TrimSpace(body.Year), IMDbScore: body.IMDbScore,
+			Year: strings.TrimSpace(body.Year), IMDbScore: body.IMDbScore, OwnerID: u.ID,
 		}, now)
 		httpx.JSON(w, http.StatusOK,
 			map[string]any{"destination": dest, "created": true, "taskAdded": true, "count": len(selected)})
