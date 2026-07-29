@@ -18,6 +18,33 @@ describe('taskTitle', () => {
     expect(t).toEqual({ title: 'Rick and Morty', episode: 'S01E05' });
   });
 
+  it('extracts season/episode from underscore-separated names (the 30nama format)', () => {
+    expect(
+      taskTitle({
+        name: 'X_Men_97_S01E01_1080p_WEB-DL_TheCuteness_30NAMA.mkv',
+        destination: 'series/x_men_97',
+        uri: undefined,
+      }).episode,
+    ).toBe('S01E01');
+    expect(
+      taskTitle({
+        name: 'The_Big_Bang_Theory_S02E01_10bit_x265_1080p_BluRay_RCVR_30NAMA.mkv',
+        destination: 'series/the_big_bang_theory',
+        uri: undefined,
+      }).episode,
+    ).toBe('S02E01');
+  });
+
+  it('reads the episode from the download URL path (underscore-separated)', () => {
+    expect(
+      taskTitle({
+        name: 'opaque',
+        destination: 'series/x_men_97',
+        uri: 'https://host/download/.../series/x_men_97/X_Men_97_S01E10_1080p_WEB-DL_30NAMA.mkv',
+      }).episode,
+    ).toBe('S01E10');
+  });
+
   it('pads and reads the episode from the link when the name lacks it', () => {
     const t = taskTitle({
       name: 'ep.mkv',
