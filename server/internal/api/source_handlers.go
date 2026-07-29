@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"synodl/server/internal/httpx"
@@ -111,11 +112,40 @@ func (d Deps) activeSource() (p *store.SourceProvider, drv source.Provider, cfg 
 		}, true
 }
 
-// writeSourceRuntimeErr maps a provider runtime error to the client contract and
-// flips the stored state to needs_refresh on an expiry. It never echoes secrets
-// or raw upstream bodies.
+// sourceFailThreshold is how many CONSECUTIVE provider auth failures we tolerate
+// before declaring the session dead. A single failure is almost always transient
+// — e.g. the provider's Cloudflare rate-limiting/challenging one request during a
+// burst — and other requests keep succeeding, so nuking the whole source on the
+// first blip is wrong. A genuine expiry fails every request, so it crosses this
+// threshold quickly.
+const sourceFailThreshold = 4
+
+// sourceFailStreak counts consecutive provider auth failures across requests. A
+// success resets it (see sourceCallOK).
+var sourceFailStreak atomic.Int32
+
+// sourceCallOK records a healthy provider call: clears the failure streak and, if
+// the stored state had drifted, re-confirms the session as active.
+func (d Deps) sourceCallOK(p *store.SourceProvider) {
+	sourceFailStreak.Store(0)
+	if p != nil && p.State != store.SourceActive {
+		now := time.Now().Unix()
+		_ = d.Store.SetProviderState(p.ID, store.SourceActive, now, now)
+	}
+}
+
+// writeSourceRuntimeErr maps a provider runtime error to the client contract. An
+// auth failure only flips the stored state to needs_refresh after several
+// CONSECUTIVE failures — a lone transient failure returns a retryable "busy" and
+// leaves the session intact. It never echoes secrets or raw upstream bodies.
 func (d Deps) writeSourceRuntimeErr(w http.ResponseWriter, providerID int64, err error) {
 	if nr, ok := source.AsNeedsRefresh(err); ok {
+		if sourceFailStreak.Add(1) < sourceFailThreshold {
+			// Likely transient (rate-limit/challenge on a burst) — keep the session;
+			// the client can retry a moment later.
+			httpx.JSON(w, http.StatusServiceUnavailable, map[string]any{"error": "source_busy"})
+			return
+		}
 		_ = d.Store.SetProviderState(providerID, store.SourceNeedsRefresh, 0, time.Now().Unix())
 		httpx.JSON(w, http.StatusConflict, map[string]any{"error": "source_needs_refresh", "layer": nr.Layer})
 		return
@@ -303,10 +333,8 @@ func handleSourceSearch(d Deps) http.Handler {
 			d.writeSourceRuntimeErr(w, p.ID, err)
 			return
 		}
-		// A successful call re-confirms the session is healthy.
-		if p.State != store.SourceActive {
-			_ = d.Store.SetProviderState(p.ID, store.SourceActive, time.Now().Unix(), time.Now().Unix())
-		}
+		// A successful call clears the failure streak and re-confirms the session.
+		d.sourceCallOK(p)
 		if res.Items == nil {
 			res.Items = []source.CatalogTitle{}
 		}
@@ -329,6 +357,7 @@ func handleSourceParameters(d Deps) http.Handler {
 			d.writeSourceRuntimeErr(w, p.ID, err)
 			return
 		}
+		d.sourceCallOK(p)
 		httpx.JSON(w, http.StatusOK, params)
 	})
 }
@@ -347,6 +376,7 @@ func handleSourceTitle(d Deps) http.Handler {
 			d.writeSourceRuntimeErr(w, p.ID, err)
 			return
 		}
+		d.sourceCallOK(p)
 		if td.Qualities == nil {
 			td.Qualities = []source.QualityOption{}
 		}

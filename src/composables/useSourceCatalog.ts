@@ -153,6 +153,12 @@ function handleErr(e: unknown): void {
       needsRefresh.value = true;
       return;
     }
+    // Transient: the source rate-limited or blipped on one request while others
+    // still succeed. Keep the session — don't show the "needs refreshing" screen.
+    if (e.code === 'source_busy') {
+      errorMsg.value = 'The source is busy — give it a moment and try again.';
+      return;
+    }
     if (e.code === 'source_unavailable' || e.status === 404) {
       unavailable.value = true;
       return;
@@ -229,7 +235,10 @@ async function runSearch(reset = true): Promise<void> {
 }
 
 async function loadMore(): Promise<void> {
-  if (!hasMore.value || loading.value) return;
+  // Stop paginating the moment the source is down — otherwise a failing provider
+  // gets hammered with rapid follow-up page requests (which, against a Cloudflare
+  // rate-limit, only makes it worse).
+  if (!hasMore.value || loading.value || needsRefresh.value || unavailable.value || errorMsg.value) return;
   page.value += 1;
   await runSearch(false);
 }
