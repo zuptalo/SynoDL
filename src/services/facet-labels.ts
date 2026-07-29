@@ -88,3 +88,8 @@ export function languageOptions(facets: SourceFacet[]): Option[] {
 export function countryOptions(facets: SourceFacet[]): Option[] {
   return facets.map((f) => localize(f, (v) => safeOf(regionNames, v)));
 }
+// Channel, encoder and age are already display-ready (network name, release
+// group, content rating) — the value is the label.
+export function passthroughOptions(facets: SourceFacet[]): Option[] {
+  return facets.map((f) => ({ value: f.value, label: f.name || f.value }));
+}

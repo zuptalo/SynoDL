@@ -156,9 +156,26 @@ func (p thirtynama) Parameters(ctx context.Context, c *source.Client, cfg source
 		Scores:    facetOptions(r.Score),
 		Languages: facetOptions(r.Language),
 		Countries: facetOptions(r.Country),
+		Channels:  facetOptions(r.Channel),
+		Encoders:  stringFacets(r.Encoder),
+		Ages:      stringFacets(r.Age),
 		MinYear:   int(r.MinYear),
 		MaxYear:   int(r.MaxYear),
 	}, nil
+}
+
+// stringFacets turns a plain string list (encoder, age) into options, dropping
+// blanks. The value doubles as the name — the client localizes if it can.
+func stringFacets(in []flexStr) []source.FacetOption {
+	out := make([]source.FacetOption, 0, len(in))
+	for _, s := range in {
+		v := string(s)
+		if strings.TrimSpace(v) == "" {
+			continue
+		}
+		out = append(out, source.FacetOption{Value: v, Name: v})
+	}
+	return out
 }
 
 // facetOptions converts the provider's facet entries to our shape, dropping the
@@ -370,6 +387,36 @@ func buildParams(f source.SearchFilters) string {
 	if f.Age != "" {
 		m["age"] = f.Age
 	}
+	if f.Channel != "" {
+		m["channel"] = f.Channel
+	}
+	if f.Encoder != "" {
+		m["encoder"] = f.Encoder
+	}
+	if f.X265 != "" {
+		m["x265"] = f.X265
+	}
+	if f.ThreeD != "" {
+		m["3d"] = f.ThreeD
+	}
+	if f.Stream != "" {
+		m["stream"] = f.Stream
+	}
+	if f.Cast != "" {
+		m["cast"] = f.Cast
+	}
+	if f.Director != "" {
+		m["director"] = f.Director
+	}
+	if f.Creator != "" {
+		m["creator"] = f.Creator
+	}
+	if f.YearFrom != "" {
+		m["min_year"] = f.YearFrom
+	}
+	if f.YearTo != "" {
+		m["max_year"] = f.YearTo
+	}
 	b, _ := json.Marshal(m)
 	return string(b)
 }
@@ -505,8 +552,12 @@ type tnParams struct {
 	Score    []tnFacet `json:"score"`
 	Country  []tnFacet `json:"country"`
 	Language []tnFacet `json:"language"`
-	MinYear  flexInt   `json:"min_year"`
-	MaxYear  flexInt   `json:"max_year"`
+	Channel  []tnFacet `json:"channel"`
+	// encoder and age are plain string arrays, not {name,value} objects.
+	Encoder []flexStr `json:"encoder"`
+	Age     []flexStr `json:"age"`
+	MinYear flexInt   `json:"min_year"`
+	MaxYear flexInt   `json:"max_year"`
 }
 
 type tnFacet struct {

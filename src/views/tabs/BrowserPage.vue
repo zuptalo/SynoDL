@@ -82,6 +82,13 @@ const genreChip = computed(() => optionLabel(filterOptions.value.genres, filters
 const scoreChip = computed(() => optionLabel(filterOptions.value.scores, filters.value.score));
 const languageChip = computed(() => optionLabel(filterOptions.value.languages, filters.value.language));
 const countryChip = computed(() => optionLabel(filterOptions.value.countries, filters.value.country));
+const yearChip = computed(() => {
+  const { yearFrom: from, yearTo: to } = filters.value;
+  if (from && to) return `${from}–${to}`;
+  if (from) return `≥ ${from}`;
+  if (to) return `≤ ${to}`;
+  return '';
+});
 
 // The release year is embedded at the end of the provider's title; show it as a
 // separate detail and strip it from the displayed name (the raw title is still
@@ -359,6 +366,36 @@ function goSettings(): void {
           </ion-chip>
           <ion-chip v-if="filters.country" @click="onRemoveFilter('country')">
             {{ countryChip }}<ion-icon :icon="closeOutline" />
+          </ion-chip>
+          <ion-chip v-if="filters.channel" @click="onRemoveFilter('channel')">
+            {{ filters.channel }}<ion-icon :icon="closeOutline" />
+          </ion-chip>
+          <ion-chip v-if="filters.encoder" @click="onRemoveFilter('encoder')">
+            {{ filters.encoder }}<ion-icon :icon="closeOutline" />
+          </ion-chip>
+          <ion-chip v-if="filters.age" @click="onRemoveFilter('age')">
+            {{ filters.age }}<ion-icon :icon="closeOutline" />
+          </ion-chip>
+          <ion-chip v-if="yearChip" @click="onRemoveFilter('yearFrom'); onRemoveFilter('yearTo')">
+            {{ yearChip }}<ion-icon :icon="closeOutline" />
+          </ion-chip>
+          <ion-chip v-if="filters.cast" @click="onRemoveFilter('cast')">
+            Cast: {{ filters.cast }}<ion-icon :icon="closeOutline" />
+          </ion-chip>
+          <ion-chip v-if="filters.director" @click="onRemoveFilter('director')">
+            Director: {{ filters.director }}<ion-icon :icon="closeOutline" />
+          </ion-chip>
+          <ion-chip v-if="filters.creator" @click="onRemoveFilter('creator')">
+            Creator: {{ filters.creator }}<ion-icon :icon="closeOutline" />
+          </ion-chip>
+          <ion-chip v-if="filters.x265" @click="onRemoveFilter('x265')">
+            x265<ion-icon :icon="closeOutline" />
+          </ion-chip>
+          <ion-chip v-if="filters.threeD" @click="onRemoveFilter('threeD')">
+            3D<ion-icon :icon="closeOutline" />
+          </ion-chip>
+          <ion-chip v-if="filters.stream" @click="onRemoveFilter('stream')">
+            Streamable<ion-icon :icon="closeOutline" />
           </ion-chip>
         </div>
 

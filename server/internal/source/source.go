@@ -66,8 +66,19 @@ type SearchFilters struct {
 	Language string
 	Country  string
 	Score    string
-	Age      string // content rating (e.g. "G"); set server-side for capped users
+	Age      string // content rating (e.g. "G"); forced server-side for capped users
 	Genre    []string
+	// Additional advanced-search facets (spec 1013).
+	Channel  string // TV channel/network (e.g. "Netflix")
+	Encoder  string // release group (e.g. "YIFY")
+	X265     string // "true" to require an x265/HEVC encode
+	ThreeD   string // "true" to require a 3D release
+	Stream   string // "true" to require a streamable copy
+	Cast     string // free-text actor name
+	Director string // free-text director name
+	Creator  string // free-text creator name
+	YearFrom string // release-year lower bound
+	YearTo   string // release-year upper bound
 }
 
 // FacetOption is one selectable value in a filter facet. Name is the provider's
@@ -89,6 +100,9 @@ type SearchParameters struct {
 	Scores    []FacetOption `json:"scores"`
 	Languages []FacetOption `json:"languages"`
 	Countries []FacetOption `json:"countries"`
+	Channels  []FacetOption `json:"channels"`
+	Encoders  []FacetOption `json:"encoders"`
+	Ages      []FacetOption `json:"ages"`
 	MinYear   int           `json:"minYear"`
 	MaxYear   int           `json:"maxYear"`
 }
