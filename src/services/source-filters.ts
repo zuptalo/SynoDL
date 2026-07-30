@@ -20,11 +20,14 @@ export const SORTS: Option[] = [
   { value: 'date', label: 'Recently added' },
 ];
 
+// These lists mirror what the live facets produce (see facet-labels.ts): sorted
+// by label, so the sheet reads the same whether or not the provider's parameters
+// have loaded yet. Only SCORES keeps a scale order rather than an alphabetical one.
 export const TYPES: Option[] = [
   { value: '', label: 'All types' },
+  { value: 'anime', label: 'Anime' },
   { value: 'movie', label: 'Movies' },
   { value: 'series', label: 'Series' },
-  { value: 'anime', label: 'Anime' },
 ];
 
 export const SCORES: Option[] = [
@@ -40,15 +43,15 @@ export const SCORES: Option[] = [
 
 export const QUALITIES: string[] = [
   '4K',
-  'Remux',
-  'BluRay Full HD',
   'BluRay',
-  'WEB-DL',
-  'WEBRip',
-  'HDTV',
+  'BluRay Full HD',
+  'CAM',
   'DVDRip',
   'HDRip',
-  'CAM',
+  'HDTV',
+  'Remux',
+  'WEB-DL',
+  'WEBRip',
 ];
 
 export const GENRES: Option[] = [
@@ -76,36 +79,37 @@ export const GENRES: Option[] = [
   { value: '3380', label: 'Western' },
 ];
 
+// English leads (it's the overwhelmingly common pick); the rest are alphabetical.
 export const LANGUAGES: Option[] = [
   { value: 'en', label: 'English' },
-  { value: 'ja', label: 'Japanese' },
-  { value: 'fr', label: 'French' },
-  { value: 'ko', label: 'Korean' },
-  { value: 'it', label: 'Italian' },
-  { value: 'es', label: 'Spanish' },
-  { value: 'hi', label: 'Hindi' },
-  { value: 'de', label: 'German' },
-  { value: 'zh', label: 'Chinese' },
-  { value: 'ru', label: 'Russian' },
   { value: 'ar', label: 'Arabic' },
+  { value: 'zh', label: 'Chinese' },
+  { value: 'fr', label: 'French' },
+  { value: 'de', label: 'German' },
+  { value: 'hi', label: 'Hindi' },
+  { value: 'it', label: 'Italian' },
+  { value: 'ja', label: 'Japanese' },
+  { value: 'ko', label: 'Korean' },
   { value: 'fa', label: 'Persian' },
+  { value: 'ru', label: 'Russian' },
+  { value: 'es', label: 'Spanish' },
 ];
 
 export const COUNTRIES: Option[] = [
-  { value: 'US', label: 'United States' },
-  { value: 'GB', label: 'United Kingdom' },
-  { value: 'FR', label: 'France' },
+  { value: 'AU', label: 'Australia' },
   { value: 'CA', label: 'Canada' },
-  { value: 'JP', label: 'Japan' },
-  { value: 'IT', label: 'Italy' },
+  { value: 'CN', label: 'China' },
+  { value: 'FR', label: 'France' },
   { value: 'DE', label: 'Germany' },
   { value: 'IN', label: 'India' },
+  { value: 'IR', label: 'Iran' },
+  { value: 'IT', label: 'Italy' },
+  { value: 'JP', label: 'Japan' },
   { value: 'KR', label: 'South Korea' },
   { value: 'ES', label: 'Spain' },
-  { value: 'AU', label: 'Australia' },
-  { value: 'CN', label: 'China' },
-  { value: 'IR', label: 'Iran' },
   { value: 'TR', label: 'Turkey' },
+  { value: 'GB', label: 'United Kingdom' },
+  { value: 'US', label: 'United States' },
 ];
 
 /** Look up a human label for a stored code, falling back to the code itself. */
