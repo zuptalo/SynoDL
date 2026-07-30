@@ -341,6 +341,36 @@ func TestSourceSendMovie(t *testing.T) {
 	}
 }
 
+// A send persists the catalog metadata for the Tasks list, including the poster
+// URL and the catalog title id (spec 1016), keyed by the destination folder.
+func TestSourceSendPersistsCatalogMetadata(t *testing.T) {
+	resetFake()
+	h, st := newStatefulRouter(t)
+	admin := adminAfterSetup(t, h)
+	configureFake(t, h, admin, "movie")
+	fakeLinks = []string{"http://dl.fake/soul.mkv"}
+
+	body := `{"titleId":"217561","qualityId":"q1","title":"Soul 2020","type":"movie","year":"2020","imdbScore":8,"posterUrl":"https://cdn.example.info/poster/soul-l.webp"}`
+	if rec := do(t, h, "POST", "/v1/source/send", body, admin); rec.Code != 200 {
+		t.Fatalf("send = %d %s", rec.Code, rec.Body.String())
+	}
+
+	media, err := st.SourceDownloads()
+	if err != nil {
+		t.Fatalf("SourceDownloads: %v", err)
+	}
+	md, ok := media["movie/Soul 2020"]
+	if !ok {
+		t.Fatalf("no stored row for movie/Soul 2020; got %v", media)
+	}
+	if md.PosterURL != "https://cdn.example.info/poster/soul-l.webp" {
+		t.Fatalf("poster not persisted: %q", md.PosterURL)
+	}
+	if md.CatalogID != "217561" {
+		t.Fatalf("catalog id not persisted: %q", md.CatalogID)
+	}
+}
+
 func TestSourceSendMaxSize(t *testing.T) {
 	resetFake()
 	h, _ := newStatefulRouter(t)

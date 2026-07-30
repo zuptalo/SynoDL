@@ -9,24 +9,35 @@ import {
   IonLabel,
   IonProgressBar,
 } from '@ionic/vue';
-import { pauseOutline, playOutline, trashOutline } from 'ionicons/icons';
+import { filmOutline, pauseOutline, playOutline, trashOutline } from 'ionicons/icons';
 import { computed, ref } from 'vue';
 import type { Task } from '@/types/task';
 import { formatBytes, formatEta, formatPercent, formatSpeed, progressOf } from '@/utils/format';
+import { posterSrc } from '@/services/api';
 import { reasonFor } from '@/services/task-error';
 import { taskTitle } from '@/services/task-title';
 
 const props = defineProps<{ task: Task; selectMode?: boolean; selected?: boolean }>();
 
-// A readable title (the download's folder name) plus the season/episode for a
-// series, in place of Download Station's raw file name.
+// A readable title (the download's folder name, year stripped off) plus the
+// season/episode for a series, in place of Download Station's raw file name.
 const heading = computed(() => taskTitle(props.task));
+
+// Year for the metadata line: the stored catalog year when present, otherwise the
+// one parsed off the title — so plain (non-catalog) downloads still show a year
+// even though it was stripped from the heading (spec 1016).
+const displayYear = computed(() => props.task.year || heading.value.year);
 
 // For downloads sent from Discover, a capitalized media type (Movie / Series) to
 // show alongside the rating and year.
 const mediaLabel = computed(() =>
   props.task.mediaType ? props.task.mediaType[0].toUpperCase() + props.task.mediaType.slice(1) : '',
 );
+
+// Poster thumbnail, routed through the same same-origin image proxy Discover uses;
+// falls back to a neutral placeholder icon when absent or if the image errors.
+const posterUrl = computed(() => posterSrc(props.task.posterUrl ?? ''));
+const posterError = ref(false);
 const emit = defineEmits<{
   (e: 'pause', id: string): void;
   (e: 'resume', id: string): void;
@@ -99,13 +110,23 @@ const errorReason = computed(() =>
         aria-label="Select task"
         data-testid="task-select"
       />
+      <div slot="start" class="poster" aria-hidden="true" data-testid="task-poster">
+        <img
+          v-if="posterUrl && !posterError"
+          :src="posterUrl"
+          alt=""
+          loading="lazy"
+          @error="posterError = true"
+        />
+        <ion-icon v-else :icon="filmOutline" class="poster-ph" />
+      </div>
       <ion-label>
         <h2 class="name">
           {{ heading.title }}<span v-if="heading.episode" class="ep">{{ heading.episode }}</span>
         </h2>
-        <div v-if="task.mediaType" class="media" data-testid="task-media">
-          <span class="type">{{ mediaLabel }}</span>
-          <span v-if="task.year">{{ task.year }}</span>
+        <div v-if="task.mediaType || displayYear" class="media" data-testid="task-media">
+          <span v-if="task.mediaType" class="type">{{ mediaLabel }}</span>
+          <span v-if="displayYear">{{ displayYear }}</span>
           <span v-if="task.imdbScore">★ {{ task.imdbScore.toFixed(1) }}</span>
         </div>
         <div class="meta">
@@ -141,6 +162,30 @@ const errorReason = computed(() =>
 </template>
 
 <style scoped>
+/* Poster thumbnail on the left of the row (portrait 2:3), with a neutral
+   placeholder when a task has no stored poster (spec 1016). */
+.poster {
+  width: 40px;
+  height: 60px;
+  margin-inline-end: 12px;
+  border-radius: 6px;
+  overflow: hidden;
+  flex-shrink: 0;
+  background: rgba(var(--ion-text-color-rgb, 0, 0, 0), 0.08);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.poster img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.poster-ph {
+  font-size: 20px;
+  color: var(--app-text-dim);
+}
 .name {
   font-size: 0.95rem;
   overflow: hidden;

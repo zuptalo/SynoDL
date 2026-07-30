@@ -208,4 +208,12 @@ var migrations = []string{
 	CREATE INDEX idx_download_history_user      ON download_history(user_id, created_at);
 	CREATE INDEX idx_download_history_correlate ON download_history(destination, task_name, completed_at);
 	`,
+	// 0014 — remember the title's poster image for a Discover send (spec 1016), so
+	// the Tasks list can show a poster thumbnail. Public catalog CDN URL, the same
+	// image Discover already renders; empty for downloads sent before this shipped.
+	`ALTER TABLE source_downloads ADD COLUMN poster_url TEXT NOT NULL DEFAULT '';`,
+	// 0015 — remember the catalog title id for a Discover send (spec 1016), so the
+	// task detail's "Open in Discover" can reopen the exact title. Empty for older
+	// or manually-added downloads (they fall back to a title search).
+	`ALTER TABLE source_downloads ADD COLUMN catalog_id TEXT NOT NULL DEFAULT '';`,
 }

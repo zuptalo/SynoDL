@@ -137,6 +137,7 @@ func TestDecorateTasksMediaMetadata(t *testing.T) {
 	if err := st.SaveSourceDownload(store.SourceDownload{
 		Destination: "tv-show/Severance 2022 -", MediaType: "series", Title: "Severance 2022 -",
 		Year: "2022 –", IMDbScore: 8.7,
+		PosterURL: "https://cdn.example.info/poster/severance-l.webp", CatalogID: "424242",
 	}, 100); err != nil {
 		t.Fatalf("SaveSourceDownload: %v", err)
 	}
@@ -153,7 +154,10 @@ func TestDecorateTasksMediaMetadata(t *testing.T) {
 	if byID["t1"].MediaType != "series" || byID["t1"].Year != "2022 –" || byID["t1"].IMDbScore != 8.7 {
 		t.Fatalf("t1 metadata not joined: %+v", byID["t1"])
 	}
-	if byID["t2"].MediaType != "" || byID["t2"].IMDbScore != 0 {
+	if byID["t1"].PosterURL != "https://cdn.example.info/poster/severance-l.webp" || byID["t1"].CatalogID != "424242" {
+		t.Fatalf("t1 poster/catalog id not joined: %+v", byID["t1"])
+	}
+	if byID["t2"].MediaType != "" || byID["t2"].IMDbScore != 0 || byID["t2"].PosterURL != "" || byID["t2"].CatalogID != "" {
 		t.Fatalf("t2 should carry no catalog metadata: %+v", byID["t2"])
 	}
 }

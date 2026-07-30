@@ -103,9 +103,11 @@ type sourceSendReq struct {
 	// Episodes, 1-based, select which episodes of a series season pack to send.
 	// Empty means everything (a movie, or the whole season).
 	Episodes []int `json:"episodes,omitempty"`
-	// Catalog metadata carried through so the Tasks list can label the download.
+	// Catalog metadata carried through so the Tasks list can label the download,
+	// show a poster thumbnail, and reopen the title in Discover (spec 1013, 1016).
 	Year      string  `json:"year,omitempty"`
 	IMDbScore float64 `json:"imdbScore,omitempty"`
+	PosterURL string  `json:"posterUrl,omitempty"`
 }
 
 // activeSource loads the enabled provider, its driver, outbound config, and the
@@ -512,7 +514,9 @@ func handleSourceSend(d Deps) http.Handler {
 		// file, not the folder).
 		_ = d.Store.SaveSourceDownload(store.SourceDownload{
 			Destination: dest, MediaType: body.Type, Title: body.Title,
-			Year: strings.TrimSpace(body.Year), IMDbScore: body.IMDbScore, OwnerID: u.ID,
+			Year: strings.TrimSpace(body.Year), IMDbScore: body.IMDbScore,
+			PosterURL: strings.TrimSpace(body.PosterURL), CatalogID: strings.TrimSpace(body.TitleID),
+			OwnerID: u.ID,
 		}, now)
 		// Record durable per-file history for the Statistics section: one row per
 		// selected file (size unknown until the watcher sees it finish). The

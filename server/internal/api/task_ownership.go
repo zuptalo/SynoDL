@@ -30,6 +30,8 @@ type taskView struct {
 	MediaType string  `json:"mediaType,omitempty"` // movie / series / anime
 	IMDbScore float64 `json:"imdbScore,omitempty"`
 	Year      string  `json:"year,omitempty"`
+	PosterURL string  `json:"posterUrl,omitempty"` // catalog poster thumbnail (spec 1016)
+	CatalogID string  `json:"catalogId,omitempty"` // catalog title id for Open in Discover (spec 1016)
 }
 
 // asViews wraps tasks with no attribution — used by the legacy stateless stream,
@@ -89,11 +91,14 @@ func (d Deps) decorateTasks(u *store.User, tasks []syno.Task) []taskView {
 		if u.IsAdmin && attributed {
 			v.AddedBy = owner.Username
 		}
-		// Label it movie/series + rating/year from the same folder match.
+		// Label it movie/series + rating/year, and carry the poster + catalog id,
+		// from the same folder match.
 		if hasMedia {
 			v.MediaType = md.MediaType
 			v.IMDbScore = md.IMDbScore
 			v.Year = md.Year
+			v.PosterURL = md.PosterURL
+			v.CatalogID = md.CatalogID
 		}
 		out = append(out, v)
 	}

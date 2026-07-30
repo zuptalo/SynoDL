@@ -78,6 +78,16 @@ const searchIneffective = computed(() => {
   const nonDefaultSort = sort.value !== DEFAULT_SORT || order.value !== DEFAULT_ORDER;
   return hasNonTypeFilter || nonDefaultSort;
 });
+// Cross-tab "Open in Discover" handoff (spec 1016): the Tasks detail sets one of
+// these and navigates to the Browser tab, which consumes it. A title object opens
+// that exact title's modal; a query string runs a search fallback (used when a task
+// has no stored catalog id).
+const pendingOpen = ref<CatalogTitle | null>(null);
+const pendingSearch = ref('');
+function requestOpen(title: CatalogTitle | null, searchQuery?: string): void {
+  pendingOpen.value = title;
+  pendingSearch.value = title ? '' : (searchQuery ?? '');
+}
 const loading = ref(false);
 const needsRefresh = ref(false);
 const unavailable = ref(true);
@@ -406,6 +416,9 @@ export function useSourceCatalog() {
     order,
     searchActive,
     searchIneffective,
+    pendingOpen,
+    pendingSearch,
+    requestOpen,
     loading,
     needsRefresh,
     unavailable,

@@ -21,16 +21,21 @@ import {
   IonTitle,
   IonToolbar,
 } from '@ionic/vue';
-import { copyOutline, refreshOutline } from 'ionicons/icons';
+import { copyOutline, filmOutline, refreshOutline } from 'ionicons/icons';
 import { computed } from 'vue';
-import { api } from '@/services/api';
+import { useRouter } from 'vue-router';
+import { api, type CatalogTitle } from '@/services/api';
 import { appToast } from '@/services/toast';
 import type { Task } from '@/types/task';
 import { formatBytes, formatDate, formatSpeed, formatPercent } from '@/utils/format';
 import { reasonFor } from '@/services/task-error';
+import { taskTitle } from '@/services/task-title';
+import { useSourceCatalog } from '@/composables/useSourceCatalog';
 
 const props = defineProps<{ isOpen: boolean; task: Task | null }>();
 const emit = defineEmits<{ (e: 'dismiss'): void }>();
+const router = useRouter();
+const { requestOpen } = useSourceCatalog();
 
 const reason = computed(() =>
   props.task?.status === 'error' ? reasonFor(props.task.errorDetail ?? '') : '',
@@ -41,6 +46,41 @@ const mediaLabel = computed(() => {
   const t = props.task?.mediaType;
   return t ? t[0].toUpperCase() + t.slice(1) : '';
 });
+
+// Torrent-only stats (upload total, upload speed, peers/seeders) are meaningless
+// for HTTP/FTP/NZB/eMule downloads, so they're hidden for non-bt tasks (spec 1016).
+const isTorrent = computed(() => props.task?.type === 'bt');
+
+// "Open in Discover" is offered for downloads that carry catalog metadata.
+const canOpenInDiscover = computed(() => !!props.task?.mediaType);
+
+// Hand the title to the Browser tab and switch to it: the exact title when we
+// stored its catalog id, otherwise a search of the (year-stripped) title.
+async function openInDiscover(): Promise<void> {
+  const t = props.task;
+  if (!t) return;
+  const clean = taskTitle(t).title;
+  if (t.catalogId) {
+    const ct: CatalogTitle = {
+      id: t.catalogId,
+      type: t.mediaType ?? '',
+      title: clean,
+      posterUrl: t.posterUrl ?? '',
+      imdbId: '',
+      imdbScore: t.imdbScore ?? 0,
+      providerScore: 0,
+      plot: '',
+      genres: [],
+      comingSoon: false,
+      freeDownload: false,
+    };
+    requestOpen(ct);
+  } else {
+    requestOpen(null, clean);
+  }
+  emit('dismiss');
+  await router.push('/tabs/browser');
+}
 
 // Re-download makes sense for a task that has finished or failed and still knows
 // its source link (spec 1007).
@@ -163,7 +203,7 @@ async function redownload(): Promise<void> {
             />
           </ion-label>
         </ion-item>
-        <ion-item>
+        <ion-item v-if="isTorrent">
           <ion-label>
             <p>Uploaded</p>
             <h2>{{ formatBytes(task.uploaded) }}</h2>
@@ -171,11 +211,14 @@ async function redownload(): Promise<void> {
         </ion-item>
         <ion-item>
           <ion-label>
-            <p>Speeds</p>
-            <h2>↓ {{ formatSpeed(task.downloadSpeed) }} · ↑ {{ formatSpeed(task.uploadSpeed) }}</h2>
+            <p>{{ isTorrent ? 'Speeds' : 'Speed' }}</p>
+            <h2>
+              ↓ {{ formatSpeed(task.downloadSpeed)
+              }}<template v-if="isTorrent"> · ↑ {{ formatSpeed(task.uploadSpeed) }}</template>
+            </h2>
           </ion-label>
         </ion-item>
-        <ion-item>
+        <ion-item v-if="isTorrent">
           <ion-label>
             <p>Peers / seeders</p>
             <h2>{{ task.peers }} / {{ task.seeders }}</h2>
@@ -184,9 +227,26 @@ async function redownload(): Promise<void> {
         </ion-item>
       </ion-list>
     </ion-content>
-    <ion-footer v-if="canRedownload" :translucent="true">
+    <ion-footer v-if="canRedownload || canOpenInDiscover" :translucent="true">
       <ion-toolbar>
-        <ion-button expand="block" class="redownload" data-testid="detail-redownload" @click="redownload">
+        <ion-button
+          v-if="canOpenInDiscover"
+          expand="block"
+          fill="outline"
+          class="footer-btn"
+          data-testid="detail-open-discover"
+          @click="openInDiscover"
+        >
+          <ion-icon slot="start" :icon="filmOutline" />
+          Open in Discover
+        </ion-button>
+        <ion-button
+          v-if="canRedownload"
+          expand="block"
+          class="footer-btn"
+          data-testid="detail-redownload"
+          @click="redownload"
+        >
           <ion-icon slot="start" :icon="refreshOutline" />
           Re-download
         </ion-button>
@@ -196,7 +256,7 @@ async function redownload(): Promise<void> {
 </template>
 
 <style scoped>
-.redownload {
+.footer-btn {
   margin: 0.4rem 0.6rem;
 }
 .detail-progress-bar {

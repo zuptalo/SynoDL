@@ -6,6 +6,7 @@
  * the file name or the source link (`…S01E05…`) when present.
  */
 import type { Task } from '@/types/task';
+import { splitYear } from '@/services/title-year';
 
 // S01E05 / s1.e5 / S01 E05 … anywhere in a file name or URL. We bound on
 // NON-alphanumerics (or the string edges) rather than \b, because the source
@@ -41,10 +42,12 @@ function isMediaFolder(destination: string | undefined): boolean {
 }
 
 export interface TaskTitle {
-  /** The human-readable title (folder name, or the raw task name as a fallback). */
+  /** The human-readable title, with the trailing release year removed (spec 1016). */
   title: string;
   /** "S01E05" when this is a detectable series episode, otherwise "". */
   episode: string;
+  /** Release year/range parsed off the title ("2024", "2008 – 2013"), "" when none. */
+  year: string;
 }
 
 export function taskTitle(task: Pick<Task, 'name' | 'destination' | 'uri'>): TaskTitle {
@@ -54,5 +57,9 @@ export function taskTitle(task: Pick<Task, 'name' | 'destination' | 'uri'>): Tas
   // download — a movies/tv parent, or a detected episode. Otherwise the raw name
   // is more meaningful (e.g. a file dropped in a generic "Downloads" folder).
   const useFolder = folder !== '' && (episode !== '' || isMediaFolder(task.destination));
-  return { title: useFolder ? folder : task.name, episode };
+  // Split the trailing year off the label so the row shows a clean title and the
+  // year appears once, on the metadata line (the source embeds it at the end,
+  // e.g. "Dexter Resurrection 2025"). splitYear leaves plain file names untouched.
+  const { title, year } = splitYear(useFolder ? folder : task.name);
+  return { title, episode, year };
 }
