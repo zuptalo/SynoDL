@@ -36,6 +36,7 @@ Specs are grouped by category band; status moves
 | [1011](specs/1011-destination-prefs-server/spec.md) | Per-user destination preferences on the server, with self-cleaning | 🔵 in-review |
 | [1013](specs/1013-tasks-search-notif/spec.md) | Foreground-aware notifications, Tasks search bar, fewer tabs | 🔵 in-review |
 | [1014](specs/1014-discover-filter-sheet/spec.md) | Discover filter sheet polish | 🔵 in-review |
+| [1015](specs/1015-discover-polish-batch/spec.md) | Discover polish batch | 🔵 in-review |
 
 ## 🐛 Hotfixes & Bug Fixes (2001+)
 

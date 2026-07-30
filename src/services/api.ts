@@ -392,7 +392,6 @@ export interface SourceSearchFilters {
   encoder?: string;
   x265?: string; // "true" to require x265/HEVC
   threeD?: string; // "true" to require 3D
-  stream?: string; // "true" to require a streamable copy
   cast?: string;
   director?: string;
   creator?: string;

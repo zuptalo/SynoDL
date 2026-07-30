@@ -53,7 +53,6 @@ const yearFrom = ref('');
 const yearTo = ref('');
 const x265 = ref(false);
 const threeD = ref(false);
-const stream = ref(false);
 
 watch(
   () => props.isOpen,
@@ -76,7 +75,6 @@ watch(
     yearTo.value = f.yearTo ?? '';
     x265.value = f.x265 === 'true';
     threeD.value = f.threeD === 'true';
-    stream.value = f.stream === 'true';
   },
 );
 
@@ -101,7 +99,6 @@ function apply(): void {
   if (String(yearTo.value).trim()) f.yearTo = String(yearTo.value).trim();
   if (x265.value) f.x265 = 'true';
   if (threeD.value) f.threeD = 'true';
-  if (stream.value) f.stream = 'true';
   emit('apply', f);
   emit('dismiss');
 }
@@ -123,7 +120,6 @@ function clear(): void {
   yearTo.value = '';
   x265.value = false;
   threeD.value = false;
-  stream.value = false;
 }
 </script>
 
@@ -340,9 +336,6 @@ function clear(): void {
         </ion-item>
         <ion-item>
           <ion-toggle v-model="threeD" :disabled="searchActive">3D only</ion-toggle>
-        </ion-item>
-        <ion-item>
-          <ion-toggle v-model="stream" :disabled="searchActive">Streamable only</ion-toggle>
         </ion-item>
       </ion-list>
     </ion-content>
