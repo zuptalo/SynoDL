@@ -102,7 +102,7 @@ func TestThirtynamaBuildParamsAdvancedFacets(t *testing.T) {
 	body := buildParams(source.SearchFilters{
 		Channel: "Netflix", Encoder: "YIFY", X265: "true", ThreeD: "true",
 		Cast: "brad pitt", Director: "nolan", Creator: "creator x", YearFrom: "2000", YearTo: "2010",
-	}, "favorite")
+	})
 	for _, want := range []string{
 		`"channel":"Netflix"`, `"encoder":"YIFY"`, `"x265":"true"`, `"3d":"true"`,
 		`"cast":"brad pitt"`, `"director":"nolan"`, `"creator":"creator x"`,
@@ -401,12 +401,12 @@ func TestThirtynamaBrowseFiltersAndSort(t *testing.T) {
 		t.Fatalf("score/genre missing; body = %q", dec)
 	}
 
-	// Empty sort → release-year default; movie → code 15.
+	// Empty sort → Most popular default (spec 2007); movie → code 15.
 	_, _ = thirtynama{}.Search(context.Background(), source.NewClient(), cfg, source.Session{},
 		source.SearchQuery{Filters: source.SearchFilters{Type: "movie"}})
 	dec2, _ := url.QueryUnescape(gotBody)
-	if !strings.Contains(gotPath, "orderby/year") {
-		t.Fatalf("default sort path = %q, want orderby/year", gotPath)
+	if !strings.Contains(gotPath, "orderby/favorite") {
+		t.Fatalf("default sort path = %q, want orderby/favorite", gotPath)
 	}
 	if !strings.Contains(dec2, `"type":"15"`) {
 		t.Fatalf("movie must map to code 15; body = %q", dec2)
@@ -428,11 +428,12 @@ func TestThirtynamaBrowseFiltersAndSort(t *testing.T) {
 	}
 }
 
-// Browsing by release year carries implicit year bounds so the provider's
-// year-less rows (which sort ahead of everything ascending, and whose
-// garbage-year siblings sort above the newest titles descending) stay out of the
-// list. A bound the user set always wins over the default (spec 2006).
-func TestThirtynamaYearSortBounds(t *testing.T) {
+// The release-year sort must send NO implicit year bounds. Spec 2006 added them
+// to hide the source's ~350 broken-year rows; timing the live API afterwards
+// showed the min_year filter makes their query 15-20s on any uncached page (vs
+// 1.5-2s without it), so spec 2007 removed them. A year range the USER set is
+// still sent, unchanged, under any sort.
+func TestThirtynamaYearSortSendsNoImplicitBounds(t *testing.T) {
 	var gotBody string
 	cfg, done := fakeProvider(t, func(w http.ResponseWriter, r *http.Request) {
 		buf := make([]byte, r.ContentLength)
@@ -446,48 +447,50 @@ func TestThirtynamaYearSortBounds(t *testing.T) {
 		return dec
 	}
 
-	// Explicit year sort, no user bounds → both defaults supplied.
-	_, err := thirtynama{}.Search(context.Background(), source.NewClient(), cfg, source.Session{},
-		source.SearchQuery{Sort: "year", Order: "asc"})
-	if err != nil {
-		t.Fatalf("Search: %v", err)
-	}
-	if !strings.Contains(body(), `"min_year":"1890"`) || !strings.Contains(body(), `"max_year":"2100"`) {
-		t.Fatalf("year sort must carry both bounds; body = %q", body())
-	}
-
-	// The empty sort resolves to the year sort, so it gets the bounds too.
-	_, _ = thirtynama{}.Search(context.Background(), source.NewClient(), cfg, source.Session{},
-		source.SearchQuery{})
-	if !strings.Contains(body(), `"min_year":"1890"`) || !strings.Contains(body(), `"max_year":"2100"`) {
-		t.Fatalf("default sort must carry both bounds; body = %q", body())
-	}
-
-	// A user-set bound wins; only the missing side is filled in.
-	_, _ = thirtynama{}.Search(context.Background(), source.NewClient(), cfg, source.Session{},
-		source.SearchQuery{Sort: "year", Filters: source.SearchFilters{YearFrom: "2000"}})
-	if !strings.Contains(body(), `"min_year":"2000"`) || !strings.Contains(body(), `"max_year":"2100"`) {
-		t.Fatalf("user min_year must win; body = %q", body())
-	}
-	_, _ = thirtynama{}.Search(context.Background(), source.NewClient(), cfg, source.Session{},
-		source.SearchQuery{Sort: "year", Filters: source.SearchFilters{YearTo: "2010"}})
-	if !strings.Contains(body(), `"min_year":"1890"`) || !strings.Contains(body(), `"max_year":"2010"`) {
-		t.Fatalf("user max_year must win; body = %q", body())
-	}
-
-	// Every other sort keeps the exact parameters it sent before.
-	for _, sort := range []string{"favorite", "imdb", "date"} {
-		_, _ = thirtynama{}.Search(context.Background(), source.NewClient(), cfg, source.Session{},
-			source.SearchQuery{Sort: sort})
+	for _, q := range []source.SearchQuery{
+		{Sort: "year", Order: "asc"},
+		{Sort: "year", Order: "desc"},
+		{Sort: "favorite"},
+		{}, // the empty sort, whatever it resolves to
+	} {
+		_, err := thirtynama{}.Search(context.Background(), source.NewClient(), cfg, source.Session{}, q)
+		if err != nil {
+			t.Fatalf("Search %+v: %v", q, err)
+		}
 		if strings.Contains(body(), "min_year") || strings.Contains(body(), "max_year") {
-			t.Fatalf("sort %q must not gain year bounds; body = %q", sort, body())
+			t.Fatalf("sort %q must not add year bounds; body = %q", q.Sort, body())
 		}
 	}
-	// …but an explicit year filter still applies under any sort.
+
+	// A user-set range still reaches the provider untouched.
 	_, _ = thirtynama{}.Search(context.Background(), source.NewClient(), cfg, source.Session{},
-		source.SearchQuery{Sort: "imdb", Filters: source.SearchFilters{YearFrom: "1999"}})
-	if !strings.Contains(body(), `"min_year":"1999"`) || strings.Contains(body(), "max_year") {
-		t.Fatalf("explicit filter under another sort; body = %q", body())
+		source.SearchQuery{Sort: "year", Filters: source.SearchFilters{YearFrom: "2000", YearTo: "2010"}})
+	if !strings.Contains(body(), `"min_year":"2000"`) || !strings.Contains(body(), `"max_year":"2010"`) {
+		t.Fatalf("user-set year range must survive; body = %q", body())
+	}
+}
+
+// An empty or unrecognised sort resolves to Most popular — the same default the
+// client uses (DEFAULT_SORT in useSourceCatalog.ts), so the two can't drift.
+// It used to fall back to the release-year sort, which leads with the source's
+// broken-year rows and is the worst thing to land on (spec 2007).
+func TestThirtynamaDefaultSortIsFavorite(t *testing.T) {
+	var gotPath string
+	cfg, done := fakeProvider(t, func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		w.Write(fixture(t, "advanced_search.json"))
+	})
+	defer done()
+
+	for _, sort := range []string{"", "nonsense"} {
+		_, err := thirtynama{}.Search(context.Background(), source.NewClient(), cfg, source.Session{},
+			source.SearchQuery{Sort: sort})
+		if err != nil {
+			t.Fatalf("Search sort=%q: %v", sort, err)
+		}
+		if !strings.Contains(gotPath, "orderby/favorite/order/desc") {
+			t.Fatalf("sort %q → path %q, want orderby/favorite/order/desc", sort, gotPath)
+		}
 	}
 }
 

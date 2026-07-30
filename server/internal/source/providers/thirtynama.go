@@ -99,7 +99,7 @@ func (p thirtynama) Search(ctx context.Context, c *source.Client, cfg source.Con
 		body = "query=" + url.QueryEscape(query)
 	} else {
 		path = advancedSearchPath(page, q.Sort, q.Order)
-		body = "parameters=" + url.QueryEscape(buildParams(q.Filters, q.Sort))
+		body = "parameters=" + url.QueryEscape(buildParams(q.Filters))
 	}
 	raw, err := p.call(ctx, c, cfg, s, path, body)
 	if err != nil {
@@ -356,14 +356,18 @@ var typeCodes = map[string]string{
 }
 
 // allowedOrderby is the set of provider orderby fields we expose; anything else
-// falls back to release-year descending (the app default).
+// falls back to most-popular descending (the app default).
 var allowedOrderby = map[string]bool{"year": true, "date": true, "favorite": true, "imdb": true}
 
 func orderbyField(sort string) string {
 	if allowedOrderby[sort] {
 		return sort
 	}
-	return "year" // default: release year, descending
+	// Default: most popular, descending — the same default the client uses
+	// (DEFAULT_SORT in useSourceCatalog.ts), so the two can't drift. It used to
+	// be the release-year sort, but that one leads with the provider's
+	// broken-year rows, which is the worst thing to land on (spec 2007).
+	return "favorite"
 }
 
 // orderDir clamps the direction to the provider's two values; anything but an
@@ -410,34 +414,19 @@ func typeParam(t string) string {
 	return t
 }
 
-// Implicit year bounds for the release-year sort. The provider holds ~350 rows
-// whose year column is empty or nonsense (one title literally reads "Reptile
-// Royalty 7441"): the empty ones sort ahead of every real title ascending — some
-// thirteen pages of apparently random years before the 1890s films actually
-// start — and the nonsense ones sort above the newest titles descending. That is
-// the whole reason a working sort looked broken. Bounding the query drops
-// exactly those rows (4413 → 4400 pages, verified live 2026-07-30), leaving both
-// directions clean from the first row.
+// buildParams maps our filters onto the provider's advanced-search parameters.
 //
-// The upper bound is deliberately far past the provider's own year facet
-// (1890–2026): genuine upcoming titles are dated 2027/2028 and must stay.
-const (
-	yearSortMin = "1890"
-	yearSortMax = "2100"
-)
-
-func buildParams(f source.SearchFilters, sort string) string {
+// It deliberately sends NO implicit year bounds. Spec 2006 added `min_year` /
+// `max_year` to the release-year sort to hide the provider's ~350 broken-year
+// rows (empty ones lead ascending; nonsense ones like "Reptile Royalty 7441"
+// lead descending). The ordering that produced was correct, but timing the live
+// API showed the `min_year` filter is what makes their query slow: 15–20s on any
+// page they haven't cached, against 1.5–2s unbounded, while the other sorts run
+// 0.4–3.9s. A lower bound (`min_year=1`) is no cheaper, so the cost is the
+// filter itself, not the value. With two pages fetched per scroll trigger that
+// landed twice per trigger, so spec 2007 traded the tidy head back for speed.
+func buildParams(f source.SearchFilters) string {
 	m := map[string]any{}
-	// Only the release-year sort gets the implicit bounds — every other sort must
-	// send exactly what it sent before. A bound the user picked always wins.
-	if orderbyField(sort) == "year" {
-		if f.YearFrom == "" {
-			f.YearFrom = yearSortMin
-		}
-		if f.YearTo == "" {
-			f.YearTo = yearSortMax
-		}
-	}
 	if t := typeParam(f.Type); t != "" {
 		m["type"] = t
 	}
