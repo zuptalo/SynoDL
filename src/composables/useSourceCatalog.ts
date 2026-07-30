@@ -306,13 +306,26 @@ function debouncedSearch(): Promise<void> {
   });
 }
 
+// How many pages one infinite-scroll trigger pulls. Fetching a page BEYOND the
+// one the user is about to reach keeps a fast scroller from meeting the spinner
+// at the bottom of every page — the grid stays a screen ahead instead of
+// catching up. This doesn't cost the provider more requests for a given amount
+// of scrolling; the same pages are fetched, just sooner and in pairs.
+const PAGES_PER_LOAD = 2;
+
 async function loadMore(): Promise<void> {
   // Stop paginating the moment the source is down — otherwise a failing provider
   // gets hammered with rapid follow-up page requests (which, against a Cloudflare
-  // rate-limit, only makes it worse).
-  if (!hasMore.value || loading.value || needsRefresh.value || unavailable.value || errorMsg.value) return;
-  page.value += 1;
-  await runSearch(false);
+  // rate-limit, only makes it worse). Re-checked between pages too, so a source
+  // that starts failing on the first one never gets asked for the second.
+  for (let i = 0; i < PAGES_PER_LOAD; i += 1) {
+    if (!hasMore.value || needsRefresh.value || unavailable.value || errorMsg.value) return;
+    // Only the first pass guards on `loading`: it's the re-entrancy check for a
+    // second trigger arriving mid-load. Inside the loop we ARE the load.
+    if (i === 0 && loading.value) return;
+    page.value += 1;
+    await runSearch(false);
+  }
 }
 
 async function setQuery(q: string): Promise<void> {

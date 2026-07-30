@@ -510,9 +510,11 @@ function goSettings(): void {
           </button>
         </div>
 
-        <!-- Load the next page well before the user hits the bottom so scrolling
-             feels continuous (threshold is a large fraction of the viewport). -->
-        <ion-infinite-scroll v-if="hasMore" threshold="60%" @ionInfinite="onInfinite">
+        <!-- Load the next pages well before the user hits the bottom so scrolling
+             feels continuous: the trigger fires a full viewport early, and each
+             one pulls two pages (see PAGES_PER_LOAD), so a fast flick doesn't
+             outrun the grid. -->
+        <ion-infinite-scroll v-if="hasMore" threshold="100%" @ionInfinite="onInfinite">
           <ion-infinite-scroll-content />
         </ion-infinite-scroll>
       </template>
