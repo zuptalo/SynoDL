@@ -38,6 +38,7 @@ Specs are grouped by category band; status moves
 | [1014](specs/1014-discover-filter-sheet/spec.md) | Discover filter sheet polish | 🔵 in-review |
 | [1015](specs/1015-discover-polish-batch/spec.md) | Discover polish batch | 🔵 in-review |
 | [1016](specs/1016-tasks-view-poster/spec.md) | Tasks view — posters, cleaner titles, Open in Discover | 🔵 in-review |
+| [1017](specs/1017-download-statistics-readable/spec.md) | Download statistics — readable history + totals | 🔵 in-review |
 
 ## 🐛 Hotfixes & Bug Fixes (2001+)
 

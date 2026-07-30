@@ -32,11 +32,32 @@ describe('bucketize', () => {
     expect(byKey['2026']).toBe(7);
   });
 
-  it('collapses all-time into a single total point', () => {
-    const pts = bucketize(days, 'all');
-    expect(pts).toHaveLength(1);
-    expect(pts[0].count).toBe(10);
-    expect(pts[0].label).toBe('All time');
+  // "All" picks a granularity from the span so it reads as a trend, instead of
+  // collapsing to a single meaningless bar (spec 1017).
+  it('buckets "all" by year when the span covers multiple years', () => {
+    const pts = bucketize(days, 'all'); // sample spans 2025 → 2026
+    expect(pts.map((p) => p.key)).toEqual(['2025', '2026']);
+    expect(pts.map((p) => p.count)).toEqual([3, 7]);
+  });
+
+  it('buckets "all" by month within a single year spanning months', () => {
+    const oneYear: DayCount[] = [
+      { date: '2026-01-10', count: 2 },
+      { date: '2026-03-04', count: 5 },
+    ];
+    const pts = bucketize(oneYear, 'all');
+    expect(pts.map((p) => p.key)).toEqual(['2026-01', '2026-03']);
+    expect(pts.map((p) => p.count)).toEqual([2, 5]);
+  });
+
+  it('buckets "all" by day within a single month', () => {
+    const oneMonth: DayCount[] = [
+      { date: '2026-02-02', count: 1 },
+      { date: '2026-02-09', count: 4 },
+    ];
+    const pts = bucketize(oneMonth, 'all');
+    expect(pts.map((p) => p.key)).toEqual(['2026-02-02', '2026-02-09']);
+    expect(pts.map((p) => p.count)).toEqual([1, 4]);
   });
 
   it('conserves the total across every granularity', () => {
@@ -49,6 +70,6 @@ describe('bucketize', () => {
 
   it('returns an empty series for no data', () => {
     expect(bucketize([], 'month')).toEqual([]);
-    expect(bucketize([], 'all')).toEqual([{ key: 'all', label: 'All time', count: 0 }]);
+    expect(bucketize([], 'all')).toEqual([]);
   });
 });
