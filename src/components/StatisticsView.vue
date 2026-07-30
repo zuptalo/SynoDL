@@ -159,6 +159,15 @@ watch([source, selectedUser], refreshSeries);
       <!-- Historical graph with client-side bucket switching. -->
       <ion-list inset>
         <ion-list-header>History</ion-list-header>
+        <!-- Headline total for the current user + source selection, so the size of
+             what's being charted is legible at a glance (spec 1017). -->
+        <div class="range-total" data-testid="stats-total">
+          <span class="rt-count">{{ overall.count }}</span>
+          <span class="rt-label">
+            {{ overall.count === 1 ? 'download' : 'downloads' }} ·
+            {{ overall.sumBytes ? formatBytes(overall.sumBytes) : '—' }} total
+          </span>
+        </div>
         <ion-segment v-model="bucket" data-testid="stats-bucket">
           <ion-segment-button value="day">Day</ion-segment-button>
           <ion-segment-button value="week">Week</ion-segment-button>
@@ -192,6 +201,22 @@ watch([source, selectedUser], refreshSeries);
 }
 .stat .avg {
   font-size: 0.8rem;
+  color: var(--ion-color-medium);
+}
+.range-total {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  padding: 0.1rem 1rem 0.4rem;
+}
+.range-total .rt-count {
+  font-size: 1.7rem;
+  font-weight: 700;
+  color: var(--ion-text-color);
+  line-height: 1;
+}
+.range-total .rt-label {
+  font-size: 0.85rem;
   color: var(--ion-color-medium);
 }
 .chart-wrap {

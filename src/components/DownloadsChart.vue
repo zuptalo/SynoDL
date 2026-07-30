@@ -1,88 +1,123 @@
 <script setup lang="ts">
 /**
- * Hand-rolled SVG bar chart for the download-history graph (spec 0006). Ionic
- * has no chart primitive and the project keeps its dependency surface minimal,
- * so this is a small bespoke SVG — styled with the app's theme tokens (so it's
- * correct in light/dark) and paired with an accessible text summary. It renders
- * whatever bucketed series it's handed; the parent does the bucketing.
+ * Download-history bar chart (spec 0006, redesigned in spec 1017). A small,
+ * dependency-free CSS/flex bar chart (Ionic has no chart primitive and the
+ * project keeps its dependency surface minimal). Bars are bounded in width so a
+ * single bucket reads as one normal bar instead of a stretched block; values are
+ * labelled directly when few and via a hover title otherwise, with a baseline and
+ * a max reference for scale. Themed with app tokens so it's correct light/dark.
  */
 import { computed } from 'vue';
 import type { BucketPoint } from '@/services/stats-buckets';
 
 const props = defineProps<{ points: BucketPoint[] }>();
 
-// Viewbox in abstract units; the SVG scales responsively to its container.
-const W = 320;
-const H = 120;
-const pad = { top: 8, right: 4, bottom: 18, left: 4 };
-
 const max = computed(() => Math.max(1, ...props.points.map((p) => p.count)));
 const total = computed(() => props.points.reduce((s, p) => s + p.count, 0));
 
-// Bar geometry. Bars share the plot width with a small gap; height maps count→px.
 const bars = computed(() => {
-  const n = props.points.length || 1;
-  const plotW = W - pad.left - pad.right;
-  const plotH = H - pad.top - pad.bottom;
-  const bw = plotW / n;
-  return props.points.map((p, i) => {
-    const h = (p.count / max.value) * plotH;
-    return {
-      x: pad.left + i * bw + bw * 0.12,
-      y: pad.top + (plotH - h),
-      w: bw * 0.76,
-      h,
-      point: p,
-      // Label only a few ticks so the axis never crowds.
-      showLabel: n <= 12 || i % Math.ceil(n / 8) === 0,
-      cx: pad.left + i * bw + bw / 2,
-    };
-  });
+  const n = props.points.length;
+  // Thin the x-labels (and value labels) so a long series doesn't crowd; hover
+  // still shows every bar's exact value.
+  const labelEvery = n <= 8 ? 1 : Math.ceil(n / 6);
+  return props.points.map((p, i) => ({
+    ...p,
+    // Cap bar height at 88% of the plot so the value label above it has headroom.
+    pct: (p.count / max.value) * 88,
+    showVal: n <= 16,
+    showLabel: i % labelEvery === 0,
+  }));
 });
 </script>
 
 <template>
-  <div class="chart">
-    <svg
-      :viewBox="`0 0 ${W} ${H}`"
-      preserveAspectRatio="none"
+  <div v-if="total" class="chart">
+    <div class="scale">max {{ max }}</div>
+    <div
+      class="bars"
       role="img"
       :aria-label="`Downloads over time, ${total} total across ${points.length} periods`"
     >
-      <g v-for="b in bars" :key="b.point.key">
-        <rect :x="b.x" :y="b.y" :width="b.w" :height="b.h" rx="1.5" class="bar">
-          <title>{{ b.point.label }}: {{ b.point.count }}</title>
-        </rect>
-        <text v-if="b.showLabel" :x="b.cx" :y="H - 6" text-anchor="middle" class="tick">
-          {{ b.point.label }}
-        </text>
-      </g>
-    </svg>
-    <!-- Screen-reader / empty-state text summary alongside the visual. -->
-    <p v-if="!total" class="empty">No downloads in this range yet.</p>
+      <div
+        v-for="b in bars"
+        :key="b.key"
+        class="col"
+        :title="`${b.label}: ${b.count}`"
+        data-testid="chart-bar"
+      >
+        <span v-if="b.showVal" class="val">{{ b.count }}</span>
+        <div class="bar" :style="{ height: `${b.pct}%` }" />
+      </div>
+    </div>
+    <div class="xaxis" aria-hidden="true">
+      <div v-for="b in bars" :key="b.key" class="xcol">
+        <span v-if="b.showLabel">{{ b.label }}</span>
+      </div>
+    </div>
   </div>
+  <p v-else class="empty">No downloads in this range yet.</p>
 </template>
 
 <style scoped>
 .chart {
   width: 100%;
+  /* Few bars spread to fill the width (flex:1); many bars hold their min-width and
+     overflow, so the parent .chart-wrap scrolls horizontally instead of crushing. */
 }
-svg {
-  width: 100%;
-  height: 140px;
-  display: block;
+.scale {
+  font-size: 0.7rem;
+  color: var(--ion-color-medium);
+  text-align: right;
+  margin-bottom: 2px;
+}
+.bars {
+  display: flex;
+  align-items: flex-end;
+  gap: 6px;
+  height: 150px;
+  border-bottom: 1px solid var(--app-border, rgba(var(--ion-text-color-rgb, 0, 0, 0), 0.12));
+}
+.col {
+  flex: 1 1 0;
+  min-width: 28px;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+}
+.val {
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: var(--ion-text-color);
+  margin-bottom: 3px;
 }
 .bar {
-  fill: var(--app-accent, var(--ion-color-primary));
+  width: 62%;
+  max-width: 34px;
+  min-height: 3px;
+  border-radius: 5px 5px 0 0;
+  background: var(--app-accent, var(--ion-color-primary));
 }
-.tick {
-  fill: var(--ion-color-medium);
-  font-size: 6px;
+.xaxis {
+  display: flex;
+  gap: 6px;
+  margin-top: 5px;
+}
+.xcol {
+  flex: 1 1 0;
+  min-width: 28px;
+  text-align: center;
+  font-size: 0.68rem;
+  color: var(--ion-color-medium);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .empty {
   text-align: center;
   color: var(--ion-color-medium);
   font-size: 0.85rem;
-  margin: 0.5rem 0 0;
+  margin: 1rem 0;
 }
 </style>

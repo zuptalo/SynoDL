@@ -67,15 +67,30 @@ function bucketOf(date: Date, bucket: Bucket): { key: string; label: string } {
   }
 }
 
+// For the "All" range, pick the coarsest granularity that still shows a trend
+// across the actual data span (spec 1017): by year when it spans multiple years,
+// by month within a single year spanning months, else by day. Based on the days
+// that actually have activity, so a long zero-filled tail doesn't coarsen it.
+function grainForSpan(days: DayCount[]): Bucket {
+  const active = days.filter((d) => d.count > 0);
+  const src = active.length ? active : days;
+  if (!src.length) return 'day';
+  const years = new Set(src.map((d) => d.date.slice(0, 4)));
+  if (years.size >= 2) return 'year';
+  const months = new Set(src.map((d) => d.date.slice(0, 7)));
+  if (months.size >= 2) return 'month';
+  return 'day';
+}
+
 /**
  * Aggregate per-day counts into the chosen bucket. The server already zero-fills
  * days, so day-granularity output stays contiguous; coarser buckets sum the days
- * that fall within them, in chronological order. "all" collapses to one point.
+ * that fall within them, in chronological order. "all" adapts its granularity to
+ * the data span (grainForSpan) so it reads as a trend rather than one bar.
  */
 export function bucketize(days: DayCount[], bucket: Bucket): BucketPoint[] {
   if (bucket === 'all') {
-    const total = days.reduce((sum, d) => sum + d.count, 0);
-    return [{ key: 'all', label: 'All time', count: total }];
+    return bucketize(days, grainForSpan(days));
   }
   const order: string[] = [];
   const byKey = new Map<string, BucketPoint>();
