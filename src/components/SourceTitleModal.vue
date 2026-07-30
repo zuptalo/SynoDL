@@ -26,6 +26,7 @@ import {
 } from '@ionic/vue';
 import { arrowForwardOutline, cloudDownloadOutline } from 'ionicons/icons';
 import { api, ApiError, posterSrc, type CatalogTitle, type QualityOption } from '@/services/api';
+import { bySeasonThenSize, sizeMB } from '@/services/quality-sort';
 import { appToast } from '@/services/toast';
 import { useSourceCatalog } from '@/composables/useSourceCatalog';
 import { splitYear } from '@/services/title-year';
@@ -138,14 +139,6 @@ const maxLabel = computed(() =>
   maxMB.value > 0 ? `${+(maxMB.value / 1024).toFixed(1)} GB` : '',
 );
 
-// Parse a provider size string ("11 GB") into MB; 0 when unknown.
-function sizeMB(size: string): number {
-  const m = /([\d.]+)\s*(TB|GB|MB|KB)/i.exec(size);
-  if (!m) return 0;
-  const v = parseFloat(m[1]);
-  const unit = m[2].toUpperCase();
-  return Math.round(unit === 'TB' ? v * 1024 * 1024 : unit === 'GB' ? v * 1024 : unit === 'KB' ? v / 1024 : v);
-}
 function tooLarge(q: QualityOption): boolean {
   return maxMB.value > 0 && sizeMB(q.size) > maxMB.value;
 }
@@ -182,19 +175,17 @@ const tiers = computed<Tier[]>(() => {
   return [...map.values()].sort((a, b) => b.rank - a.rank);
 });
 const activeTier = ref('');
-// The active tier's options, largest file first.
+// The active tier's options: by season, then largest file first.
 const visibleQualities = computed(() =>
-  qualities.value
-    .filter((q) => tierOf(q).key === activeTier.value)
-    .slice()
-    .sort((a, b) => sizeMB(b.size) - sizeMB(a.size)),
+  qualities.value.filter((q) => tierOf(q).key === activeTier.value).slice().sort(bySeasonThenSize),
 );
-// The first sendable option in a tier (largest usable), else its first option.
+// The default sendable option in a tier (first usable in the display order — the
+// earliest season's largest usable), else its first option.
 function firstUsableIn(tierKey: string): string {
   const list = qualities.value
     .filter((q) => tierOf(q).key === tierKey)
     .slice()
-    .sort((a, b) => sizeMB(b.size) - sizeMB(a.size));
+    .sort(bySeasonThenSize);
   return (list.find((q) => !tooLarge(q)) ?? list[0])?.id ?? '';
 }
 function onTier(key: string): void {
@@ -314,7 +305,7 @@ watch(
       const inTop = detail.qualities
         .filter((q) => tierOf(q).key === topTier && !tooLarge(q))
         .slice()
-        .sort((a, b) => sizeMB(b.size) - sizeMB(a.size));
+        .sort(bySeasonThenSize);
       const preferred = inTop.find((q) =>
         preferredQuality.value ? q.label.toLowerCase().includes(preferredQuality.value.toLowerCase()) : false,
       );

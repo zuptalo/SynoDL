@@ -39,6 +39,8 @@ export default defineConfig({
         'src/services/install-detect.ts',
         // Download-history time bucketing (spec 0006).
         'src/services/stats-buckets.ts',
+        // Download-option ordering: season then size (spec 2004).
+        'src/services/quality-sort.ts',
       ],
       thresholds: { lines: 80, functions: 80, statements: 80, branches: 80 },
     },
