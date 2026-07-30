@@ -24,12 +24,13 @@ import {
   IonTitle,
   IonToolbar,
 } from '@ionic/vue';
-import { arrowForwardOutline, cloudDownloadOutline } from 'ionicons/icons';
+import { arrowForwardOutline, cloudDownloadOutline, openOutline } from 'ionicons/icons';
 import { api, ApiError, posterSrc, type CatalogTitle, type QualityOption } from '@/services/api';
 import { bySeasonThenSize, markSeasonBreaks, sizeMB } from '@/services/quality-sort';
 import { appToast } from '@/services/toast';
 import { useSourceCatalog } from '@/composables/useSourceCatalog';
 import { splitYear } from '@/services/title-year';
+import { imdbUrl } from '@/services/imdb-link';
 import type { Task } from '@/types/task';
 
 const props = defineProps<{
@@ -39,6 +40,11 @@ const props = defineProps<{
 // Clean title + separate release year for the header (the raw title is still what
 // send() uses, so the created subfolder keeps the year).
 const titleParts = computed(() => splitYear(props.title.title));
+// Link to the title on IMDb when the provider gave us a usable id — "" means we
+// render the rating as plain text instead (spec 1019). Opened with target=_blank,
+// which an installed PWA hands to the device's browser; rel="noopener" keeps the
+// opened page from reaching back into the app.
+const imdbHref = computed(() => imdbUrl(props.title.imdbId));
 const posterFailed = ref(false);
 // Two-stage poster load: try posterUrl, then the reliable fallback, then the
 // letter tile — so a title whose cover URL 404s still shows its placeholder art.
@@ -452,7 +458,21 @@ async function offerOverLimit(): Promise<void> {
             <p class="meta">
               <span class="type">{{ title.type }}</span>
               <span v-if="titleParts.year" class="year">{{ titleParts.year }}</span>
-              <span v-if="title.imdbScore">★ {{ title.imdbScore.toFixed(1) }} IMDb</span>
+              <!-- The rating doubles as the way out to IMDb. With an id but no
+                   score there's still a page worth visiting, so the link stands
+                   on its own; with no id at all it stays plain text. -->
+              <a
+                v-if="imdbHref"
+                class="imdb-link"
+                :href="imdbHref"
+                target="_blank"
+                rel="noopener noreferrer"
+                :aria-label="`Open ${titleParts.title} on IMDb`"
+              >
+                <template v-if="title.imdbScore">★ {{ title.imdbScore.toFixed(1) }} </template>IMDb
+                <ion-icon :icon="openOutline" aria-hidden="true" />
+              </a>
+              <span v-else-if="title.imdbScore">★ {{ title.imdbScore.toFixed(1) }} IMDb</span>
               <span v-if="title.providerScore">{{ title.providerScore.toFixed(1) }} 30N</span>
             </p>
             <p v-if="title.genres?.length" class="genres">
@@ -664,6 +684,23 @@ async function offerOverLimit(): Promise<void> {
 }
 .head .type {
   text-transform: capitalize;
+}
+/* Reads as a link without shouting: same size as its neighbours in the meta
+   line, accent-coloured, with the small external-link glyph carrying the
+   "this leaves the app" meaning. */
+.head .imdb-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--ion-color-primary);
+  text-decoration: none;
+}
+.head .imdb-link ion-icon {
+  font-size: 0.9em;
+  opacity: 0.75;
+}
+.head .imdb-link:active {
+  opacity: 0.6;
 }
 .head .genres {
   margin: 0;

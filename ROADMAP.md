@@ -40,6 +40,7 @@ Specs are grouped by category band; status moves
 | [1016](specs/1016-tasks-view-poster/spec.md) | Tasks view — posters, cleaner titles, Open in Discover | 🔵 in-review |
 | [1017](specs/1017-download-statistics-readable/spec.md) | Download statistics — readable history + totals | 🔵 in-review |
 | [1018](specs/1018-discover-infinite-scroll/spec.md) | Discover keeps loading ahead of a fast scroller | 🔵 in-review |
+| [1019](specs/1019-imdb-rating-links/spec.md) | The IMDb rating opens the title on IMDb | 🔵 in-review |
 
 ## 🐛 Hotfixes & Bug Fixes (2001+)
 
