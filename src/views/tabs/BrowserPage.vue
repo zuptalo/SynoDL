@@ -62,6 +62,7 @@ const {
   order,
   query,
   searchActive,
+  searchIneffective,
   loadStatus,
   runSearch,
   loadMore,
@@ -298,7 +299,7 @@ function goSettings(): void {
              query can't be changed out from under itself) AND while a text query
              is active, because the source can't sort text-search results — see
              the hint below (spec 2002). -->
-        <div slot="end" class="sort-control">
+        <div slot="end" class="sort-control" :class="{ ineffective: searchActive }">
           <ion-select
             class="sort-select"
             :value="sort"
@@ -324,15 +325,6 @@ function goSettings(): void {
             <ion-icon slot="icon-only" :icon="orderIcon" />
           </ion-button>
         </div>
-      </ion-toolbar>
-      <!-- While searching, sorting and the advanced filters don't apply (the
-           source only ranks text results by relevance and honors the type
-           filter) — say so instead of leaving dead controls that look broken. -->
-      <ion-toolbar v-if="searchActive" class="search-hint-bar">
-        <ion-note class="search-hint" data-testid="search-hint">
-          Sorting and filters apply to browsing. Only the type filter narrows search
-          results — clear the search to sort or filter.
-        </ion-note>
       </ion-toolbar>
       <!-- A slim bar signals a search is running even when results are already on
            screen (the provider can take a few seconds), so a slow filter/sort
@@ -378,9 +370,24 @@ function goSettings(): void {
       </div>
 
       <template v-else>
+        <!-- While searching, the source only ranks results by relevance and honors
+             the type filter. The hint lives here (not pinned to the header) so it
+             scrolls away with the chips. The "clear the search" nudge only appears
+             when the user actually has a selection that's being ignored (spec 1014). -->
+        <p v-if="searchActive" class="search-hint" data-testid="search-hint">
+          Search results are ranked by relevance. Only the type filter narrows them.
+          <template v-if="searchIneffective">
+            Clear the search to sort or use the other filters.
+          </template>
+        </p>
         <!-- Active filters as removable chips: tap one to drop just that filter
-             without reopening the sheet. -->
-        <div v-if="hasFilters" class="active-filters" :class="{ busy: loading }">
+             without reopening the sheet. While searching, everything except the type
+             chip is struck through to show it isn't applied right now. -->
+        <div
+          v-if="hasFilters"
+          class="active-filters"
+          :class="{ busy: loading, ineffective: searchActive }"
+        >
           <ion-chip v-if="filters.type" class="cap" @click="onRemoveFilter('type')">
             {{ typeChip }}<ion-icon :icon="closeOutline" />
           </ion-chip>
@@ -536,16 +543,29 @@ function goSettings(): void {
   display: flex;
   align-items: center;
 }
-/* The "sorting/filters apply to browsing" hint shown while a search is active. */
-.search-hint-bar {
-  --min-height: 0;
-  --background: transparent;
+/* While searching, sort can't be applied — dim the control and strike its label so
+   it reads as inactive (it is also disabled). */
+.sort-control.ineffective {
+  opacity: 0.45;
 }
+.sort-control.ineffective .sort-select::part(text) {
+  text-decoration: line-through;
+}
+/* The search hint now scrolls with the results (it sits above the chips), so it is a
+   plain block in the content rather than a pinned toolbar. */
 .search-hint {
   display: block;
-  padding: 0 12px 6px;
-  font-size: 0.75rem;
-  line-height: 1.3;
+  margin: 0;
+  padding: 10px 16px 4px;
+  font-size: 0.8rem;
+  line-height: 1.35;
+  color: var(--app-text-dim);
+}
+/* Strike through every active-filter chip except the type chip (.cap) while a
+   search is active — those filters aren't applied to text-search results. */
+.active-filters.ineffective ion-chip:not(.cap) {
+  text-decoration: line-through;
+  opacity: 0.5;
 }
 .sort-select {
   max-width: 40vw;
