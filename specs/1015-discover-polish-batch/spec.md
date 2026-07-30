@@ -4,7 +4,7 @@
 
 **Created**: 2026-07-30
 
-**Status**: in-progress
+**Status**: in-review
 <!-- SynoDL spec lifecycle: planned → in-progress → in-review → shipped. -->
 
 **Input**: A running batch of small Discover refinements from device testing. Each item is a
