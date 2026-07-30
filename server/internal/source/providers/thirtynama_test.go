@@ -102,7 +102,7 @@ func TestThirtynamaBuildParamsAdvancedFacets(t *testing.T) {
 	body := buildParams(source.SearchFilters{
 		Channel: "Netflix", Encoder: "YIFY", X265: "true", ThreeD: "true",
 		Cast: "brad pitt", Director: "nolan", Creator: "creator x", YearFrom: "2000", YearTo: "2010",
-	})
+	}, "favorite")
 	for _, want := range []string{
 		`"channel":"Netflix"`, `"encoder":"YIFY"`, `"x265":"true"`, `"3d":"true"`,
 		`"cast":"brad pitt"`, `"director":"nolan"`, `"creator":"creator x"`,
@@ -425,6 +425,69 @@ func TestThirtynamaBrowseFiltersAndSort(t *testing.T) {
 		source.SearchQuery{Filters: source.SearchFilters{Type: "15"}})
 	if dec, _ := url.QueryUnescape(gotBody); !strings.Contains(dec, `"type":"15"`) {
 		t.Fatalf("numeric type code must pass through; body = %q", dec)
+	}
+}
+
+// Browsing by release year carries implicit year bounds so the provider's
+// year-less rows (which sort ahead of everything ascending, and whose
+// garbage-year siblings sort above the newest titles descending) stay out of the
+// list. A bound the user set always wins over the default (spec 2006).
+func TestThirtynamaYearSortBounds(t *testing.T) {
+	var gotBody string
+	cfg, done := fakeProvider(t, func(w http.ResponseWriter, r *http.Request) {
+		buf := make([]byte, r.ContentLength)
+		_, _ = r.Body.Read(buf)
+		gotBody = string(buf)
+		w.Write(fixture(t, "advanced_search.json"))
+	})
+	defer done()
+	body := func() string {
+		dec, _ := url.QueryUnescape(gotBody)
+		return dec
+	}
+
+	// Explicit year sort, no user bounds → both defaults supplied.
+	_, err := thirtynama{}.Search(context.Background(), source.NewClient(), cfg, source.Session{},
+		source.SearchQuery{Sort: "year", Order: "asc"})
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	if !strings.Contains(body(), `"min_year":"1890"`) || !strings.Contains(body(), `"max_year":"2100"`) {
+		t.Fatalf("year sort must carry both bounds; body = %q", body())
+	}
+
+	// The empty sort resolves to the year sort, so it gets the bounds too.
+	_, _ = thirtynama{}.Search(context.Background(), source.NewClient(), cfg, source.Session{},
+		source.SearchQuery{})
+	if !strings.Contains(body(), `"min_year":"1890"`) || !strings.Contains(body(), `"max_year":"2100"`) {
+		t.Fatalf("default sort must carry both bounds; body = %q", body())
+	}
+
+	// A user-set bound wins; only the missing side is filled in.
+	_, _ = thirtynama{}.Search(context.Background(), source.NewClient(), cfg, source.Session{},
+		source.SearchQuery{Sort: "year", Filters: source.SearchFilters{YearFrom: "2000"}})
+	if !strings.Contains(body(), `"min_year":"2000"`) || !strings.Contains(body(), `"max_year":"2100"`) {
+		t.Fatalf("user min_year must win; body = %q", body())
+	}
+	_, _ = thirtynama{}.Search(context.Background(), source.NewClient(), cfg, source.Session{},
+		source.SearchQuery{Sort: "year", Filters: source.SearchFilters{YearTo: "2010"}})
+	if !strings.Contains(body(), `"min_year":"1890"`) || !strings.Contains(body(), `"max_year":"2010"`) {
+		t.Fatalf("user max_year must win; body = %q", body())
+	}
+
+	// Every other sort keeps the exact parameters it sent before.
+	for _, sort := range []string{"favorite", "imdb", "date"} {
+		_, _ = thirtynama{}.Search(context.Background(), source.NewClient(), cfg, source.Session{},
+			source.SearchQuery{Sort: sort})
+		if strings.Contains(body(), "min_year") || strings.Contains(body(), "max_year") {
+			t.Fatalf("sort %q must not gain year bounds; body = %q", sort, body())
+		}
+	}
+	// …but an explicit year filter still applies under any sort.
+	_, _ = thirtynama{}.Search(context.Background(), source.NewClient(), cfg, source.Session{},
+		source.SearchQuery{Sort: "imdb", Filters: source.SearchFilters{YearFrom: "1999"}})
+	if !strings.Contains(body(), `"min_year":"1999"`) || strings.Contains(body(), "max_year") {
+		t.Fatalf("explicit filter under another sort; body = %q", body())
 	}
 }
 

@@ -99,7 +99,7 @@ func (p thirtynama) Search(ctx context.Context, c *source.Client, cfg source.Con
 		body = "query=" + url.QueryEscape(query)
 	} else {
 		path = advancedSearchPath(page, q.Sort, q.Order)
-		body = "parameters=" + url.QueryEscape(buildParams(q.Filters))
+		body = "parameters=" + url.QueryEscape(buildParams(q.Filters, q.Sort))
 	}
 	raw, err := p.call(ctx, c, cfg, s, path, body)
 	if err != nil {
@@ -410,8 +410,34 @@ func typeParam(t string) string {
 	return t
 }
 
-func buildParams(f source.SearchFilters) string {
+// Implicit year bounds for the release-year sort. The provider holds ~350 rows
+// whose year column is empty or nonsense (one title literally reads "Reptile
+// Royalty 7441"): the empty ones sort ahead of every real title ascending — some
+// thirteen pages of apparently random years before the 1890s films actually
+// start — and the nonsense ones sort above the newest titles descending. That is
+// the whole reason a working sort looked broken. Bounding the query drops
+// exactly those rows (4413 → 4400 pages, verified live 2026-07-30), leaving both
+// directions clean from the first row.
+//
+// The upper bound is deliberately far past the provider's own year facet
+// (1890–2026): genuine upcoming titles are dated 2027/2028 and must stay.
+const (
+	yearSortMin = "1890"
+	yearSortMax = "2100"
+)
+
+func buildParams(f source.SearchFilters, sort string) string {
 	m := map[string]any{}
+	// Only the release-year sort gets the implicit bounds — every other sort must
+	// send exactly what it sent before. A bound the user picked always wins.
+	if orderbyField(sort) == "year" {
+		if f.YearFrom == "" {
+			f.YearFrom = yearSortMin
+		}
+		if f.YearTo == "" {
+			f.YearTo = yearSortMax
+		}
+	}
 	if t := typeParam(f.Type); t != "" {
 		m["type"] = t
 	}
