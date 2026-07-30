@@ -73,7 +73,6 @@ type SearchFilters struct {
 	Encoder  string // release group (e.g. "YIFY")
 	X265     string // "true" to require an x265/HEVC encode
 	ThreeD   string // "true" to require a 3D release
-	Stream   string // "true" to require a streamable copy
 	Cast     string // free-text actor name
 	Director string // free-text director name
 	Creator  string // free-text creator name

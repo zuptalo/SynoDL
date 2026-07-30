@@ -433,9 +433,6 @@ function goSettings(): void {
           <ion-chip v-if="filters.threeD" @click="onRemoveFilter('threeD')">
             3D<ion-icon :icon="closeOutline" />
           </ion-chip>
-          <ion-chip v-if="filters.stream" @click="onRemoveFilter('stream')">
-            Streamable<ion-icon :icon="closeOutline" />
-          </ion-chip>
         </div>
 
         <div v-if="errorMsg" class="state">

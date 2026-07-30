@@ -87,7 +87,6 @@ type sourceSearchReq struct {
 		Encoder  string   `json:"encoder"`
 		X265     string   `json:"x265"`
 		ThreeD   string   `json:"threeD"`
-		Stream   string   `json:"stream"`
 		Cast     string   `json:"cast"`
 		Director string   `json:"director"`
 		Creator  string   `json:"creator"`
@@ -336,7 +335,7 @@ func handleSourceSearch(d Deps) http.Handler {
 			Language: body.Filters.Language, Country: body.Filters.Country,
 			Score: body.Filters.Score, Genre: body.Filters.Genre,
 			Age: body.Filters.Age, Channel: body.Filters.Channel, Encoder: body.Filters.Encoder,
-			X265: body.Filters.X265, ThreeD: body.Filters.ThreeD, Stream: body.Filters.Stream,
+			X265: body.Filters.X265, ThreeD: body.Filters.ThreeD,
 			Cast: body.Filters.Cast, Director: body.Filters.Director, Creator: body.Filters.Creator,
 			YearFrom: body.Filters.YearFrom, YearTo: body.Filters.YearTo,
 		}

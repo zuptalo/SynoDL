@@ -69,7 +69,6 @@ const searchIneffective = computed(() => {
       f.encoder ||
       f.x265 ||
       f.threeD ||
-      f.stream ||
       f.cast ||
       f.director ||
       f.creator ||
@@ -151,7 +150,6 @@ const hasFilters = computed(() => {
       f.encoder ||
       f.x265 ||
       f.threeD ||
-      f.stream ||
       f.cast ||
       f.director ||
       f.creator ||

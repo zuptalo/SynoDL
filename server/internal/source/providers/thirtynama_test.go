@@ -100,11 +100,11 @@ func TestThirtynamaParameters(t *testing.T) {
 
 func TestThirtynamaBuildParamsAdvancedFacets(t *testing.T) {
 	body := buildParams(source.SearchFilters{
-		Channel: "Netflix", Encoder: "YIFY", X265: "true", ThreeD: "true", Stream: "true",
+		Channel: "Netflix", Encoder: "YIFY", X265: "true", ThreeD: "true",
 		Cast: "brad pitt", Director: "nolan", Creator: "creator x", YearFrom: "2000", YearTo: "2010",
 	})
 	for _, want := range []string{
-		`"channel":"Netflix"`, `"encoder":"YIFY"`, `"x265":"true"`, `"3d":"true"`, `"stream":"true"`,
+		`"channel":"Netflix"`, `"encoder":"YIFY"`, `"x265":"true"`, `"3d":"true"`,
 		`"cast":"brad pitt"`, `"director":"nolan"`, `"creator":"creator x"`,
 		`"min_year":"2000"`, `"max_year":"2010"`,
 	} {

@@ -445,9 +445,6 @@ func buildParams(f source.SearchFilters) string {
 	if f.ThreeD != "" {
 		m["3d"] = f.ThreeD
 	}
-	if f.Stream != "" {
-		m["stream"] = f.Stream
-	}
 	if f.Cast != "" {
 		m["cast"] = f.Cast
 	}
