@@ -26,7 +26,7 @@ import {
 } from '@ionic/vue';
 import { arrowForwardOutline, cloudDownloadOutline } from 'ionicons/icons';
 import { api, ApiError, posterSrc, type CatalogTitle, type QualityOption } from '@/services/api';
-import { bySeasonThenSize, sizeMB } from '@/services/quality-sort';
+import { bySeasonThenSize, markSeasonBreaks, sizeMB } from '@/services/quality-sort';
 import { appToast } from '@/services/toast';
 import { useSourceCatalog } from '@/composables/useSourceCatalog';
 import { splitYear } from '@/services/title-year';
@@ -175,9 +175,12 @@ const tiers = computed<Tier[]>(() => {
   return [...map.values()].sort((a, b) => b.rank - a.rank);
 });
 const activeTier = ref('');
-// The active tier's options: by season, then largest file first.
+// The active tier's options: by season, then largest file first — each tagged with
+// whether it opens a new season, so the list can draw a stronger divider there.
 const visibleQualities = computed(() =>
-  qualities.value.filter((q) => tierOf(q).key === activeTier.value).slice().sort(bySeasonThenSize),
+  markSeasonBreaks(
+    qualities.value.filter((q) => tierOf(q).key === activeTier.value).slice().sort(bySeasonThenSize),
+  ),
 );
 // The default sendable option in a tier (first usable in the display order — the
 // earliest season's largest usable), else its first option.
@@ -482,7 +485,11 @@ async function offerOverLimit(): Promise<void> {
           </ion-segment>
           <ion-radio-group v-model="selected">
             <ion-list :inset="true">
-              <ion-item v-for="q in visibleQualities" :key="q.id">
+              <ion-item
+                v-for="q in visibleQualities"
+                :key="q.id"
+                :class="{ 'season-break': q.seasonBreak }"
+              >
                 <ion-radio :value="q.id" label-placement="end" justify="start">
                   <ion-label>
                     <h3>
@@ -690,6 +697,14 @@ async function offerOverLimit(): Promise<void> {
 .season {
   color: var(--ion-color-primary, #3dc2ff);
   font-weight: 600;
+}
+/* A stronger rule where the season changes, so season groups are obvious in a long
+   pack list (the per-row hairlines alone all look identical). Drawn on the item's
+   own top edge and paired with a little extra breathing room above the group. */
+.season-break {
+  border-top: 2px solid var(--ion-color-primary, #3dc2ff);
+  --padding-top: 10px;
+  margin-top: 6px;
 }
 .error {
   display: block;

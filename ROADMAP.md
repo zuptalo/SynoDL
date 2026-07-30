@@ -48,3 +48,4 @@ Specs are grouped by category band; status moves
 | [2002](specs/2002-discover-text-search/spec.md) | Fix Discover text search filtering | 🔵 in-review |
 | [2003](specs/2003-statistics-filter-segments/spec.md) | Statistics filter segments sit in cards | 🔵 in-review |
 | [2004](specs/2004-series-download-options/spec.md) | Order series download options by season then size | 🔵 in-review |
+| [2005](specs/2005-season-groups-download/spec.md) | Obvious season dividers in the download options list | 🔵 in-review |
