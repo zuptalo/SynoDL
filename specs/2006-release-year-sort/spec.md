@@ -4,11 +4,17 @@
 
 **Created**: 2026-07-30
 
-**Status**: in-review
+**Status**: shipped
 <!-- SynoDL spec lifecycle: planned → in-progress → in-review → shipped. -->
 
 **Input**: Device feedback: sorting Discover by "Release year" shows a handful of apparently random
 titles at the top, and reversing the direction makes the whole first stretch look unsorted.
+
+> **Superseded by [spec 2007](../2007-release-year-sort/spec.md) (2026-07-30).** The ordering this
+> spec produced was correct, but timing it on the live instance showed the `min_year` bound makes
+> the source's query take 15–20 s on any page they haven't cached (against 1.5–2 s unbounded, and
+> 0.4–3.9 s for the other sorts). A lower bound value is no cheaper, so the cost is the filter
+> itself. The bounds were removed and the ~4 visible out-of-order rows accepted as a source defect.
 
 ## User Scenarios & Testing *(mandatory)*
 

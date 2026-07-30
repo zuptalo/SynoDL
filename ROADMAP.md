@@ -50,4 +50,5 @@ Specs are grouped by category band; status moves
 | [2003](specs/2003-statistics-filter-segments/spec.md) | Statistics filter segments sit in cards | 🔵 in-review |
 | [2004](specs/2004-series-download-options/spec.md) | Order series download options by season then size | 🔵 in-review |
 | [2005](specs/2005-season-groups-download/spec.md) | Obvious season dividers in the download options list | 🔵 in-review |
-| [2006](specs/2006-release-year-sort/spec.md) | Release-year sort no longer leads with year-less titles | 🔵 in-review |
+| [2006](specs/2006-release-year-sort/spec.md) | Release-year sort no longer leads with year-less titles | 🟢 shipped |
+| [2007](specs/2007-release-year-sort/spec.md) | Release-year sort is fast again, and Discover opens on Most popular | 🔵 in-review |
