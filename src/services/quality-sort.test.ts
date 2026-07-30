@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { bySeasonThenSize, seasonNum, sizeMB } from './quality-sort';
+import { bySeasonThenSize, markSeasonBreaks, seasonNum, sizeMB } from './quality-sort';
 import type { QualityOption } from '@/services/api';
 
 function opt(p: Partial<QualityOption>): QualityOption {
@@ -57,5 +57,35 @@ describe('bySeasonThenSize', () => {
     ];
     const order = [...movies].sort(bySeasonThenSize).map((q) => q.id);
     expect(order).toEqual(['m-5g', 'm-2g', 'm-1g']);
+  });
+});
+
+describe('markSeasonBreaks', () => {
+  it('flags the first row of each new season, never the first row overall', () => {
+    const sorted = [
+      opt({ id: 's1-a', season: 'Season 1', size: '2 GB' }),
+      opt({ id: 's1-b', season: 'Season 1', size: '1 GB' }),
+      opt({ id: 's2-a', season: 'Season 2', size: '2 GB' }),
+      opt({ id: 's3-a', season: 'Season 3', size: '2 GB' }),
+      opt({ id: 's3-b', season: 'Season 3', size: '1 GB' }),
+    ];
+    expect(markSeasonBreaks(sorted).map((q) => q.seasonBreak)).toEqual([
+      false, // first row never breaks
+      false, // same season
+      true, // Season 1 → 2
+      true, // Season 2 → 3
+      false, // same season
+    ]);
+  });
+
+  it('never breaks for a movie list (no seasons)', () => {
+    const movies = [opt({ id: 'a', size: '5 GB' }), opt({ id: 'b', size: '2 GB' })];
+    expect(markSeasonBreaks(movies).every((q) => !q.seasonBreak)).toBe(true);
+  });
+
+  it('preserves the original options', () => {
+    const out = markSeasonBreaks([opt({ id: 'x', season: 'Season 4', size: '3 GB' })]);
+    expect(out[0].id).toBe('x');
+    expect(out[0].season).toBe('Season 4');
   });
 });
