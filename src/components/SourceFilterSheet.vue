@@ -7,7 +7,6 @@ import {
   IonHeader,
   IonInput,
   IonItem,
-  IonLabel,
   IonList,
   IonListHeader,
   IonModal,
@@ -146,16 +145,18 @@ function clear(): void {
         </ion-buttons>
       </ion-toolbar>
     </ion-header>
-    <ion-content>
+    <ion-content class="filter-sheet">
       <!-- During a text search only the type filter is honored by the source; the
            rest are disabled with this note rather than silently ignored (spec 2002). -->
       <ion-note v-if="searchActive" class="search-filter-hint" data-testid="filter-search-hint">
         While searching, only the type filter applies. Clear the search to use the other
         filters.
       </ion-note>
-      <ion-list :inset="true">
+
+      <ion-list inset>
+        <ion-list-header>Basics</ion-list-header>
         <ion-item>
-          <ion-select v-model="type" label="Type" interface="popover">
+          <ion-select v-model="type" label="Type" interface="alert">
             <ion-select-option v-for="t in filterOptions.types" :key="t.value" :value="t.value">
               {{ t.label }}
             </ion-select-option>
@@ -188,12 +189,16 @@ function clear(): void {
           </ion-select>
         </ion-item>
         <ion-item>
-          <ion-select v-model="score" label="Min rating" interface="popover" :disabled="searchActive">
+          <ion-select v-model="score" label="Min rating" interface="alert" :disabled="searchActive">
             <ion-select-option v-for="s in filterOptions.scores" :key="s.value" :value="s.value">
               {{ s.label }}
             </ion-select-option>
           </ion-select>
         </ion-item>
+      </ion-list>
+
+      <ion-list inset>
+        <ion-list-header>Origin</ion-list-header>
         <ion-item>
           <ion-select
             v-model="language"
@@ -222,8 +227,14 @@ function clear(): void {
         </ion-item>
       </ion-list>
 
-      <ion-list :inset="true">
-        <ion-list-header><ion-label>More filters</ion-label></ion-list-header>
+      <!-- Release-source facets only exist when the provider's live parameters are
+           loaded; hide the whole section (not just the rows) so it never shows an
+           empty titled group. -->
+      <ion-list
+        v-if="filterOptions.channels.length > 1 || filterOptions.encoders.length > 1 || filterOptions.ages.length > 1"
+        inset
+      >
+        <ion-list-header>Release</ion-list-header>
         <ion-item v-if="filterOptions.channels.length > 1">
           <ion-select
             v-model="channel"
@@ -263,6 +274,10 @@ function clear(): void {
             </ion-select-option>
           </ion-select>
         </ion-item>
+      </ion-list>
+
+      <ion-list inset>
+        <ion-list-header>Year &amp; people</ion-list-header>
         <ion-item>
           <ion-input
             v-model="yearFrom"
@@ -316,6 +331,10 @@ function clear(): void {
             :disabled="searchActive"
           />
         </ion-item>
+      </ion-list>
+
+      <ion-list inset>
+        <ion-list-header>Options</ion-list-header>
         <ion-item>
           <ion-toggle v-model="x265" :disabled="searchActive">x265 / HEVC only</ion-toggle>
         </ion-item>

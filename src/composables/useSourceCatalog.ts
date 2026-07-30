@@ -51,6 +51,34 @@ const order = ref(DEFAULT_ORDER);
 // title_type) — so the UI disables the sort control and the non-type filters
 // while this is true, rather than letting them silently no-op (spec 2002).
 const searchActive = computed(() => query.value.trim() !== '');
+// True when a search is active AND the user has a selection the source will
+// ignore for text search: any non-type facet filter, or a non-default sort/order.
+// Drives the "these selections do nothing right now" affordances — the strike-through
+// on the chips/sort and the conditional "clear the search" nudge (spec 1014).
+const searchIneffective = computed(() => {
+  if (!searchActive.value) return false;
+  const f = filters.value;
+  const hasNonTypeFilter = Boolean(
+    f.quality ||
+      f.language ||
+      f.country ||
+      f.score ||
+      (f.genre && f.genre.length) ||
+      f.age ||
+      f.channel ||
+      f.encoder ||
+      f.x265 ||
+      f.threeD ||
+      f.stream ||
+      f.cast ||
+      f.director ||
+      f.creator ||
+      f.yearFrom ||
+      f.yearTo,
+  );
+  const nonDefaultSort = sort.value !== DEFAULT_SORT || order.value !== DEFAULT_ORDER;
+  return hasNonTypeFilter || nonDefaultSort;
+});
 const loading = ref(false);
 const needsRefresh = ref(false);
 const unavailable = ref(true);
@@ -379,6 +407,7 @@ export function useSourceCatalog() {
     sort,
     order,
     searchActive,
+    searchIneffective,
     loading,
     needsRefresh,
     unavailable,
