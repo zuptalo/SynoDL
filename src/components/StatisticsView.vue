@@ -113,9 +113,11 @@ watch([source, selectedUser], refreshSeries);
     </div>
 
     <template v-else>
-      <!-- Admin: pick a user or all combined. -->
-      <ion-list v-if="isAdmin" inset>
-        <ion-item>
+      <!-- Filters card: the user picker (admin) and the source segment, grouped in
+           one inset card and wrapped in items so the segment sits in the card like
+           the Settings screen's segments (not floating between cards). -->
+      <ion-list inset>
+        <ion-item v-if="isAdmin">
           <ion-select
             v-model="selectedUser"
             label="User"
@@ -128,14 +130,14 @@ watch([source, selectedUser], refreshSeries);
             </ion-select-option>
           </ion-select>
         </ion-item>
+        <ion-item lines="none">
+          <ion-segment v-model="source" class="seg" data-testid="stats-source">
+            <ion-segment-button value="all"><ion-label>All sources</ion-label></ion-segment-button>
+            <ion-segment-button value="catalog"><ion-label>Discover</ion-label></ion-segment-button>
+            <ion-segment-button value="direct"><ion-label>Direct</ion-label></ion-segment-button>
+          </ion-segment>
+        </ion-item>
       </ion-list>
-
-      <!-- Source filter. -->
-      <ion-segment v-model="source" data-testid="stats-source">
-        <ion-segment-button value="all">All sources</ion-segment-button>
-        <ion-segment-button value="catalog">Discover</ion-segment-button>
-        <ion-segment-button value="direct">Direct</ion-segment-button>
-      </ion-segment>
 
       <!-- Per-category counts + average sizes. -->
       <ion-list inset>
@@ -168,13 +170,15 @@ watch([source, selectedUser], refreshSeries);
             {{ overall.sumBytes ? formatBytes(overall.sumBytes) : '—' }} total
           </span>
         </div>
-        <ion-segment v-model="bucket" data-testid="stats-bucket">
-          <ion-segment-button value="day">Day</ion-segment-button>
-          <ion-segment-button value="week">Week</ion-segment-button>
-          <ion-segment-button value="month">Month</ion-segment-button>
-          <ion-segment-button value="year">Year</ion-segment-button>
-          <ion-segment-button value="all">All</ion-segment-button>
-        </ion-segment>
+        <ion-item lines="none">
+          <ion-segment v-model="bucket" class="seg" data-testid="stats-bucket">
+            <ion-segment-button value="day"><ion-label>Day</ion-label></ion-segment-button>
+            <ion-segment-button value="week"><ion-label>Week</ion-label></ion-segment-button>
+            <ion-segment-button value="month"><ion-label>Month</ion-label></ion-segment-button>
+            <ion-segment-button value="year"><ion-label>Year</ion-label></ion-segment-button>
+            <ion-segment-button value="all"><ion-label>All</ion-label></ion-segment-button>
+          </ion-segment>
+        </ion-item>
         <div class="chart-wrap">
           <DownloadsChart :points="points" />
         </div>
@@ -223,7 +227,9 @@ watch([source, selectedUser], refreshSeries);
   padding: 0.5rem 1rem 1rem;
   overflow-x: auto;
 }
-ion-segment {
-  margin: 0.5rem;
+/* Segments fill their card item (like the Settings "Open to" segment) rather than
+   floating between cards. */
+.seg {
+  width: 100%;
 }
 </style>
