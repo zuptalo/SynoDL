@@ -3,6 +3,7 @@ import {
   countryOptions,
   genreOptions,
   languageOptions,
+  passthroughOptions,
   qualityOptions,
   scoreOptions,
   typeOptions,
@@ -25,11 +26,35 @@ describe('facet-labels', () => {
       { value: '17&124913' },
       { value: '99999', name: 'Persian only' },
     ]);
+    // Sorted by label; an unknown code still falls back to the provider name.
     expect(opts.map((o) => o.label)).toEqual([
-      'Movies',
-      'Series',
       'Anime (series)',
-      'Persian only', // unknown code → provider name
+      'Movies',
+      'Persian only',
+      'Series',
+    ]);
+  });
+
+  it('sorts every name-based facet alphabetically', () => {
+    expect(genreOptions([{ value: '1', slug: 'western' }, { value: '2', slug: 'action' }]).map((o) => o.label)).toEqual(
+      ['Action', 'Western'],
+    );
+    expect(qualityOptions([{ value: 'WEB-DL' }, { value: '4K' }, { value: 'CAM' }]).map((o) => o.label)).toEqual([
+      '4K',
+      'CAM',
+      'WEB-DL',
+    ]);
+    expect(passthroughOptions([{ value: 'Netflix' }, { value: 'AMC' }]).map((o) => o.label)).toEqual([
+      'AMC',
+      'Netflix',
+    ]);
+  });
+
+  it('leaves score bands in scale order (they are not names)', () => {
+    expect(scoreOptions([{ value: '9' }, { value: '8' }, { value: '5' }]).map((o) => o.label)).toEqual([
+      '9.0+',
+      '8.0+',
+      '5.0+',
     ]);
   });
 
@@ -58,8 +83,25 @@ describe('facet-labels', () => {
     expect(en.toLowerCase()).toContain('english');
   });
 
-  it('falls back to the provider name for an unlocalizable code', () => {
-    // "XWG" (West Germany) isn't a current ISO region.
-    expect(countryOptions([{ value: 'XWG', name: 'آلمان غربی' }])[0].label).toBe('آلمان غربی');
+  it('drops countries that no longer exist, and sorts the rest', () => {
+    // Defunct states ride along in the provider's list under codes that aren't
+    // current ISO regions ("XWG" West Germany, "DDDE" East Germany, "YUCS"
+    // Yugoslavia, "SUHH" the USSR) — they have no English name, so they go.
+    const opts = countryOptions([
+      { value: 'US' },
+      { value: 'XWG', name: 'آلمان غربی' },
+      { value: 'DDDE', name: 'آلمان شرقی' },
+      { value: 'YUCS', name: 'یوگسلاوی' },
+      { value: 'SUHH', name: 'شوروی' },
+      { value: 'CA' },
+    ]);
+    expect(opts.map((o) => o.value)).toEqual(['CA', 'US']);
+  });
+
+  it('lists English first, then the other languages alphabetically', () => {
+    const opts = languageOptions([{ value: 'ja' }, { value: 'ar' }, { value: 'en' }, { value: 'de' }]);
+    expect(opts[0].value).toBe('en');
+    const rest = opts.slice(1).map((o) => o.label);
+    expect(rest).toEqual([...rest].sort((a, b) => a.localeCompare(b, 'en')));
   });
 });
