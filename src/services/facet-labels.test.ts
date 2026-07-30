@@ -83,19 +83,31 @@ describe('facet-labels', () => {
     expect(en.toLowerCase()).toContain('english');
   });
 
-  it('drops countries that no longer exist, and sorts the rest', () => {
-    // Defunct states ride along in the provider's list under codes that aren't
-    // current ISO regions ("XWG" West Germany, "DDDE" East Germany, "YUCS"
-    // Yugoslavia, "SUHH" the USSR) — they have no English name, so they go.
+  it('names the states that no longer exist in English, keeping them listed', () => {
+    // These five are the source's full set of non-ISO country codes (verified
+    // against the live facet list). Each fronts a real catalog — West Germany
+    // alone runs to 27 pages — so they stay; they just can't be resolved by Intl
+    // and would otherwise show the provider's Persian name.
     const opts = countryOptions([
-      { value: 'US' },
       { value: 'XWG', name: 'آلمان غربی' },
+      { value: 'SUHH', name: 'اتحاد جماهیر شوروی' },
+      { value: 'CSHH', name: 'چکسلواکی' },
+      { value: 'XYU', name: 'یوگسلاوی' },
       { value: 'DDDE', name: 'آلمان شرقی' },
-      { value: 'YUCS', name: 'یوگسلاوی' },
-      { value: 'SUHH', name: 'شوروی' },
-      { value: 'CA' },
     ]);
-    expect(opts.map((o) => o.value)).toEqual(['CA', 'US']);
+    expect(opts).toEqual([
+      { value: 'CSHH', label: 'Czechoslovakia' },
+      { value: 'DDDE', label: 'East Germany' },
+      { value: 'SUHH', label: 'Soviet Union' },
+      { value: 'XWG', label: 'West Germany' },
+      { value: 'XYU', label: 'Yugoslavia' },
+    ]);
+  });
+
+  it('still falls back to the provider name for an unknown country code', () => {
+    // A code we've neither mapped nor Intl can name must not vanish from the
+    // picker — there may be titles behind it.
+    expect(countryOptions([{ value: 'ZZZZ', name: 'جایی' }])[0].label).toBe('جایی');
   });
 
   it('lists English first, then the other languages alphabetically', () => {

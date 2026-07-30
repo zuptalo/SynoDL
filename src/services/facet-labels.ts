@@ -44,6 +44,20 @@ function safeOf(dn: Intl.DisplayNames | null, code: string): string {
   }
 }
 
+// States that no longer exist. The catalog's country data follows IMDb's, which
+// keeps naming the country a film was actually made in — so these codes front
+// real, sizeable catalogs (West Germany alone runs to 27 pages: Das Boot, Heimat,
+// and co-productions like Dekalog). Intl only knows current ISO regions, so
+// without this map they'd fall back to the provider's Persian name. Codes are
+// IMDb's own: a mix of retired ISO 3166-3 four-letter codes and X-prefixed ones.
+const HISTORIC_REGIONS: Record<string, string> = {
+  XWG: 'West Germany',
+  DDDE: 'East Germany',
+  SUHH: 'Soviet Union',
+  XYU: 'Yugoslavia',
+  CSHH: 'Czechoslovakia',
+};
+
 function titleCase(slug: string): string {
   return slug
     .split('-')
@@ -105,19 +119,22 @@ export function languageOptions(facets: SourceFacet[]): Option[] {
   return i <= 0 ? opts : [opts[i], ...opts.slice(0, i), ...opts.slice(i + 1)];
 }
 export function countryOptions(facets: SourceFacet[]): Option[] {
-  // The provider still lists states that no longer exist (West/East Germany,
-  // Yugoslavia, the USSR, Czechoslovakia) under codes that aren't current ISO
-  // regions — so they have no English name and used to render as their Persian
-  // one. Drop any country we can't name in English: an unnameable code is a
-  // defunct code, and there's nothing worth browsing under it.
-  const named: Option[] = [];
-  for (const f of facets) {
-    const label = safeOf(regionNames, f.value);
-    // Intl echoes the code back when it has no data for it — that's a miss too.
-    if (!label || label === f.value) continue;
-    named.push({ value: f.value, label });
-  }
-  return sorted(named);
+  // HISTORIC_REGIONS wins over Intl: some retired codes are close enough to a
+  // live one that Intl answers with the successor state (it reads "SU" as
+  // Russia), which would mislabel the catalog sitting behind them.
+  return sorted(
+    facets.map((f) =>
+      localize(f, (v) => {
+        const historic = HISTORIC_REGIONS[v];
+        if (historic) return historic;
+        const iso = safeOf(regionNames, v);
+        // Intl echoes the code back when it has no data for it. Treat that as a
+        // miss so an unknown code falls through to the provider's own name
+        // rather than surfacing a bare "XX" in the picker.
+        return iso === v ? '' : iso;
+      }),
+    ),
+  );
 }
 // Channel, encoder and age are already display-ready (network name, release
 // group, content rating) — the value is the label.
