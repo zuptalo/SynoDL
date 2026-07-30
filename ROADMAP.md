@@ -46,3 +46,4 @@ Specs are grouped by category band; status moves
 |------|-------|--------|
 | [2001](specs/2001-new-task-modal/spec.md) | New-task modal shows a false "Could not reach the server" after the task is created | 🟢 shipped |
 | [2002](specs/2002-discover-text-search/spec.md) | Fix Discover text search filtering | 🔵 in-review |
+| [2003](specs/2003-statistics-filter-segments/spec.md) | Statistics filter segments sit in cards | 🔵 in-review |
