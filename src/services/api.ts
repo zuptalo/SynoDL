@@ -487,15 +487,15 @@ export const api = {
   getSourceTitle: (id: string) =>
     request<TitleDetail>(`/v1/source/title/${encodeURIComponent(id)}`),
   // episodes (1-based) narrow a series to specific episodes; omit for a movie or
-  // the whole season. year + imdbScore are remembered so the Tasks list can label
-  // the download.
+  // the whole season. year + imdbScore + posterUrl are remembered so the Tasks list
+  // can label the download and show a poster (titleId is stored as the catalog id).
   sendSource: (
     titleId: string,
     qualityId: string,
     title: string,
     type: string,
     episodes?: number[],
-    meta?: { year?: string; imdbScore?: number },
+    meta?: { year?: string; imdbScore?: number; posterUrl?: string },
   ) =>
     request<{ destination: string; count: number }>(
       '/v1/source/send',

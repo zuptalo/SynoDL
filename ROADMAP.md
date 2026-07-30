@@ -37,6 +37,7 @@ Specs are grouped by category band; status moves
 | [1013](specs/1013-tasks-search-notif/spec.md) | Foreground-aware notifications, Tasks search bar, fewer tabs | 🔵 in-review |
 | [1014](specs/1014-discover-filter-sheet/spec.md) | Discover filter sheet polish | 🔵 in-review |
 | [1015](specs/1015-discover-polish-batch/spec.md) | Discover polish batch | 🔵 in-review |
+| [1016](specs/1016-tasks-view-poster/spec.md) | Tasks view — posters, cleaner titles, Open in Discover | 🔵 in-review |
 
 ## 🐛 Hotfixes & Bug Fixes (2001+)
 

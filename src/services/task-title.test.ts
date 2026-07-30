@@ -4,9 +4,18 @@ import { taskTitle } from './task-title';
 const base = { name: 'file.mkv', destination: '', uri: undefined };
 
 describe('taskTitle', () => {
-  it('uses the destination folder as the title', () => {
+  it('uses the destination folder as the title, with the year split off', () => {
     const t = taskTitle({ ...base, destination: 'movies/Despicable Me 4 2024' });
-    expect(t).toEqual({ title: 'Despicable Me 4 2024', episode: '' });
+    expect(t).toEqual({ title: 'Despicable Me 4', episode: '', year: '2024' });
+  });
+
+  it('strips a series year-range from the folder title', () => {
+    const t = taskTitle({
+      name: 'Dexter.Resurrection.S01E10.mkv',
+      destination: 'series/Dexter Resurrection 2025',
+      uri: undefined,
+    });
+    expect(t).toEqual({ title: 'Dexter Resurrection', episode: 'S01E10', year: '2025' });
   });
 
   it('extracts season/episode from the file name for a series', () => {
@@ -15,7 +24,7 @@ describe('taskTitle', () => {
       destination: 'tv-show/Rick and Morty',
       uri: undefined,
     });
-    expect(t).toEqual({ title: 'Rick and Morty', episode: 'S01E05' });
+    expect(t).toEqual({ title: 'Rick and Morty', episode: 'S01E05', year: '' });
   });
 
   it('extracts season/episode from underscore-separated names (the 30nama format)', () => {
@@ -51,16 +60,16 @@ describe('taskTitle', () => {
       destination: 'tv/Show',
       uri: 'https://cdn/x/s2e7/file.mkv',
     });
-    expect(t).toEqual({ title: 'Show', episode: 'S02E07' });
+    expect(t).toEqual({ title: 'Show', episode: 'S02E07', year: '' });
   });
 
   it('falls back to the raw name when there is no folder', () => {
     const t = taskTitle({ name: 'linux.iso', destination: '', uri: undefined });
-    expect(t).toEqual({ title: 'linux.iso', episode: '' });
+    expect(t).toEqual({ title: 'linux.iso', episode: '', year: '' });
   });
 
   it('keeps the raw name for a non-media (generic) folder', () => {
     const t = taskTitle({ name: 'e2e-fixture.iso', destination: 'home/Downloads', uri: undefined });
-    expect(t).toEqual({ title: 'e2e-fixture.iso', episode: '' });
+    expect(t).toEqual({ title: 'e2e-fixture.iso', episode: '', year: '' });
   });
 });

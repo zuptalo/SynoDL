@@ -190,3 +190,60 @@ func TestSourceViewRoundTrip(t *testing.T) {
 		t.Fatalf("view clobbered by quality save: %q/%q/%q", f2, so2, ord2)
 	}
 }
+
+// SaveSourceDownload/SourceDownloads must round-trip the catalog metadata,
+// including the poster URL and catalog id added in spec 1016.
+func TestSourceDownloadRoundTrip(t *testing.T) {
+	s := openTestStore(t)
+
+	in := SourceDownload{
+		Destination: "/movies/Dexter Resurrection 2025/",
+		MediaType:   "series",
+		Title:       "Dexter Resurrection",
+		Year:        "2025",
+		IMDbScore:   9.0,
+		PosterURL:   "https://cdn.example.info/poster/dexter-l.webp",
+		CatalogID:   "716665",
+	}
+	if err := s.SaveSourceDownload(in, 1000); err != nil {
+		t.Fatalf("SaveSourceDownload: %v", err)
+	}
+
+	all, err := s.SourceDownloads()
+	if err != nil {
+		t.Fatalf("SourceDownloads: %v", err)
+	}
+	// Keyed by the normalized destination (slashes trimmed).
+	got, ok := all["movies/Dexter Resurrection 2025"]
+	if !ok {
+		t.Fatalf("row not found; keys=%v", keysOf(all))
+	}
+	if got.PosterURL != in.PosterURL {
+		t.Fatalf("PosterURL = %q, want %q", got.PosterURL, in.PosterURL)
+	}
+	if got.CatalogID != in.CatalogID {
+		t.Fatalf("CatalogID = %q, want %q", got.CatalogID, in.CatalogID)
+	}
+	if got.MediaType != "series" || got.Year != "2025" || got.IMDbScore != 9.0 {
+		t.Fatalf("metadata mismatch: %+v", got)
+	}
+
+	// A re-send upserts the poster/catalog id too.
+	in.PosterURL = "https://cdn.example.info/poster/dexter-new.webp"
+	in.CatalogID = "999"
+	if err := s.SaveSourceDownload(in, 2000); err != nil {
+		t.Fatalf("re-save: %v", err)
+	}
+	all, _ = s.SourceDownloads()
+	if g := all["movies/Dexter Resurrection 2025"]; g.PosterURL != in.PosterURL || g.CatalogID != "999" {
+		t.Fatalf("upsert not applied: %+v", g)
+	}
+}
+
+func keysOf(m map[string]SourceDownload) []string {
+	ks := make([]string, 0, len(m))
+	for k := range m {
+		ks = append(ks, k)
+	}
+	return ks
+}

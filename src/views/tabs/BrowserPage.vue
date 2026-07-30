@@ -63,6 +63,8 @@ const {
   query,
   searchActive,
   searchIneffective,
+  pendingOpen,
+  pendingSearch,
   loadStatus,
   runSearch,
   loadMore,
@@ -163,13 +165,33 @@ async function refreshView(): Promise<void> {
   }
 }
 
+// "Open in Discover" handoff from the Tasks tab (spec 1016): open the exact
+// title's modal, or run a search when only a title string was handed over.
+async function consumePendingOpen(): Promise<void> {
+  if (pendingOpen.value) {
+    const t = pendingOpen.value;
+    pendingOpen.value = null;
+    pendingSearch.value = '';
+    openTitle(t);
+  } else if (pendingSearch.value) {
+    const q = pendingSearch.value;
+    pendingSearch.value = '';
+    await setQuery(q);
+  }
+}
+
 onMounted(async () => {
   await loadPrefs();
   await refreshView();
+  await consumePendingOpen();
 });
 // Re-entering the Discover tab, and bringing the app to the foreground while on
-// it, both re-sync the saved view from the server.
-onIonViewWillEnter(refreshView);
+// it, both re-sync the saved view from the server; entering also honours any
+// pending "Open in Discover" request from the Tasks tab.
+onIonViewWillEnter(async () => {
+  await refreshView();
+  await consumePendingOpen();
+});
 function onForeground(): void {
   if (document.visibilityState === 'visible' && router.currentRoute.value.path.startsWith('/tabs/browser')) {
     void refreshView();

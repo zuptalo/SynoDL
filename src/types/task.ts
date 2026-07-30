@@ -18,10 +18,12 @@ export interface Task {
   uri?: string; // source URL/magnet, for copy + re-download
   errorDetail?: string; // DSM status_extra.error_detail for errored tasks (raw keyword)
   addedBy?: string; // SynoDL user who created it — sent to admins only (spec 1013)
-  // Catalog metadata for downloads sent from Discover (spec 1013).
+  // Catalog metadata for downloads sent from Discover (spec 1013, 1016).
   mediaType?: string; // movie / series / anime
   imdbScore?: number;
   year?: string; // release year (movie) or range (series)
+  posterUrl?: string; // catalog poster thumbnail for the row (spec 1016)
+  catalogId?: string; // catalog title id for "Open in Discover" (spec 1016)
 }
 
 export interface Stats {
