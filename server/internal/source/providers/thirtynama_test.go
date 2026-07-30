@@ -178,16 +178,73 @@ func TestThirtynamaSearchQueryUsesFullSearch(t *testing.T) {
 		w.Write(fixture(t, "advanced_search.json"))
 	})
 	defer done()
+	// A type filter must NOT reach the full_search path: the provider only accepts
+	// type/all there (type/15 or type/movie return zero results).
 	_, err := thirtynama{}.Search(context.Background(), source.NewClient(), cfg, source.Session{},
-		source.SearchQuery{Query: "soul", Page: 2})
+		source.SearchQuery{Query: "soul", Page: 2, Filters: source.SearchFilters{Type: "movie"}})
 	if err != nil {
 		t.Fatalf("Search: %v", err)
 	}
 	if !strings.Contains(gotPath, "full_search") || !strings.Contains(gotPath, "/page/2") {
 		t.Fatalf("path = %q, want full_search page 2", gotPath)
 	}
+	if !strings.Contains(gotPath, "/type/all/") {
+		t.Fatalf("path = %q, want type/all even with a Type filter set", gotPath)
+	}
 	if gotBody != "query=soul" {
 		t.Fatalf("body = %q, want query=soul", gotBody)
+	}
+}
+
+// full_search only accepts type/all, so the Type filter is honored client-side by
+// dropping posts whose title_type doesn't match the selected type. The filter
+// value may be the friendly name ("movie") or the provider's numeric code ("15").
+func TestThirtynamaFullSearchTypeFilterReFilters(t *testing.T) {
+	body := `{"success":true,"result":{"title":{"page":1,"pages":3,"posts":[
+	  {"id":1,"title_type":"movie","title":"Batman Begins 2005","image":{"cover":"https://x/a.jpg"}},
+	  {"id":2,"title_type":"series","title":"Batwoman 2019","image":{"cover":"https://x/b.jpg"}},
+	  {"id":3,"title_type":"movie","title":"The Batman 2022","image":{"cover":"https://x/c.jpg"}}
+	]},"person":{},"news":{}}}`
+	var gotPath string
+	cfg, done := fakeProvider(t, func(w http.ResponseWriter, r *http.Request) { gotPath = r.URL.Path; w.Write([]byte(body)) })
+	defer done()
+
+	// Movies filter → type/all path, series dropped.
+	res, err := thirtynama{}.Search(context.Background(), source.NewClient(), cfg, source.Session{},
+		source.SearchQuery{Query: "batman", Filters: source.SearchFilters{Type: "movie"}})
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	if !strings.Contains(gotPath, "/type/all/") {
+		t.Fatalf("path = %q, want type/all", gotPath)
+	}
+	if len(res.Items) != 2 {
+		t.Fatalf("type re-filter: items = %d, want 2 movies", len(res.Items))
+	}
+	for _, it := range res.Items {
+		if it.Type != "movie" {
+			t.Fatalf("non-movie leaked past the type filter: %+v", it)
+		}
+	}
+
+	// The provider's numeric type code must narrow the same way.
+	res2, err := thirtynama{}.Search(context.Background(), source.NewClient(), cfg, source.Session{},
+		source.SearchQuery{Query: "batman", Filters: source.SearchFilters{Type: "15"}})
+	if err != nil {
+		t.Fatalf("Search (code): %v", err)
+	}
+	if len(res2.Items) != 2 {
+		t.Fatalf("numeric-code re-filter: items = %d, want 2", len(res2.Items))
+	}
+
+	// No type filter → all three types come back.
+	res3, err := thirtynama{}.Search(context.Background(), source.NewClient(), cfg, source.Session{},
+		source.SearchQuery{Query: "batman"})
+	if err != nil {
+		t.Fatalf("Search (no filter): %v", err)
+	}
+	if len(res3.Items) != 3 {
+		t.Fatalf("no type filter: items = %d, want 3", len(res3.Items))
 	}
 }
 
@@ -371,8 +428,10 @@ func TestThirtynamaBrowseFiltersAndSort(t *testing.T) {
 	}
 }
 
-// A text search filters by type through the full_search PATH (type/{code}),
-// and maps a friendly name to the provider code just like browse.
+// A text search ALWAYS uses the full_search type/all path — with or without a
+// type filter — because full_search rejects a numeric code (type/15) or slug
+// (type/movie) with zero results. The type filter is applied to the results, not
+// the path (see TestThirtynamaFullSearchTypeFilterReFilters).
 func TestThirtynamaFullSearchTypeInPath(t *testing.T) {
 	var gotPath string
 	cfg, done := fakeProvider(t, func(w http.ResponseWriter, r *http.Request) {
@@ -381,17 +440,17 @@ func TestThirtynamaFullSearchTypeInPath(t *testing.T) {
 	})
 	defer done()
 
-	// No type → the wildcard segment.
+	// No type → type/all.
 	_, _ = thirtynama{}.Search(context.Background(), source.NewClient(), cfg, source.Session{},
 		source.SearchQuery{Query: "matrix"})
 	if !strings.Contains(gotPath, "full_search/type/all/") {
 		t.Fatalf("untyped text search path = %q, want type/all", gotPath)
 	}
-	// Friendly name → code in the path.
+	// A type filter still uses type/all in the path (not type/16).
 	_, _ = thirtynama{}.Search(context.Background(), source.NewClient(), cfg, source.Session{},
 		source.SearchQuery{Query: "matrix", Filters: source.SearchFilters{Type: "series"}})
-	if !strings.Contains(gotPath, "full_search/type/16/") {
-		t.Fatalf("typed text search path = %q, want type/16", gotPath)
+	if !strings.Contains(gotPath, "full_search/type/all/") {
+		t.Fatalf("typed text search path = %q, want type/all", gotPath)
 	}
 }
 

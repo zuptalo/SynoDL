@@ -91,13 +91,11 @@ func (p thirtynama) Search(ctx context.Context, c *source.Client, cfg source.Con
 	// advanced_search instead (which also carries the filters).
 	useFull := len([]rune(query)) >= 2
 	if useFull {
-		// full_search takes the type in the PATH (type/{code}, or type/all). This
-		// makes a text search honor the type filter server-side too.
-		typeSeg := "all"
-		if t := typeParam(q.Filters.Type); t != "" {
-			typeSeg = url.PathEscape(t)
-		}
-		path = fmt.Sprintf("/api/v1/action/full_search/type/%s/orderby/relevant/order/desc/page/%d", typeSeg, page)
+		// full_search ONLY accepts type/all — a numeric code (type/15) or the slug
+		// (type/movie) is answered with success:true and zero posts. So we always
+		// browse all types here and narrow to the selected type client-side, below,
+		// by each result's title_type. (Verified against the live API, spec 2002.)
+		path = fmt.Sprintf("/api/v1/action/full_search/type/all/orderby/relevant/order/desc/page/%d", page)
 		body = "query=" + url.QueryEscape(query)
 	} else {
 		path = advancedSearchPath(page, q.Sort, q.Order)
@@ -139,6 +137,21 @@ func (p thirtynama) Search(ctx context.Context, c *source.Client, cfg source.Con
 			ComingSoon:        bool(post.ComingSoon),
 			FreeDownload:      bool(post.FreeDownload),
 		})
+	}
+	// full_search can't filter by type server-side (type/all only), so honor the
+	// Type filter here by dropping results whose title_type doesn't match. Browse
+	// (advanced_search) already filters server-side, so this applies only to the
+	// text-search path.
+	if useFull {
+		if want := titleTypeForType(q.Filters.Type); want != "" {
+			kept := out.Items[:0]
+			for _, it := range out.Items {
+				if it.Type == want {
+					kept = append(kept, it)
+				}
+			}
+			out.Items = kept
+		}
 	}
 	return out, nil
 }
@@ -364,6 +377,24 @@ func orderDir(order string) string {
 
 func advancedSearchPath(page int, sort, order string) string {
 	return fmt.Sprintf("/api/v1/action/advanced_search/page/%d/orderby/%s/order/%s", page, orderbyField(sort), orderDir(order))
+}
+
+// titleTypeForType resolves a type filter — a friendly name ("movie") or the
+// provider's numeric code ("15") — to the title_type string the provider stamps
+// on each result. Used to narrow full_search results client-side, since
+// full_search only accepts type/all and cannot filter by type server-side.
+// An empty filter (no selection) returns empty, meaning "keep all types".
+func titleTypeForType(t string) string {
+	if t == "" {
+		return ""
+	}
+	// typeCodes' friendly names (movie/series/anime) ARE the title_type strings.
+	for name, code := range typeCodes {
+		if t == name || t == code {
+			return name
+		}
+	}
+	return t
 }
 
 // typeParam resolves a type filter to the provider's code: our friendly names

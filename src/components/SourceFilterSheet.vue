@@ -11,6 +11,7 @@ import {
   IonList,
   IonListHeader,
   IonModal,
+  IonNote,
   IonSelect,
   IonSelectOption,
   IonTitle,
@@ -22,7 +23,11 @@ import { useSourceCatalog } from '@/composables/useSourceCatalog';
 
 // Filter options track the provider's live facets (falling back to built-in
 // lists), so the sheet always offers what the source currently supports.
-const { filterOptions, yearBounds } = useSourceCatalog();
+// searchActive: while a text query is in play the source honors ONLY the type
+// filter (server-side, via each result's title_type) — genre/quality/year/etc.
+// can't be applied to text search, so those controls are disabled here and a hint
+// explains why (spec 2002). Type stays enabled.
+const { filterOptions, yearBounds, searchActive } = useSourceCatalog();
 
 const props = defineProps<{ isOpen: boolean; filters: SourceSearchFilters }>();
 const emit = defineEmits<{
@@ -142,6 +147,12 @@ function clear(): void {
       </ion-toolbar>
     </ion-header>
     <ion-content>
+      <!-- During a text search only the type filter is honored by the source; the
+           rest are disabled with this note rather than silently ignored (spec 2002). -->
+      <ion-note v-if="searchActive" class="search-filter-hint" data-testid="filter-search-hint">
+        While searching, only the type filter applies. Clear the search to use the other
+        filters.
+      </ion-note>
       <ion-list :inset="true">
         <ion-item>
           <ion-select v-model="type" label="Type" interface="popover">
@@ -151,35 +162,59 @@ function clear(): void {
           </ion-select>
         </ion-item>
         <ion-item>
-          <ion-select v-model="genre" label="Genre" interface="alert" placeholder="Any">
+          <ion-select
+            v-model="genre"
+            label="Genre"
+            interface="alert"
+            placeholder="Any"
+            :disabled="searchActive"
+          >
             <ion-select-option v-for="g in filterOptions.genres" :key="g.value" :value="g.value">
               {{ g.label }}
             </ion-select-option>
           </ion-select>
         </ion-item>
         <ion-item>
-          <ion-select v-model="quality" label="Quality" interface="alert" placeholder="Any">
+          <ion-select
+            v-model="quality"
+            label="Quality"
+            interface="alert"
+            placeholder="Any"
+            :disabled="searchActive"
+          >
             <ion-select-option v-for="q in filterOptions.qualities" :key="q.value" :value="q.value">
               {{ q.label }}
             </ion-select-option>
           </ion-select>
         </ion-item>
         <ion-item>
-          <ion-select v-model="score" label="Min rating" interface="popover">
+          <ion-select v-model="score" label="Min rating" interface="popover" :disabled="searchActive">
             <ion-select-option v-for="s in filterOptions.scores" :key="s.value" :value="s.value">
               {{ s.label }}
             </ion-select-option>
           </ion-select>
         </ion-item>
         <ion-item>
-          <ion-select v-model="language" label="Language" interface="alert" placeholder="Any">
+          <ion-select
+            v-model="language"
+            label="Language"
+            interface="alert"
+            placeholder="Any"
+            :disabled="searchActive"
+          >
             <ion-select-option v-for="l in filterOptions.languages" :key="l.value" :value="l.value">
               {{ l.label }}
             </ion-select-option>
           </ion-select>
         </ion-item>
         <ion-item>
-          <ion-select v-model="country" label="Country" interface="alert" placeholder="Any">
+          <ion-select
+            v-model="country"
+            label="Country"
+            interface="alert"
+            placeholder="Any"
+            :disabled="searchActive"
+          >
             <ion-select-option v-for="c in filterOptions.countries" :key="c.value" :value="c.value">
               {{ c.label }}
             </ion-select-option>
@@ -190,21 +225,39 @@ function clear(): void {
       <ion-list :inset="true">
         <ion-list-header><ion-label>More filters</ion-label></ion-list-header>
         <ion-item v-if="filterOptions.channels.length > 1">
-          <ion-select v-model="channel" label="Channel" interface="alert" placeholder="Any">
+          <ion-select
+            v-model="channel"
+            label="Channel"
+            interface="alert"
+            placeholder="Any"
+            :disabled="searchActive"
+          >
             <ion-select-option v-for="c in filterOptions.channels" :key="c.value" :value="c.value">
               {{ c.label }}
             </ion-select-option>
           </ion-select>
         </ion-item>
         <ion-item v-if="filterOptions.encoders.length > 1">
-          <ion-select v-model="encoder" label="Encoder" interface="alert" placeholder="Any">
+          <ion-select
+            v-model="encoder"
+            label="Encoder"
+            interface="alert"
+            placeholder="Any"
+            :disabled="searchActive"
+          >
             <ion-select-option v-for="e in filterOptions.encoders" :key="e.value" :value="e.value">
               {{ e.label }}
             </ion-select-option>
           </ion-select>
         </ion-item>
         <ion-item v-if="filterOptions.ages.length > 1">
-          <ion-select v-model="age" label="Content rating" interface="alert" placeholder="Any">
+          <ion-select
+            v-model="age"
+            label="Content rating"
+            interface="alert"
+            placeholder="Any"
+            :disabled="searchActive"
+          >
             <ion-select-option v-for="a in filterOptions.ages" :key="a.value" :value="a.value">
               {{ a.label }}
             </ion-select-option>
@@ -220,6 +273,7 @@ function clear(): void {
             :min="yearBounds.min"
             :max="yearBounds.max"
             inputmode="numeric"
+            :disabled="searchActive"
           />
         </ion-item>
         <ion-item>
@@ -232,27 +286,56 @@ function clear(): void {
             :min="yearBounds.min"
             :max="yearBounds.max"
             inputmode="numeric"
+            :disabled="searchActive"
           />
         </ion-item>
         <ion-item>
-          <ion-input v-model="cast" label="Cast" label-placement="fixed" placeholder="Actor name" />
+          <ion-input
+            v-model="cast"
+            label="Cast"
+            label-placement="fixed"
+            placeholder="Actor name"
+            :disabled="searchActive"
+          />
         </ion-item>
         <ion-item>
-          <ion-input v-model="director" label="Director" label-placement="fixed" placeholder="Name" />
+          <ion-input
+            v-model="director"
+            label="Director"
+            label-placement="fixed"
+            placeholder="Name"
+            :disabled="searchActive"
+          />
         </ion-item>
         <ion-item>
-          <ion-input v-model="creator" label="Creator" label-placement="fixed" placeholder="Name" />
+          <ion-input
+            v-model="creator"
+            label="Creator"
+            label-placement="fixed"
+            placeholder="Name"
+            :disabled="searchActive"
+          />
         </ion-item>
         <ion-item>
-          <ion-toggle v-model="x265">x265 / HEVC only</ion-toggle>
+          <ion-toggle v-model="x265" :disabled="searchActive">x265 / HEVC only</ion-toggle>
         </ion-item>
         <ion-item>
-          <ion-toggle v-model="threeD">3D only</ion-toggle>
+          <ion-toggle v-model="threeD" :disabled="searchActive">3D only</ion-toggle>
         </ion-item>
         <ion-item>
-          <ion-toggle v-model="stream">Streamable only</ion-toggle>
+          <ion-toggle v-model="stream" :disabled="searchActive">Streamable only</ion-toggle>
         </ion-item>
       </ion-list>
     </ion-content>
   </ion-modal>
 </template>
+
+<style scoped>
+/* Hint shown at the top of the sheet while a text search is active. */
+.search-filter-hint {
+  display: block;
+  padding: 10px 20px 0;
+  font-size: 0.8rem;
+  line-height: 1.35;
+}
+</style>

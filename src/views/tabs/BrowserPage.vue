@@ -61,6 +61,7 @@ const {
   sort,
   order,
   query,
+  searchActive,
   loadStatus,
   runSearch,
   loadMore,
@@ -293,13 +294,15 @@ function goSettings(): void {
         />
         <!-- Sort control beside the search bar: the field popover plus a direction
              toggle whose arrow shows ascending vs descending — one control, no
-             second dropdown. Both are disabled while a search is running so the
-             query in flight can't be changed out from under itself. -->
+             second dropdown. Disabled while a search is running (the in-flight
+             query can't be changed out from under itself) AND while a text query
+             is active, because the source can't sort text-search results — see
+             the hint below (spec 2002). -->
         <div slot="end" class="sort-control">
           <ion-select
             class="sort-select"
             :value="sort"
-            :disabled="loading"
+            :disabled="loading || searchActive"
             interface="popover"
             aria-label="Sort by"
             :selected-text="currentSortLabel"
@@ -313,7 +316,7 @@ function goSettings(): void {
             class="order-toggle"
             fill="clear"
             size="small"
-            :disabled="loading"
+            :disabled="loading || searchActive"
             :aria-label="`Sort direction: ${orderLabel}`"
             :title="orderLabel"
             @click="onToggleOrder"
@@ -321,6 +324,15 @@ function goSettings(): void {
             <ion-icon slot="icon-only" :icon="orderIcon" />
           </ion-button>
         </div>
+      </ion-toolbar>
+      <!-- While searching, sorting and the advanced filters don't apply (the
+           source only ranks text results by relevance and honors the type
+           filter) — say so instead of leaving dead controls that look broken. -->
+      <ion-toolbar v-if="searchActive" class="search-hint-bar">
+        <ion-note class="search-hint" data-testid="search-hint">
+          Sorting and filters apply to browsing. Only the type filter narrows search
+          results — clear the search to sort or filter.
+        </ion-note>
       </ion-toolbar>
       <!-- A slim bar signals a search is running even when results are already on
            screen (the provider can take a few seconds), so a slow filter/sort
@@ -523,6 +535,17 @@ function goSettings(): void {
 .sort-control {
   display: flex;
   align-items: center;
+}
+/* The "sorting/filters apply to browsing" hint shown while a search is active. */
+.search-hint-bar {
+  --min-height: 0;
+  --background: transparent;
+}
+.search-hint {
+  display: block;
+  padding: 0 12px 6px;
+  font-size: 0.75rem;
+  line-height: 1.3;
 }
 .sort-select {
   max-width: 40vw;
