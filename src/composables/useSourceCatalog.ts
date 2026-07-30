@@ -46,6 +46,11 @@ const sort = ref(DEFAULT_SORT);
 // Sort direction, folded into the same dropdown as the sort field. "desc" is the
 // natural reading of every sort option (most popular / newest / highest first).
 const order = ref(DEFAULT_ORDER);
+// True while a text query is in play. The source cannot sort or facet-filter
+// text-search results (only the Type filter is honored, via each result's
+// title_type) — so the UI disables the sort control and the non-type filters
+// while this is true, rather than letting them silently no-op (spec 2002).
+const searchActive = computed(() => query.value.trim() !== '');
 const loading = ref(false);
 const needsRefresh = ref(false);
 const unavailable = ref(true);
@@ -373,6 +378,7 @@ export function useSourceCatalog() {
     filters,
     sort,
     order,
+    searchActive,
     loading,
     needsRefresh,
     unavailable,
