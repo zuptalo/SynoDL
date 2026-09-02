@@ -24,11 +24,12 @@ therefore covered by tests written against the current behavior first.
 
 **Language/Version**: Go 1.26 (server), TypeScript 5 / Vue 3 + Ionic (client)
 
-**Primary Dependencies**: Server — standard library, plus **`golang.org/x/net/html`, the first
-third-party server dependency** (R6/FR-029). The zero-dependency claim lives in `CLAUDE.md:43`
-and nowhere else — the constitution has no such Domain Constraint, only a general
-complexity-justification clause that a new dependency triggers, answered by the Complexity
-Tracking table below. Client — existing Ionic/Vue stack, no new dependencies.
+**Primary Dependencies**: Server — standard library, `modernc.org/sqlite` (already present),
+plus **`golang.org/x/net/html`** (R6/FR-029). The "zero third-party dependencies" claim at
+`CLAUDE.md:43` is **stale, not a constraint**: the same line also says "no database", and the
+server has had both a SQLite driver and a database since it became stateful. The constitution
+carries no such Domain Constraint — only a general complexity-justification clause, answered by
+the Complexity Tracking table below. Client — existing Ionic/Vue stack, no new dependencies.
 
 **Storage**: SQLite, single volume. Three additive `ALTER TABLE` migrations; no table is
 created and none is rewritten.
@@ -63,13 +64,13 @@ refactor, one API fan-out layer, one new client control plus per-item source lab
 | VI. Ionic-First UI | **Pass** | The selector is an `ion-select` matching the existing sort control; no bespoke widget |
 | VII. Traceable, Auto-Closing Delivery | **Pass** | Tasks become issues; the PR lists `Closes #N` for each |
 
-**Project property amended, not violated**: "zero third-party dependencies" is a stated
-project property being deliberately changed by FR-029, with the reasoning recorded in R6. It is
-asserted in `CLAUDE.md:43` only — **not** in the constitution, which instead requires that any
-added dependency be justified (`constitution.md:250`), satisfied by the Complexity Tracking
-table below. So this needs one documentation edit, not a constitution amendment; flagged here
-so it is neither mistaken for drift nor over-corrected into a governance change it does not
-require.
+**Stale documentation corrected, no property violated**: `CLAUDE.md:43` describes the server as
+having "no web framework, zero third-party dependencies, no database". Two of those three are
+already untrue — `server/go.mod` requires `modernc.org/sqlite` directly and the server's whole
+store is SQLite. So this feature is not ending a zero-dependency property; there is none to
+end. The constitution's only relevant rule is that an added dependency be justified
+(`constitution.md:250`), satisfied by the Complexity Tracking table below. FR-029 is therefore
+a documentation-accuracy fix, not a governance amendment.
 
 **Mock-DSM dev parity**: extended in spirit — sources become the second outbound target the
 mock covers, so `make start` and e2e still need no real hardware and now no real credentials
@@ -167,7 +168,7 @@ operator documentation for adding a second source.
 
 | Decision | Why it is worth the complexity | Simpler alternative rejected |
 |---|---|---|
-| First third-party server dependency | zarfilm serves no structured data; regex over nested markup ships subtle parse bugs | Standard library only — considered and rejected by the user (R6) |
+| Second direct server dependency (`x/net/html`) | zarfilm serves no structured data; regex over nested markup ships subtle parse bugs | Standard library only — considered and rejected by the user (R6) |
 | New `merge.go` layer | Interleaving belongs to neither a driver nor a handler | Merging inside a handler — would entangle fan-out with HTTP concerns |
 | Session becomes a declared bag | Two sites authenticate incompatibly; also stops each driver seeing the others' secrets | Adding a `Cookie` field — grows a field per site forever |
 | Source-qualified title ids | Combined lists must hand a title back unambiguously | A parallel `?source=` param — id and source could be recombined wrongly |

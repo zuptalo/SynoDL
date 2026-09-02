@@ -144,16 +144,20 @@ serialized to a client.
 
 ## R6. Reading zarfilm's catalog — HTML rather than JSON
 
-**Decision**: Add `golang.org/x/net/html` and parse with its tokenizer. Per FR-029, amend
-`CLAUDE.md` and the constitution's Domain Constraints in the same change so the zero-dependency
-claim reads as deliberately superseded.
+**Decision**: Add `golang.org/x/net/html` and parse with its tokenizer. Per FR-029, correct
+`CLAUDE.md:43` in the same change — not to amend a constraint, but because that line is already
+wrong: it claims the server has "zero third-party dependencies, no database" while `go.mod`
+requires `modernc.org/sqlite` directly and the entire store is SQLite. No constitution edit is
+needed; its only relevant rule is that an added dependency be justified, which this section
+does.
 
 **Rationale**: zarfilm serves no structured data — `/wp-json/` is 404 and there is no separate
 API host (`api.`, `app.`, `interface.`, `mobile.` all NXDOMAIN). Its catalog markup is regular
 but deeply nested, and regex parsing of nested markup is the classic way to ship a subtly wrong
 parser that fails on the one title with an unusual field. `x/net/html` is maintained by the Go
 team, has no transitive dependencies beyond the standard library, and is the closest thing to a
-standard-library answer available.
+standard-library answer available. It joins one existing direct dependency rather than breaking
+a clean slate.
 
 **Alternatives considered**:
 - *Standard library only*. Considered seriously and rejected by the user; the markup is regular

@@ -13,7 +13,7 @@ different files with no incomplete dependency, safe to run in parallel.
 
 ## Phase 1: Setup
 
-- [ ] T001 Add `golang.org/x/net/html` to `server/go.mod` and vendor it, then confirm `cd server && go mod tidy && go build ./...` is clean
+- [ ] T001 Add `golang.org/x/net/html` to `server/go.mod`, then confirm `cd server && go mod tidy && go build ./...` is clean
 - [ ] T002 [P] Verify the container build still succeeds with the new dependency in `Dockerfile`
 - [ ] T003 [P] Save trimmed zarfilm captures (movie page, series page, archive page, search page, logged-out page, paywalled page) as fixtures in `server/internal/source/providers/testdata/zarfilm/`
 
@@ -166,7 +166,7 @@ shared filters; selecting one source reveals its extras and switching back drops
 
 - [ ] T063 [P] Add a test asserting no session value, cookie or signed link appears in any log line or error payload (SC-010) in `server/internal/api/source_handlers_test.go`
 - [ ] T064 [P] Measure combined versus single-source first-page latency against SC-005 and record the result
-- [ ] T065 Amend the zero-dependency statement in `CLAUDE.md` per FR-029
+- [ ] T065 Correct the stale server description in `CLAUDE.md:43` per FR-029 — it claims zero third-party dependencies and no database, while the server has required `modernc.org/sqlite` directly since it became stateful; state the real dependency set including `x/net/html`
 - [ ] T066 Confirm no constitution edit is needed for FR-029 (the zero-dependency claim lives in `CLAUDE.md:43`, not the constitution) and that the dependency's justification is recorded under the complexity clause in `specs/0007-multiple-download-sources/plan.md`
 - [ ] T067 [P] Document adding and refreshing a second source for operators in `docs/`
 - [ ] T068 [P] Update the spec `**Status**:` line and run `make roadmap`

@@ -315,9 +315,10 @@ session material supplied through the environment, run the live checks against t
 
 **Project constraints**
 
-- **FR-029**: Introducing the server's first third-party dependency MUST be recorded in the
-  project documents that currently assert the server has none, so the constraint reads as
-  deliberately amended rather than violated. Any further server dependency remains a
+- **FR-029**: The project documentation that currently asserts the server has zero third-party
+  dependencies and no database MUST be corrected, because it is already inaccurate — the
+  server has carried a SQLite driver as a direct dependency since it became stateful. Adding a
+  markup parser MUST be recorded there too. Any further server dependency remains a
   spec-level decision, not an implementation detail.
 
 ### Key Entities
@@ -422,13 +423,13 @@ Required by constitution Principle III.
 - **The new source's catalog markup is not a published interface.** It is a website, so its
   structure can change without notice; breakage is expected to surface as a source-level
   error rather than a crash, and the live checks exist to catch drift early.
-- **The server takes its first third-party dependency.** Until now the server carried none.
-  Reading the new source's catalog means interpreting web pages rather than a structured data
-  feed, so this spec accepts a real markup tokenizer rather than pattern-matching over raw
-  markup: shorter, clearer, and far more tolerant of the source changing its page structure.
-  The dependency is limited to a Go-team-maintained module. This ends a stated project
-  property, so the change MUST be recorded where that property is documented rather than
-  slipped in — see FR-029.
+- **The server gains a second direct dependency.** Reading the new source's catalog means
+  interpreting web pages rather than a structured data feed, so this spec accepts a real markup
+  tokenizer rather than pattern-matching over raw markup: shorter, clearer, and far more
+  tolerant of the source changing its page structure. The dependency is limited to a
+  Go-team-maintained module. Note this does **not** break a zero-dependency property: the
+  server already depends directly on a SQLite driver, and the documentation claiming otherwise
+  is stale rather than authoritative — correcting it is part of this work (FR-029).
 - **Live checks are a developer tool, not a gate.** They run on demand against the real sites
   and never in continuous integration, which has neither credentials nor a stable address.
 
