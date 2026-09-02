@@ -56,6 +56,12 @@ const canOpenInDiscover = computed(() => !!props.task?.mediaType);
 
 // Hand the title to the Browser tab and switch to it: the exact title when we
 // stored its catalog id, otherwise a search of the (year-stripped) title.
+//
+// The download row only remembers the handful of catalog columns it needs to
+// label itself, so this stub is deliberately partial — the sheet fills in the
+// synopsis, genres, backdrop and IMDb id by looking the catalog id back up.
+// Titles keep their year here (Discover's own titles carry it) so the header
+// reads the same before and after that lookup lands.
 async function openInDiscover(): Promise<void> {
   const t = props.task;
   if (!t) return;
@@ -64,7 +70,7 @@ async function openInDiscover(): Promise<void> {
     const ct: CatalogTitle = {
       id: t.catalogId,
       type: t.mediaType ?? '',
-      title: clean,
+      title: t.year ? `${clean} ${t.year}` : clean,
       posterUrl: t.posterUrl ?? '',
       imdbId: '',
       imdbScore: t.imdbScore ?? 0,
