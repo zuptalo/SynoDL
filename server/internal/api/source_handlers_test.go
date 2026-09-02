@@ -22,18 +22,22 @@ var (
 	fakeSearch      source.SearchResult
 	fakeSearchErr   error
 	fakeLastQuery   source.SearchQuery
-	fakeTitle      source.TitleDetail
-	fakeTitleErr   error
-	fakeLinks      []string
-	fakeSize       string
-	fakeResolveErr error
-	fakeParams     source.SearchParameters
-	fakeParamsErr  error
+	fakeTitle       source.TitleDetail
+	fakeTitleErr    error
+	fakeLinks       []string
+	fakeSize        string
+	fakeResolveErr  error
+	fakeParams      source.SearchParameters
+	fakeParamsErr   error
 )
 
 func init() { source.Register(fakeSrc{}) }
 
-func (fakeSrc) Kind() string { return "faketest" }
+func (fakeSrc) Kind() string        { return "faketest" }
+func (fakeSrc) DisplayName() string { return "Fake Test Source" }
+func (fakeSrc) SessionFields() []source.SessionField {
+	return []source.SessionField{{Key: "c_token", Label: "token", Secret: true, Required: true}}
+}
 func (fakeSrc) Hosts() source.Config {
 	return source.Config{
 		APIHosts:      []string{"api.fake"},
@@ -66,7 +70,8 @@ func resetFake() {
 	fakeTitle = source.TitleDetail{}
 	fakeLinks = nil
 	fakeSize = ""
-	sourceFailStreak.Store(0) // the streak is a package global — isolate each test
+	resetSourceFailures()
+	source.ResetBreakers() // also package-global: isolate each test // the streak is a package global — isolate each test
 }
 
 // configureFake configures the fake provider via the admin API (verify passes).
@@ -97,7 +102,7 @@ func TestSourceSessionKeepsStoredSecretsWhenBlank(t *testing.T) {
 		t.Fatalf("re-save with blank session = %d %s", rec.Code, rec.Body.String())
 	}
 	// Verification ran against the MERGED session (stored secrets preserved).
-	if fakeLastSession.CToken != "SECRET-TOKEN-VALUE" || fakeLastSession.CFClearance != "CLR" ||
+	if fakeLastSession.Get("c_token") != "SECRET-TOKEN-VALUE" || fakeLastSession.Get("cf_clearance") != "CLR" ||
 		fakeLastSession.UserAgent != "UA" {
 		t.Fatalf("blank re-save did not keep stored secrets: %+v", fakeLastSession)
 	}

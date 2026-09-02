@@ -18,9 +18,9 @@ import (
 // DSM API names — this list IS the proxy allowlist. Adding an entry is a
 // spec-level decision (constitution, Domain Constraints).
 const (
-	apiInfo   = "SYNO.API.Info"
-	apiAuth   = "SYNO.API.Auth"
-	apiTask   = "SYNO.DownloadStation.Task"
+	apiInfo     = "SYNO.API.Info"
+	apiAuth     = "SYNO.API.Auth"
+	apiTask     = "SYNO.DownloadStation.Task"
 	apiStat     = "SYNO.DownloadStation.Statistic"
 	apiFSList   = "SYNO.FileStation.List"
 	apiFSCreate = "SYNO.FileStation.CreateFolder"

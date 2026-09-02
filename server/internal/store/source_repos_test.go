@@ -66,12 +66,14 @@ func TestSourceSessionSealedAndWriteOnly(t *testing.T) {
 	id, _ := s.SaveProviderConfig(SourceProvider{Kind: "thirtynama"}, 1)
 
 	sess := SourceSession{
-		CFClearance: "CFCLEAR-secret-value",
-		CAPIKey:     "APIKEY-secret",
-		CToken:      "TOKEN-secret",
-		UserAgent:   "Mozilla/5.0 test",
-		CPlatform:   "PWA",
-		CAppVersion: "1.2.3",
+		UserAgent: "Mozilla/5.0 test",
+		Fields: map[string]string{
+			"cf_clearance":  "CFCLEAR-secret-value",
+			"c_api_key":     "APIKEY-secret",
+			"c_token":       "TOKEN-secret",
+			"c_platform":    "PWA",
+			"c_app_version": "1.2.3",
+		},
 	}
 	if err := s.SaveProviderSession(id, sess, 10); err != nil {
 		t.Fatalf("SaveProviderSession: %v", err)
@@ -97,8 +99,8 @@ func TestSourceSessionSealedAndWriteOnly(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadProviderSession: %v", err)
 	}
-	if got.CFClearance != sess.CFClearance || got.CToken != sess.CToken ||
-		got.CAPIKey != sess.CAPIKey || got.UserAgent != sess.UserAgent {
+	if got.Get("cf_clearance") != sess.Get("cf_clearance") || got.Get("c_token") != sess.Get("c_token") ||
+		got.Get("c_api_key") != sess.Get("c_api_key") || got.UserAgent != sess.UserAgent {
 		t.Fatalf("session round-trip mismatch: %+v", got)
 	}
 }
@@ -125,7 +127,7 @@ func TestSourceProviderStateTransitionsAndDelete(t *testing.T) {
 	}
 
 	// Delete cascades secrets.
-	_ = s.SaveProviderSession(id, SourceSession{CToken: "x"}, 1)
+	_ = s.SaveProviderSession(id, SourceSession{Fields: map[string]string{"c_token": "x"}}, 1)
 	if err := s.DeleteProvider(id); err != nil {
 		t.Fatalf("DeleteProvider: %v", err)
 	}

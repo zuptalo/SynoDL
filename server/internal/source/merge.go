@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 )
@@ -27,8 +28,15 @@ const PerSourceTimeout = 8 * time.Second
 // failures the source is skipped — still reported as degraded, so the user is
 // told rather than silently shown less — until the window elapses and one
 // request is allowed through to see whether it recovered.
+//
+// This threshold MUST stay above the API layer's consecutive-failure threshold
+// for condemning a session. The two protect different things — this one spares
+// the upstream, that one decides whether to ask the operator for fresh material
+// — but if this tripped first, the source would stop being called before anyone
+// could tell WHY it was failing, and it would be reported as merely unreachable
+// when the real answer was an expired session.
 const (
-	coolOffThreshold = 3
+	coolOffThreshold = 6
 	coolOffWindow    = 60 * time.Second
 )
 
@@ -253,4 +261,90 @@ func SortRefs(refs []SourceRef, order func(int64) int64) {
 		}
 		return refs[i].ID < refs[j].ID
 	})
+}
+
+// IntersectParameters keeps only the facet options every source understands.
+//
+// Options are matched by English slug where a driver supplies one and by
+// normalized label otherwise — FacetOption carries both precisely because one
+// source's labels are not English. A facet KIND that any source lacks entirely
+// drops out, since a filter that one source cannot honour would silently leave
+// that source's results unfiltered.
+//
+// The year bounds narrow rather than intersect: the usable range is the one
+// every source can serve.
+func IntersectParameters(sets []SearchParameters) SearchParameters {
+	if len(sets) == 0 {
+		return SearchParameters{}
+	}
+	if len(sets) == 1 {
+		return sets[0]
+	}
+	pick := func(get func(SearchParameters) []FacetOption) []FacetOption {
+		first := get(sets[0])
+		if len(first) == 0 {
+			return nil
+		}
+		counts := map[string]int{}
+		keep := map[string]FacetOption{}
+		for _, s := range sets {
+			opts := get(s)
+			if len(opts) == 0 {
+				// This source offers the facet not at all — the whole kind drops.
+				return nil
+			}
+			seen := map[string]bool{}
+			for _, o := range opts {
+				k := facetKey(o)
+				if seen[k] {
+					continue // an option listed twice must not count twice
+				}
+				seen[k] = true
+				counts[k]++
+				if _, ok := keep[k]; !ok {
+					keep[k] = o
+				}
+			}
+		}
+		var out []FacetOption
+		for _, o := range first {
+			k := facetKey(o)
+			if counts[k] == len(sets) {
+				out = append(out, keep[k])
+				delete(counts, k) // emit each option once (FR / US3 acceptance 4)
+			}
+		}
+		return out
+	}
+	out := SearchParameters{
+		Genres:    pick(func(p SearchParameters) []FacetOption { return p.Genres }),
+		Types:     pick(func(p SearchParameters) []FacetOption { return p.Types }),
+		Qualities: pick(func(p SearchParameters) []FacetOption { return p.Qualities }),
+		Scores:    pick(func(p SearchParameters) []FacetOption { return p.Scores }),
+		Languages: pick(func(p SearchParameters) []FacetOption { return p.Languages }),
+		Countries: pick(func(p SearchParameters) []FacetOption { return p.Countries }),
+		Channels:  pick(func(p SearchParameters) []FacetOption { return p.Channels }),
+		Encoders:  pick(func(p SearchParameters) []FacetOption { return p.Encoders }),
+		Ages:      pick(func(p SearchParameters) []FacetOption { return p.Ages }),
+	}
+	out.MinYear, out.MaxYear = sets[0].MinYear, sets[0].MaxYear
+	for _, s := range sets[1:] {
+		if s.MinYear > out.MinYear {
+			out.MinYear = s.MinYear
+		}
+		if s.MaxYear != 0 && (out.MaxYear == 0 || s.MaxYear < out.MaxYear) {
+			out.MaxYear = s.MaxYear
+		}
+	}
+	return out
+}
+
+// facetKey is how two sources' options are judged to mean the same thing: the
+// English slug when there is one, otherwise a normalized label. Values are NOT
+// used — they are provider-internal codes and differ between sources by design.
+func facetKey(o FacetOption) string {
+	if s := strings.TrimSpace(strings.ToLower(o.Slug)); s != "" {
+		return "slug:" + s
+	}
+	return "name:" + strings.Join(strings.Fields(strings.ToLower(o.Name)), " ")
 }

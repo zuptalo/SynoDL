@@ -21,12 +21,14 @@ func TestLiveThirtynama(t *testing.T) {
 		t.Skip("no LIVE_CF — skipping live provider test")
 	}
 	s := source.Session{
-		CFClearance: cf,
-		CToken:      os.Getenv("LIVE_TOKEN"),
-		CAPIKey:     os.Getenv("LIVE_APIKEY"),
-		UserAgent:   os.Getenv("LIVE_UA"),
-		CPlatform:   os.Getenv("LIVE_PLATFORM"),
-		CAppVersion: os.Getenv("LIVE_APPVER"),
+		UserAgent: os.Getenv("LIVE_UA"),
+		Fields: map[string]string{
+			"cf_clearance":  cf,
+			"c_token":       os.Getenv("LIVE_TOKEN"),
+			"c_api_key":     os.Getenv("LIVE_APIKEY"),
+			"c_platform":    os.Getenv("LIVE_PLATFORM"),
+			"c_app_version": os.Getenv("LIVE_APPVER"),
+		},
 	}
 	cfg := thirtynama{}.Hosts()
 	c := source.NewClient()

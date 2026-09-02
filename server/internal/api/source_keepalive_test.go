@@ -21,14 +21,16 @@ func TestSourceKeepAliveProbe(t *testing.T) {
 	// Self-heal: a source stuck in needs_refresh after a transient blip goes back
 	// to active on the next healthy probe (and the failure streak clears).
 	_ = st.SetProviderState(p.ID, store.SourceNeedsRefresh, 0, 1)
-	sourceFailStreak.Store(2)
+	// The streak is per source now, so seed this source's.
+	noteSourceFailure(p.ID)
+	noteSourceFailure(p.ID)
 	fakeVerifyErr = nil
 	d.probeSource(ctx)
 	if got, _ := st.GetProvider(); got.State != store.SourceActive {
 		t.Fatalf("healthy probe should restore active, got %s", got.State)
 	}
-	if sourceFailStreak.Load() != 0 {
-		t.Fatalf("healthy probe should clear the streak, got %d", sourceFailStreak.Load())
+	if n := sourceFailureCount(p.ID); n != 0 {
+		t.Fatalf("healthy probe should clear the streak, got %d", n)
 	}
 
 	// A genuine auth failure only flips to needs_refresh after the threshold — a

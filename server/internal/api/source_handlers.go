@@ -8,7 +8,7 @@ import (
 	"path"
 	"strconv"
 	"strings"
-	"sync/atomic"
+	"sync"
 	"time"
 
 	"synodl/server/internal/httpx"
@@ -71,10 +71,15 @@ type sourceSessionReq struct {
 }
 
 type sourceSearchReq struct {
-	Query   string `json:"query"`
-	Page    int    `json:"page"`
-	Sort    string `json:"sort"`
-	Order   string `json:"order"` // "asc" / "desc"; "" = provider default (descending)
+	Query string `json:"query"`
+	Page  int    `json:"page"`
+	Sort  string `json:"sort"`
+	Order string `json:"order"` // "asc" / "desc"; "" = provider default (descending)
+	// Source narrows the query to one configured source. "" or absent means every
+	// enabled source, combined — which is the default (spec 0007 FR-006). An
+	// unknown or removed id degrades to "all" rather than erroring, so a user
+	// browsing a source an admin deletes lands somewhere sensible.
+	Source  string `json:"source"`
 	Filters struct {
 		Type     string   `json:"type"`
 		Quality  string   `json:"quality"`
@@ -127,10 +132,7 @@ func (d Deps) activeSource() (p *store.SourceProvider, drv source.Provider, cfg 
 		return nil, nil, source.Config{}, source.Session{}, false
 	}
 	return pr, driver, source.Config{APIHosts: pr.APIHosts, DownloadHosts: pr.DownloadHosts},
-		source.Session{
-			CFClearance: s.CFClearance, CAPIKey: s.CAPIKey, CToken: s.CToken,
-			UserAgent: s.UserAgent, CPlatform: s.CPlatform, CAppVersion: s.CAppVersion,
-		}, true
+		toSession(s), true
 }
 
 // sourceFailThreshold is how many CONSECUTIVE provider auth failures we tolerate
@@ -141,15 +143,53 @@ func (d Deps) activeSource() (p *store.SourceProvider, drv source.Provider, cfg 
 // threshold quickly.
 const sourceFailThreshold = 4
 
-// sourceFailStreak counts consecutive provider auth failures across requests. A
-// success resets it (see sourceCallOK).
-var sourceFailStreak atomic.Int32
+// sourceFailStreak counts consecutive auth failures PER SOURCE. It used to be one
+// global counter, which was fine with a single provider and wrong the moment
+// there are several: one flaky source would otherwise condemn a healthy one.
+var (
+	sourceFailMu     sync.Mutex
+	sourceFailStreak = map[int64]int{}
+)
+
+// noteSourceFailure records one auth failure for a source and returns the new
+// consecutive count.
+func noteSourceFailure(id int64) int {
+	sourceFailMu.Lock()
+	defer sourceFailMu.Unlock()
+	sourceFailStreak[id]++
+	return sourceFailStreak[id]
+}
+
+// sourceFailureCount reports a source's current consecutive-failure streak.
+func sourceFailureCount(id int64) int {
+	sourceFailMu.Lock()
+	defer sourceFailMu.Unlock()
+	return sourceFailStreak[id]
+}
+
+// resetSourceFailures clears every source's streak. Used by tests, and whenever
+// an admin re-pastes material — they have just fixed the thing that was failing.
+func resetSourceFailures() {
+	sourceFailMu.Lock()
+	defer sourceFailMu.Unlock()
+	sourceFailStreak = map[int64]int{}
+}
+
+// clearSourceFailures resets a source's streak after a healthy call.
+func clearSourceFailures(id int64) {
+	sourceFailMu.Lock()
+	defer sourceFailMu.Unlock()
+	delete(sourceFailStreak, id)
+}
 
 // sourceCallOK records a healthy provider call: clears the failure streak and, if
 // the stored state had drifted, re-confirms the session as active.
 func (d Deps) sourceCallOK(p *store.SourceProvider) {
-	sourceFailStreak.Store(0)
-	if p != nil && p.State != store.SourceActive {
+	if p == nil {
+		return
+	}
+	clearSourceFailures(p.ID)
+	if p.State != store.SourceActive {
 		now := time.Now().Unix()
 		_ = d.Store.SetProviderState(p.ID, store.SourceActive, now, now)
 	}
@@ -161,7 +201,7 @@ func (d Deps) sourceCallOK(p *store.SourceProvider) {
 // leaves the session intact. It never echoes secrets or raw upstream bodies.
 func (d Deps) writeSourceRuntimeErr(w http.ResponseWriter, providerID int64, err error) {
 	if nr, ok := source.AsNeedsRefresh(err); ok {
-		if sourceFailStreak.Add(1) < sourceFailThreshold {
+		if noteSourceFailure(providerID) < sourceFailThreshold {
 			// Likely transient (rate-limit/challenge on a burst) — keep the session;
 			// the client can retry a moment later.
 			httpx.JSON(w, http.StatusServiceUnavailable, map[string]any{"error": "source_busy"})
@@ -216,33 +256,33 @@ func handleSourceSession(d Deps) http.Handler {
 			httpx.Error(w, http.StatusBadRequest, "unknown_provider")
 			return
 		}
-		sess := source.Session{
-			CFClearance: body.Session.CFClearance, CAPIKey: body.Session.CAPIKey,
-			CToken: body.Session.CToken, UserAgent: body.Session.UserAgent,
-			CPlatform: body.Session.CPlatform, CAppVersion: body.Session.CAppVersion,
+		// The pre-0007 request shape carries 30nama's field names directly; map them
+		// into the provider-neutral bag under the same keys the store has always
+		// sealed, so an existing client and an existing database both keep working.
+		sess := source.Session{Fields: map[string]string{}, UserAgent: body.Session.UserAgent}
+		for k, v := range map[string]string{
+			"cf_clearance":  body.Session.CFClearance,
+			"c_api_key":     body.Session.CAPIKey,
+			"c_token":       body.Session.CToken,
+			"c_platform":    body.Session.CPlatform,
+			"c_app_version": body.Session.CAppVersion,
+		} {
+			if v != "" {
+				sess.Fields[k] = v
+			}
 		}
 		// If this provider is already configured, blank secret fields mean "keep the
 		// stored value" — so the admin can re-verify or edit only the destination
 		// folders without re-pasting every cookie/token. Merge before verifying.
 		if pr, err := d.Store.GetProvider(); err == nil && pr != nil && pr.Kind == drv.Kind() {
 			if stored, e := d.Store.LoadProviderSession(pr.ID); e == nil && stored != nil {
-				if sess.CFClearance == "" {
-					sess.CFClearance = stored.CFClearance
-				}
-				if sess.CAPIKey == "" {
-					sess.CAPIKey = stored.CAPIKey
-				}
-				if sess.CToken == "" {
-					sess.CToken = stored.CToken
+				for k, v := range stored.Fields {
+					if sess.Fields[k] == "" {
+						sess.Fields[k] = v
+					}
 				}
 				if sess.UserAgent == "" {
 					sess.UserAgent = stored.UserAgent
-				}
-				if sess.CPlatform == "" {
-					sess.CPlatform = stored.CPlatform
-				}
-				if sess.CAppVersion == "" {
-					sess.CAppVersion = stored.CAppVersion
 				}
 			}
 		}
@@ -271,8 +311,7 @@ func handleSourceSession(d Deps) http.Handler {
 			return
 		}
 		if err := d.Store.SaveProviderSession(id, store.SourceSession{
-			CFClearance: sess.CFClearance, CAPIKey: sess.CAPIKey, CToken: sess.CToken,
-			UserAgent: sess.UserAgent, CPlatform: sess.CPlatform, CAppVersion: sess.CAppVersion,
+			Fields: sess.Fields, UserAgent: sess.UserAgent,
 		}, now); err != nil {
 			httpx.Error(w, http.StatusInternalServerError, "server")
 			return
@@ -322,8 +361,8 @@ func handleSourcePolicy(d Deps) http.Handler {
 // handleSourceSearch runs a catalog search for any signed-in user.
 func handleSourceSearch(d Deps) http.Handler {
 	return d.requireUser(func(w http.ResponseWriter, r *http.Request, u *store.User) {
-		p, drv, cfg, sess, ok := d.activeSource()
-		if !ok {
+		refs, skipped := d.sourceRefs()
+		if len(refs) == 0 && len(skipped) == 0 {
 			httpx.JSON(w, http.StatusConflict, map[string]any{"error": "source_unavailable"})
 			return
 		}
@@ -347,15 +386,65 @@ func handleSourceSearch(d Deps) http.Handler {
 		if u.ContentRating != "" {
 			filters.Age = u.ContentRating
 		}
-		res, err := drv.Search(r.Context(), sourceHTTP, cfg, sess, source.SearchQuery{
+		// "" (or an unknown/removed source) means every enabled source, combined.
+		selected, _ := selectRefs(refs, body.Source)
+		res := source.SearchAll(r.Context(), sourceHTTP, selected, source.SearchQuery{
 			Query: body.Query, Page: body.Page, Sort: body.Sort, Order: body.Order, Filters: filters,
 		})
-		if err != nil {
-			d.writeSourceRuntimeErr(w, p.ID, err)
+		// Sources that couldn't even be built (unknown driver, unreadable session)
+		// are degraded too — the user is told, rather than quietly shown less.
+		res.Degraded = append(res.Degraded, skipped...)
+
+		// Persist health transitions the fan-out observed, so the admin view and the
+		// refresh prompt reflect reality. Reason categories only, never upstream text.
+		//
+		// A single auth failure is almost always transient — the provider
+		// rate-limiting or challenging one request during a burst — so a source is
+		// only condemned after several CONSECUTIVE failures. Flipping it on the
+		// first blip would tell the operator to re-paste a session that is fine.
+		now := time.Now().Unix()
+		degradedIDs := map[int64]string{}
+		for _, dg := range res.Degraded {
+			degradedIDs[dg.SourceID] = dg.Reason
+		}
+		transient := 0
+		for _, ref := range selected {
+			reason, bad := degradedIDs[ref.ID]
+			if !bad {
+				clearSourceFailures(ref.ID)
+				_ = d.Store.SetProviderStateErr(ref.ID, store.SourceActive, "", now, now)
+				continue
+			}
+			// An entitlement problem is immediate and definite — no streak needed,
+			// and re-pasting would not help.
+			if reason == source.ReasonUnsubscribed {
+				_ = d.Store.SetProviderStateErr(ref.ID, store.SourceUnsubscribed, reason, 0, now)
+				continue
+			}
+			if noteSourceFailure(ref.ID) < sourceFailThreshold {
+				transient++
+				continue // keep the stored state; this may well be a blip
+			}
+			_ = d.Store.SetProviderStateErr(ref.ID, store.SourceNeedsRefresh, reason, 0, now)
+		}
+
+		allFailed := len(res.Items) == 0 && len(selected) > 0 && len(res.Degraded) >= len(selected)
+		// Everything we asked failed, but not yet often enough to call it dead:
+		// answer retryable rather than sending the user to the login prompt.
+		if allFailed && transient > 0 {
+			httpx.JSON(w, http.StatusServiceUnavailable, map[string]any{"error": "source_busy"})
 			return
 		}
-		// A successful call clears the failure streak and re-confirms the session.
-		d.sourceCallOK(p)
+		// Every source failed for real: report once, not once per source.
+		if allFailed {
+			out := map[string]any{"error": "source_needs_refresh", "degraded": res.Degraded}
+			if len(res.Degraded) == 1 && res.Degraded[0].Reason == source.ReasonNeedsRefresh {
+				// Single-source callers have always been told which layer expired.
+				out["layer"] = source.LayerToken
+			}
+			httpx.JSON(w, http.StatusConflict, out)
+			return
+		}
 		if res.Items == nil {
 			res.Items = []source.CatalogTitle{}
 		}
@@ -368,17 +457,17 @@ func handleSourceSearch(d Deps) http.Handler {
 // UI stays in step with the source. The client refreshes this on open/foreground.
 func handleSourceParameters(d Deps) http.Handler {
 	return d.requireUser(func(w http.ResponseWriter, r *http.Request, _ *store.User) {
-		p, drv, cfg, sess, ok := d.activeSource()
-		if !ok {
+		refs, _ := d.sourceRefs()
+		if len(refs) == 0 {
 			httpx.JSON(w, http.StatusConflict, map[string]any{"error": "source_unavailable"})
 			return
 		}
-		params, err := drv.Parameters(r.Context(), sourceHTTP, cfg, sess)
+		selected, single := selectRefs(refs, r.URL.Query().Get("source"))
+		params, err := d.gatherParameters(r, selected, single)
 		if err != nil {
-			d.writeSourceRuntimeErr(w, p.ID, err)
+			d.writeSourceRuntimeErr(w, selected[0].ID, err)
 			return
 		}
-		d.sourceCallOK(p)
 		httpx.JSON(w, http.StatusOK, params)
 	})
 }
@@ -386,18 +475,20 @@ func handleSourceParameters(d Deps) http.Handler {
 // handleSourceTitle returns a title's qualities (movies are sendable).
 func handleSourceTitle(d Deps) http.Handler {
 	return d.requireUser(func(w http.ResponseWriter, r *http.Request, _ *store.User) {
-		p, drv, cfg, sess, ok := d.activeSource()
+		ref, id, ok := d.resolveTitleID(r.PathValue("id"))
 		if !ok {
-			httpx.JSON(w, http.StatusConflict, map[string]any{"error": "source_unavailable"})
+			// Malformed, hostile, or naming a source this caller doesn't have — a
+			// client error, never a silent miss (FR-034).
+			httpx.Error(w, http.StatusBadRequest, "bad_title_id")
 			return
 		}
-		id := r.PathValue("id")
-		td, err := drv.Title(r.Context(), sourceHTTP, cfg, sess, id)
+		td, err := ref.Driver.Title(r.Context(), sourceHTTP, ref.Cfg, ref.Sess, id)
 		if err != nil {
-			d.writeSourceRuntimeErr(w, p.ID, err)
+			d.writeSourceRuntimeErr(w, ref.ID, err)
 			return
 		}
-		d.sourceCallOK(p)
+		d.sourceCallOK(&store.SourceProvider{ID: ref.ID, State: store.SourceActive})
+		td.ID = source.QualifyID(ref.ID, td.ID)
 		if td.Qualities == nil {
 			td.Qualities = []source.QualityOption{}
 		}
@@ -409,16 +500,24 @@ func handleSourceTitle(d Deps) http.Handler {
 // per-title subfolder under the movies parent, honoring folder grants.
 func handleSourceSend(d Deps) http.Handler {
 	return d.requireUser(func(w http.ResponseWriter, r *http.Request, u *store.User) {
-		p, drv, cfg, sess, ok := d.activeSource()
-		if !ok {
-			httpx.JSON(w, http.StatusConflict, map[string]any{"error": "source_unavailable"})
-			return
-		}
 		var body sourceSendReq
 		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<16)).Decode(&body); err != nil {
 			httpx.Error(w, http.StatusBadRequest, "bad request")
 			return
 		}
+		// The title id names its own source, so a send always addresses the source
+		// the user was actually looking at — not whichever one happens to be first.
+		ref, titleID, okID := d.resolveTitleID(body.TitleID)
+		if !okID {
+			httpx.Error(w, http.StatusBadRequest, "bad_title_id")
+			return
+		}
+		p, err := d.Store.GetProviderByID(ref.ID)
+		if err != nil || p == nil {
+			httpx.JSON(w, http.StatusConflict, map[string]any{"error": "source_unavailable"})
+			return
+		}
+		drv, cfg, sess := ref.Driver, ref.Cfg, ref.Sess
 		if body.TitleID == "" || body.QualityID == "" {
 			httpx.Error(w, http.StatusBadRequest, "titleId and qualityId required")
 			return
@@ -436,7 +535,7 @@ func handleSourceSend(d Deps) http.Handler {
 		}
 		folderName := sanitizeFolderName(body.Title)
 		if !validFolderName(folderName) {
-			folderName = "title-" + sanitizeFolderName(body.TitleID)
+			folderName = "title-" + sanitizeFolderName(titleID)
 		}
 		dest := relParent + "/" + folderName
 		if !d.destinationAllowed(u, dest) {
@@ -446,7 +545,7 @@ func handleSourceSend(d Deps) http.Handler {
 
 		// Resolve the signed link(s) (+ per-file size) at send time (never cached):
 		// one for a movie, one per episode for a series season pack.
-		links, size, err := drv.ResolveDownload(r.Context(), sourceHTTP, cfg, sess, body.TitleID, body.QualityID)
+		links, size, err := drv.ResolveDownload(r.Context(), sourceHTTP, cfg, sess, titleID, body.QualityID)
 		if err != nil {
 			d.writeSourceRuntimeErr(w, p.ID, err)
 			return
@@ -590,14 +689,26 @@ func handleSetSourcePrefs(d Deps) http.Handler {
 // `filters` as an opaque JSON blob owned by the client.
 func handleGetSourceView(d Deps) http.Handler {
 	return d.requireUser(func(w http.ResponseWriter, r *http.Request, u *store.User) {
-		filters, sort, order, err := d.Store.GetSourceView(u.ID)
+		filters, sort, order, selected, err := d.Store.GetSourceViewFull(u.ID)
 		if err != nil {
 			httpx.Error(w, http.StatusInternalServerError, "server")
 			return
 		}
+		// A source the user had selected may since have been removed or disabled.
+		// Normalize that to "all sources" on READ rather than rewriting the row —
+		// the user lands somewhere sensible and a re-enabled source comes back.
+		if selected != "" {
+			refs, _ := d.sourceRefs()
+			if _, single := selectRefs(refs, selected); !single {
+				selected = ""
+			}
+		}
 		// Pass the stored filters JSON through verbatim (default {}), so the client
 		// gets an object rather than a JSON-encoded string.
-		httpx.JSON(w, http.StatusOK, map[string]any{"filters": json.RawMessage(orElse(filters, "{}")), "sort": sort, "order": order})
+		httpx.JSON(w, http.StatusOK, map[string]any{
+			"filters": json.RawMessage(orElse(filters, "{}")), "sort": sort, "order": order,
+			"selectedSource": selected,
+		})
 	})
 }
 
@@ -607,6 +718,9 @@ func handleSetSourceView(d Deps) http.Handler {
 			Filters json.RawMessage `json:"filters"`
 			Sort    string          `json:"sort"`
 			Order   string          `json:"order"`
+			// "" = all sources. Persisted with the rest of the view so the choice
+			// follows the user across devices (FR-008).
+			SelectedSource string `json:"selectedSource"`
 		}
 		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<14)).Decode(&body); err != nil {
 			httpx.Error(w, http.StatusBadRequest, "bad request")
@@ -616,7 +730,8 @@ func handleSetSourceView(d Deps) http.Handler {
 		if filters == "" || filters == "null" {
 			filters = "{}"
 		}
-		if err := d.Store.SaveSourceView(u.ID, filters, strings.TrimSpace(body.Sort), strings.TrimSpace(body.Order), time.Now().Unix()); err != nil {
+		if err := d.Store.SaveSourceViewFull(u.ID, filters, strings.TrimSpace(body.Sort),
+			strings.TrimSpace(body.Order), strings.TrimSpace(body.SelectedSource), time.Now().Unix()); err != nil {
 			httpx.Error(w, http.StatusInternalServerError, "server")
 			return
 		}

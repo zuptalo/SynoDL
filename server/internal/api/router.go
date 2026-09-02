@@ -107,6 +107,12 @@ func NewRouter(d Deps) http.Handler {
 		// the provider's known image hosts — a same-origin poster proxy + cache.
 		mux.Handle("GET /v1/source/image", handleSourceImage(d))
 		mux.Handle("GET /v1/source/status", handleSourceStatus(d))
+		// Multi-source admin (spec 0007). The singular session/policy routes below
+		// stay for compatibility and address the lowest-id source.
+		mux.Handle("GET /v1/source/providers", handleListProviders(d))
+		mux.Handle("POST /v1/source/providers", handleCreateProvider(d))
+		mux.Handle("PUT /v1/source/providers/{id}", handleUpdateProvider(d))
+		mux.Handle("DELETE /v1/source/providers/{id}", handleDeleteProvider(d))
 		mux.Handle("PUT /v1/source/session", handleSourceSession(d))
 		mux.Handle("DELETE /v1/source/session", handleSourceDelete(d))
 		mux.Handle("PUT /v1/source/policy", handleSourcePolicy(d))
