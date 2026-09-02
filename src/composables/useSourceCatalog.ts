@@ -106,19 +106,25 @@ const qualityStatic: Option[] = QUALITIES.map((q) => ({ value: q, label: q }));
 
 // Filter options for the sheet + chips: the provider's live facets when loaded,
 // otherwise the built-in lists. Each carries a leading "Any" entry.
+//
+// Every facet list is defaulted to [] before it is mapped. Our own server always
+// sends each one as an array, but this runs inside a computed: one missing key
+// would throw on .map, and a computed that throws during render takes the whole
+// Discover page down (blank grid, no chips, no filter button) rather than just
+// emptying one dropdown. A missing facet degrades to "no options" instead.
 const filterOptions = computed(() => {
   const p = parameters.value;
   return {
-    types: withAny(p ? typeOptions(p.types) : TYPES, 'Any type'),
-    genres: withAny(p ? genreOptions(p.genres) : GENRES, 'Any genre'),
-    qualities: withAny(p ? qualityOptions(p.qualities) : qualityStatic, 'Any quality'),
-    scores: withAny(p ? scoreOptions(p.scores) : SCORES, 'Any rating'),
-    languages: withAny(p ? languageOptions(p.languages) : LANGUAGES, 'Any language'),
-    countries: withAny(p ? countryOptions(p.countries) : COUNTRIES, 'Any country'),
+    types: withAny(p ? typeOptions(p.types ?? []) : TYPES, 'Any type'),
+    genres: withAny(p ? genreOptions(p.genres ?? []) : GENRES, 'Any genre'),
+    qualities: withAny(p ? qualityOptions(p.qualities ?? []) : qualityStatic, 'Any quality'),
+    scores: withAny(p ? scoreOptions(p.scores ?? []) : SCORES, 'Any rating'),
+    languages: withAny(p ? languageOptions(p.languages ?? []) : LANGUAGES, 'Any language'),
+    countries: withAny(p ? countryOptions(p.countries ?? []) : COUNTRIES, 'Any country'),
     // Advanced facets only exist when the live parameters are loaded.
-    channels: withAny(p ? passthroughOptions(p.channels) : [], 'Any channel'),
-    encoders: withAny(p ? passthroughOptions(p.encoders) : [], 'Any encoder'),
-    ages: withAny(p ? passthroughOptions(p.ages) : [], 'Any rating'),
+    channels: withAny(p ? passthroughOptions(p.channels ?? []) : [], 'Any channel'),
+    encoders: withAny(p ? passthroughOptions(p.encoders ?? []) : [], 'Any encoder'),
+    ages: withAny(p ? passthroughOptions(p.ages ?? []) : [], 'Any rating'),
   };
 });
 // Year bounds for the range inputs (fall back to a sensible window).
