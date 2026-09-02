@@ -2,7 +2,10 @@ module synodl/server
 
 go 1.26
 
-require modernc.org/sqlite v1.54.0
+require (
+	golang.org/x/net v0.58.0
+	modernc.org/sqlite v1.54.0
+)
 
 require (
 	github.com/dustin/go-humanize v1.0.1 // indirect

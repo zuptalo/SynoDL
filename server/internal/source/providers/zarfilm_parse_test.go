@@ -1,0 +1,243 @@
+package providers
+
+import (
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+)
+
+// These run against trimmed captures of the real site, so the parser is
+// exercised on the markup it will actually meet rather than on something
+// hand-written to match the parser.
+
+func zarFixture(t *testing.T, name string) []byte {
+	t.Helper()
+	b, err := os.ReadFile(filepath.Join("testdata", "zarfilm", name))
+	if err != nil {
+		t.Fatalf("read zarfilm fixture %s: %v", name, err)
+	}
+	return b
+}
+
+func TestParseListingReadsEveryCard(t *testing.T) {
+	items, err := parseListing(zarFixture(t, "archive_page1.html"), "https://zarfilm.com")
+	if err != nil {
+		t.Fatalf("parseListing: %v", err)
+	}
+	// The real archive serves 21 items per page.
+	if len(items) != 21 {
+		t.Fatalf("got %d items, want 21", len(items))
+	}
+	for i, it := range items {
+		if it.ID == "" || it.Title == "" {
+			t.Fatalf("item %d incomplete: %+v", i, it)
+		}
+		if strings.HasPrefix(it.ID, "http") || strings.HasPrefix(it.ID, "/") {
+			t.Fatalf("item %d id must be a bare path, got %q", i, it.ID)
+		}
+	}
+	first := items[0]
+	if first.Title != "The Sheep Detectives" {
+		t.Fatalf("first title = %q", first.Title)
+	}
+	if first.ID != "the-sheep-detectives-2026" {
+		t.Fatalf("first id = %q", first.ID)
+	}
+	if first.Year != "2026" {
+		t.Fatalf("first year = %q", first.Year)
+	}
+	// The rating element nests a "/10" child; only the number belongs to it.
+	if first.Rating != 7.6 {
+		t.Fatalf("first rating = %v, want 7.6 (nested /10 must not leak in)", first.Rating)
+	}
+	if !strings.Contains(first.PosterURL, "zarfilm.com/wp-content/uploads/") {
+		t.Fatalf("first poster = %q", first.PosterURL)
+	}
+	if len(first.Genres) == 0 {
+		t.Fatal("genres missing")
+	}
+}
+
+// A listing must never be able to hand back an off-site URL as a title id — that
+// is where a crafted id would otherwise come from.
+func TestParseListingIgnoresOffsiteLinks(t *testing.T) {
+	page := []byte(`<div class="inner_item_body_widget">
+	  <a class="bgbackitem" href="https://evil.example/pwned"><img src="x.jpg"></a>
+	  <div class="item-foot-title"><h3 class="movie-title">Hostile</h3></div>
+	</div>`)
+	items, err := parseListing(page, "https://zarfilm.com")
+	if err != nil {
+		t.Fatalf("parseListing: %v", err)
+	}
+	if len(items) != 0 {
+		t.Fatalf("off-site link became a title: %+v", items)
+	}
+}
+
+func TestParseMovieTitlePage(t *testing.T) {
+	rows, err := parseTitlePage(zarFixture(t, "movie_subscribed.html"))
+	if err != nil {
+		t.Fatalf("parseTitlePage: %v", err)
+	}
+	if len(rows) == 0 {
+		t.Fatal("no download rows parsed")
+	}
+	var subbed, dubbed int
+	for _, r := range rows {
+		if r.Paywalled {
+			t.Fatalf("subscribed page yielded a paywalled row: %+v", r)
+		}
+		if r.URL == "" {
+			t.Fatalf("row without a link: %+v", r)
+		}
+		if !strings.Contains(r.URL, "indllserver.info") {
+			t.Fatalf("unexpected download host: %q", r.URL)
+		}
+		if r.Size == "" {
+			t.Fatalf("row without a size: %+v", r)
+		}
+		if r.Dubbed {
+			dubbed++
+		} else {
+			subbed++
+		}
+	}
+	if subbed == 0 || dubbed == 0 {
+		t.Fatalf("both release variants should be present: %d subbed, %d dubbed", subbed, dubbed)
+	}
+	// Resolution comes from the filename — the site never puts it in metadata.
+	var res1080 bool
+	for _, r := range rows {
+		if r.Resolution == "1080p" {
+			res1080 = true
+		}
+	}
+	if !res1080 {
+		t.Fatal("no 1080p row; resolution must be read from the release filename")
+	}
+	// Encoder is real metadata on the subtitled rows.
+	var haveEncoder bool
+	for _, r := range rows {
+		if r.Encoder != "" {
+			haveEncoder = true
+		}
+	}
+	if !haveEncoder {
+		t.Fatal("encoder metadata not parsed")
+	}
+}
+
+// FR-019: no entitlement is a distinct state, not a broken session.
+func TestParseUnsubscribedTitlePage(t *testing.T) {
+	rows, err := parseTitlePage(zarFixture(t, "movie_unsubscribed.html"))
+	if err != nil {
+		t.Fatalf("parseTitlePage: %v", err)
+	}
+	if len(rows) == 0 {
+		t.Fatal("no rows parsed from the paywalled page")
+	}
+	for _, r := range rows {
+		if !r.Paywalled {
+			t.Fatalf("paywalled page yielded a real link: %+v", r)
+		}
+		if r.URL != "" {
+			t.Fatalf("paywalled row must carry no URL: %+v", r)
+		}
+	}
+}
+
+func TestParseSeriesPage(t *testing.T) {
+	seasons, err := parseSeriesPage(zarFixture(t, "series_subscribed.html"))
+	if err != nil {
+		t.Fatalf("parseSeriesPage: %v", err)
+	}
+	if len(seasons) == 0 {
+		t.Fatal("no season qualities parsed")
+	}
+	for i, sq := range seasons {
+		if sq.Season == "" {
+			t.Fatalf("season %d has no label: %+v", i, sq)
+		}
+		if sq.SeasonNum == 0 {
+			t.Fatalf("season %d number not parsed from %q", i, sq.Season)
+		}
+		if len(sq.Episodes) == 0 {
+			t.Fatalf("season %d has no episode links: %+v", i, sq)
+		}
+		for _, u := range sq.Episodes {
+			if !strings.Contains(u, "indllserver.info") {
+				t.Fatalf("unexpected episode host: %q", u)
+			}
+		}
+		if sq.Size == "" {
+			t.Fatalf("season %d has no size: %+v", i, sq)
+		}
+	}
+	// Episodes must come back in broadcast order, not shuffled by the DOM walk.
+	first := seasons[0]
+	if !strings.Contains(first.Episodes[0], "S01E01") {
+		t.Fatalf("first episode = %q, want S01E01", first.Episodes[0])
+	}
+	if len(first.Episodes) > 1 && !strings.Contains(first.Episodes[1], "S01E02") {
+		t.Fatalf("second episode = %q, want S01E02", first.Episodes[1])
+	}
+	if first.Resolution != "1080p" {
+		t.Fatalf("resolution = %q, want 1080p from the release filename", first.Resolution)
+	}
+}
+
+func TestParseLoginState(t *testing.T) {
+	for _, tc := range []struct {
+		file   string
+		logged bool
+	}{
+		{"logged_out.html", false},
+		{"movie_subscribed.html", true},
+		{"archive_page1.html", true},
+	} {
+		got := parseLoginState(zarFixture(t, tc.file))
+		if got.LoggedIn != tc.logged {
+			t.Fatalf("%s: LoggedIn = %v, want %v", tc.file, got.LoggedIn, tc.logged)
+		}
+	}
+	// A user id of "0" is the anonymous marker even if the flag were malformed.
+	if st := parseLoginState([]byte(`{"u":"0","logged":"1"}`)); st.LoggedIn {
+		t.Fatal(`u="0" must be treated as anonymous`)
+	}
+}
+
+func TestParseIMDbID(t *testing.T) {
+	if got := parseIMDbID(zarFixture(t, "movie_subscribed.html")); got != "tt11561116" {
+		t.Fatalf("imdb id = %q", got)
+	}
+}
+
+func TestParsePageCount(t *testing.T) {
+	if n := parsePageCount(zarFixture(t, "archive_page1.html")); n < 100 {
+		t.Fatalf("page count = %d, want the archive's real depth", n)
+	}
+}
+
+// A parse failure must degrade, never panic: the site can change its markup at
+// any time and that must surface as a source-level error.
+func TestParsersSurviveGarbage(t *testing.T) {
+	for _, junk := range [][]byte{
+		nil, []byte(""), []byte("not html at all"),
+		[]byte("<div class=\"inner_item_body_widget\">"), // truncated mid-element
+		[]byte("<html><body><div class='item_row_dl'><a class='dllink'></a></div>"),
+	} {
+		if _, err := parseListing(junk, "https://zarfilm.com"); err != nil {
+			t.Fatalf("parseListing(%q) errored: %v", junk, err)
+		}
+		if _, err := parseTitlePage(junk); err != nil {
+			t.Fatalf("parseTitlePage(%q) errored: %v", junk, err)
+		}
+		if _, err := parseSeriesPage(junk); err != nil {
+			t.Fatalf("parseSeriesPage(%q) errored: %v", junk, err)
+		}
+		_ = parseLoginState(junk)
+		_ = parseIMDbID(junk)
+		_ = parsePageCount(junk)
+	}
+}
