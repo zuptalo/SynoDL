@@ -13,20 +13,33 @@ material and is how you catch the real sites drifting.
 make start
 ```
 
-Brings up the mock DSM (`:8291`), `synodl` (`:8280`) and Vite (`:5273`) as before. The mock now
-also serves **two fake source sites** on the same port under distinct path prefixes: one
-speaking the JSON shape of the existing source, one speaking zarfilm's HTML shape. Their
-fixtures are trimmed captures of real responses, so the drivers exercise their real parsing
+Brings up the mock DSM (`:8291`, now over TLS), `synodl` (`:8280`) and Vite (`:5273`).
+
+Two things changed to make this work at all, because the download sources exist only in the
+server's stateful mode and that mode was previously unreachable locally:
+
+- the dev backend boots **stateful**, with throwaway `SECRETS_KEY` and `DATA_DIR` (`.devdata/`,
+  gitignored) — override either in `server/.env`;
+- the mock DSM serves **TLS**, since stateful SynoDL always dials `https://` — the same shape as
+  a self-signed NAS.
+
+The mock also serves **two fake source sites** on the same port: `/mocksrc/zar` (HTML, like a
+WordPress film site) and `/mocksrc/tn` (the other provider's JSON envelopes). They emit the same
+class names, nesting and absolute links the real sites do, so the drivers run their real parsing
 paths.
 
-1. Log in at http://localhost:5273 with `admin` / `secret`.
-2. Settings → Sources → **Add source**. Add both mock sources; any session value is accepted by
-   the mock, so paste anything non-empty.
-3. Open Discover. The dropdown reads **All sources**; results from both are interleaved and
-   each carries its source label.
+The dev build carries the `sourcemock` build tag, which is what lets a driver be pointed at a
+fake site. A release build never passes that tag, so the capability does not exist in
+production.
 
-This is the path CI runs, and it is enough to develop every part of the feature except the
-real sites' quirks.
+1. Open http://localhost:5273 and complete the first-run wizard (the NAS fields are pre-filled
+   for the mock; the mock accepts `admin` / `secret`).
+2. Settings → Download sources → **Add a source**. Choose ZarFilm and paste anything non-empty —
+   the fake site accepts any value.
+3. Open Discover. Add a second source the same way to see the selector appear, results
+   interleaved, and each card labelled with its source.
+
+Note the mock DSM's shares are `movie` and `tv-show`, so use those as the destination folders.
 
 ### Reproducing the interesting states
 
@@ -34,10 +47,12 @@ The mock's `/__mock/*` control endpoints drive the states that are otherwise har
 
 | To see | Do |
 |---|---|
-| A source needing refresh | Mark one mock source logged-out; Discover keeps showing the other, with a notice |
-| The unsubscribed state | Mark the zarfilm-shaped mock as paywalled — download rows come back as upsell links |
-| A slow / unreachable source | Ask the mock to stall past the per-source timeout; combined results still render |
-| Exhaustion at different rates | Give one mock fewer pages; "load more" continues from the other |
+| A source needing refresh | `POST https://localhost:8291/__mock/source/zar/logged-out` — Discover keeps showing the other source, with a notice naming this one |
+| The unsubscribed state | `POST …/__mock/source/zar/paywalled` — download rows come back as upsell links |
+| Exhaustion at different rates | `POST …/__mock/source/zar/pages?n=2` — "load more" continues from the other source |
+| Everything back to normal | `POST …/__mock/source/reset` |
+
+(The mock speaks TLS, so pass `-k` to curl.)
 
 ---
 
