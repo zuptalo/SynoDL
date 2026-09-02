@@ -16,6 +16,21 @@ existing one. By default Discover shows all sources combined, with a dropdown to
 single source. Set up local dev so both the existing source and the new one can be exercised
 for real."
 
+## Clarifications
+
+### Session 2026-09-02
+
+- Q: Should combined results collapse titles that share an IMDb identifier, or list them
+  separately? → A: List separately, each labelled with its source (FR-005a, FR-012a).
+- Q: Standard library only, or accept the server's first third-party dependency for reading
+  the new source's pages? → A: Accept a maintained markup tokenizer, and amend the documents
+  asserting zero dependencies alongside it (FR-029).
+- Q: Do a user's preferred quality and download quota become per-source? → A: No, both stay
+  global. Preferred quality is already a loose label match that generalizes across sources,
+  and the quota is a per-user daily count with no source dimension.
+- Q: Is the source dropdown shown when only one source is configured? → A: No — it appears
+  only at two or more sources, leaving the single-source experience untouched (FR-013).
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - Browse every configured source at once (Priority: P1)
@@ -52,8 +67,7 @@ driver is required to test this.
    **Then** it shows that title's own source's download options and sending works, with no
    ambiguity about which source the title came from.
 6. **Given** only one source is configured, **When** the user opens Discover, **Then** the
-   experience is unchanged from today and the dropdown is either hidden or shows that one
-   source.
+   source dropdown is not shown at all and the experience is identical to today's.
 
 ---
 
@@ -225,8 +239,8 @@ session material supplied through the environment, run the live checks against t
 - **FR-012a**: In combined mode every result MUST visibly indicate which source it came from,
   so that a title appearing more than once reads as two sources offering it rather than as a
   duplicate. In single-source mode this indicator is redundant and MUST NOT clutter the list.
-- **FR-013**: When only one source is configured, the Discover experience MUST be equivalent
-  to today's.
+- **FR-013**: When fewer than two sources are configured, the source selector MUST NOT be
+  shown and the Discover experience MUST be equivalent to today's.
 
 **Filters**
 
@@ -358,9 +372,11 @@ Required by constitution Principle III.
   for dozens, and no paging strategy is optimized for that case.
 - **Sources are catalog-equivalent.** Every source can be browsed, searched, and can produce a
   direct link. A source that could not would not fit this model.
-- **Per-user preferences stay global.** A user's preferred quality and any download quota
-  apply across sources rather than per source; destination folders and size policy stay
-  per-source, as they are today.
+- **Per-user preferences stay global.** A user's preferred quality and download quota apply
+  across sources rather than per source. This is not merely a default: preferred quality is
+  already matched loosely against a download option's label, so it carries over to any source
+  unchanged, and the quota is a per-user daily count with no source dimension. Destination
+  folders and size policy stay per-source, as they are today.
 - **Sending remains one option at a time.** Combining sources does not introduce sending the
   same title from several sources at once.
 - **The existing source's behavior is unchanged.** Its ordering, filters, and download flow
