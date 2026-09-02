@@ -480,6 +480,14 @@ func taskNameFromURI(uri string) string {
 		}
 		return "magnet download"
 	}
+	// Real DSM names an HTTP task after the URL's FILE, so the query string is
+	// not part of the name. That matters beyond cosmetics: signed download links
+	// carry credentials and account identifiers in their query
+	// (?md5=…&u=…&expires=…), and a mock that echoed those into a task name would
+	// put them on screen and into any test that asserts on names.
+	if i := strings.IndexAny(uri, "?#"); i >= 0 {
+		uri = uri[:i]
+	}
 	trimmed := strings.TrimRight(uri, "/")
 	if i := strings.LastIndexByte(trimmed, '/'); i >= 0 && i < len(trimmed)-1 {
 		return trimmed[i+1:]

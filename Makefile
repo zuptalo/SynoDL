@@ -15,17 +15,28 @@ AIR := $(GOBIN)/air
 .PHONY: start stop mock tools backend frontend roadmap spec
 
 ## start: mock DSM + backend hot reload + frontend hot reload
+# The dev backend's environment, shared by `start` and `backend` so the two can
+# never drift. It runs STATEFUL: SECRETS_KEY and DATA_DIR get throwaway dev
+# values, because accounts and the download sources only exist in stateful mode
+# and are otherwise unreachable locally. Override either in server/.env;
+# production supplies its own.
+DEV_BACKEND_ENV = cd $(SERVER_DIR) && set -a && { [ -f .env ] && . ./.env; }; \
+	: $${SECRETS_KEY:=dev-only-not-a-real-secret}; \
+	: $${DATA_DIR:=$(CURDIR)/.devdata}; \
+	: $${SYNO_TLS_INSECURE:=true}; \
+	mkdir -p "$$DATA_DIR"; set +a;
+
 start: tools
 	@echo "▶ Starting mock DSM (:8291) + backend (air) + frontend (vite) - Ctrl+C to stop all"
 	@trap 'kill 0' INT TERM EXIT; \
-		( cd $(SERVER_DIR) && go run ./cmd/synomock ) & \
-		( cd $(SERVER_DIR) && set -a && { [ -f .env ] && . ./.env; }; set +a; $(AIR) ) & \
+		( cd $(SERVER_DIR) && MOCK_TLS=1 go run ./cmd/synomock ) & \
+		( $(DEV_BACKEND_ENV) $(AIR) ) & \
 		( npm run dev ) & \
 		wait
 
 ## mock: run only the mock DSM (useful when testing the backend against it by hand)
 mock:
-	@cd $(SERVER_DIR) && go run ./cmd/synomock
+	@cd $(SERVER_DIR) && MOCK_TLS=1 go run ./cmd/synomock
 
 ## stop: kill any stray dev processes
 stop:
@@ -35,8 +46,12 @@ stop:
 	-@pkill -f "vite" 2>/dev/null || true
 
 ## backend: run only the backend in hot-reload mode (SYNO_URL defaults to the mock)
+##   Runs STATEFUL by default: SECRETS_KEY and DATA_DIR are given dev values so the
+##   whole app — accounts, and the download sources, which exist only in stateful
+##   mode — is reachable locally. Both are throwaway dev values kept out of git;
+##   override either in server/.env. Production supplies its own.
 backend: tools
-	@cd $(SERVER_DIR) && set -a && { [ -f .env ] && . ./.env; }; set +a; $(AIR)
+	@$(DEV_BACKEND_ENV) $(AIR)
 
 ## frontend: run only the frontend in hot-reload mode
 frontend:
