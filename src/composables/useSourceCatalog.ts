@@ -14,7 +14,9 @@ import {
   api,
   ApiError,
   type CatalogTitle,
+  type DegradedSource,
   type SourceParameters,
+  type SourceProvider,
   type SourceSearchFilters,
   type SourceStatus,
 } from '@/services/api';
@@ -88,6 +90,20 @@ function requestOpen(title: CatalogTitle | null, searchQuery?: string): void {
   pendingOpen.value = title;
   pendingSearch.value = title ? '' : (searchQuery ?? '');
 }
+// The configured sources, and which one the user is looking at. '' means "All
+// sources" — the default, and what an install with a single source always uses.
+const sources = ref<SourceProvider[]>([]);
+const selectedSource = ref('');
+// Shown only once there is a real choice to make: with one source a selector
+// would be a control with nothing to select (FR-013).
+const showSourcePicker = computed(() => sources.value.length > 1);
+const selectedSourceName = computed(
+  () => sources.value.find((s) => String(s.id) === selectedSource.value)?.displayName ?? 'All sources',
+);
+// Sources that dropped out of the last query. Rendered as a non-blocking notice:
+// a failing source must never blank results the healthy ones could fill.
+const degraded = ref<DegradedSource[]>([]);
+
 const loading = ref(false);
 const needsRefresh = ref(false);
 const unavailable = ref(true);
@@ -143,7 +159,7 @@ function optionLabel(list: Option[], value?: string): string {
 // built-in lists. Called on open and when the app returns to the foreground.
 async function loadParameters(): Promise<void> {
   try {
-    parameters.value = await api.getSourceParameters();
+    parameters.value = await api.getSourceParameters(selectedSource.value);
   } catch {
     /* keep whatever we have (built-in lists cover it) */
   }
@@ -173,6 +189,31 @@ const hasFilters = computed(() => {
       f.yearTo,
   );
 });
+
+// The source list drives the picker and the per-result labels. It is admin-only
+// on the server, so a non-admin simply gets no list and sees no picker — which
+// is correct: a non-admin cannot add sources anyway, and the labels come with
+// each result.
+async function loadSources(): Promise<void> {
+  try {
+    sources.value = (await api.listSourceProviders()).providers.filter((p) => p.enabled);
+  } catch {
+    sources.value = [];
+  }
+}
+
+async function setSource(id: string): Promise<string[]> {
+  if (selectedSource.value === id) return [];
+  selectedSource.value = id;
+  // Facets differ per source: combined mode offers only what every source
+  // understands, so the sheet must be refetched, and any filter the new
+  // selection cannot honour has to go rather than silently doing nothing.
+  await loadParameters();
+  const dropped = dropUnsupportedFilters();
+  await saveView();
+  await runSearch();
+  return dropped;
+}
 
 async function loadStatus(): Promise<void> {
   try {
@@ -229,10 +270,18 @@ const PAGE_TARGET = 24;
 // never equals a result's type string ("movie") — that mismatch was dropping
 // every result.
 async function fetchPage(reset: boolean): Promise<void> {
-  const res = await api.searchSource(query.value, filters.value, page.value, sort.value, order.value);
+  const res = await api.searchSource(
+    query.value,
+    filters.value,
+    page.value,
+    sort.value,
+    order.value,
+    selectedSource.value,
+  );
   needsRefresh.value = false;
   unavailable.value = false;
   pages.value = res.pages;
+  degraded.value = res.degraded ?? [];
   const incoming = res.items.filter((i) => !i.comingSoon);
   items.value = reset ? incoming : [...items.value, ...incoming];
 }
@@ -343,7 +392,7 @@ async function setQuery(q: string): Promise<void> {
 // user across devices. Fire-and-forget — a failure never blocks browsing.
 async function saveView(): Promise<void> {
   try {
-    await api.setSourceView(filters.value, sort.value, order.value);
+    await api.setSourceView(filters.value, sort.value, order.value, selectedSource.value);
   } catch {
     /* non-fatal */
   }
@@ -358,9 +407,46 @@ async function loadView(): Promise<void> {
     filters.value = v.filters ?? {};
     sort.value = v.sort || DEFAULT_SORT;
     order.value = v.order || DEFAULT_ORDER;
+    // The server normalizes a removed or disabled source back to "all", so a
+    // stale selection lands the user somewhere sensible rather than on a dead view.
+    selectedSource.value = v.selectedSource ?? '';
   } catch {
     /* non-fatal — keep whatever we have */
   }
+}
+
+// Drop any active filter the current selection cannot honour, so switching back
+// to "All sources" never leaves a filter applied that only one source
+// understood — the user would see it in the chips and reasonably assume it was
+// still narrowing the results (FR-016). Returns the keys it removed so the UI
+// can say what happened rather than silently changing the results.
+function dropUnsupportedFilters(): string[] {
+  const opts = filterOptions.value;
+  const supported = (key: keyof SourceSearchFilters, list: Option[]): boolean =>
+    list.some((o) => o.value !== '' && o.value === filters.value[key]);
+  const dropped: string[] = [];
+  const checks: Array<[keyof SourceSearchFilters, Option[]]> = [
+    ['quality', opts.qualities],
+    ['language', opts.languages],
+    ['country', opts.countries],
+    ['score', opts.scores],
+    ['channel', opts.channels],
+    ['encoder', opts.encoders],
+  ];
+  for (const [key, list] of checks) {
+    if (filters.value[key] && list.length > 0 && !supported(key, list)) {
+      delete filters.value[key];
+      dropped.push(String(key));
+    }
+  }
+  if (filters.value.genre?.length && opts.genres.length > 0) {
+    const keep = filters.value.genre.filter((g) => opts.genres.some((o) => o.value === g));
+    if (keep.length !== filters.value.genre.length) dropped.push('genre');
+    if (keep.length) filters.value.genre = keep;
+    else delete filters.value.genre;
+  }
+  if (dropped.length) filters.value = { ...filters.value };
+  return dropped;
 }
 
 async function applyFilters(f: SourceSearchFilters, newSort?: string): Promise<void> {
@@ -445,6 +531,14 @@ export function useSourceCatalog() {
     hasMore,
     hasFilters,
     preferredQuality,
+    sources,
+    selectedSource,
+    selectedSourceName,
+    showSourcePicker,
+    degraded,
+    loadSources,
+    setSource,
+    dropUnsupportedFilters,
     loadStatus,
     runSearch,
     loadMore,

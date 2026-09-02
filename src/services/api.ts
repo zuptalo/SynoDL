@@ -11,10 +11,17 @@ export class ApiError extends Error {
    *  "otp_invalid", "permission", "nas_unreachable", "nas", or free text. */
   readonly code: string;
   readonly status: number;
-  constructor(code: string, status: number) {
+  /**
+   * The server's error CATEGORY when it sent one alongside the code (e.g. a
+   * source verification saying "unsubscribed" rather than "invalid_token").
+   * Always a category, never upstream text — the server does not echo those.
+   */
+  readonly reason?: string;
+  constructor(code: string, status: number, reason?: string) {
     super(code);
     this.code = code;
     this.status = status;
+    this.reason = reason;
   }
 }
 
@@ -67,9 +74,11 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   reportReachable(true); // the server responded (even a 4xx/5xx means reachable)
   if (!resp.ok) {
     let code = `http_${resp.status}`;
+    let reason: string | undefined;
     try {
-      const body = (await resp.json()) as { error?: string };
+      const body = (await resp.json()) as { error?: string; reason?: string };
       if (body.error) code = body.error;
+      reason = body.reason;
     } catch {
       /* non-JSON error body — keep the status code */
     }
@@ -79,7 +88,7 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
     if (resp.status === 503 && code === 'nas_reauth') {
       window.dispatchEvent(new CustomEvent(NAS_REAUTH_EVENT));
     }
-    throw new ApiError(code, resp.status);
+    throw new ApiError(code, resp.status, reason);
   }
   // Some successful responses carry no body: 204 from pause/resume/delete, and
   // 201 Created from task-create. Parsing an empty body as JSON throws, so read
@@ -315,7 +324,17 @@ export interface SourceSessionInput {
   };
 }
 export interface CatalogTitle {
+  /**
+   * Source-qualified: "<sourceId>:<providerTitleId>". Opaque to the client —
+   * pass it back exactly as received. A title carried by two sources appears
+   * twice with two different ids, which is deliberate: they are different
+   * releases with different downloads.
+   */
   id: string;
+  /** Which configured source this came from (absent on a single-source install). */
+  sourceId?: number;
+  /** That source's display name, shown as a label in combined mode. */
+  sourceName?: string;
   type: string;
   title: string;
   posterUrl: string;
@@ -331,10 +350,57 @@ export interface CatalogTitle {
   comingSoon: boolean;
   freeDownload: boolean;
 }
+/** A source that could not answer this query. Never fails the whole request. */
+export interface DegradedSource {
+  sourceId: number;
+  name: string;
+  /** needs_refresh | unsubscribed | unreachable | timeout */
+  reason: string;
+}
+/** One configured download source, as an admin sees it. Carries no secrets. */
+export interface SourceProvider {
+  id: number;
+  kind: string;
+  displayName: string;
+  enabled: boolean;
+  /** not_configured | active | needs_refresh | unsubscribed */
+  state: string;
+  lastVerifiedAt: number;
+  lastError?: string;
+  sortOrder: number;
+  moviesParent: string;
+  tvParent: string;
+}
+/** One field a provider kind needs pasted. Drives the admin form. */
+export interface SourceSessionField {
+  key: string;
+  label: string;
+  help?: string;
+  secret: boolean;
+  required: boolean;
+}
+/** A provider kind an admin can add. */
+export interface SourceKind {
+  kind: string;
+  name: string;
+  sessionFields: SourceSessionField[];
+}
+export interface SourceProviderInput {
+  kind?: string;
+  displayName?: string;
+  moviesParent?: string;
+  tvParent?: string;
+  sortOrder?: number;
+  enabled?: boolean;
+  /** Write-only. Blank values mean "keep what is stored". */
+  session?: Record<string, string>;
+}
 export interface SourceSearchResult {
   page: number;
   pages: number;
   items: CatalogTitle[];
+  /** Sources that dropped out of this query; the rest of the results still stand. */
+  degraded?: DegradedSource[];
 }
 /** One selectable value in a filter facet, from the provider's parameters. */
 export interface SourceFacet {
@@ -482,8 +548,15 @@ export const api = {
   deleteSourceSession: () => request<{ state: string }>('/v1/source/session', { method: 'DELETE' }),
   setSourcePolicy: (maxDownloadMB: number) =>
     request<{ maxDownloadMB: number }>('/v1/source/policy', jsonMethod('PUT', { maxDownloadMB })),
-  searchSource: (query: string, filters: SourceSearchFilters, page: number, sort: string, order: string) =>
-    request<SourceSearchResult>('/v1/source/search', json({ query, filters, page, sort, order })),
+  // `source` narrows to one configured source; "" (the default) combines them all.
+  searchSource: (
+    query: string,
+    filters: SourceSearchFilters,
+    page: number,
+    sort: string,
+    order: string,
+    source = '',
+  ) => request<SourceSearchResult>('/v1/source/search', json({ query, filters, page, sort, order, source })),
   getSourceTitle: (id: string) =>
     request<TitleDetail>(`/v1/source/title/${encodeURIComponent(id)}`),
   // episodes (1-based) narrow a series to specific episodes; omit for a movie or
@@ -503,16 +576,33 @@ export const api = {
     ),
   // The provider's live filter facets (genres, types, qualities, …) so the filter
   // UI stays in step with the source. Refreshed on open/foreground.
-  getSourceParameters: () => request<SourceParameters>('/v1/source/parameters'),
+  // Without `source` the facets are intersected across every enabled source, so
+  // every filter offered actually applies to everything on screen.
+  getSourceParameters: (source = '') =>
+    request<SourceParameters>(`/v1/source/parameters${source ? `?source=${encodeURIComponent(source)}` : ''}`),
   // The signed-in user's daily download allowance (limit 0 = unlimited, remaining -1).
   getSourceQuota: () => request<{ limit: number; used: number; remaining: number }>('/v1/source/quota'),
   getSourcePrefs: () => request<{ preferredQuality: string }>('/v1/source/prefs'),
   setSourcePrefs: (preferredQuality: string) =>
     request<{ preferredQuality: string }>('/v1/source/prefs', jsonMethod('PUT', { preferredQuality })),
   // Per-user Discover view (facet filters + sort field + direction), synced across devices.
-  getSourceView: () => request<{ filters: SourceSearchFilters; sort: string; order: string }>('/v1/source/view'),
-  setSourceView: (filters: SourceSearchFilters, sort: string, order: string) =>
-    request<void>('/v1/source/view', jsonMethod('PUT', { filters, sort, order })),
+  getSourceView: () =>
+    request<{ filters: SourceSearchFilters; sort: string; order: string; selectedSource: string }>(
+      '/v1/source/view',
+    ),
+  setSourceView: (filters: SourceSearchFilters, sort: string, order: string, selectedSource = '') =>
+    request<void>('/v1/source/view', jsonMethod('PUT', { filters, sort, order, selectedSource })),
+
+  // Admin: the configured sources, and the provider kinds available to add. No
+  // response ever carries session material — those fields are write-only.
+  listSourceProviders: () =>
+    request<{ providers: SourceProvider[]; kinds: SourceKind[] }>('/v1/source/providers'),
+  createSourceProvider: (input: SourceProviderInput) =>
+    request<SourceProvider>('/v1/source/providers', json(input)),
+  updateSourceProvider: (id: number, input: SourceProviderInput) =>
+    request<SourceProvider>(`/v1/source/providers/${id}`, jsonMethod('PUT', input)),
+  deleteSourceProvider: (id: number) =>
+    request<{ deleted: number }>(`/v1/source/providers/${id}`, { method: 'DELETE' }),
 
   // Admin: view/edit the stored NAS connection and test it before saving
   // (spec 1002). The password is write-only — the server never returns it.

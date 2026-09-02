@@ -23,6 +23,7 @@ import {
   IonSelect,
   IonSelectOption,
   IonSkeletonText,
+  IonToast,
   IonTitle,
   IonToolbar,
   type InfiniteScrollCustomEvent,
@@ -79,6 +80,13 @@ const {
   loadParameters,
   filterOptions,
   optionLabel,
+  sources,
+  selectedSource,
+  selectedSourceName,
+  showSourcePicker,
+  degraded,
+  loadSources,
+  setSource,
 } = useSourceCatalog();
 
 // Chip labels use the same (live-or-built-in) option lists as the filter sheet.
@@ -112,6 +120,42 @@ const active = ref<CatalogTitle | null>(null);
 // this list: that download already exists, so the sheet is the title's info page.
 const titleInfoOnly = ref(false);
 const contentRef = ref<{ $el: { getScrollElement: () => Promise<HTMLElement> } } | null>(null);
+
+// Source labels appear on results only while more than one source is feeding the
+// list. With a single source selected every result is from it, so the label would
+// be noise on every card.
+const showSourceLabels = computed(() => showSourcePicker.value && selectedSource.value === '');
+
+async function onSource(value: string): Promise<void> {
+  const dropped = await setSource(value);
+  await scrollTop();
+  // FR-016: a filter the new selection can't honour is removed rather than left
+  // applied and silently ignored — but the user has to be told, or the results
+  // just change for no visible reason.
+  if (dropped.length) {
+    droppedNotice.value = `${dropped.join(', ')} ${dropped.length > 1 ? 'filters' : 'filter'} cleared — not available for this source.`;
+  }
+}
+const droppedNotice = ref('');
+
+// Plain-language summary of what dropped out, naming the source — an operator
+// needs to know WHICH source to go and fix, and a user needs to know the list is
+// incomplete rather than that the catalog shrank.
+const degradedMessage = computed(() => {
+  const names = degraded.value.map((d) => d.name).join(', ');
+  if (!names) return '';
+  const reason = degraded.value[0]?.reason;
+  const why =
+    reason === 'unsubscribed'
+      ? 'needs an active subscription'
+      : reason === 'needs_refresh'
+        ? 'needs signing in again'
+        : "isn't responding";
+  const verb = degraded.value.length > 1 ? 'are unavailable' : `${why}`;
+  return degraded.value.length > 1
+    ? `Some results are missing: ${names} ${verb}.`
+    : `Some results are missing: ${names} ${verb}.`;
+});
 
 // The sort dropdown (beside the search bar) shows the current order's short label.
 const currentSortLabel = computed(() => sortLabel(sort.value));
@@ -164,7 +208,7 @@ function viewKey(): string {
   const entries = Object.keys(f)
     .sort()
     .map((k) => [k, f[k]]);
-  return JSON.stringify([entries, sort.value, order.value, query.value]);
+  return JSON.stringify([entries, sort.value, order.value, query.value, selectedSource.value]);
 }
 
 // Re-check the source and re-apply the server-saved view (filters + sort) — so
@@ -180,6 +224,8 @@ function viewKey(): string {
 // is that results can be a little stale; pull-to-refresh reloads on demand.
 async function refreshView(): Promise<void> {
   await loadStatus();
+  // The source list feeds the selector and decides whether it is shown at all.
+  void loadSources();
   const before = viewKey();
   await loadView();
   if (unavailable.value || needsRefresh.value) return;
@@ -344,6 +390,25 @@ function goSettings(): void {
           :value="query"
           @ionInput="onSearch"
         />
+        <!-- Source selector, shown only once more than one source is configured:
+             with a single source it would be a control with nothing to select.
+             "All sources" is the first entry and the default. -->
+        <div v-if="showSourcePicker" slot="end" class="source-control">
+          <ion-select
+            class="source-select"
+            :value="selectedSource"
+            :disabled="loading"
+            interface="popover"
+            aria-label="Source"
+            :selected-text="selectedSourceName"
+            @ionChange="(e) => onSource(String(e.detail.value))"
+          >
+            <ion-select-option value="">All sources</ion-select-option>
+            <ion-select-option v-for="s in sources" :key="s.id" :value="String(s.id)">
+              {{ s.displayName }}
+            </ion-select-option>
+          </ion-select>
+        </div>
         <!-- Sort control beside the search bar: the field popover plus a direction
              toggle whose arrow shows ascending vs descending — one control, no
              second dropdown. Disabled while a search is running (the in-flight
@@ -493,6 +558,14 @@ function goSettings(): void {
           </ion-chip>
         </div>
 
+        <!-- A source that couldn't answer this query. Deliberately outside the
+             results branch below and never blocking: the healthy sources' results
+             render underneath it, which is the whole point of degrading rather
+             than failing. -->
+        <div v-if="degraded.length" class="degraded">
+          <ion-note>{{ degradedMessage }}</ion-note>
+        </div>
+
         <div v-if="errorMsg" class="state">
           <ion-note color="danger">{{ errorMsg }}</ion-note>
           <ion-button fill="outline" class="cta" @click="retry">Try again</ion-button>
@@ -541,6 +614,11 @@ function goSettings(): void {
                 <span v-if="t.imdbScore">★ {{ t.imdbScore.toFixed(1) }}</span>
                 <span v-if="yearOf(t.title)" class="year">{{ yearOf(t.title) }}</span>
                 <span class="type">{{ t.type }}</span>
+                <!-- Only in combined mode: a title carried by two sources appears
+                     twice, and without this label that reads as a duplicate
+                     rather than as two sources offering it. Redundant — and so
+                     omitted — when a single source is selected. -->
+                <span v-if="showSourceLabels && t.sourceName" class="source-tag">{{ t.sourceName }}</span>
               </p>
             </ion-label>
           </button>
@@ -554,6 +632,13 @@ function goSettings(): void {
           <ion-infinite-scroll-content />
         </ion-infinite-scroll>
       </template>
+
+      <ion-toast
+        :is-open="droppedNotice !== ''"
+        :message="droppedNotice"
+        :duration="4000"
+        @didDismiss="droppedNotice = ''"
+      />
 
       <!-- Appears only once scrolled down; taps back to the top. -->
       <ion-fab v-show="showTop" slot="fixed" vertical="bottom" horizontal="end">
@@ -600,6 +685,36 @@ function goSettings(): void {
 .sort-control {
   display: flex;
   align-items: center;
+}
+/* The source selector sits beside the sort control and matches it, so the two
+   read as one row of view controls rather than a bolted-on extra. */
+.source-control {
+  display: flex;
+  align-items: center;
+}
+.source-select {
+  max-width: 9.5rem;
+  font-size: 0.85rem;
+  --padding-start: 0.5rem;
+  --padding-end: 0.25rem;
+}
+/* Which source a result came from, in combined mode only. Deliberately quiet:
+   it disambiguates a repeated title, it is not a headline. */
+.source-tag {
+  opacity: 0.75;
+  font-size: 0.72rem;
+  padding: 0 0.3rem;
+  border: 1px solid currentColor;
+  border-radius: 0.4rem;
+  white-space: nowrap;
+}
+/* A source dropped out. Sits above the results it could not contribute to and
+   never replaces them. */
+.degraded {
+  padding: 0.35rem 1rem 0;
+}
+.degraded ion-note {
+  font-size: 0.8rem;
 }
 /* While searching, sort can't be applied — dim the control and strike its label so
    it reads as inactive (it is also disabled). */
