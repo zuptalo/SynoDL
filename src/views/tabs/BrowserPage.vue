@@ -108,6 +108,9 @@ function yearOf(raw: string): string {
 const filterOpen = ref(false);
 const titleOpen = ref(false);
 const active = ref<CatalogTitle | null>(null);
+// The open title is read-only when it was reached from a task rather than from
+// this list: that download already exists, so the sheet is the title's info page.
+const titleInfoOnly = ref(false);
 const contentRef = ref<{ $el: { getScrollElement: () => Promise<HTMLElement> } } | null>(null);
 
 // The sort dropdown (beside the search bar) shows the current order's short label.
@@ -172,7 +175,9 @@ async function consumePendingOpen(): Promise<void> {
     const t = pendingOpen.value;
     pendingOpen.value = null;
     pendingSearch.value = '';
-    openTitle(t);
+    // A pending title only ever comes from a task's "Open in Discover", so it
+    // opens read-only — the user wants the title's page, not another download.
+    openTitle(t, true);
   } else if (pendingSearch.value) {
     const q = pendingSearch.value;
     pendingSearch.value = '';
@@ -250,8 +255,9 @@ async function scrollTop(): Promise<void> {
   el?.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
-function openTitle(t: CatalogTitle): void {
+function openTitle(t: CatalogTitle, infoOnly = false): void {
   active.value = t;
+  titleInfoOnly.value = infoOnly;
   titleOpen.value = true;
 }
 
@@ -537,6 +543,7 @@ function goSettings(): void {
       v-if="active"
       :is-open="titleOpen"
       :title="active"
+      :info-only="titleInfoOnly"
       @dismiss="titleOpen = false"
       @needs-refresh="retry"
     />

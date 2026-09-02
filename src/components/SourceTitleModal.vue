@@ -24,7 +24,7 @@ import {
   IonTitle,
   IonToolbar,
 } from '@ionic/vue';
-import { arrowForwardOutline, cloudDownloadOutline, openOutline } from 'ionicons/icons';
+import { arrowForwardOutline, chevronBackOutline, cloudDownloadOutline, openOutline } from 'ionicons/icons';
 import { api, ApiError, posterSrc, type CatalogTitle, type QualityOption } from '@/services/api';
 import { bySeasonThenSize, markSeasonBreaks, sizeMB } from '@/services/quality-sort';
 import { appToast } from '@/services/toast';
@@ -36,27 +36,42 @@ import type { Task } from '@/types/task';
 const props = defineProps<{
   isOpen: boolean;
   title: CatalogTitle;
+  /**
+   * Read-only mode, used by "Open in Discover" from a task: the download already
+   * exists, so this is the title's information page — same header, backdrop,
+   * genres and synopsis as Discover, but no qualities and no way to send. The
+   * only actions are the header's back link and the large Dismiss button.
+   */
+  infoOnly?: boolean;
 }>();
+
+// The metadata actually rendered. Normally that's the prop as handed over by the
+// Discover grid. The Tasks handoff can only build a stub from what the download
+// row stored (id, title, poster, IMDb score), so `enriched` holds the full
+// catalog entry once we've looked it up — see loadMeta().
+const enriched = ref<CatalogTitle | null>(null);
+const info = computed<CatalogTitle>(() => enriched.value ?? props.title);
+
 // Clean title + separate release year for the header (the raw title is still what
 // send() uses, so the created subfolder keeps the year).
-const titleParts = computed(() => splitYear(props.title.title));
+const titleParts = computed(() => splitYear(info.value.title));
 // Link to the title on IMDb when the provider gave us a usable id — "" means we
 // render the rating as plain text instead (spec 1019). Opened with target=_blank,
 // which an installed PWA hands to the device's browser; rel="noopener" keeps the
 // opened page from reaching back into the app.
-const imdbHref = computed(() => imdbUrl(props.title.imdbId));
+const imdbHref = computed(() => imdbUrl(info.value.imdbId));
 const posterFailed = ref(false);
 // Two-stage poster load: try posterUrl, then the reliable fallback, then the
 // letter tile — so a title whose cover URL 404s still shows its placeholder art.
 const posterFellBack = ref(false);
 const posterSource = computed(() =>
-  posterFellBack.value ? posterSrc(props.title.posterFallbackUrl ?? '') : posterSrc(props.title.posterUrl),
+  posterFellBack.value ? posterSrc(info.value.posterFallbackUrl ?? '') : posterSrc(info.value.posterUrl),
 );
 function onPosterError(): void {
   if (
     !posterFellBack.value &&
-    props.title.posterFallbackUrl &&
-    props.title.posterFallbackUrl !== props.title.posterUrl
+    info.value.posterFallbackUrl &&
+    info.value.posterFallbackUrl !== info.value.posterUrl
   ) {
     posterFellBack.value = true;
     return;
@@ -68,7 +83,7 @@ function onPosterError(): void {
 // header just shows the poster) if the title has no distinct cover or it fails.
 const backdropFailed = ref(false);
 const heroSrc = computed(() =>
-  props.title.backdropUrl && !backdropFailed.value ? posterSrc(props.title.backdropUrl) : '',
+  info.value.backdropUrl && !backdropFailed.value ? posterSrc(info.value.backdropUrl) : '',
 );
 const emit = defineEmits<{
   (e: 'dismiss'): void;
@@ -136,6 +151,25 @@ async function loadQuota(): Promise<void> {
     quota.value = await api.getSourceQuota();
   } catch {
     quota.value = null;
+  }
+}
+
+// ---- metadata lookup (Tasks handoff) --------------------------------------
+// A download row remembers only the few catalog columns it needs to label
+// itself, and the title endpoint returns download options rather than metadata —
+// so the synopsis, genres, backdrop and IMDb id exist only in catalog search
+// results. Look the stored title up and adopt the entry with our catalog id, so
+// "Open in Discover" lands on the same page Discover itself shows. A miss (or a
+// failed search) simply leaves the stub on screen; nothing here is fatal.
+async function loadMeta(): Promise<void> {
+  const stub = props.title;
+  if (stub.plot || stub.genres?.length) return; // already a full catalog entry
+  try {
+    const res = await api.searchSource(splitYear(stub.title).title, {}, 1, '', '');
+    const hit = res.items.find((i) => i.id === stub.id);
+    if (hit) enriched.value = hit;
+  } catch {
+    /* keep the stub — the header just stays sparse */
   }
 }
 
@@ -302,6 +336,15 @@ watch(
     posterFailed.value = false;
     posterFellBack.value = false;
     backdropFailed.value = false;
+    enriched.value = null;
+    // Read-only mode has no options to fetch — only the metadata the stub is
+    // missing. Keep the spinner up for it so the header doesn't render sparse
+    // and then visibly re-draw with the backdrop and synopsis.
+    if (props.infoOnly) {
+      await loadMeta();
+      loading.value = false;
+      return;
+    }
     try {
       const detail = await api.getSourceTitle(props.title.id);
       sendable.value = detail.sendable;
@@ -428,7 +471,16 @@ async function offerOverLimit(): Promise<void> {
     <ion-header :translucent="true">
       <ion-toolbar>
         <ion-title>Details</ion-title>
-        <ion-buttons slot="end">
+        <!-- Read-only mode is reached from a task, and dismissing it lands on the
+             Discover list underneath — so it reads as a back link rather than a
+             modal's Close. -->
+        <ion-buttons v-if="infoOnly" slot="start">
+          <ion-button data-testid="title-back" @click="emit('dismiss')">
+            <ion-icon slot="start" :icon="chevronBackOutline" />
+            Discover
+          </ion-button>
+        </ion-buttons>
+        <ion-buttons v-else slot="end">
           <ion-button @click="emit('dismiss')">Close</ion-button>
         </ion-buttons>
       </ion-toolbar>
@@ -446,17 +498,17 @@ async function offerOverLimit(): Promise<void> {
         <div class="poster-row" :class="{ 'on-hero': heroSrc }">
           <ion-thumbnail class="poster">
             <img
-              v-if="(title.posterUrl || title.posterFallbackUrl) && !posterFailed"
+              v-if="(info.posterUrl || info.posterFallbackUrl) && !posterFailed"
               :src="posterSource"
-              :alt="title.title"
+              :alt="info.title"
               @error="onPosterError"
             />
-            <div v-else class="poster-fallback">{{ title.title.charAt(0) }}</div>
+            <div v-else class="poster-fallback">{{ info.title.charAt(0) }}</div>
           </ion-thumbnail>
           <div class="head">
             <h2>{{ titleParts.title }}</h2>
             <p class="meta">
-              <span class="type">{{ title.type }}</span>
+              <span class="type">{{ info.type }}</span>
               <span v-if="titleParts.year" class="year">{{ titleParts.year }}</span>
               <!-- The rating doubles as the way out to IMDb. With an id but no
                    score there's still a page worth visiting, so the link stands
@@ -469,124 +521,139 @@ async function offerOverLimit(): Promise<void> {
                 rel="noopener noreferrer"
                 :aria-label="`Open ${titleParts.title} on IMDb`"
               >
-                <template v-if="title.imdbScore">★ {{ title.imdbScore.toFixed(1) }} </template>IMDb
+                <template v-if="info.imdbScore">★ {{ info.imdbScore.toFixed(1) }} </template>IMDb
                 <ion-icon :icon="openOutline" aria-hidden="true" />
               </a>
-              <span v-else-if="title.imdbScore">★ {{ title.imdbScore.toFixed(1) }} IMDb</span>
-              <span v-if="title.providerScore">{{ title.providerScore.toFixed(1) }} 30N</span>
+              <span v-else-if="info.imdbScore">★ {{ info.imdbScore.toFixed(1) }} IMDb</span>
+              <span v-if="info.providerScore">{{ info.providerScore.toFixed(1) }} 30N</span>
             </p>
-            <p v-if="title.genres?.length" class="genres">
-              {{ title.genres.slice(0, 4).join(' · ') }}
+            <p v-if="info.genres?.length" class="genres">
+              {{ info.genres.slice(0, 4).join(' · ') }}
             </p>
           </div>
         </div>
 
-        <p v-if="title.plot" class="plot">{{ title.plot }}</p>
+        <p v-if="info.plot" class="plot">{{ info.plot }}</p>
 
-        <ion-note v-if="!sendable" color="medium" class="unavailable">
-          No downloadable files for this title yet.
-        </ion-note>
+        <!-- Everything below is about starting a download, so read-only mode
+             (opened from an existing task) stops here. -->
+        <ion-button
+          v-if="infoOnly"
+          expand="block"
+          color="medium"
+          class="send-btn"
+          data-testid="title-dismiss"
+          @click="emit('dismiss')"
+        >
+          Dismiss
+        </ion-button>
 
         <template v-else>
-          <ion-note v-if="maxLabel" color="medium" class="cap-hint">
-            Max download size {{ maxLabel }} (set by admin). Options over it are marked and can't be sent.
+          <ion-note v-if="!sendable" color="medium" class="unavailable">
+            No downloadable files for this title yet.
           </ion-note>
-          <!-- Quality tiers as tabs (highest first); scrolls when there are many. -->
-          <ion-segment
-            v-if="tiers.length > 1"
-            :value="activeTier"
-            scrollable
-            class="tier-tabs"
-            @ionChange="(e) => onTier(String(e.detail.value))"
-          >
-            <ion-segment-button v-for="t in tiers" :key="t.key" :value="t.key">
-              <ion-label>{{ t.label }}</ion-label>
-            </ion-segment-button>
-          </ion-segment>
-          <ion-radio-group v-model="selected">
-            <ion-list :inset="true">
-              <ion-item
-                v-for="q in visibleQualities"
-                :key="q.id"
-                :class="{ 'season-break': q.seasonBreak }"
-              >
-                <ion-radio :value="q.id" label-placement="end" justify="start">
-                  <ion-label>
-                    <h3>
-                      <span v-if="q.season" class="season">{{ q.season }} · </span>{{ q.label }}
-                      <ion-badge v-if="tooLarge(q)" color="warning" class="too-large">Too large</ion-badge>
-                    </h3>
-                    <p>
-                      {{ q.size }}<template v-if="q.resolution"> · {{ q.resolution }}</template
-                      >{{ q.encoder ? ' · ' + q.encoder : ''
-                      }}<template v-if="q.episodes"> · {{ q.episodes }} eps</template>
-                    </p>
-                  </ion-label>
-                </ion-radio>
-              </ion-item>
-            </ion-list>
-          </ion-radio-group>
 
-          <!-- Series: pick which episodes to download (all by default). -->
-          <template v-if="!sent && isSeriesPack">
-            <div class="ep-head">
-              <span class="ep-title">Episodes ({{ selectedEpisodes.length }}/{{ episodeCount }})</span>
-              <ion-button
-                size="small"
-                fill="clear"
-                data-testid="ep-select-all"
-                @click="toggleAllEpisodes(!allEpisodesSelected)"
-              >
-                {{ allEpisodesSelected ? 'Clear all' : 'Select all' }}
-              </ion-button>
-            </div>
-            <ion-list :inset="true" class="ep-list">
-              <ion-item v-for="n in allEpisodes" :key="n">
-                <ion-checkbox
-                  :checked="selectedEpisodes.includes(n)"
-                  label-placement="end"
-                  justify="start"
-                  @ion-change="(e) => toggleEpisode(n, e)"
+          <template v-else>
+            <ion-note v-if="maxLabel" color="medium" class="cap-hint">
+              Max download size {{ maxLabel }} (set by admin). Options over it are marked and can't be sent.
+            </ion-note>
+            <!-- Quality tiers as tabs (highest first); scrolls when there are many. -->
+            <ion-segment
+              v-if="tiers.length > 1"
+              :value="activeTier"
+              scrollable
+              class="tier-tabs"
+              @ionChange="(e) => onTier(String(e.detail.value))"
+            >
+              <ion-segment-button v-for="t in tiers" :key="t.key" :value="t.key">
+                <ion-label>{{ t.label }}</ion-label>
+              </ion-segment-button>
+            </ion-segment>
+            <ion-radio-group v-model="selected">
+              <ion-list :inset="true">
+                <ion-item
+                  v-for="q in visibleQualities"
+                  :key="q.id"
+                  :class="{ 'season-break': q.seasonBreak }"
                 >
-                  Episode {{ n }}
-                </ion-checkbox>
-              </ion-item>
-            </ion-list>
+                  <ion-radio :value="q.id" label-placement="end" justify="start">
+                    <ion-label>
+                      <h3>
+                        <span v-if="q.season" class="season">{{ q.season }} · </span>{{ q.label }}
+                        <ion-badge v-if="tooLarge(q)" color="warning" class="too-large">Too large</ion-badge>
+                      </h3>
+                      <p>
+                        {{ q.size }}<template v-if="q.resolution"> · {{ q.resolution }}</template
+                        >{{ q.encoder ? ' · ' + q.encoder : ''
+                        }}<template v-if="q.episodes"> · {{ q.episodes }} eps</template>
+                      </p>
+                    </ion-label>
+                  </ion-radio>
+                </ion-item>
+              </ion-list>
+            </ion-radio-group>
+
+            <!-- Series: pick which episodes to download (all by default). -->
+            <template v-if="!sent && isSeriesPack">
+              <div class="ep-head">
+                <span class="ep-title">Episodes ({{ selectedEpisodes.length }}/{{ episodeCount }})</span>
+                <ion-button
+                  size="small"
+                  fill="clear"
+                  data-testid="ep-select-all"
+                  @click="toggleAllEpisodes(!allEpisodesSelected)"
+                >
+                  {{ allEpisodesSelected ? 'Clear all' : 'Select all' }}
+                </ion-button>
+              </div>
+              <ion-list :inset="true" class="ep-list">
+                <ion-item v-for="n in allEpisodes" :key="n">
+                  <ion-checkbox
+                    :checked="selectedEpisodes.includes(n)"
+                    label-placement="end"
+                    justify="start"
+                    @ion-change="(e) => toggleEpisode(n, e)"
+                  >
+                    Episode {{ n }}
+                  </ion-checkbox>
+                </ion-item>
+              </ion-list>
+            </template>
+
+            <ion-note v-if="!sent && remainingLabel" color="medium" class="cap-hint" data-testid="quota-hint">
+              {{ remainingLabel }}
+            </ion-note>
           </template>
 
-          <ion-note v-if="!sent && remainingLabel" color="medium" class="cap-hint" data-testid="quota-hint">
-            {{ remainingLabel }}
+          <ion-note v-if="!sent && selectedTooLarge && !errorMsg" color="warning" class="error">
+            That's over the {{ maxLabel }} limit — pick a smaller quality.
           </ion-note>
+          <ion-note v-if="errorMsg" color="danger" class="error">{{ errorMsg }}</ion-note>
+
+          <!-- After a successful send the button tracks the created download and
+               links through to it, instead of the modal just closing. -->
+          <ion-button
+            v-if="sent"
+            expand="block"
+            class="send-btn"
+            color="success"
+            @click="viewDownload"
+          >
+            <ion-icon slot="start" :icon="arrowForwardOutline" />
+            {{ sentLabel }}
+          </ion-button>
+          <ion-button
+            v-else-if="sendable"
+            expand="block"
+            class="send-btn"
+            :disabled="!selected || sending || selectedTooLarge || (isSeriesPack && selectedEpisodes.length === 0)"
+            @click="send()"
+          >
+            <ion-spinner v-if="sending" slot="start" name="crescent" />
+            <ion-icon v-else slot="start" :icon="cloudDownloadOutline" />
+            {{ isSeriesPack ? `Send ${sendCount} to NAS` : 'Send to NAS' }}
+          </ion-button>
         </template>
-
-        <ion-note v-if="!sent && selectedTooLarge && !errorMsg" color="warning" class="error">
-          That's over the {{ maxLabel }} limit — pick a smaller quality.
-        </ion-note>
-        <ion-note v-if="errorMsg" color="danger" class="error">{{ errorMsg }}</ion-note>
-
-        <!-- After a successful send the button tracks the created download and
-             links through to it, instead of the modal just closing. -->
-        <ion-button
-          v-if="sent"
-          expand="block"
-          class="send-btn"
-          color="success"
-          @click="viewDownload"
-        >
-          <ion-icon slot="start" :icon="arrowForwardOutline" />
-          {{ sentLabel }}
-        </ion-button>
-        <ion-button
-          v-else-if="sendable"
-          expand="block"
-          class="send-btn"
-          :disabled="!selected || sending || selectedTooLarge || (isSeriesPack && selectedEpisodes.length === 0)"
-          @click="send()"
-        >
-          <ion-spinner v-if="sending" slot="start" name="crescent" />
-          <ion-icon v-else slot="start" :icon="cloudDownloadOutline" />
-          {{ isSeriesPack ? `Send ${sendCount} to NAS` : 'Send to NAS' }}
-        </ion-button>
       </template>
     </ion-content>
   </ion-modal>
