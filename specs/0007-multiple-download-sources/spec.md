@@ -194,6 +194,10 @@ session material supplied through the environment, run the live checks against t
   public address. If they turn out to be address-bound, downloads would fail only when SynoDL
   and the NAS sit behind different addresses. This MUST be tested against a real NAS during
   implementation and, if confirmed, reported to the operator as a distinct failure.
+- **A source that keeps failing.** Repeated combined searches must not re-attempt a source
+  known to be down on every single request — it slows every search and hammers an upstream
+  that is already struggling. A cooling-off period applies, and the source reappears once it
+  recovers.
 - **Text search versus browse.** Sources may support fewer sort options during text search
   than while browsing; combined search must not silently claim a sort it cannot honour.
 - **A subscription lapses mid-session.** A previously-active source starts returning no
@@ -281,6 +285,34 @@ session material supplied through the environment, run the live checks against t
 - **FR-028**: No real credential or session value may be committed to the repository or
   required by continuous integration.
 
+**Bounding the fan-out**
+
+- **FR-030**: A combined query MUST apply a per-source timeout of no more than 8 seconds; a
+  source exceeding it contributes nothing and is reported as degraded rather than delaying the
+  response for the others.
+- **FR-031**: A source that has failed repeatedly MUST be skipped for a cooling-off period
+  rather than queried on every request, so a down source neither slows every search nor
+  hammers an upstream that is already struggling.
+- **FR-032**: The number of upstream requests caused by one client request MUST be bounded by
+  the number of enabled sources — one page fetch per source per query, never a per-item or
+  per-title fan-out.
+
+**Safety of source-qualified identifiers**
+
+- **FR-033**: A title identifier supplied by a client MUST NOT be able to change which host is
+  contacted, escape the source's own site, or address a provider the caller has not been
+  granted. A driver MUST treat the identifier portion as a value to be encoded into its own
+  URL construction, never as a URL or a path fragment to be joined blindly.
+- **FR-034**: A malformed identifier — no separator, empty provider portion, unknown, disabled,
+  or deleted source — MUST be rejected as a client error, not silently treated as a miss.
+
+**Migration safety**
+
+- **FR-035**: If stored session material cannot be read into the new shape, the affected source
+  MUST report that it needs attention and retain the unreadable material untouched; it MUST NOT
+  be silently discarded, and decrypted material MUST NOT be written anywhere at any point
+  during migration.
+
 **Project constraints**
 
 - **FR-029**: Introducing the server's first third-party dependency MUST be recorded in the
@@ -327,6 +359,9 @@ session material supplied through the environment, run the live checks against t
   what to do, without needing to read a log.
 - **SC-010**: No session value, cookie, or signed link appears in any log line, error
   response, or metric, verified by test.
+- **SC-011**: One Discover request causes at most one upstream page request per enabled
+  source, and a single unhealthy source cannot make a combined search take longer than a
+  healthy one plus the per-source timeout.
 
 ## Credential-Safety Impact
 

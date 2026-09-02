@@ -51,13 +51,19 @@ dropdown lists both plus "All sources", selecting one narrows the list. Needs no
 ### Tests
 
 - [ ] T015 [P] [US1] Unit-test round-robin interleaving, uneven page sizes, and source exhaustion in `server/internal/source/merge_test.go`
+- [ ] T015a [P] [US1] Test that a title carried by two sources yields two entries and is never de-duplicated (FR-005a), in `server/internal/source/merge_test.go`
+- [ ] T015b [P] [US1] Test that single-source mode returns the source's own ordering unpermuted (FR-010), in `server/internal/source/merge_test.go`
 - [ ] T016 [P] [US1] Unit-test that one failing or slow source degrades instead of failing the request in `server/internal/source/merge_test.go`
 - [ ] T017 [P] [US1] Test source-qualified title id parsing, including ids containing slashes, and rejection of a provider the caller has not configured, in `server/internal/api/source_handlers_test.go`
 - [ ] T018 [P] [US1] Test `/v1/source/providers` CRUD including that no response ever echoes session material, in `server/internal/api/source_handlers_test.go`
 
+- [ ] T016a [P] [US1] Test the 8s per-source timeout, the failing-source cooling-off period, and that one query causes at most one page fetch per source (FR-030..FR-032, SC-011), in `server/internal/source/merge_test.go`
+- [ ] T017a [P] [US1] Test that a crafted title id cannot change the target host, escape the source's site, or address an unconfigured source, and that a malformed id is a client error (FR-033, FR-034), in `server/internal/api/source_handlers_test.go`
+- [ ] T011a [P] Test that unreadable sealed session material is retained and reported rather than discarded, and that nothing decrypted is written during migration (FR-035), in `server/internal/store/source_repos_test.go`
+
 ### Implementation
 
-- [ ] T019 [US1] Implement concurrent per-source fan-out with per-source timeouts, round-robin interleave and degradation reporting in `server/internal/source/merge.go`
+- [ ] T019 [US1] Implement concurrent per-source fan-out with an 8s per-source timeout, failing-source cooling-off, round-robin interleave and degradation reporting in `server/internal/source/merge.go`
 - [ ] T020 [US1] Add `SourceID` / `SourceName` to `CatalogTitle` and `Degraded` to `SearchResult` in `server/internal/source/source.go`
 - [ ] T021 [US1] Add the `/v1/source/providers` CRUD routes in `server/internal/api/router.go`
 - [ ] T022 [US1] Implement the providers CRUD handlers, verifying before persisting, in `server/internal/api/source_handlers.go`
@@ -126,6 +132,7 @@ against the mock without credentials, and against the real site with a live sess
 - [ ] T051 [US2] Implement `Parameters` from the site's own genre and sort taxonomies in `server/internal/source/providers/zarfilm.go`
 - [ ] T052 [US2] Implement `Title` for movies and series in `server/internal/source/providers/zarfilm.go`
 - [ ] T053 [US2] Implement `ResolveDownload` fetching a fresh signed link at send time in `server/internal/source/providers/zarfilm.go`
+- [ ] T053a [US2] Test that the send path forwards no source session field, cookie or header to the NAS (FR-023, SC-006), in `server/internal/api/source_handlers_test.go`
 - [ ] T054 [US2] Register the driver and add its image host to the proxy allowlist in `server/internal/source/providers/zarfilm.go`
 - [ ] T055 [US2] Surface the `unsubscribed` state through to the admin UI in `src/components/SourceProviderAdmin.vue`
 - [ ] T056 [P] [US2] Add the opt-in live check that skips without credentials in `server/internal/source/providers/live_test.go`
@@ -160,7 +167,7 @@ shared filters; selecting one source reveals its extras and switching back drops
 - [ ] T063 [P] Add a test asserting no session value, cookie or signed link appears in any log line or error payload (SC-010) in `server/internal/api/source_handlers_test.go`
 - [ ] T064 [P] Measure combined versus single-source first-page latency against SC-005 and record the result
 - [ ] T065 Amend the zero-dependency statement in `CLAUDE.md` per FR-029
-- [ ] T066 Amend the Domain Constraints in `.specify/memory/constitution.md` per FR-029
+- [ ] T066 Confirm no constitution edit is needed for FR-029 (the zero-dependency claim lives in `CLAUDE.md:43`, not the constitution) and that the dependency's justification is recorded under the complexity clause in `specs/0007-multiple-download-sources/plan.md`
 - [ ] T067 [P] Document adding and refreshing a second source for operators in `docs/`
 - [ ] T068 [P] Update the spec `**Status**:` line and run `make roadmap`
 - [ ] T069 Run every gate: `npm run build`, `npm run test:unit:coverage`, `go build ./...`, `go vet ./...`, `go test ./...` with no `LIVE_*` set, and `npm run test:e2e`
@@ -213,4 +220,8 @@ Two tasks are investigations that could change the work rather than pure impleme
 are marked as such: **T057** (are signed links address-bound?) and **T062** (is the facet
 intersection usable?).
 
-**Total**: 69 tasks — 3 setup, 11 foundational, 17 US1, 9 US4, 17 US2, 5 US3, 7 polish.
+**Total**: 75 tasks — 3 setup, 11 foundational, 19 US1, 9 US4, 18 US2, 5 US3, 7 polish.
+
+T015a, T015b and T053a were added after `/speckit-analyze` found FR-005a, FR-010 and FR-023
+relying on behavior that nothing pinned — FR-005a in particular is satisfied by the merge *not*
+de-duplicating, which is exactly the kind of thing a later well-meaning change would break.

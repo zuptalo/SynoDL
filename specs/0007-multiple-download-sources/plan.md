@@ -25,9 +25,10 @@ therefore covered by tests written against the current behavior first.
 **Language/Version**: Go 1.26 (server), TypeScript 5 / Vue 3 + Ionic (client)
 
 **Primary Dependencies**: Server — standard library, plus **`golang.org/x/net/html`, the first
-third-party server dependency** (R6/FR-029; requires amending `CLAUDE.md` and the
-constitution's Domain Constraints in this change). Client — existing Ionic/Vue stack, no new
-dependencies.
+third-party server dependency** (R6/FR-029). The zero-dependency claim lives in `CLAUDE.md:43`
+and nowhere else — the constitution has no such Domain Constraint, only a general
+complexity-justification clause that a new dependency triggers, answered by the Complexity
+Tracking table below. Client — existing Ionic/Vue stack, no new dependencies.
 
 **Storage**: SQLite, single volume. Three additive `ALTER TABLE` migrations; no table is
 created and none is rewritten.
@@ -62,10 +63,13 @@ refactor, one API fan-out layer, one new client control plus per-item source lab
 | VI. Ionic-First UI | **Pass** | The selector is an `ion-select` matching the existing sort control; no bespoke widget |
 | VII. Traceable, Auto-Closing Delivery | **Pass** | Tasks become issues; the PR lists `Closes #N` for each |
 
-**Domain constraint amended, not violated**: "zero third-party dependencies" is a stated
-project property being deliberately changed by FR-029, with the reasoning recorded in R6. This
-is the one gate that needs an explicit governance edit rather than just compliance — flagged
-here so it is not mistaken for drift.
+**Project property amended, not violated**: "zero third-party dependencies" is a stated
+project property being deliberately changed by FR-029, with the reasoning recorded in R6. It is
+asserted in `CLAUDE.md:43` only — **not** in the constitution, which instead requires that any
+added dependency be justified (`constitution.md:250`), satisfied by the Complexity Tracking
+table below. So this needs one documentation edit, not a constitution amendment; flagged here
+so it is neither mistaken for drift nor over-corrected into a governance change it does not
+require.
 
 **Mock-DSM dev parity**: extended in spirit — sources become the second outbound target the
 mock covers, so `make start` and e2e still need no real hardware and now no real credentials
