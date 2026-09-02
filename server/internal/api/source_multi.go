@@ -115,8 +115,16 @@ func (d Deps) resolveTitleID(wire string) (ref source.SourceRef, titleID string,
 	refs, _ := d.sourceRefs()
 	pid, tid, valid := source.SplitID(wire)
 	if !valid {
-		// Fall back to the pre-0007 unqualified form, addressed to the lowest-id
-		// source, so a client that stored an old id keeps working.
+		// An id containing a colon was MEANT to be qualified, so a bad provider
+		// portion ("0:x", "abc:x") is an error — not an invitation to fall back.
+		// Falling back there would quietly redirect a malformed request at whatever
+		// source happens to be first.
+		//
+		// Only a genuinely unqualified id gets the pre-0007 treatment, addressed to
+		// the lowest-id source, so a client holding an old stored id keeps working.
+		if strings.Contains(wire, ":") {
+			return source.SourceRef{}, "", false
+		}
 		if source.ValidateTitleID(wire) && len(refs) > 0 {
 			return refs[0], wire, true
 		}
