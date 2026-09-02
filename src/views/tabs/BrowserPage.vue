@@ -156,16 +156,39 @@ async function search(reset: boolean): Promise<void> {
   await fillViewport();
 }
 
-// Re-check the source and re-apply the server-saved view (filters + sort), then
-// reload — so opening/returning to Discover reflects the latest, including a
-// change made on another device.
+// A stable fingerprint of everything that decides which results are on screen.
+// Key order is normalised because `filters` is rebuilt from the server's JSON on
+// every loadView(), and an incidental reordering there must not read as a change.
+function viewKey(): string {
+  const f = filters.value as Record<string, unknown>;
+  const entries = Object.keys(f)
+    .sort()
+    .map((k) => [k, f[k]]);
+  return JSON.stringify([entries, sort.value, order.value, query.value]);
+}
+
+// Re-check the source and re-apply the server-saved view (filters + sort) — so
+// opening/returning to Discover reflects the latest, including a change made on
+// another device.
+//
+// Returning to the tab must NOT throw the loaded results away. Re-running the
+// search drops every page the user had scrolled through and rebuilds the grid
+// from page 1, which lands them back near the top having lost their place —
+// exactly what happens after diving into a title, sending it, and coming back
+// via Tasks. So reload only when it would actually show something different:
+// the saved view changed under us, or there is nothing on screen yet. The cost
+// is that results can be a little stale; pull-to-refresh reloads on demand.
 async function refreshView(): Promise<void> {
   await loadStatus();
+  const before = viewKey();
   await loadView();
-  if (!unavailable.value && !needsRefresh.value) {
-    void loadParameters(); // refresh the filter facets from the source (non-blocking)
-    await search(true);
-  }
+  if (unavailable.value || needsRefresh.value) return;
+  void loadParameters(); // refresh the filter facets from the source (non-blocking)
+  if (items.value.length > 0 && viewKey() === before) return; // keep the user's place
+  await search(true);
+  // The view genuinely changed, so this is a different result set — the old
+  // scroll offset would drop the user into the middle of it.
+  await scrollTop();
 }
 
 // "Open in Discover" handoff from the Tasks tab (spec 1016): open the exact
@@ -356,10 +379,17 @@ function goSettings(): void {
       </ion-toolbar>
       <!-- A slim bar signals a search is running even when results are already on
            screen (the provider can take a few seconds), so a slow filter/sort
-           change never looks like nothing happened. -->
+           change never looks like nothing happened.
+           It keeps its 4px row at all times rather than being added and removed:
+           mounting it grows the header, which pushes the whole list down and then
+           lets it snap back when the load finishes — a small but very visible
+           jump every time infinite scroll pulls a page. Hiding it instead leaves
+           the header exactly as tall whether or not a search is running. -->
       <ion-progress-bar
-        v-if="loading && !unavailable && !needsRefresh"
+        v-if="!unavailable && !needsRefresh"
         type="indeterminate"
+        class="search-bar"
+        :class="{ idle: !loading }"
         data-testid="search-loading"
       />
     </ion-header>
@@ -594,6 +624,12 @@ function goSettings(): void {
 .active-filters.ineffective ion-chip:not(.cap) {
   text-decoration: line-through;
   opacity: 0.5;
+}
+/* Idle keeps the bar's box (so the header height never changes) while hiding it
+   from sight and from the accessibility tree — visibility, not opacity, so a
+   hidden bar doesn't read as visible to tests or screen readers. */
+.search-bar.idle {
+  visibility: hidden;
 }
 .sort-select {
   max-width: 40vw;
