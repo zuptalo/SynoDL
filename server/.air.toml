@@ -4,7 +4,11 @@ root = "."
 tmp_dir = "tmp"
 
 [build]
-  cmd = "go build -o ./tmp/synodl ./cmd/synodl"
+  # The `sourcemock` tag compiles in the dev-only ability to point a download
+  # source at the in-repo fake site, so `make start` can exercise the catalog
+  # with no real credentials. A release build never passes this tag, so that
+  # ability does not exist in production at all.
+  cmd = "go build -tags sourcemock -o ./tmp/synodl ./cmd/synodl"
   bin = "./tmp/synodl"
   include_ext = ["go"]
   exclude_dir = ["tmp"]

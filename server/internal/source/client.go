@@ -2,7 +2,6 @@ package source
 
 import (
 	"context"
-	"crypto/tls"
 	"io"
 	"net/http"
 	"net/url"
@@ -27,7 +26,7 @@ func NewClient() *Client {
 		Timeout: 30 * time.Second,
 		Transport: &http.Transport{
 			ForceAttemptHTTP2:   true,
-			TLSClientConfig:     &tls.Config{},
+			TLSClientConfig:     outboundTLS(),
 			MaxIdleConns:        10,
 			IdleConnTimeout:     90 * time.Second,
 			TLSHandshakeTimeout: 10 * time.Second,

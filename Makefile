@@ -24,6 +24,8 @@ DEV_BACKEND_ENV = cd $(SERVER_DIR) && set -a && { [ -f .env ] && . ./.env; }; \
 	: $${SECRETS_KEY:=dev-only-not-a-real-secret}; \
 	: $${DATA_DIR:=$(CURDIR)/.devdata}; \
 	: $${SYNO_TLS_INSECURE:=true}; \
+	: $${SOURCE_MOCK_ZARFILM:=https://localhost:8291/mocksrc/zar}; \
+	: $${SOURCE_MOCK_THIRTYNAMA:=https://localhost:8291/mocksrc/tn}; \
 	mkdir -p "$$DATA_DIR"; set +a;
 
 start: tools

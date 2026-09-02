@@ -94,11 +94,39 @@ func (zarfilm) auth(s source.Session) (headers, cookies map[string]string) {
 // It is a hint, not the download host, and allowlisting it would widen the
 // outbound surface for nothing.
 func (zarfilm) Hosts() source.Config {
-	return source.Config{
+	cfg := source.Config{
 		APIHosts:      []string{zarHost},
 		DownloadHosts: []string{zarDownload},
 		ImageHosts:    []string{zarHost}, // posters are served from the site itself
 	}
+	// Dev/e2e only, and only in a build made with the `sourcemock` tag: allow the
+	// fake site's host so the driver can be exercised without real credentials.
+	// A release build has no such branch at all.
+	if b := mockBase("zarfilm"); b != "" {
+		if h := hostOf(b); h != "" {
+			cfg.APIHosts = append(cfg.APIHosts, h)
+			cfg.DownloadHosts = append(cfg.DownloadHosts, h, "mockdl.invalid")
+			cfg.ImageHosts = append(cfg.ImageHosts, h)
+		}
+	}
+	return cfg
+}
+
+// base is where this driver's requests go: the real site, or a fake one in a
+// dev/e2e build.
+func (zarfilm) base() string {
+	if b := mockBase("zarfilm"); b != "" {
+		return b
+	}
+	return zarBase
+}
+
+func hostOf(raw string) string {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return ""
+	}
+	return u.Hostname()
 }
 
 // get fetches one page as a browser would.
@@ -106,7 +134,7 @@ func (p zarfilm) get(ctx context.Context, c *source.Client, cfg source.Config, s
 	headers, cookies := p.auth(s)
 	resp, err := c.Do(ctx, s, cfg.APIHosts, source.Req{
 		Method:  "GET",
-		URL:     zarBase + path,
+		URL:     p.base() + path,
 		Headers: headers,
 		Cookies: cookies,
 	})
@@ -134,7 +162,7 @@ func (p zarfilm) get(ctx context.Context, c *source.Client, cfg source.Config, s
 func (p zarfilm) VerifySession(ctx context.Context, c *source.Client, cfg source.Config, s source.Session) error {
 	headers, cookies := p.auth(s)
 	resp, err := c.Do(ctx, s, cfg.APIHosts, source.Req{
-		Method: "GET", URL: zarBase + "/", Headers: headers, Cookies: cookies,
+		Method: "GET", URL: p.base() + "/", Headers: headers, Cookies: cookies,
 	})
 	if err != nil {
 		if _, ok := source.AsNeedsRefresh(err); ok {
@@ -191,7 +219,7 @@ func (p zarfilm) listing(ctx context.Context, c *source.Client, cfg source.Confi
 	}
 	// Page links are absolute and always name the canonical host, whatever address
 	// this driver used to reach the page.
-	items, err := parseListing(body, zarBase, "https://"+zarHost)
+	items, err := parseListing(body, p.base(), zarBase, "https://"+zarHost)
 	if err != nil {
 		return nil, 0, err
 	}
