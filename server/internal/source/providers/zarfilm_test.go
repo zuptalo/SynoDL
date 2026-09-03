@@ -280,3 +280,54 @@ func TestZarfilmExpiredSessionDuringBrowse(t *testing.T) {
 		t.Fatalf("expired browse = %v, want needs-refresh", err)
 	}
 }
+
+// The pasted field is a cookie HEADER, not a value. WordPress names its login
+// cookie `wordpress_logged_in_<per-install hash>`, so the value under a generic
+// name authenticates as nobody — verified against the real site, where it comes
+// back as an anonymous visitor and is indistinguishable from an expired session.
+func TestZarfilmParsesAWholeCookieHeader(t *testing.T) {
+	site := newZarFakeSite(t)
+	sess := source.Session{
+		UserAgent: "TestAgent/1.0",
+		Fields: map[string]string{
+			// Exactly what "Copy as cURL" yields, unrelated cookies and all.
+			zarFieldCookie: "_ga=GA1.1.99; wordpress_logged_in_ab12cd=THE-VALUE; _lscache_vary=admin_bar%3A1; other=x",
+		},
+	}
+	_, _ = zarfilm{}.Search(context.Background(), source.NewClient(), zarCfg(site), sess, source.SearchQuery{Page: 1})
+
+	// The hashed name is preserved — that is the whole point.
+	if !strings.Contains(site.lastCookie, "wordpress_logged_in_ab12cd=THE-VALUE") {
+		t.Fatalf("hashed login cookie name not preserved: %q", site.lastCookie)
+	}
+	// The cache-variant cookie rides along, so a cached anonymous page can't come
+	// back and masquerade as an expired session.
+	if !strings.Contains(site.lastCookie, "_lscache_vary=admin_bar%3A1") {
+		t.Fatalf("_lscache_vary not forwarded: %q", site.lastCookie)
+	}
+	// Unrelated cookies from the paste are NOT forwarded — there is no reason to
+	// send someone's analytics identifiers anywhere.
+	for _, unrelated := range []string{"_ga", "other=x"} {
+		if strings.Contains(site.lastCookie, unrelated) {
+			t.Fatalf("forwarded an unrelated cookie %q: %q", unrelated, site.lastCookie)
+		}
+	}
+}
+
+// The two fields can still be filled separately, and the second one may carry
+// the cache cookie on its own.
+func TestZarfilmAcceptsCookiesSplitAcrossFields(t *testing.T) {
+	site := newZarFakeSite(t)
+	sess := source.Session{
+		UserAgent: "TestAgent/1.0",
+		Fields: map[string]string{
+			zarFieldCookie: "wordpress_logged_in_ab12cd=THE-VALUE",
+			zarFieldVary:   "_lscache_vary=admin_bar%3A1",
+		},
+	}
+	_, _ = zarfilm{}.Search(context.Background(), source.NewClient(), zarCfg(site), sess, source.SearchQuery{Page: 1})
+	if !strings.Contains(site.lastCookie, "wordpress_logged_in_ab12cd=THE-VALUE") ||
+		!strings.Contains(site.lastCookie, "_lscache_vary=admin_bar%3A1") {
+		t.Fatalf("split fields not combined: %q", site.lastCookie)
+	}
+}
