@@ -2,6 +2,7 @@ package source
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"net/http"
 	"net/url"
@@ -126,7 +127,10 @@ func (c *Client) Do(ctx context.Context, s Session, allowHosts []string, req Req
 
 	resp, err := c.http.Do(r)
 	if err != nil {
-		return nil, err
+		// A transport failure — refused, DNS, timeout — means this ADDRESS did not
+		// answer, which is the one condition a driver may respond to by trying a
+		// mirror (spec 1020).
+		return nil, &ErrUnavailable{Err: err}
 	}
 	defer resp.Body.Close()
 	b, _ := io.ReadAll(io.LimitReader(resp.Body, 8<<20))
@@ -135,6 +139,11 @@ func (c *Client) Do(ctx context.Context, s Session, allowHosts []string, req Req
 	// longer matches). Detect before returning the body to any caller.
 	if resp.Header.Get("CF-Mitigated") == "challenge" || looksLikeChallenge(b) {
 		return nil, &ErrNeedsRefresh{Layer: LayerClearance}
+	}
+	// A server-side error is the address failing, not the caller. 4xx is not:
+	// that is the site answering, and a mirror would answer the same way.
+	if resp.StatusCode >= 500 {
+		return nil, &ErrUnavailable{Err: fmt.Errorf("status %d", resp.StatusCode)}
 	}
 	return &Resp{Status: resp.StatusCode, Body: b}, nil
 }

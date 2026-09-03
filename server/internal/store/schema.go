@@ -236,4 +236,13 @@ var migrations = []string{
 	// FK on purpose: when a source is deleted the selection must degrade to "all"
 	// on read, not break a constraint or need a migration to clean up.
 	`ALTER TABLE source_prefs ADD COLUMN selected_source TEXT NOT NULL DEFAULT '';`,
+	// 0018 — an operator-set alternate address for a source (spec 1020). These
+	// sites get blocked periodically and publish a mirror; without somewhere to
+	// put it, a routine outage silently removes a source the operator pays for.
+	// Empty = no alternate, which is exactly today's behaviour.
+	//
+	// Note this is the ONE outbound host a source can reach that is not
+	// provider-declared. It is administrator configuration, never client input,
+	// and applies only to the source it is set on.
+	`ALTER TABLE source_providers ADD COLUMN alt_base TEXT NOT NULL DEFAULT '';`,
 }

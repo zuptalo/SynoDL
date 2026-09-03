@@ -137,6 +137,12 @@ func (zarfilm) Hosts() source.Config {
 	return cfg
 }
 
+// DefaultAltBase is the mirror this driver currently knows about, offered to the
+// administrator as a starting value. It is only a default: the site changes its
+// mirror on its own schedule, so the operator can replace it without waiting for
+// a release (FR-002).
+func (zarfilm) DefaultAltBase() string { return "https://zhomis.info" }
+
 // base is where this driver's requests go: the real site, or a fake one in a
 // dev/e2e build.
 func (zarfilm) base() string {
@@ -155,11 +161,56 @@ func hostOf(raw string) string {
 }
 
 // get fetches one page as a browser would.
+// get fetches one page, falling back to the source's alternate domain when the
+// preferred one is unavailable.
+//
+// Only an AVAILABILITY failure fails over. A logged-out or paywalled response is
+// the site answering correctly, and a mirror would answer identically — retrying
+// there would just double the work and report the wrong cause (FR-004).
 func (p zarfilm) get(ctx context.Context, c *source.Client, cfg source.Config, s source.Session, path string) ([]byte, error) {
+	var firstErr error
+	for i, base := range p.bases(cfg) {
+		body, err := p.getFrom(ctx, c, cfg, s, base, path)
+		if err == nil {
+			// Remember which address answered, so an outage does not make every
+			// later request pay for a failed attempt first (FR-007).
+			rememberWorkingBase(cfg, base)
+			return body, nil
+		}
+		if !source.IsUnavailable(err) {
+			return body, err
+		}
+		if i == 0 {
+			firstErr = err
+		}
+	}
+	if firstErr == nil {
+		firstErr = &source.ErrUnavailable{Err: errors.New("no address configured")}
+	}
+	return nil, firstErr
+}
+
+// bases lists the addresses to try, preferred first. The main domain leads
+// unless a recent success says the mirror is the one currently answering.
+func (p zarfilm) bases(cfg source.Config) []string {
+	primary := p.base()
+	alt := strings.TrimRight(strings.TrimSpace(cfg.AltBase), "/")
+	// In a dev/e2e build the driver is pointed at a fake site; there is no mirror
+	// of a fake, and adding one would only make those runs slower and stranger.
+	if mockBase("zarfilm") != "" || alt == "" || alt == primary {
+		return []string{primary}
+	}
+	if preferredBase(cfg) == alt {
+		return []string{alt, primary}
+	}
+	return []string{primary, alt}
+}
+
+func (p zarfilm) getFrom(ctx context.Context, c *source.Client, cfg source.Config, s source.Session, base, path string) ([]byte, error) {
 	headers, cookies := p.auth(s)
 	resp, err := c.Do(ctx, s, cfg.APIHosts, source.Req{
 		Method:  "GET",
-		URL:     p.base() + path,
+		URL:     base + path,
 		Headers: headers,
 		Cookies: cookies,
 	})
@@ -242,9 +293,11 @@ func (p zarfilm) listing(ctx context.Context, c *source.Client, cfg source.Confi
 	if err != nil {
 		return nil, 0, err
 	}
-	// Page links are absolute and always name the canonical host, whatever address
-	// this driver used to reach the page.
-	items, err := parseListing(body, p.base(), zarBase, "https://"+zarHost)
+	// Page links are absolute and name whichever host served them — the mirror's
+	// pages link to the mirror. All the addresses this source may legitimately be
+	// reached at are accepted; anything else is still off-site and rejected.
+	bases := append(p.bases(cfg), zarBase, "https://"+zarHost)
+	items, err := parseListing(body, bases...)
 	if err != nil {
 		return nil, 0, err
 	}

@@ -40,6 +40,9 @@ type SourceProvider struct {
 	State          string
 	LastVerifiedAt int64
 	SortOrder      int64
+	// AltBase is an operator-set mirror to fall back to when the main domain is
+	// unavailable (spec 1020). Empty = none.
+	AltBase string
 	// LastError is the last failure CATEGORY only (needs_refresh / unsubscribed /
 	// unreachable). Never an upstream body, URL, or anything secret-derived.
 	LastError string
@@ -102,7 +105,7 @@ func decodeSession(plain []byte) (*SourceSession, error) {
 }
 
 const providerCols = `id, kind, display_name, api_hosts, download_hosts,
-	movies_parent, tv_parent, enabled, state, last_verified_at, sort_order, last_error`
+	movies_parent, tv_parent, enabled, state, last_verified_at, sort_order, last_error, alt_base`
 
 func scanProvider(sc interface{ Scan(...any) error }) (*SourceProvider, error) {
 	var (
@@ -112,7 +115,7 @@ func scanProvider(sc interface{ Scan(...any) error }) (*SourceProvider, error) {
 	)
 	err := sc.Scan(&p.ID, &p.Kind, &p.DisplayName, &apiHosts, &dlHosts,
 		&p.MoviesParent, &p.TVParent, &enabled, &p.State, &p.LastVerifiedAt,
-		&p.SortOrder, &p.LastError)
+		&p.SortOrder, &p.LastError, &p.AltBase)
 	if err != nil {
 		return nil, err
 	}
@@ -171,12 +174,12 @@ func (s *Store) CreateProvider(p SourceProvider, now int64) (int64, error) {
 		INSERT INTO source_providers
 		  (kind, display_name, api_hosts, download_hosts, movies_parent,
 		   tv_parent, enabled, state, last_verified_at, sort_order, last_error,
-		   created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		   alt_base, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		p.Kind, p.DisplayName, strings.Join(p.APIHosts, "\n"),
 		strings.Join(p.DownloadHosts, "\n"), p.MoviesParent, p.TVParent,
 		boolInt(p.Enabled), orDefault(p.State, SourceNotConfigured),
-		p.LastVerifiedAt, p.SortOrder, p.LastError, now, now)
+		p.LastVerifiedAt, p.SortOrder, p.LastError, p.AltBase, now, now)
 	if err != nil {
 		return 0, err
 	}
@@ -189,11 +192,11 @@ func (s *Store) UpdateProvider(p SourceProvider, now int64) error {
 	_, err := s.db.Exec(`
 		UPDATE source_providers SET
 		  kind=?, display_name=?, api_hosts=?, download_hosts=?, movies_parent=?,
-		  tv_parent=?, enabled=?, sort_order=?, updated_at=?
+		  tv_parent=?, enabled=?, sort_order=?, alt_base=?, updated_at=?
 		WHERE id=?`,
 		p.Kind, p.DisplayName, strings.Join(p.APIHosts, "\n"),
 		strings.Join(p.DownloadHosts, "\n"), p.MoviesParent, p.TVParent,
-		boolInt(p.Enabled), p.SortOrder, now, p.ID)
+		boolInt(p.Enabled), p.SortOrder, p.AltBase, now, p.ID)
 	return err
 }
 

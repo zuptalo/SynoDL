@@ -370,6 +370,8 @@ export interface SourceProvider {
   sortOrder: number;
   moviesParent: string;
   tvParent: string;
+  /** Mirror to fall back to when the main domain is unavailable ('' = none). */
+  altBase?: string;
 }
 /** One field a provider kind needs pasted. Drives the admin form. */
 export interface SourceSessionField {
@@ -384,6 +386,8 @@ export interface SourceKind {
   kind: string;
   name: string;
   sessionFields: SourceSessionField[];
+  /** The mirror SynoDL currently knows about for this kind, offered as a default. */
+  defaultAltBase?: string;
 }
 export interface SourceProviderInput {
   kind?: string;
@@ -391,6 +395,7 @@ export interface SourceProviderInput {
   moviesParent?: string;
   tvParent?: string;
   sortOrder?: number;
+  altBase?: string;
   enabled?: boolean;
   /** Write-only. Blank values mean "keep what is stored". */
   session?: Record<string, string>;

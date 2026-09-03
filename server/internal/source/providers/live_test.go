@@ -133,3 +133,39 @@ func TestLiveZarfilm(t *testing.T) {
 	// unauthenticated access until it expires.
 	t.Logf("resolved %d link(s), size %s", len(links), size)
 }
+
+// TestLiveZarfilmMirror exercises the real alternate domain by pointing the main
+// address at a host that cannot resolve, so the fallback path runs against the
+// actual mirror rather than a stand-in. Skips without credentials, like the rest.
+//
+// This is the check that catches the published mirror changing or dying —
+// which, being the thing we fall back TO, would otherwise only be discovered
+// during an outage, at the worst possible moment.
+func TestLiveZarfilmMirror(t *testing.T) {
+	cookie := os.Getenv("LIVE_ZAR_COOKIE")
+	if cookie == "" {
+		t.Skip("no LIVE_ZAR_COOKIE — skipping live mirror test")
+	}
+	ResetBasePrefs()
+	old := zarBase
+	zarBase = "https://zarfilm-main-is-down.invalid"
+	defer func() { zarBase = old }()
+
+	p := zarfilm{}
+	cfg := p.Hosts()
+	cfg.AltBase = p.DefaultAltBase()
+	cfg.APIHosts = append(cfg.APIHosts, "zhomis.info", "zarfilm-main-is-down.invalid")
+	s := source.Session{
+		UserAgent: os.Getenv("LIVE_ZAR_UA"),
+		Fields:    map[string]string{zarFieldCookie: cookie, zarFieldVary: os.Getenv("LIVE_ZAR_VARY")},
+	}
+
+	res, err := p.Search(context.Background(), source.NewClient(), cfg, s, source.SearchQuery{Page: 1})
+	if err != nil {
+		t.Fatalf("fallback to the mirror failed: %v", err)
+	}
+	if len(res.Items) == 0 {
+		t.Fatal("the mirror returned no items")
+	}
+	t.Logf("mirror served %d items (of %d pages)", len(res.Items), res.Pages)
+}
