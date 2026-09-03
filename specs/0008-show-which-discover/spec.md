@@ -39,6 +39,32 @@ content that predates SynoDL, or arrived by any other route, is recognised too.
   backfilled? → A: Yes — when hiding leaves too few cards, further pages are fetched automatically
   so the grid stays full and scrolling feels unchanged (FR-023, SC-008a).
 
+### Session 2026-09-04
+
+- Q: What must exist for a title to be marked as already present? → A: At least one **video file**
+  anywhere beneath the title's folder, season subfolders included. Sidecars — `.nfo`, artwork,
+  subtitles — never count on their own, and neither does the folder merely existing (FR-001,
+  FR-001a, FR-002).
+- Q: How should a season that is only partly present be reported? → A: Present when it holds at
+  least one episode, showing WHICH episode numbers are on the NAS and never claiming a total. A
+  season is never described as "complete", because the catalog's episode count cannot be relied on
+  and asserting completeness we cannot verify repeats the error FR-001a fixes (FR-014, FR-016,
+  FR-016a).
+- Q: What should the marker say while a download into that folder is still running? → A: Report it
+  as DOWNLOADING rather than already present. Download Station writes the video file into the
+  destination as it goes, so a partly-fetched title would otherwise read as owned; the app already
+  knows its own active tasks and their destinations, so this needs no extra reading of the NAS
+  (FR-001b, FR-011a).
+- Q: How is the video-file check paid for, given it needs a listing per title folder rather than
+  one per parent? → A: Verify lazily — only for titles on the page being shown that match a folder
+  name, caching each folder's answer for 5 minutes. Most titles match nothing and cost no reading
+  at all. A title not yet verified carries NO marker, so the feature never claims more than it has
+  checked (FR-010b, FR-010c).
+- Q: How do the US3 guardrails treat a title that is currently downloading? → A: The hide-owned
+  control hides titles that are downloading as well as those already present, and re-sending either
+  one asks for confirmation first. Both are things the user has no need to send again, and
+  in-progress work belongs in the Tasks list rather than the Discover grid (FR-019a, FR-022).
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - See what you already have while browsing (Priority: P1)
@@ -54,11 +80,17 @@ title in the grid; it carries an "already have it" marker while its neighbours d
 
 **Acceptance Scenarios**:
 
-1. **Given** a folder for a title exists under the configured movies parent, **When** that
-   title appears in the Discover grid, **Then** its card carries a clear marker saying the
-   user already has it.
+1. **Given** a folder for a title exists under the configured movies parent **and holds at least
+   one video file**, **When** that title appears in the Discover grid, **Then** its card carries a
+   clear marker saying the user already has it.
 2. **Given** no folder for a title exists, **When** it appears in the grid, **Then** the card
    carries no such marker.
+2b. **Given** a download into a title's folder is still running, **When** that title appears in
+   the grid, **Then** its card marks it as downloading rather than as already present, so the user
+   waits instead of assuming they have it.
+2a. **Given** a folder for a title exists but contains no video file — it is empty, or holds only
+   metadata, artwork or subtitles — **When** it appears in the grid, **Then** the card carries no
+   marker, because nothing watchable is there.
 3. **Given** a title whose folder name differs from the catalog title only in case,
    punctuation, bracketed extras, a leading article, or how the year is written, **When** it
    appears in the grid, **Then** it is still recognised as present.
@@ -69,22 +101,31 @@ title in the grid; it carries an "already have it" marker while its neighbours d
 6. **Given** a title that is both unreleased and already present, **When** it renders, **Then**
    both the "Soon" marker and the ownership marker are readable and neither obscures the other.
 
-### User Story 2 - Know which seasons of a series you already have (Priority: P2)
+### User Story 2 - Know which seasons and episodes of a series you already have (Priority: P2)
 
-A user opens a series they partly own. Before choosing a download, they can see which seasons
-are already on the NAS, so they only fetch the ones they are missing.
+A user opens a series they partly own. Before choosing a download, they can see which seasons are
+already on the NAS and which episodes those seasons actually hold, so they fetch only what is
+missing rather than re-downloading a season for the sake of two episodes.
 
 **Why this priority**: A title-level marker is misleading for series — a folder holding one
 season looks identical to one holding all ten. This turns a vague signal into an actionable one.
 
-**Independent Test**: Seed a series folder containing seasons 1 and 2, open that series in
-Discover, and confirm the download options mark seasons 1 and 2 as already present and leave
-the rest unmarked.
+**Independent Test**: Seed a series folder holding seasons 1 and 2, with season 2 missing some
+episodes, open that series in Discover, and confirm the download options mark seasons 1 and 2 as
+present, name the episode numbers each holds, and leave the remaining seasons unmarked.
 
 **Acceptance Scenarios**:
 
 1. **Given** a series folder containing seasons 1 and 2, **When** the user opens that series,
    **Then** its download options show seasons 1 and 2 as already present and seasons 3+ as not.
+1a. **Given** a season folder holding episodes 1 to 6 and episode 9, **When** the user opens that
+   series, **Then** that season is shown as present and the episodes it holds are identified, so
+   the gap is visible.
+1b. **Given** a season whose episodes are present, **When** it is shown, **Then** it is NEVER
+   described as complete or as a fraction of a total, because the number of episodes the season
+   should have is not something the system can establish.
+1c. **Given** a season folder holding no video file — empty, or only metadata and artwork —
+   **When** the user opens that series, **Then** that season is not marked as present.
 2. **Given** a series folder that stores each season in its own subfolder, **When** the user
    opens it, **Then** the present seasons are identified correctly.
 3. **Given** a series folder that stores episode files directly in the title folder, **When**
@@ -97,7 +138,8 @@ the rest unmarked.
 ### User Story 3 - Guardrails against downloading it twice (Priority: P3)
 
 A user who has decided to re-download something already present is asked to confirm first, and
-a user who never wants to see owned titles can hide them from the grid.
+a user who never wants to see titles they already have — or are already fetching — can hide them
+from the grid.
 
 **Why this priority**: The marker already prevents most mistakes; these close the remaining gap
 and make long browsing sessions cleaner. Neither is needed for the first two stories to be useful.
@@ -116,9 +158,14 @@ setting survives a reload.
    exactly as it does today.
 4. **Given** a series where only the selected season is already present, **When** the user sends
    that season, **Then** they are asked to confirm.
+4a. **Given** a title that is currently downloading, **When** the user sends it again, **Then**
+   they are asked to confirm first, as they would for one already present.
 5. **Given** a title not present, **When** the user sends it, **Then** no confirmation appears.
 6. **Given** the hide-owned control is enabled, **When** the grid renders, **Then** titles
    already present are absent and scrolling for more results keeps working.
+6a. **Given** the hide-owned control is enabled, **When** a title is currently downloading,
+   **Then** it is hidden too — it is not something the user needs to send again, and its progress
+   is reported in the Tasks list.
 7. **Given** the hide-owned control was enabled, **When** the user returns later or signs in on
    another device, **Then** it is still enabled.
 
@@ -144,10 +191,21 @@ setting survives a reload.
 
 **Detecting what is already there**
 
-- **FR-001**: The system MUST determine, for each title shown in Discover, whether a folder for
-  that title already exists under the movies or TV parent folder configured for download sources.
-- **FR-002**: Detection MUST read the actual contents of those folders, so content that arrived
-  on the NAS by any route — including before SynoDL was installed — is recognised.
+- **FR-001**: The system MUST determine, for each title shown in Discover, whether at least one
+  **video file** exists anywhere beneath a folder matching that title under the movies or TV parent
+  folder configured for download sources, season subfolders included.
+- **FR-001b**: When a download task is actively writing into a title's folder, that title MUST be
+  reported as *downloading* rather than as already present, even though a partial video file is
+  already on disk. The distinction is the point: "you have this" means skip it, "downloading" means
+  wait. This MUST be determined from the download tasks the system already tracks, without any
+  additional reading of the NAS.
+- **FR-001a**: A folder that exists but holds no video file MUST NOT be reported as present, and
+  files that are not video — `.nfo`, artwork, subtitles — MUST NOT count towards presence on their
+  own. A folder is created before a download begins and metadata may be written into it by other
+  tools, so neither the folder's existence nor its being non-empty is evidence that the content is
+  actually there.
+- **FR-002**: Detection MUST read what is actually on the NAS, so content that arrived by any route
+  — including before SynoDL was installed — is recognised.
 - **FR-003**: A movie MUST be looked for under the movies parent, and a series or anime under
   the TV parent.
 - **FR-004**: Matching MUST disregard differences in letter case, punctuation, spacing,
@@ -158,8 +216,10 @@ setting survives a reload.
 - **FR-006**: Matching MUST work for titles written in non-Latin scripts.
 - **FR-007**: When several sources are configured, the folders examined MUST be the union of the
   parents across enabled sources, with each distinct folder examined once.
-- **FR-008**: A title downloaded through SynoDL MUST be recognised as present on the very next
-  catalog request after it is sent, without restarting or reinstalling the app.
+- **FR-008**: A title sent through SynoDL MUST be recognised as *downloading* on the very next
+  catalog request after it is sent, without restarting or reinstalling the app, and MUST become
+  *present* once a video file has actually landed in its folder. It is never reported as present on
+  the strength of having been sent (FR-001a, FR-001b).
 - **FR-008a**: When an administrator changes a source's parent folders, or adds, disables, or
   removes a source, any retained reading MUST be discarded, so ownership is never reported from
   folders that are no longer the configured ones.
@@ -168,7 +228,13 @@ setting survives a reload.
   as it does today. A failed read MUST NOT surface an error to the user.
 - **FR-010**: Browsing MUST NOT wait on a fresh reading of the folders. A reading taken within the
   last 5 minutes MAY be reused as-is; a reading older than that MUST be refreshed before it is used
-  again.
+  again. This applies both to the list of folders under a parent and to whether a given title folder
+  holds a video file.
+- **FR-010b**: Whether a title folder holds a video file MUST be established only for titles the
+  user is actually being shown, not for the whole library. A title whose name matches no folder
+  MUST cost no reading at all.
+- **FR-010c**: A title whose folder has not yet been checked MUST carry no marker. Presence is
+  reported only once it has been established, never assumed while a check is outstanding.
 - **FR-010a**: Content that appears on the NAS by any route other than SynoDL MUST be recognised as
   present within 5 minutes of appearing, with no user action required.
 
@@ -176,30 +242,42 @@ setting survives a reload.
 
 - **FR-011**: A title detected as present MUST carry a clear visual marker on its card in the
   Discover grid.
-- **FR-012**: That marker MUST NOT convey its meaning by colour alone and MUST be announced to
+- **FR-011a**: A title that is currently downloading MUST carry a marker distinct from the
+  already-present one, so the two states are not read as the same thing.
+- **FR-012**: Those markers MUST NOT convey their meaning by colour alone and MUST be announced to
   assistive technology.
 - **FR-013**: The marker MUST coexist legibly with the existing "unreleased" marker.
 
 **Season detail for series**
 
 - **FR-014**: Opening a series or anime that is present MUST show which seasons are already on
-  the NAS, alongside that title's download options.
+  the NAS, alongside that title's download options, and for each such season MUST identify the
+  episode numbers it holds.
 - **FR-015**: Season presence MUST be detected both when seasons are stored in their own
   subfolders and when episode files sit directly in the title's folder.
-- **FR-016**: Where a count of episodes present is available it MAY be shown; the season presence
-  markers MUST NOT depend on a count being available.
+- **FR-016**: A season MUST be reported as present when it holds at least one video file, and the
+  episode numbers present MUST be derived from the files themselves rather than from the catalog.
+- **FR-016a**: A season MUST NOT be described as complete, nor as a fraction of an expected total.
+  The number of episodes a season should contain is not something the system can establish, and
+  asserting it would repeat the over-claiming FR-001a exists to prevent.
+- **FR-016b**: Episodes whose numbers cannot be read from the file names MUST NOT prevent the
+  season being reported as present; the season stands on the video files it holds.
 - **FR-017**: If the title's folder cannot be read, the download options MUST remain fully usable
   with no season markers shown.
 - **FR-018**: A movie that is present MUST be shown as present without a season breakdown.
 
 **Guardrails**
 
+- **FR-019a**: A title that is currently downloading MUST be treated as already present for the
+  purposes of both guardrails: sending it again MUST ask for confirmation, and the hide control
+  MUST hide it. Neither is something the user needs to send again.
 - **FR-019**: Sending a title that is present — or, for a series, a season that is present — MUST
   ask the user to confirm before anything is sent.
 - **FR-020**: Cancelling that confirmation MUST send nothing and consume none of the user's
   download allowance.
 - **FR-021**: No confirmation MUST appear when the title or selected season is not present.
-- **FR-022**: Discover MUST offer a control that hides titles already present from the grid.
+- **FR-022**: Discover MUST offer a control that hides from the grid titles the user already has
+  or is already downloading.
 - **FR-023**: With that control enabled, hidden titles MUST NOT appear and loading further
   results MUST continue to work.
 - **FR-023a**: When hiding owned titles leaves too few results to fill the grid, further results
@@ -245,16 +323,18 @@ setting survives a reload.
   any of them.
 - **SC-002**: Content that arrived on the NAS before SynoDL was installed, or by any route other
   than SynoDL, is marked as already present.
-- **SC-003**: A title downloaded through SynoDL is marked as present the next time the user
-  browses Discover, within the same sitting.
+- **SC-003**: A title sent through SynoDL is marked as downloading the next time the user browses
+  Discover, within the same sitting, and switches to already-present once a video file has landed.
 - **SC-003a**: A title added to the NAS outside SynoDL is marked as present within 5 minutes,
   without the user reloading or signing in again.
+- **SC-004a**: No title is marked present on the strength of a folder that holds no video file —
+  verified against a folder containing only metadata, artwork or subtitles.
 - **SC-004**: No title is ever marked present when it is not — verified against same-name
   different-year pairs and near-miss names.
 - **SC-005**: With the NAS unreachable, Discover browses, searches, and sends exactly as before,
   with nothing marked present and no error shown.
-- **SC-006**: Opening a partly-owned series shows which seasons are present before the user
-  chooses what to download.
+- **SC-006**: Opening a partly-owned series shows which seasons are present, and which episode
+  numbers each holds, before the user chooses what to download.
 - **SC-007**: A user re-sending something already present is asked to confirm first and can back
   out with nothing sent.
 - **SC-008**: Hiding owned titles removes them from the grid, and the choice survives a reload
