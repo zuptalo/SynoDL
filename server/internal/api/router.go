@@ -3,6 +3,7 @@
 package api
 
 import (
+	"log/slog"
 	"net/http"
 
 	"synodl/server/internal/config"
@@ -199,8 +200,20 @@ func requireSid(next func(w http.ResponseWriter, r *http.Request, sid string)) h
 func writeSynoError(w http.ResponseWriter, err error) {
 	se := syno.AsError(err)
 	if se == nil {
+		// No DSM code to report, so say what little is known rather than nothing:
+		// a bare 502 with no trace is what made an upload failure so hard to
+		// place. The text is our own error, never NAS content.
+		slog.Warn("nas call failed", "err", err.Error())
 		httpx.Error(w, http.StatusBadGateway, string(syno.KindNAS))
 		return
+	}
+	// DSM's own code is the single most useful fact when a call fails, and it was
+	// previously discarded: classify() only interprets codes for SYNO.API.Auth,
+	// so every FileStation code collapses to KindNAS and the response cannot
+	// carry it. Logged here so a 502 is never again a dead end. A numeric code
+	// and an API name — no credentials, no paths, no file names.
+	if se.Kind == syno.KindNAS {
+		slog.Warn("nas returned an unclassified error", "api", se.API, "code", se.Code)
 	}
 	switch se.Kind {
 	case syno.KindSession, syno.KindCredentials, syno.KindOTPRequired, syno.KindOTPInvalid,

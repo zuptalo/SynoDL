@@ -29,7 +29,7 @@ const uploadField = 4 << 10
 // non-positive cap, but Deps.Cfg can be built in code, and a zero there would
 // make MaxBytesReader reject every upload with "request body too large" — a
 // baffling failure for a correct request.
-const defaultUploadMaxMB = 2048
+const defaultUploadMaxMB = 10240
 
 func (d Deps) uploadCapBytes() int64 {
 	mb := d.Cfg.UploadMaxMB
@@ -60,7 +60,7 @@ func handleUpload(d Deps) http.Handler {
 			return
 		}
 
-		var kind, title, season string
+		var kind, title, season, size, overwrite string
 		for {
 			part, err := mr.NextPart()
 			if err == io.EOF {
@@ -72,7 +72,7 @@ func handleUpload(d Deps) http.Handler {
 				return
 			}
 			if part.FormName() == "file" {
-				d.streamUploadedFile(w, r, u, kind, title, season, part)
+				d.streamUploadedFile(w, r, u, kind, title, season, size, overwrite, part)
 				return
 			}
 			val, err := io.ReadAll(io.LimitReader(part, uploadField))
@@ -88,6 +88,14 @@ func handleUpload(d Deps) http.Handler {
 				title = string(val)
 			case "season":
 				season = string(val)
+			case "overwrite":
+				// Only ever set deliberately by the client, to replace a partial
+				// file left behind by an interrupted upload.
+				overwrite = string(val)
+			case "size":
+				// Sent ahead of the file so the NAS request can declare an exact
+				// Content-Length (DSM rejects a chunked upload body).
+				size = string(val)
 			}
 		}
 	})
@@ -97,7 +105,7 @@ func handleUpload(d Deps) http.Handler {
 // to the NAS. Nothing here is buffered.
 func (d Deps) streamUploadedFile(
 	w http.ResponseWriter, r *http.Request, u *store.User,
-	kind, title, season string, part *multipart.Part,
+	kind, title, season, size, overwrite string, part *multipart.Part,
 ) {
 	name := strings.TrimSpace(part.FileName())
 	// The file name is client-supplied text that ends up in a path on the NAS,
@@ -142,6 +150,25 @@ func (d Deps) streamUploadedFile(
 		return
 	}
 
+	// Deliberately checked here, AFTER the name, type, parent and permission
+	// checks: those are what the user can act on, and letting a transport detail
+	// preempt them would report "missing file size" for a request whose real
+	// problem is that no library folder is configured.
+	//
+	// The byte count must be known before the NAS request is built, because DSM
+	// refuses a chunked upload body so the length has to be declared up front.
+	// The browser knows it (File.size) and sends it in the field ahead of the
+	// file; there is no way to recover it from the part itself.
+	nbytes, sizeErr := strconv.ParseInt(strings.TrimSpace(size), 10, 64)
+	if sizeErr != nil || nbytes <= 0 {
+		httpx.Error(w, http.StatusBadRequest, "the upload is missing its file size")
+		return
+	}
+	if nbytes > d.uploadCapBytes() {
+		httpx.Error(w, http.StatusRequestEntityTooLarge, "that file is over the size limit")
+		return
+	}
+
 	absParent := "/" + parent
 	err := d.NAS.Do(r.Context(), func(c syno.Client, sid string) error {
 		if e := ensureSubfolder(r.Context(), c, sid, absParent, folder); e != nil {
@@ -152,7 +179,8 @@ func (d Deps) streamUploadedFile(
 				return e
 			}
 		}
-		return c.UploadFile(r.Context(), sid, "/"+dest, name, part)
+		return c.UploadFile(r.Context(), sid, "/"+dest, name, nbytes,
+			strings.EqualFold(strings.TrimSpace(overwrite), "true"), part)
 	})
 	if err != nil {
 		// A collision is the one failure worth naming precisely: the file is
