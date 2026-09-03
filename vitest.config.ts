@@ -43,6 +43,8 @@ export default defineConfig({
         'src/services/quality-sort.ts',
         // IMDb title-link building (spec 1019).
         'src/services/imdb-link.ts',
+        // Which mark identifies a download source in the grid (spec 1021).
+        'src/services/source-logo.ts',
       ],
       thresholds: { lines: 80, functions: 80, statements: 80, branches: 80 },
     },

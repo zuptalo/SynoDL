@@ -56,7 +56,7 @@ test('a title already on the NAS is marked, and its neighbours are not', async (
 
   // FR-011/FR-012: one card carries the marker, and it is announced rather than
   // conveyed by colour alone.
-  const marker = page.locator('.badge-have');
+  const marker = page.locator('.ribbon');
   await expect(marker.first()).toBeVisible();
   await expect(marker).toHaveCount(1);
   await expect(marker.first()).toHaveAttribute('aria-label', /already in your library/i);
@@ -68,7 +68,7 @@ test('nothing is marked when the NAS holds none of the catalog', async ({ page }
   await gotoDiscover(page);
 
   await expect(page.locator('.card').first()).toBeVisible();
-  await expect(page.locator('.badge-have')).toHaveCount(0);
+  await expect(page.locator('.ribbon')).toHaveCount(0);
 });
 
 // SC-004: matching must not be loose. A folder that merely resembles a catalog
@@ -90,7 +90,7 @@ test('a near-miss folder name does not mark a title', async ({ page }) => {
   await login(page);
   await gotoDiscover(page);
   await expect(page.locator('.card').first()).toBeVisible();
-  await expect(page.locator('.badge-have')).toHaveCount(0);
+  await expect(page.locator('.ribbon')).toHaveCount(0);
 });
 
 // FR-009: browsing must survive parent folders that cannot be read — no marker,
@@ -115,7 +115,7 @@ test('Discover still works when the parent folders cannot be read', async ({ pag
   await gotoDiscover(page);
 
   await expect(page.locator('.card').first()).toBeVisible();
-  await expect(page.locator('.badge-have')).toHaveCount(0);
+  await expect(page.locator('.ribbon')).toHaveCount(0);
   // The failed scan is invisible: no empty/error state took over the grid.
   await expect(page.locator('.state')).toHaveCount(0);
 });

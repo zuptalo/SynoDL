@@ -33,7 +33,7 @@ import {
 import {
   arrowDownOutline,
   arrowUpOutline,
-  checkmarkCircle,
+  checkmarkSharp,
   closeCircleOutline,
   closeOutline,
   funnelOutline,
@@ -42,6 +42,7 @@ import {
   starOutline,
 } from 'ionicons/icons';
 import { posterSrc, type CatalogTitle } from '@/services/api';
+import { logoForKind, monogram } from '@/services/source-logo';
 import { splitYear } from '@/services/title-year';
 import { useSourceCatalog } from '@/composables/useSourceCatalog';
 import { SORTS, sortLabel } from '@/services/source-filters';
@@ -126,6 +127,16 @@ const contentRef = ref<{ $el: { getScrollElement: () => Promise<HTMLElement> } }
 // list. With a single source selected every result is from it, so the label would
 // be noise on every card.
 const showSourceLabels = computed(() => showSourcePicker.value && selectedSource.value === '');
+
+// A card knows its sourceId; the bundled mark is keyed on the driver's KIND,
+// which is stable where a display name is not. The configured sources are
+// already loaded for the picker, so this is a lookup rather than a fetch.
+const kindById = computed(() => {
+  const out: Record<string, string> = {};
+  for (const p of sources.value) out[String(p.id)] = p.kind;
+  return out;
+});
+const sourceLogo = (t: CatalogTitle) => logoForKind(kindById.value[String(t.sourceId ?? '')]);
 
 async function onSource(value: string): Promise<void> {
   const dropped = await setSource(value);
@@ -608,14 +619,32 @@ function goSettings(): void {
               />
               <div v-else class="poster-fallback">{{ t.title.charAt(0) }}</div>
               <span v-if="t.comingSoon" class="badge">Soon</span>
-              <!-- Already on the NAS (spec 0008). Sits on the RIGHT so it can
-                   never overlap the "Soon" badge on the left — a title can
-                   legitimately be both. The icon is paired with a text label and
-                   an aria-label rather than relying on colour, so the state
-                   survives both a colour-blind reader and a screen reader. -->
-              <span v-if="t.inLibrary" class="badge badge-have" aria-label="Already in your library">
-                <ion-icon :icon="checkmarkCircle" aria-hidden="true" />
-                Have it
+              <!-- Already on the NAS (spec 0008), as a folded corner ribbon.
+                   A title you own is one you want to SKIP, so the mark has to be
+                   readable in peripheral vision across a whole grid without
+                   competing with the artwork — a corner is dead space, and a
+                   ribbon there never covers the poster. Anchored top-RIGHT so it
+                   cannot collide with the "Soon" badge on the left; a title can
+                   legitimately be both. The aria-label carries the meaning, so
+                   the state does not depend on seeing the colour. -->
+              <span v-if="t.inLibrary" class="ribbon" aria-label="Already in your library">
+                <span class="ribbon-band" aria-hidden="true">
+                  <ion-icon :icon="checkmarkSharp" />
+                </span>
+              </span>
+              <!-- Only in combined mode: a title carried by two sources appears
+                   twice, and without a mark that reads as a duplicate rather
+                   than as two sources offering it. Redundant — and so omitted —
+                   when a single source is selected. Bottom-right keeps it clear
+                   of both corner marks above. -->
+              <span v-if="showSourceLabels && t.sourceName" class="src-mark" :title="t.sourceName">
+                <img
+                  v-if="sourceLogo(t)"
+                  :src="sourceLogo(t)"
+                  :alt="t.sourceName"
+                  loading="lazy"
+                />
+                <span v-else class="src-mono">{{ monogram(t.sourceName) }}</span>
               </span>
             </div>
             <ion-label class="meta">
@@ -624,11 +653,6 @@ function goSettings(): void {
                 <span v-if="t.imdbScore">★ {{ t.imdbScore.toFixed(1) }}</span>
                 <span v-if="yearOf(t.title)" class="year">{{ yearOf(t.title) }}</span>
                 <span class="type">{{ t.type }}</span>
-                <!-- Only in combined mode: a title carried by two sources appears
-                     twice, and without this label that reads as a duplicate
-                     rather than as two sources offering it. Redundant — and so
-                     omitted — when a single source is selected. -->
-                <span v-if="showSourceLabels && t.sourceName" class="source-tag">{{ t.sourceName }}</span>
               </p>
             </ion-label>
           </button>
@@ -710,14 +734,6 @@ function goSettings(): void {
 }
 /* Which source a result came from, in combined mode only. Deliberately quiet:
    it disambiguates a repeated title, it is not a headline. */
-.source-tag {
-  opacity: 0.75;
-  font-size: 0.72rem;
-  padding: 0 0.3rem;
-  border: 1px solid currentColor;
-  border-radius: 0.4rem;
-  white-space: nowrap;
-}
 /* A source dropped out. Sits above the results it could not contribute to and
    never replaces them. */
 .degraded {
@@ -869,25 +885,73 @@ function goSettings(): void {
   background: rgba(0, 0, 0, 0.65);
   color: #fff;
 }
-/* The ownership badge is anchored right so it and "Soon" can coexist on the
-   same poster without overlapping. It keeps the base badge's dark scrim rather
-   than taking a solid colour of its own: the scrim is what makes a badge legible
-   over an arbitrary poster, and reusing it makes this read as a sibling of
-   "Soon" instead of a competing element. The green lives on the icon, where it
-   reinforces the label without carrying it — the text and aria-label do that, so
-   the meaning survives without colour. */
-.badge-have {
-  left: auto;
-  right: 6px;
-  display: inline-flex;
-  align-items: center;
-  gap: 3px;
+/* The "you already have this" ribbon: a band rotated across the top-right
+   corner, clipped by a square so it reads as folded over the poster's edge. The
+   corner is dead space, so the mark costs no artwork — which is what lets it be
+   bold enough to catch the eye in a grid without shouting. */
+.ribbon {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 52px;
+  height: 52px;
+  overflow: hidden;
+  pointer-events: none;
+  /* Match the poster's rounded corner so the ribbon is clipped by the same
+     curve rather than poking past it. */
+  border-top-right-radius: inherit;
 }
-.badge-have ion-icon {
-  font-size: 0.85rem;
+.ribbon-band {
+  position: absolute;
+  top: 9px;
+  right: -20px;
+  width: 76px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 3px 0;
+  transform: rotate(45deg);
   /* The same green the Tasks list uses for a finished download — "you already
      have this" is the same idea, so it should not be a new colour. */
-  color: var(--app-status-finished);
+  background: var(--app-status-finished);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.45);
+}
+.ribbon-band ion-icon {
+  font-size: 0.9rem;
+  /* Counter-rotated out of the band's 45deg so the tick sits UPRIGHT. Left to
+     rotate with the band it reads as a stray glyph rather than a check. */
+  transform: rotate(-45deg);
+  /* Dark ink on the green band: white on this green is under 3:1. */
+  color: #04240f;
+}
+
+/* The source mark. Bottom-right, clear of both corner marks above, on the same
+   dark scrim the badges use so it stays legible over any artwork. */
+.src-mark {
+  position: absolute;
+  right: 5px;
+  bottom: 5px;
+  display: flex;
+  align-items: center;
+  padding: 3px 5px;
+  border-radius: 5px;
+  background: rgba(0, 0, 0, 0.62);
+  pointer-events: none;
+}
+.src-mark img {
+  display: block;
+  height: 11px;
+  width: auto;
+  /* Both marks are light-on-transparent, so they read on the scrim as they are;
+     the slight fade stops them competing with the poster. */
+  opacity: 0.92;
+}
+.src-mono {
+  font-size: 0.6rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: #fff;
+  opacity: 0.92;
 }
 .meta h3 {
   font-size: 0.9rem;
