@@ -79,7 +79,7 @@ test('one source failing still shows the other, and says which is missing', asyn
   // to break exactly one of them and watch the other carry on. Backing both with
   // the same fake would break both and prove nothing.
   await addSource(token, 'Html Source', 0, 'zarfilm');
-  await addSource(token, 'Json Source', 1, 'thirtynama');
+  await addSource(token, 'Json Source', 1, '30nama');
   await login(page);
   await gotoDiscover(page);
   await expect(page.locator('.card').first()).toBeVisible();

@@ -13,7 +13,7 @@ import "testing"
 // why.
 func TestMockBaseIsUnavailableInAProductionBuild(t *testing.T) {
 	t.Setenv("SOURCE_MOCK_ZARFILM", "http://attacker.example/mocksrc/zar")
-	t.Setenv("SOURCE_MOCK_THIRTYNAMA", "http://attacker.example/mocksrc/tn")
+	t.Setenv("SOURCE_MOCK_30NAMA", "http://attacker.example/mocksrc/tn")
 
 	if got := mockBase("zarfilm"); got != "" {
 		t.Fatalf("an environment variable redirected a driver in a production build: %q", got)

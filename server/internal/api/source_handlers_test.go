@@ -13,7 +13,7 @@ import (
 
 // A controllable fake provider registered for handler tests, so tests exercise
 // the HANDLER (auth, storage, error mapping, folder-grant, subfolder+task)
-// without any real network. The concrete thirtynama driver is tested in the
+// without any real network. The concrete nama30 driver is tested in the
 // source/providers package.
 type fakeSrc struct{}
 

@@ -235,7 +235,7 @@ type TitleDetail struct {
 // are stateless: all secrets/config arrive per call so the same driver serves
 // any configured instance.
 type Provider interface {
-	// Kind is the stable registry key (e.g. "thirtynama").
+	// Kind is the stable registry key (e.g. "30nama").
 	Kind() string
 	// DisplayName is the human name offered when an admin adds this kind.
 	DisplayName() string

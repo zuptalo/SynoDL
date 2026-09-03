@@ -74,7 +74,7 @@ export async function addSource(
   token: string,
   displayName: string,
   sortOrder: number,
-  kind: 'zarfilm' | 'thirtynama' = 'zarfilm',
+  kind: 'zarfilm' | '30nama' = 'zarfilm',
 ): Promise<number> {
   const res = await api(token, '/v1/source/providers', {
     method: 'POST',

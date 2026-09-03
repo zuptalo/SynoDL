@@ -2,6 +2,7 @@ package store
 
 import (
 	"bytes"
+	"path/filepath"
 	"testing"
 )
 
@@ -14,7 +15,7 @@ func TestSourceProviderConfigRoundTrip(t *testing.T) {
 	}
 
 	id, err := s.SaveProviderConfig(SourceProvider{
-		Kind:          "thirtynama",
+		Kind:          "30nama",
 		DisplayName:   "30nama",
 		APIHosts:      []string{"interface.30nama.com", "30nama.com"},
 		DownloadHosts: []string{"divyacamilla.info"},
@@ -34,7 +35,7 @@ func TestSourceProviderConfigRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetProvider: %v", err)
 	}
-	if got.Kind != "thirtynama" || got.DisplayName != "30nama" ||
+	if got.Kind != "30nama" || got.DisplayName != "30nama" ||
 		got.MoviesParent != "/movies" || got.TVParent != "/tv" || !got.Enabled {
 		t.Fatalf("provider mismatch: %+v", got)
 	}
@@ -47,7 +48,7 @@ func TestSourceProviderConfigRoundTrip(t *testing.T) {
 
 	// Update is an upsert on the singleton (same id, new values).
 	id2, err := s.SaveProviderConfig(SourceProvider{
-		Kind: "thirtynama", DisplayName: "30nama HD", MoviesParent: "/media/movies",
+		Kind: "30nama", DisplayName: "30nama HD", MoviesParent: "/media/movies",
 	}, 200)
 	if err != nil {
 		t.Fatalf("SaveProviderConfig update: %v", err)
@@ -63,7 +64,7 @@ func TestSourceProviderConfigRoundTrip(t *testing.T) {
 
 func TestSourceSessionSealedAndWriteOnly(t *testing.T) {
 	s := openTestStore(t)
-	id, _ := s.SaveProviderConfig(SourceProvider{Kind: "thirtynama"}, 1)
+	id, _ := s.SaveProviderConfig(SourceProvider{Kind: "30nama"}, 1)
 
 	sess := SourceSession{
 		UserAgent: "Mozilla/5.0 test",
@@ -107,7 +108,7 @@ func TestSourceSessionSealedAndWriteOnly(t *testing.T) {
 
 func TestSourceProviderStateTransitionsAndDelete(t *testing.T) {
 	s := openTestStore(t)
-	id, _ := s.SaveProviderConfig(SourceProvider{Kind: "thirtynama", State: SourceNotConfigured}, 1)
+	id, _ := s.SaveProviderConfig(SourceProvider{Kind: "30nama", State: SourceNotConfigured}, 1)
 
 	if err := s.SetProviderState(id, SourceActive, 500, 500); err != nil {
 		t.Fatalf("SetProviderState active: %v", err)
@@ -248,4 +249,54 @@ func keysOf(m map[string]SourceDownload) []string {
 		ks = append(ks, k)
 	}
 	return ks
+}
+
+// The 30nama driver's registry key changed from "thirtynama" (migration 0019).
+// `kind` is how a stored source finds its driver, so a row left on the old key
+// would find none: the operator's configured source goes dark, its sealed
+// session intact but unusable. This exercises the shipped migration by rolling
+// the schema version back one and reopening, the way an upgrade actually runs.
+func TestMigrationRewritesLegacy30namaKind(t *testing.T) {
+	c, err := NewCipher("kdf-input-for-tests")
+	if err != nil {
+		t.Fatalf("NewCipher: %v", err)
+	}
+	path := filepath.Join(t.TempDir(), "synodl.db")
+	s, err := Open(path, c)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	if _, err := s.db.Exec(
+		`INSERT INTO source_providers (kind, display_name, enabled, state, created_at, updated_at)
+		 VALUES ('thirtynama', 'Legacy Source', 1, 'active', 0, 0)`); err != nil {
+		t.Fatalf("seed legacy row: %v", err)
+	}
+	// Pretend the last migration has not run yet, then reopen so it does.
+	if _, err := s.db.Exec(
+		`DELETE FROM schema_migrations WHERE version = (SELECT MAX(version) FROM schema_migrations)`); err != nil {
+		t.Fatalf("rewind schema version: %v", err)
+	}
+	if err := s.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	s2, err := Open(path, c)
+	if err != nil {
+		t.Fatalf("reopen: %v", err)
+	}
+	t.Cleanup(func() { _ = s2.Close() })
+
+	providers, err := s2.ListProviders()
+	if err != nil {
+		t.Fatalf("ListProviders: %v", err)
+	}
+	if len(providers) != 1 {
+		t.Fatalf("got %d providers, want 1", len(providers))
+	}
+	if providers[0].Kind != "30nama" {
+		t.Errorf("kind = %q, want 30nama — the stored source would find no driver", providers[0].Kind)
+	}
+	if providers[0].DisplayName != "Legacy Source" {
+		t.Errorf("the migration disturbed the row: %+v", providers[0])
+	}
 }

@@ -38,11 +38,11 @@ DEV_BACKEND_ENV = cd $(SERVER_DIR) && set -a && { [ -f .env ] && . ./.env; }; \
 	: $${DATA_DIR:=$(CURDIR)/.devdata}; \
 	: $${SYNO_TLS_INSECURE:=true}; \
 	if [ -n "$(REAL_SOURCES)$$REAL_SOURCES" ]; then \
-		unset SOURCE_MOCK_ZARFILM SOURCE_MOCK_THIRTYNAMA; \
+		unset SOURCE_MOCK_ZARFILM SOURCE_MOCK_30NAMA; \
 		echo "▶ Download sources: REAL sites (using your configured credentials)"; \
 	else \
 		: $${SOURCE_MOCK_ZARFILM:=https://localhost:8291/mocksrc/zar}; \
-		: $${SOURCE_MOCK_THIRTYNAMA:=https://localhost:8291/mocksrc/tn}; \
+		: $${SOURCE_MOCK_30NAMA:=https://localhost:8291/mocksrc/tn}; \
 		echo "▶ Download sources: in-repo FAKE sites (make start REAL_SOURCES=1 for the real ones)"; \
 	fi; \
 	mkdir -p "$$DATA_DIR"; set +a;

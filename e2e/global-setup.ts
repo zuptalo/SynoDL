@@ -145,7 +145,7 @@ export default async function globalSetup(): Promise<void> {
     // Point both drivers at the mock's fake sites so a source can be configured
     // with no real credentials.
     SOURCE_MOCK_ZARFILM: `https://localhost:${SF_MOCK_PORT}/mocksrc/zar`,
-    SOURCE_MOCK_THIRTYNAMA: `https://localhost:${SF_MOCK_PORT}/mocksrc/tn`,
+    SOURCE_MOCK_30NAMA: `https://localhost:${SF_MOCK_PORT}/mocksrc/tn`,
   });
   await waitFor(`http://localhost:${SF_PORT}/healthz`);
 

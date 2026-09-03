@@ -17,13 +17,13 @@ import (
 	"synodl/server/internal/source"
 )
 
-// thirtynama drives the first supported provider. Its API lives on
+// nama30 drives the first supported provider. Its API lives on
 // interface.30nama.com and authenticates via c-* headers + a Cloudflare
 // clearance cookie (carried by source.Client). Requests originate from the
 // 30nama.com web origin.
-type thirtynama struct{}
+type nama30 struct{}
 
-func init() { source.Register(thirtynama{}) }
+func init() { source.Register(nama30{}) }
 
 const (
 	tnAPIHost = "interface.30nama.com"
@@ -38,17 +38,17 @@ var apiBase = "https://" + tnAPIHost
 // errUnauth is the internal signal that the API rejected us as unauthenticated
 // (origin 404 / non-JSON / success:false). Callers translate it to the right
 // public error depending on context (verify vs. runtime).
-var errUnauth = errors.New("thirtynama: unauthenticated")
+var errUnauth = errors.New("nama30: unauthenticated")
 
 // errBadShape is a parse/shape mismatch on an AUTHENTICATED (success:true)
 // response. It is deliberately NOT errUnauth: a malformed field must never be
 // reported as an expired session (which would tell the admin to re-paste for no
 // reason). It surfaces as a generic provider error instead.
-var errBadShape = errors.New("thirtynama: unexpected response shape")
+var errBadShape = errors.New("nama30: unexpected response shape")
 
-func (thirtynama) Kind() string { return "thirtynama" }
+func (nama30) Kind() string { return "30nama" }
 
-func (thirtynama) DisplayName() string { return "30nama" }
+func (nama30) DisplayName() string { return "30nama" }
 
 // Session field keys. These match the JSON names the store has always sealed, so
 // an existing installation's pasted material migrates into the field bag by key
@@ -63,7 +63,7 @@ const (
 
 // SessionFields declares what an admin must paste. The admin form is generated
 // from this, so the client needs no per-provider knowledge.
-func (thirtynama) SessionFields() []source.SessionField {
+func (nama30) SessionFields() []source.SessionField {
 	return []source.SessionField{
 		{Key: tnFieldClearance, Label: "cf_clearance cookie", Secret: true, Required: true,
 			Help: "From your browser's cookies for 30nama.com. Tied to the public address it was issued to."},
@@ -79,7 +79,7 @@ func (thirtynama) SessionFields() []source.SessionField {
 // shared client, so 30nama's material is only ever sent to 30nama's hosts — with
 // a second source configured, a client that set these headers on every call
 // would have handed them to the other site.
-func (thirtynama) auth(s source.Session) (headers, cookies map[string]string) {
+func (nama30) auth(s source.Session) (headers, cookies map[string]string) {
 	headers = map[string]string{
 		"c-api-key":     s.Get(tnFieldAPIKey),
 		"c-token":       s.Get(tnFieldToken),
@@ -95,7 +95,7 @@ func (thirtynama) auth(s source.Session) (headers, cookies map[string]string) {
 // (for clearance verification) and the signed-download storage domain. The
 // download storage host rotates its subdomain (eu-download-storage-NN.*), so it
 // is allowed by domain suffix.
-func (thirtynama) Hosts() source.Config {
+func (nama30) Hosts() source.Config {
 	cfg := source.Config{
 		APIHosts:      []string{tnAPIHost, "30nama.com"},
 		DownloadHosts: []string{"divyacamilla.info"},
@@ -103,7 +103,7 @@ func (thirtynama) Hosts() source.Config {
 	}
 	// Dev/e2e only, and only in a build carrying the `sourcemock` tag. See
 	// mockbase_prod.go: in a release build there is no such branch.
-	if b := mockBase("thirtynama"); b != "" {
+	if b := mockBase("30nama"); b != "" {
 		if h := hostOf(b); h != "" {
 			cfg.APIHosts = append(cfg.APIHosts, h)
 			cfg.DownloadHosts = append(cfg.DownloadHosts, h, "mockdl.invalid")
@@ -115,14 +115,14 @@ func (thirtynama) Hosts() source.Config {
 
 // base is where this driver's requests go: the real API, or a fake one in a
 // dev/e2e build.
-func (thirtynama) base() string {
-	if b := mockBase("thirtynama"); b != "" {
+func (nama30) base() string {
+	if b := mockBase("30nama"); b != "" {
 		return b
 	}
 	return apiBase
 }
 
-func (p thirtynama) VerifySession(ctx context.Context, c *source.Client, cfg source.Config, s source.Session) error {
+func (p nama30) VerifySession(ctx context.Context, c *source.Client, cfg source.Config, s source.Session) error {
 	// Cheapest authenticated call: an empty advanced_search (parameters={}).
 	// NOT full_search — the provider rejects a short/empty `query` with
 	// success:false ("search value is empty"), which would look like a bad token.
@@ -141,7 +141,7 @@ func (p thirtynama) VerifySession(ctx context.Context, c *source.Client, cfg sou
 	return &source.ErrProviderVerify{Reason: "unreachable"}
 }
 
-func (p thirtynama) Search(ctx context.Context, c *source.Client, cfg source.Config, s source.Session, q source.SearchQuery) (source.SearchResult, error) {
+func (p nama30) Search(ctx context.Context, c *source.Client, cfg source.Config, s source.Session, q source.SearchQuery) (source.SearchResult, error) {
 	page := q.Page
 	if page < 1 {
 		page = 1
@@ -221,7 +221,7 @@ func (p thirtynama) Search(ctx context.Context, c *source.Client, cfg source.Con
 // Parameters fetches the provider's advanced-search facet lists so the filter UI
 // reflects the live source. Options whose value is empty (the provider's "All"
 // entry) are dropped — the client supplies its own "Any".
-func (p thirtynama) Parameters(ctx context.Context, c *source.Client, cfg source.Config, s source.Session) (source.SearchParameters, error) {
+func (p nama30) Parameters(ctx context.Context, c *source.Client, cfg source.Config, s source.Session) (source.SearchParameters, error) {
 	raw, err := p.call(ctx, c, cfg, s, "/api/v1/action/advanced_search_parametres", "")
 	if err != nil {
 		return source.SearchParameters{}, runtimeErr(err)
@@ -273,7 +273,7 @@ func facetOptions(in []tnFacet) []source.FacetOption {
 	return out
 }
 
-func (p thirtynama) Title(ctx context.Context, c *source.Client, cfg source.Config, s source.Session, id string) (source.TitleDetail, error) {
+func (p nama30) Title(ctx context.Context, c *source.Client, cfg source.Config, s source.Session, id string) (source.TitleDetail, error) {
 	quals, isSeries, err := p.downloads(ctx, c, cfg, s, id)
 	if err != nil {
 		return source.TitleDetail{}, runtimeErr(err)
@@ -287,7 +287,7 @@ func (p thirtynama) Title(ctx context.Context, c *source.Client, cfg source.Conf
 	return source.TitleDetail{ID: id, Type: typ, Sendable: len(quals) > 0, Qualities: quals}, nil
 }
 
-func (p thirtynama) ResolveDownload(ctx context.Context, c *source.Client, cfg source.Config, s source.Session, titleID, qualityID string) ([]string, string, error) {
+func (p nama30) ResolveDownload(ctx context.Context, c *source.Client, cfg source.Config, s source.Session, titleID, qualityID string) ([]string, string, error) {
 	raw, err := p.call(ctx, c, cfg, s, "/api/v1/action/download/id/"+url.PathEscape(titleID), "")
 	if err != nil {
 		return nil, "", runtimeErr(err)
@@ -300,7 +300,7 @@ func (p thirtynama) ResolveDownload(ctx context.Context, c *source.Client, cfg s
 		if d.ID == qualityID {
 			links := entryLinks(d)
 			if len(links) == 0 {
-				return nil, "", errors.New("thirtynama: no download url for quality")
+				return nil, "", errors.New("nama30: no download url for quality")
 			}
 			// Every signed link must live on an allowed download host.
 			for _, link := range links {
@@ -312,12 +312,12 @@ func (p thirtynama) ResolveDownload(ctx context.Context, c *source.Client, cfg s
 			return links, d.Size, nil
 		}
 	}
-	return nil, "", errors.New("thirtynama: quality not found")
+	return nil, "", errors.New("nama30: quality not found")
 }
 
 // downloads fetches a title's downloadable entries and reports whether it is a
 // series (its entries are season packs).
-func (p thirtynama) downloads(ctx context.Context, c *source.Client, cfg source.Config, s source.Session, id string) ([]source.QualityOption, bool, error) {
+func (p nama30) downloads(ctx context.Context, c *source.Client, cfg source.Config, s source.Session, id string) ([]source.QualityOption, bool, error) {
 	raw, err := p.call(ctx, c, cfg, s, "/api/v1/action/download/id/"+url.PathEscape(id), "")
 	if err != nil {
 		return nil, false, err
@@ -360,7 +360,7 @@ func seasonLabel(d tnDownload) string {
 // non-JSON / non-success / origin-404 response to errUnauth. A clearance
 // challenge surfaces as *source.ErrNeedsRefresh from the client and is passed
 // through unchanged.
-func (p thirtynama) call(ctx context.Context, c *source.Client, cfg source.Config, s source.Session, path, body string) (json.RawMessage, error) {
+func (p nama30) call(ctx context.Context, c *source.Client, cfg source.Config, s source.Session, path, body string) (json.RawMessage, error) {
 	headers, cookies := p.auth(s)
 	resp, err := c.Do(ctx, s, cfg.APIHosts, source.Req{
 		Method:  "POST",
