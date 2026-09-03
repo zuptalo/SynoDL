@@ -17,9 +17,13 @@
 #                       for a self-signed / private-CA DSM cert). Default "false".
 #   KUBECTL             kubectl binary (default kubectl).
 #
-# This installer manages only the k3s side. TLS is terminated by the edge proxy
-# that fronts the cluster: point an HTTP router for $APP_HOST at the k3s node's
-# :80 (the `web` entrypoint), preserving the Host header. See README.md.
+# This installer manages only the k3s side. It applies BOTH ingress routers, so
+# either TLS topology works without editing the manifest:
+#   - edge SNI-passthrough to :443, TLS terminating in-cluster (recommended; needs
+#     an ACME cert-resolver on the k3s Traefik), or
+#   - edge terminates and forwards cleartext to the k3s node's :80.
+# With the second, raise the body limit on every proxy in the path (nginx's
+# client_max_body_size defaults to 1 MB, which breaks uploads). See README.md.
 #
 # Keel (the cluster-wide image auto-updater) is assumed already installed — it is
 # shared with the Ring deployment. This installer does NOT (re)install it; the

@@ -39,9 +39,15 @@ NAS URL it forwards to.
 ## Prerequisites
 
 - A running k3s cluster with its **bundled Traefik** (default).
-- An **edge/reverse proxy** that fronts the cluster and can terminate TLS for the
-  app host (e.g. your Synology/Traefik box). It forwards HTTP to the k3s node's
-  `:80`, preserving the `Host` header.
+- An **edge/reverse proxy** that fronts the cluster. Either topology works:
+  - **Passthrough (recommended)** — the edge SNI-passthroughs `:443` to the k3s
+    node and TLS terminates in-cluster. Needs an ACME cert-resolver on the k3s
+    Traefik (see below). Nothing between the client and the pod inspects the
+    request, so large uploads are not capped by an intermediate proxy.
+  - **Edge-terminated** — the edge terminates TLS and forwards HTTP to the k3s
+    node's `:80`, preserving the `Host` header. Simpler, but every proxy in the
+    path applies its own request body limit; nginx defaults to **1 MB**, which
+    silently breaks file uploads.
 - The NAS reachable **from inside the cluster** at `SYNO_URL` (a LAN IP or a name
   the k3s node resolves).
 - `kubectl` pointed at the cluster, plus `envsubst` (from `gettext`) on the
@@ -63,9 +69,61 @@ reconciles config (e.g. a changed `SYNO_URL`) and rolls the Deployment.
 
 ## Edge Traefik: what to forward
 
-Terminate TLS for the app host at your edge proxy and forward HTTP to the k3s
-node's `:80` (the `web` entrypoint), preserving the `Host` header. Traefik
-dynamic-config example (adjust `certResolver` and the node IP to yours):
+`20-ingressroute.yaml` ships **both** routers, so either topology works without
+editing it:
+
+| Router | Entrypoint | TLS |
+|---|---|---|
+| `synodl-tls` | `websecure` | terminates in-cluster via `certResolver` |
+| `synodl` | `web` | none — for an edge that terminates and forwards cleartext |
+
+### Passthrough (recommended)
+
+Give the k3s Traefik an ACME resolver, e.g. as a `HelmChartConfig` in
+`kube-system`:
+
+```yaml
+additionalArguments:
+  - "--certificatesresolvers.letsencrypt.acme.email=you@example.com"
+  - "--certificatesresolvers.letsencrypt.acme.storage=/data/acme.json"
+  - "--certificatesresolvers.letsencrypt.acme.tlschallenge=true"
+persistence:
+  enabled: true
+  name: data
+  size: 128Mi
+  path: /data
+```
+
+`tlschallenge` is TLS-ALPN-01: it negotiates `acme-tls/1` on **:443**, so the
+connection must arrive with SNI intact at the Traefik that owns the cert. That is
+exactly why the edge must pass through rather than terminate — terminating
+upstream breaks renewal. Persistence is not optional: without it every restart
+re-issues, and Let's Encrypt caps duplicate certs at 5/week.
+
+Then route TCP by SNI at the edge:
+
+```yaml
+tcp:
+  routers:
+    synodl:
+      entryPoints: [websecure]
+      rule: "HostSNI(`synodl.example.com`)"
+      priority: 100
+      tls:
+        passthrough: true
+      service: k3s
+  services:
+    k3s:
+      loadBalancer:
+        servers:
+          - address: "<k3s-node-ip>:443"
+```
+
+If the edge has a lower-priority catch-all TCP router (`HostSNI(`*`)`), give this
+one a higher priority — TCP routers are matched before HTTP routers, so a
+wildcard will otherwise swallow the connection.
+
+### Edge-terminated (alternative)
 
 ```yaml
 http:
@@ -74,7 +132,7 @@ http:
       rule: "Host(`synodl.example.com`)"
       entryPoints: [websecure]
       tls:
-        certResolver: letsencrypt      # your existing resolver
+        certResolver: letsencrypt
       service: synodl
   services:
     synodl:
@@ -84,10 +142,9 @@ http:
           - url: "http://<k3s-node-ip>:80"
 ```
 
-> If you later add an ACME cert-resolver to the k3s Traefik itself and prefer it
-> to terminate TLS, move `20-ingressroute.yaml` to the `websecure` entrypoint and
-> add a `tls: { certResolver: <name> }` block; then the edge can SNI-passthrough
-> :443 instead. Not required for the setup above.
+With this topology, **raise the body limit on every proxy in the path**. On a
+Synology reverse proxy that means `client_max_body_size` (default 1 MB) — leave
+it and uploads fail mid-flight with a bare connection drop, not a readable error.
 
 ## How auto-deploy works
 
@@ -125,7 +182,7 @@ account. The `sid` is stored on the client; the server keeps nothing.
 |---|---|
 | `00-namespace.yaml` | `synodl` namespace |
 | `10-synodl.yaml` | ConfigMap (ENV/PORT/ALLOWED_ORIGINS/SYNO_URL/SYNO_TLS_INSECURE) + Deployment (Keel-annotated, stateless) + Service |
-| `20-ingressroute.yaml` | Traefik HTTP IngressRoute on the `web` entrypoint (Host → synodl:8080) |
+| `20-ingressroute.yaml` | Two Traefik IngressRoutes: `synodl-tls` (`websecure`, in-cluster ACME) and `synodl` (`web`, for an edge-terminated setup) |
 | `install.sh` | idempotent installer (substitute settings, apply, roll) |
 
 No `Secret` and no Postgres manifest exist here **by design** — the proxy is
