@@ -248,7 +248,11 @@ function onSearch(ev: CustomEvent): void {
   void apply({ ...filter.value, term });
 }
 async function onCreated(): Promise<void> {
+  // Both sheets hand off the same way: the work is queued, so close and let the
+  // list report it. An upload that stayed open would duplicate the rows the
+  // Tasks list already shows, and leave the user deciding which one to watch.
   newTaskOpen.value = false;
+  uploadOpen.value = false;
   await refresh();
 }
 async function onPause(id: string): Promise<void> {
