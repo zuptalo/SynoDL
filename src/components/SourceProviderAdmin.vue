@@ -71,6 +71,13 @@ const editingProvider = computed(() =>
 );
 const isNew = computed(() => editing.value === 'new');
 const currentKind = computed(() => kinds.value.find((k) => k.kind === formKind.value));
+// The driver's proper name for a configured source. `kind` is an internal
+// registry key ("thirtynama") that exists only so a row can find its driver —
+// it is not what the site is called, and showing it raw made 30nama read as
+// "thirtynama" in the list. Falling back to the key is deliberate: if it ever
+// shows, the driver for that row is missing from the build, and the key is
+// exactly what an admin needs to see to work out why.
+const kindName = (kind: string) => kinds.value.find((k) => k.kind === kind)?.name ?? kind;
 const sessionFields = computed<SourceSessionField[]>(() => currentKind.value?.sessionFields ?? []);
 // A stored source keeps its secrets when a field is left blank.
 const secretPlaceholder = computed(() => (isNew.value ? '' : 'Stored — leave blank to keep'));
@@ -283,7 +290,7 @@ async function saveMaxSize(): Promise<void> {
           <ion-item v-for="p in providers" :key="p.id" button @click="openEdit(p)">
             <ion-label>
               <h3>{{ p.displayName }}</h3>
-              <p>{{ p.kind }}</p>
+              <p>{{ kindName(p.kind) }}</p>
             </ion-label>
             <ion-note slot="end" :color="stateColor(p)">{{ stateLabel(p) }}</ion-note>
           </ion-item>

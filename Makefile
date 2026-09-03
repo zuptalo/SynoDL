@@ -15,17 +15,36 @@ AIR := $(GOBIN)/air
 .PHONY: start stop mock tools backend frontend roadmap spec
 
 ## start: mock DSM + backend hot reload + frontend hot reload
+##   Download sources use the in-repo FAKE sites unless REAL_SOURCES=1.
 # The dev backend's environment, shared by `start` and `backend` so the two can
 # never drift. It runs STATEFUL: SECRETS_KEY and DATA_DIR get throwaway dev
 # values, because accounts and the download sources only exist in stateful mode
 # and are otherwise unreachable locally. Override either in server/.env;
 # production supplies its own.
+#
+# By default both download-source drivers are pointed at the in-repo FAKE sites,
+# so the catalog can be browsed with no credentials and no traffic to a real
+# site. That default is why Discover shows "Zar Title 1…" rather than a real
+# catalog: the redirect wins regardless of what an admin has configured.
+#
+# Set REAL_SOURCES=1 to browse the REAL sites with your own configured
+# credentials — `make start REAL_SOURCES=1`, or REAL_SOURCES=1 in server/.env.
+# It is opt-in because the fake sites are what make the catalog testable offline,
+# and because the real ones should not be reached by accident. The redirect is
+# still a BUILD-TIME capability (the `sourcemock` tag): a release build has no
+# such variable at all.
 DEV_BACKEND_ENV = cd $(SERVER_DIR) && set -a && { [ -f .env ] && . ./.env; }; \
 	: $${SECRETS_KEY:=dev-only-not-a-real-secret}; \
 	: $${DATA_DIR:=$(CURDIR)/.devdata}; \
 	: $${SYNO_TLS_INSECURE:=true}; \
-	: $${SOURCE_MOCK_ZARFILM:=https://localhost:8291/mocksrc/zar}; \
-	: $${SOURCE_MOCK_THIRTYNAMA:=https://localhost:8291/mocksrc/tn}; \
+	if [ -n "$(REAL_SOURCES)$$REAL_SOURCES" ]; then \
+		unset SOURCE_MOCK_ZARFILM SOURCE_MOCK_THIRTYNAMA; \
+		echo "▶ Download sources: REAL sites (using your configured credentials)"; \
+	else \
+		: $${SOURCE_MOCK_ZARFILM:=https://localhost:8291/mocksrc/zar}; \
+		: $${SOURCE_MOCK_THIRTYNAMA:=https://localhost:8291/mocksrc/tn}; \
+		echo "▶ Download sources: in-repo FAKE sites (make start REAL_SOURCES=1 for the real ones)"; \
+	fi; \
 	mkdir -p "$$DATA_DIR"; set +a;
 
 start: tools
