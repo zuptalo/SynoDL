@@ -44,7 +44,7 @@ Specs are grouped by category band; status moves
 | [1018](specs/1018-discover-infinite-scroll/spec.md) | Discover keeps loading ahead of a fast scroller | 🔵 in-review |
 | [1019](specs/1019-imdb-rating-links/spec.md) | The IMDb rating opens the title on IMDb | 🔵 in-review |
 | [1020](specs/1020-fall-back-source/spec.md) | Alternate Domain Fallback for a Download Source | 🔵 in-review |
-| [1021](specs/1021-name-new-downloads/spec.md) | Name new downloads the way Plex expects | ⚪ planned |
+| [1021](specs/1021-name-new-downloads/spec.md) | Name new downloads the way Plex expects | 🔵 in-review |
 
 ## 🐛 Hotfixes & Bug Fixes (2001+)
 

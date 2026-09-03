@@ -4,7 +4,7 @@
 
 **Created**: 2026-09-03
 
-**Status**: planned
+**Status**: in-review
 <!-- SynoDL spec lifecycle: planned → in-progress → in-review → shipped. -->
 
 **Input**: Operator feedback after tidying a real library into the Plex/Jellyfin

@@ -33,7 +33,6 @@ import {
 import {
   arrowDownOutline,
   arrowUpOutline,
-  checkmarkSharp,
   closeCircleOutline,
   closeOutline,
   funnelOutline,
@@ -625,12 +624,13 @@ function goSettings(): void {
                    competing with the artwork — a corner is dead space, and a
                    ribbon there never covers the poster. Anchored top-RIGHT so it
                    cannot collide with the "Soon" badge on the left; a title can
-                   legitimately be both. The aria-label carries the meaning, so
-                   the state does not depend on seeing the colour. -->
+                   legitimately be both. The word is spelled out rather than
+                   left as a tick, which reads as "selected" or "verified" just
+                   as easily; "OWNED" rather than "DOWNLOADED" because the mark
+                   means a folder for this title EXISTS — it may have arrived by
+                   any route, which is why detection is a folder scan. -->
               <span v-if="t.inLibrary" class="ribbon" aria-label="Already in your library">
-                <span class="ribbon-band" aria-hidden="true">
-                  <ion-icon :icon="checkmarkSharp" />
-                </span>
+                <span class="ribbon-band">OWNED</span>
               </span>
               <!-- Only in combined mode: a title carried by two sources appears
                    twice, and without a mark that reads as a duplicate rather
@@ -893,8 +893,8 @@ function goSettings(): void {
   position: absolute;
   top: 0;
   right: 0;
-  width: 52px;
-  height: 52px;
+  width: 56px;
+  height: 56px;
   overflow: hidden;
   pointer-events: none;
   /* Match the poster's rounded corner so the ribbon is clipped by the same
@@ -903,26 +903,24 @@ function goSettings(): void {
 }
 .ribbon-band {
   position: absolute;
-  top: 9px;
-  right: -20px;
-  width: 76px;
+  top: 11px;
+  right: -22px;
+  width: 82px;
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 3px 0;
+  padding: 2px 0;
   transform: rotate(45deg);
-  /* The same green the Tasks list uses for a finished download — "you already
-     have this" is the same idea, so it should not be a new colour. */
-  background: var(--app-status-finished);
+  /* A deeper green than --app-status-finished on purpose. That green is right
+     for a small icon, but white text on it is 2.3:1 — well under the 4.5:1 a
+     label this size needs. This shade takes white at 5.0:1. */
+  background: #15803d;
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.45);
-}
-.ribbon-band ion-icon {
-  font-size: 0.9rem;
-  /* Counter-rotated out of the band's 45deg so the tick sits UPRIGHT. Left to
-     rotate with the band it reads as a stray glyph rather than a check. */
-  transform: rotate(-45deg);
-  /* Dark ink on the green band: white on this green is under 3:1. */
-  color: #04240f;
+  color: #fff;
+  font-size: 0.6rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  line-height: 1.25;
 }
 
 /* The source mark. Bottom-right, clear of both corner marks above, on the same
