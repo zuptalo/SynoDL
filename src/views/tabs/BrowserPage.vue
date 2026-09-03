@@ -59,6 +59,7 @@ const {
   errorMsg,
   hasMore,
   hasFilters,
+  viewChanged,
   filters,
   sort,
   order,
@@ -75,6 +76,7 @@ const {
   setSort,
   toggleOrder,
   clearFilters,
+  resetView,
   removeFilter,
   loadPrefs,
   loadView,
@@ -301,7 +303,9 @@ async function onApply(f: typeof filters.value): Promise<void> {
 
 async function onClear(): Promise<void> {
   if (loading.value) return;
-  await clearFilters();
+  // The whole view, not only the filters: the button appears for a changed sort
+  // as well, so it has to undo that too.
+  await resetView();
   await fillViewport();
   await scrollTop();
 }
@@ -376,13 +380,18 @@ function goSettings(): void {
       <ion-toolbar>
         <ion-title>Discover</ion-title>
         <ion-buttons slot="end">
+          <!-- Shown whenever the view differs from default in ANY way — a
+               filter OR a changed sort — so there is always a one-tap way back.
+               Green so it reads as the counterpart to the filter funnel beside
+               it rather than as a warning. -->
           <ion-button
-            v-if="hasFilters && !unavailable && !needsRefresh"
-            aria-label="Clear filters"
+            v-if="viewChanged && !unavailable && !needsRefresh"
+            aria-label="Reset filters and sort"
+            data-testid="discover-reset"
             :disabled="loading"
             @click="onClear"
           >
-            <ion-icon slot="icon-only" :icon="closeCircleOutline" />
+            <ion-icon slot="icon-only" :icon="closeCircleOutline" color="success" />
           </ion-button>
           <ion-button
             v-if="!unavailable && !needsRefresh"
@@ -390,14 +399,14 @@ function goSettings(): void {
             :disabled="loading"
             @click="filterOpen = true"
           >
-            <ion-icon slot="icon-only" :icon="funnelOutline" :color="hasFilters ? 'primary' : undefined" />
+            <ion-icon slot="icon-only" :icon="funnelOutline" :color="viewChanged ? 'success' : undefined" />
           </ion-button>
         </ion-buttons>
       </ion-toolbar>
       <ion-toolbar v-if="!unavailable && !needsRefresh">
         <ion-searchbar
           :debounce="450"
-          placeholder="Search for title"
+          placeholder="Search"
           :value="query"
           @ionInput="onSearch"
         />
@@ -893,8 +902,8 @@ function goSettings(): void {
   position: absolute;
   top: 0;
   right: 0;
-  width: 56px;
-  height: 56px;
+  width: 68px;
+  height: 68px;
   overflow: hidden;
   pointer-events: none;
   /* Match the poster's rounded corner so the ribbon is clipped by the same
@@ -903,9 +912,9 @@ function goSettings(): void {
 }
 .ribbon-band {
   position: absolute;
-  top: 11px;
-  right: -22px;
-  width: 82px;
+  top: 14px;
+  right: -26px;
+  width: 100px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -917,17 +926,19 @@ function goSettings(): void {
   background: #15803d;
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.45);
   color: #fff;
-  font-size: 0.6rem;
+  font-size: 0.68rem;
   font-weight: 800;
   letter-spacing: 0.06em;
-  line-height: 1.25;
+  line-height: 1.3;
 }
 
 /* The source mark. Bottom-right, clear of both corner marks above, on the same
    dark scrim the badges use so it stays legible over any artwork. */
 .src-mark {
   position: absolute;
-  right: 5px;
+  /* Bottom-LEFT: the poster's own logos and billing tend to sit bottom-right,
+     and the top corners are taken by the "Soon" and "OWNED" marks. */
+  left: 5px;
   bottom: 5px;
   display: flex;
   align-items: center;
@@ -938,14 +949,14 @@ function goSettings(): void {
 }
 .src-mark img {
   display: block;
-  height: 11px;
+  height: 15px;
   width: auto;
   /* Both marks are light-on-transparent, so they read on the scrim as they are;
      the slight fade stops them competing with the poster. */
   opacity: 0.92;
 }
 .src-mono {
-  font-size: 0.6rem;
+  font-size: 0.7rem;
   font-weight: 700;
   letter-spacing: 0.04em;
   color: #fff;

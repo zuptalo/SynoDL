@@ -169,3 +169,46 @@ describe('useSourceCatalog.loadMore', () => {
     expect(searchSource).not.toHaveBeenCalled();
   });
 });
+
+describe('viewChanged (reset affordance)', () => {
+  it('is false on a fresh view', async () => {
+    const c = useSourceCatalog();
+    await c.resetView();
+    expect(c.viewChanged.value).toBe(false);
+  });
+
+  it('is true for a filter', async () => {
+    const c = useSourceCatalog();
+    await c.resetView();
+    await c.applyFilters({ quality: '4K' });
+    expect(c.viewChanged.value).toBe(true);
+  });
+
+  // The reason hasFilters was not enough: a user who has only changed the sort
+  // has just as much to undo, and had no one-tap way back.
+  it('is true for a changed sort even with no filters', async () => {
+    const c = useSourceCatalog();
+    await c.resetView();
+    expect(c.hasFilters.value).toBe(false);
+    await c.setSort('year');
+    expect(c.hasFilters.value).toBe(false);
+    expect(c.viewChanged.value).toBe(true);
+  });
+
+  it('is true for a flipped direction alone', async () => {
+    const c = useSourceCatalog();
+    await c.resetView();
+    await c.toggleOrder();
+    expect(c.viewChanged.value).toBe(true);
+  });
+
+  it('resetView puts filters AND sort back together', async () => {
+    const c = useSourceCatalog();
+    await c.applyFilters({ quality: '4K', type: 'movie' });
+    await c.setSort('year');
+    expect(c.viewChanged.value).toBe(true);
+    await c.resetView();
+    expect(c.viewChanged.value).toBe(false);
+    expect(c.hasFilters.value).toBe(false);
+  });
+});
