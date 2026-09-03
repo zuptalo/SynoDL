@@ -20,6 +20,7 @@ Specs are grouped by category band; status moves
 | [0005](specs/0005-source-catalog/spec.md) | Download-source catalog — browse, search, and send an admin-configured provider to Download Station | 🟡 in-progress |
 | [0006](specs/0006-per-user-download/spec.md) | Per-User Download Statistics and Richer Notifications | 🟢 shipped |
 | [0007](specs/0007-multiple-download-sources/spec.md) | Multiple Download Sources | 🔵 in-review |
+| [0008](specs/0008-show-which-discover/spec.md) | Show which Discover titles you already have | ⚪ planned |
 
 ## ⚡ Ad-hoc (1001–1999)
 
