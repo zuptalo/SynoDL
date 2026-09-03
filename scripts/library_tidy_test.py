@@ -8,7 +8,7 @@ in a hand-built library.
 """
 import unittest
 
-from library_tidy import build_plan, extract_year, target_name
+from library_tidy import build_plan, extract_year, plan_loose_files, target_name
 
 
 class ExtractYear(unittest.TestCase):
@@ -137,3 +137,123 @@ class PlanSafety(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class LooseFileGrouping(unittest.TestCase):
+    """Files dumped straight into a parent, with their sidecars."""
+
+    def test_groups_a_movie_with_its_subtitles_and_artwork(self):
+        moves, loose = plan_loose_files(
+            [
+                "Dune.2021.1080p.BluRay.x264.mkv",
+                "Dune.2021.1080p.BluRay.x264.srt",
+                "Dune.2021.1080p.BluRay.x264.en.srt",
+                "Dune.2021.1080p.BluRay.x264.nfo",
+                "Dune.2021.1080p.BluRay.x264-poster.jpg",
+            ],
+            existing_dirs=[],
+            is_tv=False,
+        )
+        self.assertEqual(len(moves), 1)
+        self.assertEqual(moves[0].dest, "Dune (2021)")
+        self.assertTrue(moves[0].create)
+        self.assertEqual(len(moves[0].files), 5, f"sidecars left behind: {moves[0].files}")
+        self.assertEqual(loose, [])
+
+    def test_two_different_films_do_not_merge(self):
+        moves, _ = plan_loose_files(
+            ["Dune.2021.mkv", "Dune.2021.srt", "Arrival.2016.mkv"],
+            existing_dirs=[], is_tv=False,
+        )
+        self.assertEqual({m.dest for m in moves}, {"Dune (2021)", "Arrival (2016)"})
+
+    def test_moves_into_an_existing_folder_rather_than_a_near_duplicate(self):
+        # The folder is already correct; a loose extra must land IN it, not beside
+        # it in a second folder with almost the same name.
+        moves, _ = plan_loose_files(
+            ["Dune.2021.1080p.mkv"], existing_dirs=["Dune (2021)"], is_tv=False,
+        )
+        self.assertEqual(len(moves), 1)
+        self.assertEqual(moves[0].dest, "Dune (2021)")
+        self.assertFalse(moves[0].create)
+
+    def test_matches_an_existing_folder_written_differently(self):
+        moves, _ = plan_loose_files(
+            ["Dune.2021.1080p.mkv"], existing_dirs=["Dune 2021"], is_tv=False,
+        )
+        self.assertEqual(moves[0].dest, "Dune 2021")
+        self.assertFalse(moves[0].create)
+
+    def test_a_video_is_required_to_anchor_a_group(self):
+        # A stray subtitle with no film present must NOT invent a folder — we
+        # have no idea whether the film is elsewhere or missing entirely.
+        moves, loose = plan_loose_files(
+            ["Some.Film.2019.srt"], existing_dirs=[], is_tv=False,
+        )
+        self.assertEqual(moves, [])
+        self.assertEqual([n for n, _ in loose], ["Some.Film.2019.srt"])
+
+    def test_generic_sidecars_are_never_attributed(self):
+        # "poster.jpg" belongs to nothing in particular. Guessing would file a
+        # stranger's artwork inside somebody's film.
+        moves, loose = plan_loose_files(
+            ["Dune.2021.mkv", "poster.jpg", "folder.jpg", "movie.nfo", "cover.png"],
+            existing_dirs=[], is_tv=False,
+        )
+        self.assertEqual(len(moves), 1)
+        self.assertEqual(moves[0].files, ["Dune.2021.mkv"])
+        self.assertEqual(
+            sorted(n for n, _ in loose), ["cover.png", "folder.jpg", "movie.nfo", "poster.jpg"]
+        )
+
+    def test_unparseable_file_is_left_alone(self):
+        moves, loose = plan_loose_files(["VID_20190104_120000.mp4"], existing_dirs=[], is_tv=False)
+        self.assertEqual(moves, [])
+        self.assertEqual(len(loose), 1)
+
+    def test_tv_episodes_go_into_season_folders(self):
+        moves, _ = plan_loose_files(
+            [
+                "Friends.S01E01.1080p.mkv",
+                "Friends.S01E01.1080p.srt",
+                "Friends.S01E02.1080p.mkv",
+                "Friends.S02E01.1080p.mkv",
+            ],
+            existing_dirs=["Friends (1994)"],
+            is_tv=True,
+        )
+        by_season = {(m.dest, m.season): sorted(m.files) for m in moves}
+        self.assertEqual(
+            by_season,
+            {
+                ("Friends (1994)", "Season 01"): [
+                    "Friends.S01E01.1080p.mkv", "Friends.S01E01.1080p.srt", "Friends.S01E02.1080p.mkv",
+                ],
+                ("Friends (1994)", "Season 02"): ["Friends.S02E01.1080p.mkv"],
+            },
+        )
+
+    def test_tv_episode_with_no_show_folder_creates_one(self):
+        moves, _ = plan_loose_files(["The.Bear.S01E01.mkv"], existing_dirs=[], is_tv=True)
+        self.assertEqual(moves[0].dest, "The Bear")
+        self.assertTrue(moves[0].create)
+        self.assertEqual(moves[0].season, "Season 01")
+
+    def test_tv_file_without_a_season_lands_in_the_show_folder(self):
+        moves, _ = plan_loose_files(
+            ["Chernobyl.2019.1080p.mkv"], existing_dirs=["Chernobyl (2019)"], is_tv=True,
+        )
+        self.assertEqual(moves[0].dest, "Chernobyl (2019)")
+        self.assertIsNone(moves[0].season)
+
+    def test_never_proposes_moving_onto_an_existing_name(self):
+        # Two copies of the same episode at different qualities would collide
+        # once both are moved; the planner must not silently pick a winner.
+        moves, loose = plan_loose_files(
+            ["Friends.S01E01.720p.mkv", "Friends.S01E01.1080p.mkv"],
+            existing_dirs=[], is_tv=True,
+        )
+        moved = sum(len(m.files) for m in moves)
+        self.assertEqual(moved + len(loose), 2)
+        for m in moves:
+            self.assertEqual(len(set(m.files)), len(m.files))
