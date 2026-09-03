@@ -28,17 +28,36 @@ function episodeOf(...sources: (string | undefined)[]): string {
 // generic download folder where the file name is more meaningful.
 const MEDIA_PARENT = /^(movie|movies|tv|tv-?shows?|series|anime|video|videos)$/i;
 
+// A season subfolder, which a series' destination now ends in (spec 1021):
+// "Season 01", "Season 2024". Anchored at both ends so a real title beginning
+// with the word — "Seasons of Love" — is not mistaken for one.
+const SEASON_FOLDER = /^season\s+\d{1,4}$/i;
+
 function pathParts(destination: string | undefined): string[] {
   return (destination ?? '').split('/').filter(Boolean);
 }
-// The leaf of the destination path — the per-title folder we created.
+/**
+ * The per-title folder in the destination path.
+ *
+ * Normally the leaf, but a series now lands in "Show (Year)/Season NN", so a
+ * leaf that is a season folder means the title is one level up. Without this
+ * every episode in the Tasks list would be called "Season 01".
+ */
 function folderTitle(destination: string | undefined): string {
   const parts = pathParts(destination);
+  if (parts.length >= 2 && SEASON_FOLDER.test(parts[parts.length - 1])) {
+    return parts[parts.length - 2];
+  }
   return parts.length ? parts[parts.length - 1] : '';
 }
 function isMediaFolder(destination: string | undefined): boolean {
   const parts = pathParts(destination);
-  return parts.length >= 2 && MEDIA_PARENT.test(parts[parts.length - 2]);
+  // Step past a season folder so the media parent is still found two levels up.
+  const end =
+    parts.length >= 2 && SEASON_FOLDER.test(parts[parts.length - 1])
+      ? parts.length - 1
+      : parts.length;
+  return end >= 2 && MEDIA_PARENT.test(parts[end - 2]);
 }
 
 export interface TaskTitle {

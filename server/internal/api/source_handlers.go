@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"synodl/server/internal/httpx"
+	"synodl/server/internal/library"
 	"synodl/server/internal/source"
 	_ "synodl/server/internal/source/providers" // register provider drivers
 	"synodl/server/internal/store"
@@ -575,15 +576,23 @@ func handleSourceSend(d Deps) http.Handler {
 			httpx.JSON(w, http.StatusConflict, map[string]any{"error": "parent_unset"})
 			return
 		}
-		folderName := sanitizeFolderName(body.Title)
+		// "Despicable Me 4 2024" -> "Despicable Me 4 (2024)": the shape a media
+		// server scrapes, and the same one scripts/library_tidy.py applies to a
+		// library retrospectively (spec 1021). Keeping the two in step is what
+		// stops every new download re-introducing the mess a tidy just removed.
+		folderName := sanitizeFolderName(library.PlexName(body.Title))
 		if !validFolderName(folderName) {
 			folderName = "title-" + sanitizeFolderName(titleID)
 		}
-		dest := relParent + "/" + folderName
-		if !d.destinationAllowed(u, dest) {
+		titleDest := relParent + "/" + folderName
+		// Checked here, before any link is resolved, so a forbidden destination
+		// costs nothing. The final path is checked again below, once the season
+		// subfolder is known.
+		if !d.destinationAllowed(u, titleDest) {
 			httpx.JSON(w, http.StatusForbidden, map[string]any{"error": "destination_forbidden"})
 			return
 		}
+		dest := titleDest
 
 		// Resolve the signed link(s) (+ per-file size) at send time (never cached):
 		// one for a movie, one per episode for a series season pack.
@@ -632,10 +641,34 @@ func handleSourceSend(d Deps) http.Handler {
 			}
 		}
 
+		// A series' episodes belong in "Show (Year)/Season NN". The season is read
+		// from the files being downloaded rather than taken from the client, so it
+		// can never disagree with what lands on disk; a set spanning seasons, or
+		// one with no season in its names, goes straight in the show's folder,
+		// which a scraper still reads correctly (FR-006, FR-007).
+		seasonFolder := ""
+		if body.Type == source.TypeSeries || body.Type == source.TypeAnime {
+			if n, ok := library.SeasonOfFiles(selected); ok {
+				seasonFolder = sanitizeFolderName(library.SeasonFolder(n))
+				dest = titleDest + "/" + seasonFolder
+			}
+		}
+		// The deeper path is checked too: grants are prefix-based, so this passes
+		// whenever the title folder did, but it is verified rather than assumed.
+		if !d.destinationAllowed(u, dest) {
+			httpx.JSON(w, http.StatusForbidden, map[string]any{"error": "destination_forbidden"})
+			return
+		}
+
 		absParent := "/" + relParent
 		if err := d.NAS.Do(r.Context(), func(c syno.Client, sid string) error {
 			if e := ensureSubfolder(r.Context(), c, sid, absParent, folderName); e != nil {
 				return e
+			}
+			if seasonFolder != "" {
+				if e := ensureSubfolder(r.Context(), c, sid, absParent+"/"+folderName, seasonFolder); e != nil {
+					return e
+				}
 			}
 			return c.CreateTaskURIs(r.Context(), sid, selected, syno.CreateOpts{Destination: dest})
 		}); err != nil {
@@ -647,6 +680,8 @@ func handleSourceSend(d Deps) http.Handler {
 		now := time.Now().Unix()
 		_ = d.Store.AddDownloadEvents(u.ID, len(selected), now)
 		for range selected {
+			// The TITLE folder, never the season one: a claim named "Season 01"
+			// would match nothing useful.
 			_ = d.Store.AddTaskClaim(u.ID, folderName, now)
 		}
 		// Remember the catalog metadata + WHO sent it for this title's folder, so
