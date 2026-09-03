@@ -423,3 +423,72 @@ class TitleCasing(unittest.TestCase):
     def test_numbers_and_symbols_are_untouched(self):
         self.m("28 years later", "28 Years Later")
         self.m("apocalipsis z", "Apocalipsis Z")
+
+
+class MoveRequestEncoding(unittest.TestCase):
+    """How the move is put on the wire.
+
+    DSM's FileStation API takes list parameters as a JSON array and paths as
+    JSON strings. Sending a bare comma-joined blob made it read the whole thing
+    as one literal filename, and every move failed with error 408, "no such file
+    or directory" — after 663 renames had already succeeded.
+    """
+
+    def calls_for(self, paths, dest):
+        import library_tidy as lt
+        seen = []
+
+        class FakeDSM(lt.DSM):
+            def __init__(self):
+                self.base, self.sid, self.ctx = "https://nas", "sid", None
+
+            def _call(self, cgi, params):
+                seen.append(params)
+                if params.get("method") == "start":
+                    return {"taskid": "t1"}
+                return {"finished": True, "errors": []}
+
+        FakeDSM().move(paths, dest)
+        return seen
+
+    def test_path_is_a_json_array_and_dest_a_json_string(self):
+        calls = self.calls_for(["/movie/a.mkv", "/movie/a.srt"], "/movie/A (2024)")
+        start = calls[0]
+        self.assertEqual(start["path"], '["/movie/a.mkv","/movie/a.srt"]')
+        self.assertEqual(start["dest_folder_path"], '"/movie/A (2024)"')
+
+    def test_a_single_file_is_still_an_array(self):
+        start = self.calls_for(["/movie/a.mkv"], "/movie/A (2024)")[0]
+        self.assertEqual(start["path"], '["/movie/a.mkv"]')
+
+    def test_names_with_quotes_or_backslashes_are_escaped(self):
+        start = self.calls_for(['/movie/we"ird.mkv'], "/movie/X")[0]
+        self.assertEqual(start["path"], '["/movie/we\\"ird.mkv"]')
+
+    def test_the_move_is_polled_to_completion(self):
+        calls = self.calls_for(["/movie/a.mkv"], "/movie/X")
+        self.assertEqual(calls[0]["method"], "start")
+        self.assertEqual(calls[1]["method"], "status")
+        self.assertEqual(calls[1]["taskid"], "t1")
+
+    def test_it_never_overwrites(self):
+        start = self.calls_for(["/movie/a.mkv"], "/movie/X")[0]
+        self.assertEqual(start["overwrite"], "false")
+        self.assertEqual(start["remove_src"], "true")
+
+    def test_a_dsm_error_code_is_reported_in_words(self):
+        import library_tidy as lt
+
+        class FailingDSM(lt.DSM):
+            def __init__(self):
+                self.base, self.sid, self.ctx = "https://nas", "sid", None
+
+            def _call(self, cgi, params):
+                if params.get("method") == "start":
+                    return {"taskid": "t1"}
+                return {"finished": True, "errors": [{"code": 414, "path": "/movie/a.mkv"}]}
+
+        with self.assertRaises(RuntimeError) as cm:
+            FailingDSM().move(["/movie/a.mkv"], "/movie/X")
+        # 414 is "already exists" — the message must say so, not just the number.
+        self.assertIn("already exists", str(cm.exception).lower())

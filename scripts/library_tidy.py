@@ -561,6 +561,29 @@ def build_plan(parent: str, folders: list[str], *, is_tv: bool) -> Plan:
 # --------------------------------------------------------------------------
 
 
+# FileStation's numeric error codes. A bare "code 408" tells an operator nothing;
+# these are the ones that actually come up when moving media around.
+FS_ERRORS = {
+    403: "the account may not perform this file operation",
+    407: "operation not permitted",
+    408: "no such file or directory",
+    414: "a file of that name already exists at the destination",
+    415: "disk quota exceeded",
+    416: "no space left on the volume",
+    417: "input/output error",
+    421: "device or resource busy",
+}
+
+
+def describe_fs_errors(errors: list) -> str:
+    out = []
+    for e in errors if isinstance(errors, list) else [errors]:
+        code = e.get("code") if isinstance(e, dict) else None
+        where = (e.get("path") if isinstance(e, dict) else "") or ""
+        out.append(f"{FS_ERRORS.get(code, f'error {code}')}{f' [{where}]' if where else ''}")
+    return "; ".join(out)
+
+
 class DSM:
     def __init__(self, base: str, insecure: bool = False):
         self.base = base.rstrip("/")
@@ -621,13 +644,32 @@ class DSM:
         return [f["name"] for f in self._list(path, "file") if not f.get("isdir")]
 
     def create_folder(self, parent: str, name: str) -> None:
-        self._call("entry.cgi", {
-            "api": "SYNO.FileStation.CreateFolder", "version": "2", "method": "create",
-            "folder_path": parent, "name": name, "force_parent": "false",
-        })
+        """Create `name` under `parent`, tolerating one that is already there.
+
+        This has to be idempotent. A run that creates the folders and then fails
+        on the moves — which is exactly what happened once — leaves them behind,
+        and a re-run must be able to carry on rather than stop at "already
+        exists". Any create error is therefore re-checked by listing the parent,
+        and only re-raised if the folder genuinely is not there.
+        """
+        try:
+            self._call("entry.cgi", {
+                "api": "SYNO.FileStation.CreateFolder", "version": "2", "method": "create",
+                "folder_path": parent, "name": name, "force_parent": "false",
+            })
+            return
+        except Exception:
+            if name in self.list_dirs(parent):
+                return
+            raise
 
     def move(self, paths: list[str], dest_folder: str) -> None:
         """Move files, refusing to overwrite anything already at the destination.
+
+        Parameters go on the wire as JSON: `path` as an ARRAY, `dest_folder_path`
+        as a quoted string. This is not cosmetic — sending a bare comma-joined
+        string made DSM read the whole blob as one literal filename and fail
+        every move with 408, "no such file or directory".
 
         CopyMove is asynchronous: it hands back a task id and the move continues
         on the NAS, so the result has to be polled. Returning without polling
@@ -635,7 +677,8 @@ class DSM:
         """
         data = self._call("entry.cgi", {
             "api": "SYNO.FileStation.CopyMove", "version": "3", "method": "start",
-            "path": ",".join(paths), "dest_folder_path": dest_folder,
+            "path": json.dumps(paths, separators=(",", ":")),
+            "dest_folder_path": json.dumps(dest_folder),
             "remove_src": "true", "overwrite": "false",
         })
         taskid = data.get("taskid")
@@ -649,7 +692,7 @@ class DSM:
             })
             if st.get("finished"):
                 if st.get("errors"):
-                    raise RuntimeError(f"move reported errors: {st['errors']}")
+                    raise RuntimeError("move failed: " + describe_fs_errors(st["errors"]))
                 return
             time.sleep(1)
         raise RuntimeError("move did not finish within 30 minutes")
@@ -796,10 +839,18 @@ def main(argv: list[str]) -> int:
                     if m.season:
                         dsm.create_folder(dest, m.season)
                         dest = f"{dest}/{m.season}"
-                    dsm.move([f"{parent}/{f}" for f in m.files], dest)
-                    record({"op": "move", "parent": parent, "dest": dest, "files": m.files})
                 except Exception as exc:
                     print(f"  FAILED   -> {m.dest}: {exc}", file=sys.stderr)
+                    continue
+                # One file per call. A batch fails as a unit, so a single
+                # unmovable file would strand its whole title, and the error
+                # would name the batch rather than the file.
+                for f in m.files:
+                    try:
+                        dsm.move([f"{parent}/{f}"], dest)
+                        record({"op": "move", "parent": parent, "dest": dest, "files": [f]})
+                    except Exception as exc:
+                        print(f"  FAILED   {f}: {exc}", file=sys.stderr)
 
         if args.apply and applied:
             renames = sum(1 for e in applied if e["op"] == "rename")
