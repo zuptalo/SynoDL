@@ -1,149 +1,99 @@
-# Phase 1 — Data Model
+# Data Model: ownership, seasons and episodes
 
-**Feature**: 0008 — Show which Discover titles you already have
+Phase 1 for [plan.md](./plan.md). **Nothing here is persisted.** Every entity lives in
+memory for at most the 5-minute retention of FR-010; the NAS remains the source of truth
+(Principle III: "Download tasks themselves are never persisted").
 
-Two things are worth stating up front, because they bound everything below:
+## OwnershipState
 
-1. **Nothing about the NAS's contents is persisted.** The library snapshot is in-memory only,
-   rebuilt on demand (R5). There is no table for it and no migration that carries it.
-2. **The only durable change is one boolean per user.**
+The single value the client renders. Replaces the boolean `inLibrary` shipped in 0.3.0.
 
----
+| Value | Meaning | Established by |
+|---|---|---|
+| `unknown` | Not yet verified. **Carries no marker** (FR-010c) | default |
+| `absent` | No matching folder, or the folder holds no video | layer 1 or layer 2 |
+| `owned` | At least one video file beneath the title folder (FR-001) | layer 2 |
+| `downloading` | An active task is writing into the title folder (FR-001b) | task list |
 
-## 1. In-memory entities (server)
+`downloading` takes precedence over `owned`: a title being extended by a running
+download is still something the user should wait for rather than send again (FR-019a).
 
-### `library.Entry` — one thing observed on the NAS
+State is never inferred from a folder's existence, its emptiness, or from a title having
+been sent — FR-008 was corrected precisely because sending is not evidence.
+
+## Parent *(unchanged)*
+
+The distinct movie/TV parent folders across enabled sources (FR-007). Already implemented
+as `library.Parent{Path, Movies, TV}`.
+
+## NameIndex — layer 1 *(largely unchanged)*
+
+Directory names under each parent, normalised by the existing `library.Key`, mapping a
+comparison key to candidate folders.
 
 | Field | Type | Notes |
 |---|---|---|
-| `Name` | `string` | The folder's name exactly as DSM reported it |
-| `Path` | `string` | Share-relative path, e.g. `movie/Dune 2021` |
-| `Key` | `string` | Normalised comparison key (see below) |
-| `Year` | `string` | Start year parsed off the name; `""` when the name carries none |
+| `byKey` | `map[string][]Entry` | `Entry{Path, Name, Year}` |
+| `builtAt` | `time.Time` | 5-minute retention (FR-010) |
 
-### `library.Index` — one snapshot of the configured parents
+**Its meaning changes even though its shape does not.** It no longer answers "does the user
+have this"; it answers "is there a folder that *could* be this". A miss is conclusive
+(`absent`, no NAS call). A hit is only a candidate and must be verified.
 
-| Field | Type | Notes |
-|---|---|---|
-| `byKey` | `map[string][]Entry` | Several entries may share a key (collisions are real — see spec Edge Cases) |
-| `BuiltAt` | `time.Time` | Drives the 5-minute TTL (FR-010) |
-| `Empty` | `bool` | True when the build failed; makes "we know nothing" explicit rather than indistinguishable from "nothing is there" |
+## FolderEvidence — layer 2 *(new)*
 
-Behaviour:
-
-- `Key(name) (key, year string)` — split the trailing year/range off (the forms enumerated by
-  `src/services/title-year.ts`), drop a leading article and bracketed extras, lowercase, then
-  keep only `unicode.IsLetter` / `unicode.IsDigit` runes. **Never an ASCII filter** — that would
-  collapse every Persian title to the empty string (R2).
-- `Lookup(catalogTitle, mediaType) (Entry, bool)` — key equality, then the year-agreement rule:
-  if both sides carry a year the start years must match; if either lacks one, the key match
-  stands (FR-005).
-- An index built from a failed read is `Empty` and matches nothing (FR-009).
-
-### `library.SeasonPresence` — what is inside one title folder
+What one title folder actually contains. Cached per folder path, built lazily and only for
+folders backing a title in the current response (FR-010b).
 
 | Field | Type | Notes |
 |---|---|---|
-| `Season` | `int` | Season number present on disk |
-| `Files` | `int` | Episode files counted; `0` means "not counted", never "empty" (FR-016) |
+| `Path` | `string` | absolute NAS path of the title folder |
+| `HasVideo` | `bool` | true if any video file at this level or in a season subfolder |
+| `Seasons` | `map[int]SeasonPresence` | empty for a movie, or a series stored flat with unreadable names |
+| `CheckedAt` | `time.Time` | 5-minute retention, same as layer 1 |
 
-Derived from a single listing of the title folder, covering both layouts (R3):
-- **Nested** — subdirectories named `Season 1`, `S01`, `Series 1`.
-- **Flat** — episode files carrying `S01E05`, parsed with the same non-alphanumeric-bounded form
-  used by `src/services/task-title.ts` and `server/internal/tasktitle/tasktitle.go`.
+`HasVideo` is deliberately separate from `len(Seasons) > 0`: a series whose file names carry
+no readable `SxxEyy` still has video and is still owned (FR-016b).
 
-### Snapshot cache (`api/library.go`)
+## SeasonPresence *(new)*
 
-Held on `Deps` behind a `sync.Mutex`: the current `*library.Index` plus its build time. Read
-path: reuse if younger than 5 minutes, otherwise rebuild. Invalidated outright after a successful
-`handleSourceSend` (FR-008). Process-local — it does not survive a restart, and does not need to.
+| Field | Type | Notes |
+|---|---|---|
+| `Season` | `int` | season number; `0` is a valid specials season |
+| `Episodes` | `[]int` | sorted, de-duplicated episode numbers read from file names |
+| `VideoFiles` | `int` | count of video files in the season, including unparseable names |
 
----
+**There is no `Total` and no `Complete` field, deliberately.** FR-016a forbids describing a
+season as complete or as a fraction: the catalog's episode count cannot be relied on, and
+asserting it would repeat the over-claiming that FR-001a exists to prevent. A season with
+`VideoFiles > 0` and an empty `Episodes` is valid and means "present, numbering unreadable".
 
-## 2. Wire shapes
+## Relationships
 
-### `source.CatalogTitle` — one added field
-
-```go
-// InLibrary reports that a folder for this title already exists under the
-// configured parent. Set by the API layer from the library snapshot; drivers
-// never populate it — the same arrangement as SourceID/SourceName.
-InLibrary bool `json:"inLibrary,omitempty"`
+```
+Parent 1─* NameIndex.Entry          (layer 1, one listing per parent)
+NameIndex.Entry 1─1 FolderEvidence  (layer 2, one listing per matched folder, lazy)
+FolderEvidence 1─* SeasonPresence
+OwnershipState ← FolderEvidence + active tasks
 ```
 
-Mirrored on the client `CatalogTitle` interface in `src/services/api.ts`. `omitempty` keeps the
-payload unchanged for titles that are not present, which is most of them.
+## Validation rules
 
-### `GET /v1/library/title` response
+- A catalog title and a folder both carrying a year MUST agree on it (FR-005, unchanged).
+- Video is decided by extension, using the same table that governs uploads (research §1).
+- Episode numbers come from the files, never from the catalog (FR-016).
+- A folder whose listing fails is `unknown`, never `absent` — a failed read must not be
+  reported as "you do not have this" (FR-009, FR-010c).
 
-See [contracts/library-api.md](./contracts/library-api.md). Summary shape:
+## Credential-Safety Impact
 
-```json
-{ "inLibrary": true,
-  "seasons": [ { "season": 1, "files": 24 }, { "season": 2, "files": 0 } ] }
-```
-
-**No folder path is returned** (FR-025): the client needs to know *whether* and *which seasons*,
-never *where*. Returning the path would widen the exposure for no functional gain.
-
-### `/v1/source/prefs` — one added field
-
-`hideOwned: boolean`, alongside the existing preferred-quality and view state.
-
----
-
-## 3. New `syno` client surface
-
-```go
-// Entry is one FileStation item — a directory or a file.
-type Entry struct {
-    Name  string `json:"name"`
-    Path  string `json:"path"`
-    IsDir bool   `json:"isDir"`
-}
-
-// ListEntries lists BOTH directories and files under an absolute path, using the
-// already-allowlisted SYNO.FileStation.List / "list" with no filetype filter
-// (DSM defaults to all). One round-trip serves both season layouts.
-ListEntries(ctx context.Context, sid, path string) ([]Entry, error)
-```
-
-Added to the `syno.Client` interface, the `HTTPClient`, and the fake in
-`server/internal/api/fake_test.go`. `ListFolder` (`filetype=dir`) is unchanged and still serves
-the destination picker and the parent scan.
-
----
-
-## 4. The one migration
-
-Appended to `migrations` in `server/internal/store/schema.go`. The array currently holds **21
-entries**, so this becomes entry 22 (`schema_migrations.version = 22`); the `// 00NN` comment
-numbers are logical groups and already run ahead of the indices, so this is group **0019**.
-
-```go
-// 0019 — remember whether a user hides titles they already have from Discover
-// (spec 0008). 0 = show everything, which is exactly today's behaviour, so every
-// existing row and every new account already means the right thing.
-`ALTER TABLE source_prefs ADD COLUMN hide_owned INTEGER NOT NULL DEFAULT 0;`,
-```
-
-Additive, defaulted, and on the table that already holds the rest of the per-user Discover view
-state (R7). Never edit a shipped migration — this is appended.
-
-`store_test.go:TestOpenRunsMigrations` asserts `SchemaVersion() == len(migrations)`, so it keeps
-passing without change; no new table means nothing to add to its table-existence list.
-
-**Accessors**: extended through the existing `GetSourceViewFull` / `SaveSourceViewFull` pair
-(`server/internal/store/source_repos.go:336, 353`) rather than a new pair, keeping one read and
-one upsert for the whole Discover view.
-
----
-
-## 5. What deliberately has no data model
-
-- **No IndexedDB change.** `src/db/idb.ts` stays at `DB_VERSION = 1`; the hide-owned flag is
-  server-side so it follows the user across devices (FR-024). Principle IV's bump requirement is
-  therefore not triggered.
-- **No table of library contents.** See R5 — the NAS is the source of truth.
-- **No per-user snapshot.** The index is instance-wide; the reasoning and its least-privilege
-  tension are tabled in [plan.md](./plan.md) under Complexity Tracking.
+- **Stored**: nothing. Both layers are in-memory and per-instance, discarded on restart and
+  on the invalidations of FR-008/FR-008a.
+- **Crosses to the NAS**: one additional `SYNO.FileStation.List` call per matched folder,
+  with `filetype` set. No new API; the operator's single stored connection as always.
+- **Could appear in logs**: nothing new. Folder and file names are NOT logged — the existing
+  rule stands, and this feature reads more names than before, which is exactly why it must
+  stay unlogged. Log the route and outcome only.
+- **Client exposure**: a user learns only whether a title they are *already browsing* is
+  present, and for a series which seasons and episodes exist. FR-025a still forbids a
+  client naming an arbitrary path, so this cannot be turned into a filesystem browser.
