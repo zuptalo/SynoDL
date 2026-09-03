@@ -391,6 +391,37 @@ type dsmFile struct {
 	Path  string `json:"path"`
 }
 
+// ListFiles returns the FILE names in a folder — the same allowlisted
+// SYNO.FileStation.List that ListFolder uses, asked with filetype=file.
+//
+// Ownership turns on what a folder CONTAINS, not on its name (FR-001a), and
+// ListFolder deliberately asks for directories only, so this read did not exist.
+// It is also why spec 0008's security checklist re-runs: the server now sees FILE
+// names where it previously saw only folder names. Those names are used to decide
+// presence and are never logged.
+func (c *HTTPClient) ListFiles(ctx context.Context, sid, path string) ([]string, error) {
+	var data struct {
+		Files []dsmFile `json:"files"`
+	}
+	params := url.Values{
+		"folder_path": {path},
+		"filetype":    {"file"},
+	}
+	if err := c.call(ctx, apiFSList, "list", sid, params, &data); err != nil {
+		return nil, err
+	}
+	names := make([]string, 0, len(data.Files))
+	for _, f := range data.Files {
+		// Defensive: a NAS that ignores filetype must not have its directories
+		// counted as content, which is the precise failure being corrected.
+		if f.IsDir {
+			continue
+		}
+		names = append(names, f.Name)
+	}
+	return names, nil
+}
+
 func (c *HTTPClient) ListShares(ctx context.Context, sid string) ([]Folder, error) {
 	var data struct {
 		Shares []dsmFile `json:"shares"`

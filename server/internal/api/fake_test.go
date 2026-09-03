@@ -23,6 +23,12 @@ type fakeSyno struct {
 	statsErr   error
 	shares     []syno.Folder
 	subfolders map[string][]syno.Folder
+	// files holds the FILE names per folder, which is what ownership reads.
+	// fileListCalls counts the reads so a test can prove a page of non-matching
+	// titles costs no NAS listing at all (FR-010b).
+	files         map[string][]string
+	fileListCalls int
+	gotFilePaths  []string
 
 	// Streaming test hooks: fail ListTasks after failListAfter successful calls,
 	// returning listErr (used to exercise a mid-stream session expiry).
@@ -125,6 +131,15 @@ func (f *fakeSyno) ListFolder(_ context.Context, _ string, path string) ([]syno.
 		return nil, f.err
 	}
 	return f.subfolders[path], nil
+}
+
+func (f *fakeSyno) ListFiles(_ context.Context, _ string, path string) ([]string, error) {
+	f.fileListCalls++
+	f.gotFilePaths = append(f.gotFilePaths, path)
+	if f.err != nil {
+		return nil, f.err
+	}
+	return f.files[path], nil
 }
 
 func (f *fakeSyno) CreateFolder(_ context.Context, _ string, path, name string) (syno.Folder, error) {

@@ -28,6 +28,9 @@ type Client interface {
 
 	ListShares(ctx context.Context, sid string) ([]Folder, error)
 	ListFolder(ctx context.Context, sid, path string) ([]Folder, error)
+	// ListFiles returns the file names in a folder. Ownership turns on what a
+	// folder contains, and ListFolder returns directories only (spec 0008).
+	ListFiles(ctx context.Context, sid, path string) ([]string, error)
 	CreateFolder(ctx context.Context, sid, path, name string) (Folder, error)
 	// UploadFile streams a file into an existing folder (spec 1022). The only
 	// call in this interface that writes file CONTENT to the NAS; everything

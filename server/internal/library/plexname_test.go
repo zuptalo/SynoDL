@@ -91,3 +91,49 @@ func TestSeasonOfFiles(t *testing.T) {
 		}
 	}
 }
+
+// Episode numbers come from the FILES (FR-016), so this is what makes "which
+// episodes do I have" answerable at all. The regex already found the season and
+// threw the episode away.
+func TestEpisodeOf(t *testing.T) {
+	cases := []struct {
+		name    string
+		season  int
+		episode int
+		ok      bool
+	}{
+		{"Show.S01E02.1080p.mkv", 1, 2, true},
+		{"Show.s1.e5.mkv", 1, 5, true},
+		{"Show 1x05 720p.mkv", 1, 5, true},
+		// Underscores are why the regex bounds on non-alphanumerics rather than \b.
+		{"X_Men_97_S02E03_1080p_30NAMA.mkv", 2, 3, true},
+		{"Attack_on_Titan_S00E01_BluRay.mkv", 0, 1, true},
+		{"Show.S01E123.mkv", 1, 123, true},
+		// A signed link's query is full of digits and must not be mined for one.
+		{"Show.S01E02.mkv?md5=7Iayb7PJyj4&expires=1788", 1, 2, true},
+		{"Season 01", 0, 0, false},
+		{"just-a-movie-2021.mkv", 0, 0, false},
+		{"", 0, 0, false},
+	}
+	for _, c := range cases {
+		s, e, ok := EpisodeOf(c.name)
+		if ok != c.ok || (ok && (s != c.season || e != c.episode)) {
+			t.Errorf("EpisodeOf(%q) = (%d,%d,%v), want (%d,%d,%v)",
+				c.name, s, e, ok, c.season, c.episode, c.ok)
+		}
+	}
+}
+
+// SeasonOfFiles reads the same regex; adding episode capture must not shift the
+// season it reports.
+func TestSeasonOfFilesStillAgreesAfterEpisodeCapture(t *testing.T) {
+	if n, ok := SeasonOfFiles([]string{"Show.S03E01.mkv", "Show.S03E02.mkv"}); !ok || n != 3 {
+		t.Errorf("SeasonOfFiles = (%d,%v), want (3,true)", n, ok)
+	}
+	if n, ok := SeasonOfFiles([]string{"Show 2x01.mkv"}); !ok || n != 2 {
+		t.Errorf("SeasonOfFiles x-form = (%d,%v), want (2,true)", n, ok)
+	}
+	if _, ok := SeasonOfFiles([]string{"Show.S01E01.mkv", "Show.S02E01.mkv"}); ok {
+		t.Error("a set spanning seasons must report unknown")
+	}
+}

@@ -20,17 +20,28 @@ import (
 // endpoint is a general "write any file to the NAS" tool, which is a far larger
 // capability than the feature asks for and one an operator has not knowingly
 // granted.
-var uploadExt = map[string]bool{
-	// Video.
-	"mkv": true, "mp4": true, "avi": true, "m4v": true, "mov": true, "wmv": true,
-	"mpg": true, "mpeg": true, "m2ts": true, "ts": true, "webm": true, "vob": true,
+// Composed so VIDEO has exactly one definition (videoExt in media.go, which
+// ownership also reads) and the sidecars are listed once here. Two hand-kept lists
+// would drift, and a file could then be uploadable but not recognised as content.
+var uploadExt = func() map[string]bool {
+	m := map[string]bool{}
+	for e := range videoExt {
+		m[e] = true
+	}
+	for _, e := range sidecarExt {
+		m[e] = true
+	}
+	return m
+}()
+
+// sidecarExt belongs beside content without being content.
+var sidecarExt = []string{
 	// Subtitles.
-	"srt": true, "sub": true, "idx": true, "ass": true, "ssa": true, "vtt": true,
-	"smi": true, "sup": true,
+	"srt", "sub", "idx", "ass", "ssa", "vtt", "smi", "sup",
 	// Artwork.
-	"jpg": true, "jpeg": true, "png": true, "webp": true, "tbn": true, "bmp": true,
+	"jpg", "jpeg", "png", "webp", "tbn", "bmp",
 	// Metadata.
-	"nfo": true, "xml": true,
+	"nfo", "xml",
 }
 
 // ValidUploadName reports whether a client-supplied file name may be used as-is.
