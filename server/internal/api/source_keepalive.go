@@ -32,26 +32,38 @@ func (d Deps) RunSourceKeepAlive(ctx context.Context, interval time.Duration) {
 	}
 }
 
-// probeSource runs one keep-alive probe. Shares the same consecutive-failure
-// hysteresis (sourceFailStreak) as the request paths, so a probe success clears a
-// streak the user's requests started, and vice versa.
+// probeSource runs one keep-alive probe per configured source. Each shares the
+// same per-source consecutive-failure hysteresis as the request paths, so a
+// probe success clears a streak the user's requests started, and vice versa.
+//
+// Every enabled source is probed, not just the first: a second source's session
+// expires exactly as readily as the first one's, and an unprobed source would
+// only reveal its expiry when a user hit it.
 func (d Deps) probeSource(ctx context.Context) {
-	p, drv, cfg, sess, ok := d.activeSource()
-	if !ok {
-		return // no enabled provider — nothing to keep warm
-	}
-	err := drv.VerifySession(ctx, sourceHTTP, cfg, sess)
-	if err == nil {
-		d.sourceCallOK(p) // healthy: reset the streak, restore active, stamp last_verified
-		return
-	}
-	// Only a genuine auth/verify failure counts toward expiry; a network/infra
-	// error is transient and ignored (the next probe retries).
-	var ve *source.ErrProviderVerify
-	if !asProviderVerify(err, &ve) {
-		return
-	}
-	if sourceFailStreak.Add(1) >= sourceFailThreshold {
-		_ = d.Store.SetProviderState(p.ID, store.SourceNeedsRefresh, 0, time.Now().Unix())
+	refs, _ := d.sourceRefs()
+	for _, ref := range refs {
+		err := ref.Driver.VerifySession(ctx, sourceHTTP, ref.Cfg, ref.Sess)
+		if err == nil {
+			// Healthy: reset the streak, restore active, stamp last_verified.
+			if p, e := d.Store.GetProviderByID(ref.ID); e == nil && p != nil {
+				d.sourceCallOK(p)
+			}
+			continue
+		}
+		// Only a genuine auth/verify failure counts toward expiry; a network/infra
+		// error is transient and ignored (the next probe retries).
+		var ve *source.ErrProviderVerify
+		if !asProviderVerify(err, &ve) {
+			continue
+		}
+		// An entitlement problem is definite: record it immediately, since no
+		// amount of waiting or re-pasting changes it.
+		if ve.Reason == source.ReasonUnsubscribed {
+			_ = d.Store.SetProviderStateErr(ref.ID, store.SourceUnsubscribed, ve.Reason, 0, time.Now().Unix())
+			continue
+		}
+		if noteSourceFailure(ref.ID) >= sourceFailThreshold {
+			_ = d.Store.SetProviderStateErr(ref.ID, store.SourceNeedsRefresh, ve.Reason, 0, time.Now().Unix())
+		}
 	}
 }

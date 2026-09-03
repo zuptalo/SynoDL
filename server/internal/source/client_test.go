@@ -51,11 +51,16 @@ func TestClientSendsSessionHeadersAndBody(t *testing.T) {
 	defer srv.Close()
 
 	c := NewClient()
-	sess := Session{CFClearance: "CLR", CToken: "TOK", CAPIKey: "KEY", UserAgent: "UA/1.0"}
+	// Auth is now supplied by the caller (the driver), not assembled by the client
+	// from field names it knows — so one source's material can never ride along to
+	// another source's host.
+	sess := Session{UserAgent: "UA/1.0"}
 	// httptest host is 127.0.0.1 — allow it.
 	resp, err := c.Do(context.Background(), sess, []string{"127.0.0.1"},
 		Req{Method: "POST", URL: srv.URL, Body: "query=matrix", XHR: true,
-			Origin: "https://30nama.com", Referer: "https://30nama.com/"})
+			Origin: "https://30nama.com", Referer: "https://30nama.com/",
+			Headers: map[string]string{"c-token": "TOK", "c-api-key": "KEY"},
+			Cookies: map[string]string{"cf_clearance": "CLR"}})
 	if err != nil {
 		t.Fatalf("Do: %v", err)
 	}

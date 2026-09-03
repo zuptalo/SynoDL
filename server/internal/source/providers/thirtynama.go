@@ -48,16 +48,78 @@ var errBadShape = errors.New("thirtynama: unexpected response shape")
 
 func (thirtynama) Kind() string { return "thirtynama" }
 
+func (thirtynama) DisplayName() string { return "30nama" }
+
+// Session field keys. These match the JSON names the store has always sealed, so
+// an existing installation's pasted material migrates into the field bag by key
+// with nothing to re-enter.
+const (
+	tnFieldClearance  = "cf_clearance"
+	tnFieldAPIKey     = "c_api_key"
+	tnFieldToken      = "c_token"
+	tnFieldPlatform   = "c_platform"
+	tnFieldAppVersion = "c_app_version"
+)
+
+// SessionFields declares what an admin must paste. The admin form is generated
+// from this, so the client needs no per-provider knowledge.
+func (thirtynama) SessionFields() []source.SessionField {
+	return []source.SessionField{
+		{Key: tnFieldClearance, Label: "cf_clearance cookie", Secret: true, Required: true,
+			Help: "From your browser's cookies for 30nama.com. Tied to the public address it was issued to."},
+		{Key: tnFieldToken, Label: "c-token", Secret: true, Required: true,
+			Help: "Scoped API token; authorizes catalog calls only."},
+		{Key: tnFieldAPIKey, Label: "c-api-key", Secret: true, Required: true},
+		{Key: tnFieldPlatform, Label: "c-platform (optional)", Secret: false},
+		{Key: tnFieldAppVersion, Label: "c-app-version (optional)", Secret: false},
+	}
+}
+
+// auth builds this driver's own request credentials. It lives here, not in the
+// shared client, so 30nama's material is only ever sent to 30nama's hosts — with
+// a second source configured, a client that set these headers on every call
+// would have handed them to the other site.
+func (thirtynama) auth(s source.Session) (headers, cookies map[string]string) {
+	headers = map[string]string{
+		"c-api-key":     s.Get(tnFieldAPIKey),
+		"c-token":       s.Get(tnFieldToken),
+		"c-platform":    s.Get(tnFieldPlatform),
+		"c-app-version": s.Get(tnFieldAppVersion),
+		"c-useragent":   s.UserAgent,
+	}
+	cookies = map[string]string{"cf_clearance": s.Get(tnFieldClearance)}
+	return headers, cookies
+}
+
 // Hosts is the provider's fixed outbound allowlist: the API host plus the site
 // (for clearance verification) and the signed-download storage domain. The
 // download storage host rotates its subdomain (eu-download-storage-NN.*), so it
 // is allowed by domain suffix.
 func (thirtynama) Hosts() source.Config {
-	return source.Config{
+	cfg := source.Config{
 		APIHosts:      []string{tnAPIHost, "30nama.com"},
 		DownloadHosts: []string{"divyacamilla.info"},
 		ImageHosts:    []string{"cdn.30nama.com"},
 	}
+	// Dev/e2e only, and only in a build carrying the `sourcemock` tag. See
+	// mockbase_prod.go: in a release build there is no such branch.
+	if b := mockBase("thirtynama"); b != "" {
+		if h := hostOf(b); h != "" {
+			cfg.APIHosts = append(cfg.APIHosts, h)
+			cfg.DownloadHosts = append(cfg.DownloadHosts, h, "mockdl.invalid")
+			cfg.ImageHosts = append(cfg.ImageHosts, h)
+		}
+	}
+	return cfg
+}
+
+// base is where this driver's requests go: the real API, or a fake one in a
+// dev/e2e build.
+func (thirtynama) base() string {
+	if b := mockBase("thirtynama"); b != "" {
+		return b
+	}
+	return apiBase
 }
 
 func (p thirtynama) VerifySession(ctx context.Context, c *source.Client, cfg source.Config, s source.Session) error {
@@ -299,13 +361,16 @@ func seasonLabel(d tnDownload) string {
 // challenge surfaces as *source.ErrNeedsRefresh from the client and is passed
 // through unchanged.
 func (p thirtynama) call(ctx context.Context, c *source.Client, cfg source.Config, s source.Session, path, body string) (json.RawMessage, error) {
+	headers, cookies := p.auth(s)
 	resp, err := c.Do(ctx, s, cfg.APIHosts, source.Req{
 		Method:  "POST",
-		URL:     apiBase + path,
+		URL:     p.base() + path,
 		Body:    body,
 		XHR:     true,
 		Origin:  tnOrigin,
 		Referer: tnReferer,
+		Headers: headers,
+		Cookies: cookies,
 	})
 	if err != nil {
 		return nil, err

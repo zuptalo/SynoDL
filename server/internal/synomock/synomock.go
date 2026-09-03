@@ -63,10 +63,14 @@ type Server struct {
 	nextSID  int
 	offset   time.Duration // virtual-clock offset advanced by /__mock/tick
 	folders  map[string][]string
+	// Fake download sources (spec 0007), so dev and e2e can exercise the catalog
+	// without pasting real credentials for a real site. See sources.go.
+	zarSrc *SourceState
+	tnSrc  *SourceState
 }
 
 func New() *Server {
-	s := &Server{}
+	s := &Server{zarSrc: newSourceState("zar"), tnSrc: newSourceState("tn")}
 	s.resetLocked()
 	return s
 }
@@ -156,6 +160,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/webapi/DownloadStation/task.cgi", s.handleTask)
 	mux.HandleFunc("/webapi/DownloadStation/statistic.cgi", s.handleStatistic)
 	mux.HandleFunc("/webapi/entry.cgi", s.handleFileStation)
+	s.registerSources(mux)
 	mux.HandleFunc("POST /__mock/reset", s.handleReset)
 	mux.HandleFunc("POST /__mock/seed", s.handleSeed)
 	mux.HandleFunc("POST /__mock/tick", s.handleTick)
@@ -479,6 +484,14 @@ func taskNameFromURI(uri string) string {
 			}
 		}
 		return "magnet download"
+	}
+	// Real DSM names an HTTP task after the URL's FILE, so the query string is
+	// not part of the name. That matters beyond cosmetics: signed download links
+	// carry credentials and account identifiers in their query
+	// (?md5=…&u=…&expires=…), and a mock that echoed those into a task name would
+	// put them on screen and into any test that asserts on names.
+	if i := strings.IndexAny(uri, "?#"); i >= 0 {
+		uri = uri[:i]
 	}
 	trimmed := strings.TrimRight(uri, "/")
 	if i := strings.LastIndexByte(trimmed, '/'); i >= 0 && i < len(trimmed)-1 {

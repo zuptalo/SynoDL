@@ -19,6 +19,11 @@ const (
 	SourceNotConfigured = "not_configured"
 	SourceActive        = "active"
 	SourceNeedsRefresh  = "needs_refresh"
+	// SourceUnsubscribed: the session works, but the account has no download
+	// entitlement. Deliberately distinct from SourceNeedsRefresh — telling an
+	// operator to re-paste a session that is working perfectly sends them in
+	// circles (spec 0007 FR-019).
+	SourceUnsubscribed = "unsubscribed"
 )
 
 // SourceProvider is the non-secret provider config + status. Safe to return to
@@ -34,36 +39,80 @@ type SourceProvider struct {
 	Enabled        bool
 	State          string
 	LastVerifiedAt int64
+	SortOrder      int64
+	// LastError is the last failure CATEGORY only (needs_refresh / unsubscribed /
+	// unreachable). Never an upstream body, URL, or anything secret-derived.
+	LastError string
 }
 
 // SourceSession is the secret material for a provider. It is sealed as JSON and
 // never serialized to any client.
+//
+// Fields is a provider-declared bag rather than fixed columns: two sources can
+// authenticate in completely different ways (one with API headers, one with a
+// site login cookie), and a fixed struct would both grow a field per site and
+// hand every driver every other driver's secrets.
 type SourceSession struct {
-	CFClearance string `json:"cf_clearance"`
-	CAPIKey     string `json:"c_api_key"`
-	CToken      string `json:"c_token"`
-	UserAgent   string `json:"user_agent"`
-	CPlatform   string `json:"c_platform"`
-	CAppVersion string `json:"c_app_version"`
+	Fields    map[string]string `json:"fields"`
+	UserAgent string            `json:"user_agent"`
 }
 
-// GetProvider returns the single configured provider (v1 treats it as a
-// singleton: the lowest-id row). Returns nil, nil when none is configured.
-func (s *Store) GetProvider() (*SourceProvider, error) {
-	row := s.db.QueryRow(`
-		SELECT id, kind, display_name, api_hosts, download_hosts, movies_parent,
-		       tv_parent, enabled, state, last_verified_at
-		FROM source_providers ORDER BY id LIMIT 1`)
+// Get returns one field ("" when absent).
+func (s SourceSession) Get(key string) string { return s.Fields[key] }
+
+// legacySessionKeys are the fixed field names sealed before the bag existed.
+// They are read back into the bag under the same names, so an operator who
+// pasted material before this change never has to paste it again.
+var legacySessionKeys = []string{
+	"cf_clearance", "c_api_key", "c_token", "c_platform", "c_app_version",
+}
+
+// decodeSession reads a sealed blob in either shape. The new shape has a
+// "fields" object; the old one had the keys at the top level. Anything that
+// parses as neither is an error the caller must surface — unreadable material is
+// retained and reported, never silently discarded (spec 0007 FR-035).
+func decodeSession(plain []byte) (*SourceSession, error) {
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(plain, &raw); err != nil {
+		return nil, err
+	}
+	out := SourceSession{Fields: map[string]string{}}
+	if ua, ok := raw["user_agent"]; ok {
+		_ = json.Unmarshal(ua, &out.UserAgent)
+	}
+	if f, ok := raw["fields"]; ok {
+		if err := json.Unmarshal(f, &out.Fields); err != nil {
+			return nil, err
+		}
+		if out.Fields == nil {
+			out.Fields = map[string]string{}
+		}
+		return &out, nil
+	}
+	// Legacy shape: lift the known keys into the bag by the same name.
+	for _, k := range legacySessionKeys {
+		if v, ok := raw[k]; ok {
+			var sv string
+			if json.Unmarshal(v, &sv) == nil && sv != "" {
+				out.Fields[k] = sv
+			}
+		}
+	}
+	return &out, nil
+}
+
+const providerCols = `id, kind, display_name, api_hosts, download_hosts,
+	movies_parent, tv_parent, enabled, state, last_verified_at, sort_order, last_error`
+
+func scanProvider(sc interface{ Scan(...any) error }) (*SourceProvider, error) {
 	var (
 		p                 SourceProvider
 		apiHosts, dlHosts string
 		enabled           int
 	)
-	err := row.Scan(&p.ID, &p.Kind, &p.DisplayName, &apiHosts, &dlHosts,
-		&p.MoviesParent, &p.TVParent, &enabled, &p.State, &p.LastVerifiedAt)
-	if errors.Is(err, sql.ErrNoRows) {
-		return nil, nil
-	}
+	err := sc.Scan(&p.ID, &p.Kind, &p.DisplayName, &apiHosts, &dlHosts,
+		&p.MoviesParent, &p.TVParent, &enabled, &p.State, &p.LastVerifiedAt,
+		&p.SortOrder, &p.LastError)
 	if err != nil {
 		return nil, err
 	}
@@ -73,40 +122,102 @@ func (s *Store) GetProvider() (*SourceProvider, error) {
 	return &p, nil
 }
 
-// SaveProviderConfig upserts the singleton provider's non-secret config and
-// returns its id. It never touches secrets or state timestamps beyond `state`.
+// ListProviders returns every configured provider in display order. Ties on
+// sort_order break by id so the order is total and stable — a combined catalog
+// list must not reshuffle between requests.
+func (s *Store) ListProviders() ([]SourceProvider, error) {
+	rows, err := s.db.Query(`SELECT ` + providerCols + `
+		FROM source_providers ORDER BY sort_order, id`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []SourceProvider
+	for rows.Next() {
+		p, err := scanProvider(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, *p)
+	}
+	return out, rows.Err()
+}
+
+// GetProviderByID returns one provider (nil, nil when it does not exist).
+func (s *Store) GetProviderByID(id int64) (*SourceProvider, error) {
+	p, err := scanProvider(s.db.QueryRow(
+		`SELECT `+providerCols+` FROM source_providers WHERE id = ?`, id))
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	return p, err
+}
+
+// GetProvider returns the lowest-id provider, or nil when none is configured.
+// Retained for the pre-multi-source routes, which address that provider so an
+// older client keeps working unchanged.
+func (s *Store) GetProvider() (*SourceProvider, error) {
+	p, err := scanProvider(s.db.QueryRow(
+		`SELECT ` + providerCols + ` FROM source_providers ORDER BY id LIMIT 1`))
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	return p, err
+}
+
+// CreateProvider inserts a new provider and returns its id.
+func (s *Store) CreateProvider(p SourceProvider, now int64) (int64, error) {
+	res, err := s.db.Exec(`
+		INSERT INTO source_providers
+		  (kind, display_name, api_hosts, download_hosts, movies_parent,
+		   tv_parent, enabled, state, last_verified_at, sort_order, last_error,
+		   created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		p.Kind, p.DisplayName, strings.Join(p.APIHosts, "\n"),
+		strings.Join(p.DownloadHosts, "\n"), p.MoviesParent, p.TVParent,
+		boolInt(p.Enabled), orDefault(p.State, SourceNotConfigured),
+		p.LastVerifiedAt, p.SortOrder, p.LastError, now, now)
+	if err != nil {
+		return 0, err
+	}
+	return res.LastInsertId()
+}
+
+// UpdateProvider updates one provider's non-secret config by id. It never
+// touches secrets, state, or verification timestamps.
+func (s *Store) UpdateProvider(p SourceProvider, now int64) error {
+	_, err := s.db.Exec(`
+		UPDATE source_providers SET
+		  kind=?, display_name=?, api_hosts=?, download_hosts=?, movies_parent=?,
+		  tv_parent=?, enabled=?, sort_order=?, updated_at=?
+		WHERE id=?`,
+		p.Kind, p.DisplayName, strings.Join(p.APIHosts, "\n"),
+		strings.Join(p.DownloadHosts, "\n"), p.MoviesParent, p.TVParent,
+		boolInt(p.Enabled), p.SortOrder, now, p.ID)
+	return err
+}
+
+func boolInt(b bool) int {
+	if b {
+		return 1
+	}
+	return 0
+}
+
+// SaveProviderConfig upserts the LOWEST-ID provider's non-secret config and
+// returns its id. Retained for the pre-multi-source admin routes; new code uses
+// CreateProvider / UpdateProvider with an explicit id.
 func (s *Store) SaveProviderConfig(p SourceProvider, now int64) (int64, error) {
 	existing, err := s.GetProvider()
 	if err != nil {
 		return 0, err
 	}
-	enabled := 0
-	if p.Enabled {
-		enabled = 1
-	}
-	apiHosts := strings.Join(p.APIHosts, "\n")
-	dlHosts := strings.Join(p.DownloadHosts, "\n")
 	if existing == nil {
-		res, err := s.db.Exec(`
-			INSERT INTO source_providers
-			  (kind, display_name, api_hosts, download_hosts, movies_parent,
-			   tv_parent, enabled, state, last_verified_at, created_at, updated_at)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-			p.Kind, p.DisplayName, apiHosts, dlHosts, p.MoviesParent, p.TVParent,
-			enabled, orDefault(p.State, SourceNotConfigured), p.LastVerifiedAt, now, now)
-		if err != nil {
-			return 0, err
-		}
-		return res.LastInsertId()
+		return s.CreateProvider(p, now)
 	}
-	_, err = s.db.Exec(`
-		UPDATE source_providers SET
-		  kind=?, display_name=?, api_hosts=?, download_hosts=?, movies_parent=?,
-		  tv_parent=?, enabled=?, updated_at=?
-		WHERE id=?`,
-		p.Kind, p.DisplayName, apiHosts, dlHosts, p.MoviesParent, p.TVParent,
-		enabled, now, existing.ID)
-	if err != nil {
+	p.ID = existing.ID
+	p.SortOrder = existing.SortOrder
+	if err := s.UpdateProvider(p, now); err != nil {
 		return 0, err
 	}
 	return existing.ID, nil
@@ -149,24 +260,33 @@ func (s *Store) LoadProviderSession(providerID int64) (*SourceSession, error) {
 	if err != nil {
 		return nil, err
 	}
-	var sess SourceSession
-	if err := json.Unmarshal(plain, &sess); err != nil {
-		return nil, err
-	}
-	return &sess, nil
+	// decodeSession accepts both the current bag shape and the pre-0007 fixed
+	// shape. A blob that parses as neither returns an error rather than an empty
+	// session: the caller must report that the source needs attention, leaving the
+	// stored material untouched (FR-035). Silently returning an empty session here
+	// would look exactly like "never configured" and strand the operator.
+	return decodeSession(plain)
 }
 
 // SetProviderState updates the provider's lifecycle state; lastVerifiedAt is
 // applied only when > 0 (i.e. on a successful verify).
 func (s *Store) SetProviderState(providerID int64, state string, lastVerifiedAt, now int64) error {
+	return s.SetProviderStateErr(providerID, state, "", lastVerifiedAt, now)
+}
+
+// SetProviderStateErr also records the failure CATEGORY for admin display.
+// reason must be one of the known categories — never upstream text, a URL, or
+// anything derived from session material.
+func (s *Store) SetProviderStateErr(providerID int64, state, reason string, lastVerifiedAt, now int64) error {
 	if lastVerifiedAt > 0 {
 		_, err := s.db.Exec(
-			`UPDATE source_providers SET state=?, last_verified_at=?, updated_at=? WHERE id=?`,
-			state, lastVerifiedAt, now, providerID)
+			`UPDATE source_providers SET state=?, last_error=?, last_verified_at=?, updated_at=? WHERE id=?`,
+			state, reason, lastVerifiedAt, now, providerID)
 		return err
 	}
 	_, err := s.db.Exec(
-		`UPDATE source_providers SET state=?, updated_at=? WHERE id=?`, state, now, providerID)
+		`UPDATE source_providers SET state=?, last_error=?, updated_at=? WHERE id=?`,
+		state, reason, now, providerID)
 	return err
 }
 
@@ -203,27 +323,41 @@ func (s *Store) SaveSourcePref(userID int64, preferredQuality string, now int64)
 // opaque JSON blob the client stored), the sort field, and its direction
 // ("asc"/"desc"; "" = the app default). Empty when unset.
 func (s *Store) GetSourceView(userID int64) (filters, sort, order string, err error) {
+	f, so, o, _, err := s.GetSourceViewFull(userID)
+	return f, so, o, err
+}
+
+// GetSourceViewFull additionally returns the selected source ("" = all sources).
+// The caller normalizes an unknown or removed source back to "" — deleting a
+// source must degrade a stale selection, not break it.
+func (s *Store) GetSourceViewFull(userID int64) (filters, sort, order, selected string, err error) {
 	err = s.db.QueryRow(
-		`SELECT filters, sort, sort_order FROM source_prefs WHERE user_id = ?`, userID).
-		Scan(&filters, &sort, &order)
+		`SELECT filters, sort, sort_order, selected_source FROM source_prefs WHERE user_id = ?`, userID).
+		Scan(&filters, &sort, &order, &selected)
 	if errors.Is(err, sql.ErrNoRows) {
-		return "", "", "", nil
+		return "", "", "", "", nil
 	}
-	return filters, sort, order, err
+	return filters, sort, order, selected, err
 }
 
 // SaveSourceView upserts the user's Discover view (filters JSON + sort field +
 // direction), leaving the preferred quality on the same row untouched.
 func (s *Store) SaveSourceView(userID int64, filters, sort, order string, now int64) error {
+	return s.SaveSourceViewFull(userID, filters, sort, order, "", now)
+}
+
+// SaveSourceViewFull also stores the selected source ("" = all sources).
+func (s *Store) SaveSourceViewFull(userID int64, filters, sort, order, selected string, now int64) error {
 	_, err := s.db.Exec(`
-		INSERT INTO source_prefs (user_id, filters, sort, sort_order, updated_at)
-		VALUES (?, ?, ?, ?, ?)
+		INSERT INTO source_prefs (user_id, filters, sort, sort_order, selected_source, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?)
 		ON CONFLICT(user_id) DO UPDATE SET
-		  filters    = excluded.filters,
-		  sort       = excluded.sort,
-		  sort_order = excluded.sort_order,
-		  updated_at = excluded.updated_at`,
-		userID, filters, sort, order, now)
+		  filters         = excluded.filters,
+		  sort            = excluded.sort,
+		  sort_order      = excluded.sort_order,
+		  selected_source = excluded.selected_source,
+		  updated_at      = excluded.updated_at`,
+		userID, filters, sort, order, selected, now)
 	return err
 }
 

@@ -4,8 +4,8 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
-	"strings"
 	"strconv"
+	"strings"
 	"time"
 
 	"synodl/server/internal/auth"

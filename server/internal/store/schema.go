@@ -216,4 +216,24 @@ var migrations = []string{
 	// task detail's "Open in Discover" can reopen the exact title. Empty for older
 	// or manually-added downloads (they fall back to a title search).
 	`ALTER TABLE source_downloads ADD COLUMN catalog_id TEXT NOT NULL DEFAULT '';`,
+	// 0016 — multiple download sources (spec 0007). source_providers was always
+	// keyed by id; only the accessors assumed a single row. These columns add what
+	// many rows actually need:
+	//   sort_order — a stable, operator-controlled order for the source selector
+	//                AND for round-robin interleaving, so a combined list doesn't
+	//                reshuffle between requests. Ties break by id, so the ordering
+	//                is total even when an operator never sets it.
+	//   last_error — the last failure CATEGORY for admin display
+	//                (needs_refresh / unsubscribed / unreachable). A category only:
+	//                never an upstream body, URL, or anything derived from a secret.
+	// An existing single-provider install keeps its id and lands at sort_order 0,
+	// i.e. first in the list, with no data change and nothing to re-paste.
+	`ALTER TABLE source_providers ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0;`,
+	`ALTER TABLE source_providers ADD COLUMN last_error TEXT    NOT NULL DEFAULT '';`,
+	// 0017 — remember which source a user is browsing in Discover (spec 0007).
+	// Empty = "All sources", so every pre-existing row already means the right
+	// thing and so does the default for a new user. Stored as TEXT rather than an
+	// FK on purpose: when a source is deleted the selection must degrade to "all"
+	// on read, not break a constraint or need a migration to clean up.
+	`ALTER TABLE source_prefs ADD COLUMN selected_source TEXT NOT NULL DEFAULT '';`,
 }

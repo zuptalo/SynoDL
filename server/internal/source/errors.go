@@ -33,6 +33,11 @@ func AsNeedsRefresh(err error) (*ErrNeedsRefresh, bool) {
 	return nil, false
 }
 
+// ErrUnsubscribed means the session is valid but the account has no download
+// entitlement. Kept distinct from ErrNeedsRefresh on purpose: telling an operator
+// to re-paste a session that is working perfectly sends them in circles.
+var ErrUnsubscribed = errors.New("source: account has no download entitlement")
+
 // ErrHostNotAllowed is returned when an outbound request targets a host outside
 // the provider's configured allowlist. It must never reach a client verbatim
 // (it names an internal host), but it is safe to log.

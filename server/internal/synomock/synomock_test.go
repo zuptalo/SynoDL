@@ -208,3 +208,20 @@ func TestFileStationListShareAndUnknownPath(t *testing.T) {
 		t.Error("unknown folder_path should fail")
 	}
 }
+
+// A signed download link carries credentials and an account id in its query.
+// Real DSM names the task after the file, not the whole URL, and the mock must
+// match — otherwise those values end up on screen and inside test assertions.
+func TestTaskNameFromURIDropsQuery(t *testing.T) {
+	got := taskNameFromURI("https://dl6.example.info/Movies/The.Film.2026.1080p.mkv?md5=SECRET&u=1057599&expires=123")
+	if want := "The.Film.2026.1080p.mkv"; got != want {
+		t.Fatalf("taskNameFromURI = %q, want %q", got, want)
+	}
+	if strings.Contains(got, "u=") || strings.Contains(got, "md5=") {
+		t.Fatalf("task name leaked link credentials: %q", got)
+	}
+	// Magnets keep their display-name handling.
+	if got := taskNameFromURI("magnet:?xt=urn:btih:abc&dn=Some%20Name"); got != "Some Name" {
+		t.Fatalf("magnet name = %q", got)
+	}
+}

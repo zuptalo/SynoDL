@@ -40,7 +40,11 @@ One repo, two parts, shipped as a single container.
   - `src/sw.ts` — minimal service worker (app-shell precache + prompt updates).
   - `src/router/index.ts` — routes + the session gate.
 - **Server** (`server/`) — `synodl`, a Go 1.26 service on stdlib `net/http`
-  (no web framework, **zero third-party dependencies**, no database).
+  (no web framework). Dependencies are kept deliberately few and each one is a
+  spec-level decision, not an implementation detail: currently a pure-Go SQLite
+  driver (`modernc.org/sqlite`, for the single-volume store) and an HTML
+  tokenizer (`golang.org/x/net/html`, for the download source that publishes no
+  API). Adding another needs justifying in a spec.
   - `cmd/synodl/main.go` — entrypoint: config → syno client → router →
     graceful shutdown.
   - `cmd/synomock/main.go` — the **mock DSM**: a fake Synology NAS used by
@@ -66,8 +70,20 @@ dev, Vite serves the client and proxies the API to a local `synodl`.
 Requires **Go 1.26** and **Node 22**. No Docker needed for dev.
 
 ```sh
-make start      # mock DSM (:8291) + synodl (air hot-reload, :8280) + Vite (:5273)
+make start      # mock DSM (:8291, TLS) + synodl (air hot-reload, :8280) + Vite (:5273)
 ```
+
+`make start` runs the server **stateful** — accounts, and the download sources,
+exist only in that mode — with throwaway `SECRETS_KEY` and `DATA_DIR` values
+(`.devdata/`, gitignored). Override either in `server/.env`. The mock DSM serves
+TLS with a certificate it mints per run, because stateful SynoDL always dials
+`https://`, exactly as it would a self-signed NAS.
+
+The dev build also carries the `sourcemock` build tag, which compiles in the
+ability to point a download source at the in-repo fake sites
+(`/mocksrc/zar`, `/mocksrc/tn` on the mock) so the catalog can be exercised with
+no real credentials. A release build never passes that tag, so the capability
+does not exist in production.
 
 App comes up on http://localhost:5273 and proxies the API to `synodl` on
 `:8280`, which talks to the mock DSM on `:8291`. Log in with the mock account
@@ -90,8 +106,11 @@ ports before adding a new listener):
 | 5274 | e2e test Vite |
 | 8280 | synodl dev (also the compose host mapping `8280:8080`) |
 | 8281 | e2e synodl |
-| 8291 | mock DSM dev |
-| 8292 | e2e mock DSM |
+| 8291 | mock DSM dev (TLS) |
+| 8292 | e2e mock DSM (stateless stack) |
+| 5275 | e2e test Vite for the stateful stack |
+| 8283 | e2e synodl, stateful (accounts + download sources) |
+| 8294 | e2e mock DSM for the stateful stack (TLS) |
 
 The production container still listens on the conventional **8080**
 internally — only dev listeners and the compose *host* port use the block.

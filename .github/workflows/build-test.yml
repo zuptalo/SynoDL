@@ -87,8 +87,10 @@ jobs:
           go-version: '1.26'
           cache-dependency-path: server/go.mod
       - run: npm ci
-      # global-setup.ts builds + launches the isolated test stack (mock DSM +
-      # synodl) itself — no database, no real NAS, nothing else to start here.
+      # global-setup.ts builds + launches the isolated test stacks itself — a
+      # stateless pair (mock DSM + synodl) and a stateful one (TLS mock DSM +
+      # a synodl built with the `sourcemock` tag, for the download-source specs).
+      # No real NAS and no credentials anywhere; nothing else to start here.
       # Cache the downloaded browser binaries (~150 MB) keyed off the lockfile, which
       # pins the Playwright version, so we only re-download when it changes. The
       # install below still runs --with-deps (apt OS libs) quickly; on a cache hit it

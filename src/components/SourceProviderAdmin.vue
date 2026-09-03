@@ -1,10 +1,22 @@
 <script setup lang="ts">
+/**
+ * Admin panel for the download sources (spec 0007).
+ *
+ * This manages a LIST of sources rather than one, and the paste form for each is
+ * generated from the fields that source's driver declares — so adding a driver
+ * on the server needs no change here.
+ *
+ * Session material is write-only throughout: the server never returns a stored
+ * value, so secret inputs start blank and a blank input means "keep what is
+ * stored" rather than "clear it".
+ */
 import { computed, ref, watch } from 'vue';
 import {
   IonButton,
   IonButtons,
   IonContent,
   IonHeader,
+  IonIcon,
   IonInput,
   IonItem,
   IonLabel,
@@ -12,26 +24,212 @@ import {
   IonListHeader,
   IonModal,
   IonNote,
+  IonSelect,
+  IonSelectOption,
   IonSpinner,
   IonTextarea,
   IonTitle,
+  IonToggle,
   IonToolbar,
 } from '@ionic/vue';
-import { api, ApiError, type SourceStatus } from '@/services/api';
+import { addOutline, trashOutline } from 'ionicons/icons';
+import {
+  api,
+  ApiError,
+  type SourceKind,
+  type SourceProvider,
+  type SourceSessionField,
+} from '@/services/api';
 import { appToast } from '@/services/toast';
 
 const props = defineProps<{ isOpen: boolean }>();
 const emit = defineEmits<{ (e: 'dismiss'): void }>();
 
-const status = ref<SourceStatus | null>(null);
+const providers = ref<SourceProvider[]>([]);
+const kinds = ref<SourceKind[]>([]);
 const loading = ref(false);
 const saving = ref(false);
 const errorMsg = ref('');
-
-// Form fields. Session material is write-only — never prefilled from the server.
-const displayName = ref('30nama');
 const maxSizeGB = ref('');
 const savingPolicy = ref(false);
+
+// Which source is open in the editor. null = the list; 'new' = the add form.
+const editing = ref<number | 'new' | null>(null);
+
+// Editor fields.
+const formKind = ref('');
+const displayName = ref('');
+const moviesParent = ref('');
+const tvParent = ref('');
+const enabled = ref(true);
+const sessionValues = ref<Record<string, string>>({});
+const userAgent = ref('');
+
+const editingProvider = computed(() =>
+  typeof editing.value === 'number' ? providers.value.find((p) => p.id === editing.value) : undefined,
+);
+const isNew = computed(() => editing.value === 'new');
+const currentKind = computed(() => kinds.value.find((k) => k.kind === formKind.value));
+const sessionFields = computed<SourceSessionField[]>(() => currentKind.value?.sessionFields ?? []);
+// A stored source keeps its secrets when a field is left blank.
+const secretPlaceholder = computed(() => (isNew.value ? '' : 'Stored — leave blank to keep'));
+
+watch(
+  () => props.isOpen,
+  async (open) => {
+    if (!open) return;
+    errorMsg.value = '';
+    editing.value = null;
+    await refresh();
+  },
+);
+
+async function refresh(): Promise<void> {
+  loading.value = true;
+  try {
+    const list = await api.listSourceProviders();
+    providers.value = list.providers;
+    kinds.value = list.kinds;
+    const status = await api.getSourceStatus();
+    maxSizeGB.value = status.maxDownloadMB ? String(+(status.maxDownloadMB / 1024).toFixed(1)) : '';
+  } catch {
+    providers.value = [];
+    kinds.value = [];
+  } finally {
+    loading.value = false;
+  }
+}
+
+function stateLabel(p: SourceProvider): string {
+  if (p.state === 'needs_refresh') return 'Needs signing in again';
+  // Distinct from "needs refreshing" on purpose: the session is fine, the
+  // account just can't download. Telling the operator to re-paste would send
+  // them in circles.
+  if (p.state === 'unsubscribed') return 'No active subscription';
+  if (p.state === 'active') return p.enabled ? 'Active' : 'Disabled';
+  return p.state;
+}
+
+function stateColor(p: SourceProvider): string {
+  if (p.state === 'active' && p.enabled) return 'success';
+  if (p.state === 'unsubscribed') return 'warning';
+  if (p.state === 'needs_refresh') return 'warning';
+  return 'medium';
+}
+
+function openNew(): void {
+  errorMsg.value = '';
+  editing.value = 'new';
+  formKind.value = kinds.value[0]?.kind ?? '';
+  displayName.value = currentKind.value?.name ?? '';
+  moviesParent.value = '';
+  tvParent.value = '';
+  enabled.value = true;
+  sessionValues.value = {};
+  userAgent.value = '';
+}
+
+function openEdit(p: SourceProvider): void {
+  errorMsg.value = '';
+  editing.value = p.id;
+  formKind.value = p.kind;
+  displayName.value = p.displayName;
+  moviesParent.value = p.moviesParent;
+  tvParent.value = p.tvParent;
+  enabled.value = p.enabled;
+  // Never prefilled — the server does not return stored session material.
+  sessionValues.value = {};
+  userAgent.value = '';
+}
+
+// Picking a different kind while adding swaps the whole form, since the fields
+// come from the driver.
+watch(formKind, () => {
+  if (!isNew.value) return;
+  displayName.value = currentKind.value?.name ?? '';
+  sessionValues.value = {};
+});
+
+async function toast(message: string): Promise<void> {
+  await appToast({ message, duration: 2500 });
+}
+
+function verifyMessage(reason: string | undefined): string {
+  switch (reason) {
+    case 'unsubscribed':
+      return 'Signed in, but that account has no active subscription — so there is nothing it can download.';
+    case 'invalid_token':
+    case 'needs_refresh':
+      return 'That session did not work. Capture it again from a browser where you are signed in.';
+    case 'challenge':
+      return 'The site challenged the request. Capture a fresh session and try again.';
+    default:
+      return 'Could not reach the source. Check that it is online and try again.';
+  }
+}
+
+async function save(): Promise<void> {
+  errorMsg.value = '';
+  if (!moviesParent.value.trim()) {
+    errorMsg.value = 'A movies folder is required.';
+    return;
+  }
+  if (isNew.value) {
+    const missing = sessionFields.value.filter((f) => f.required && !sessionValues.value[f.key]?.trim());
+    if (missing.length) {
+      errorMsg.value = `${missing.map((f) => f.label).join(' and ')} required.`;
+      return;
+    }
+  }
+  saving.value = true;
+  try {
+    const session: Record<string, string> = { user_agent: userAgent.value.trim() };
+    for (const f of sessionFields.value) {
+      session[f.key] = (sessionValues.value[f.key] ?? '').trim();
+    }
+    const input = {
+      kind: formKind.value,
+      displayName: displayName.value.trim(),
+      moviesParent: moviesParent.value.trim(),
+      tvParent: tvParent.value.trim(),
+      enabled: enabled.value,
+      session,
+    };
+    if (isNew.value) await api.createSourceProvider(input);
+    else await api.updateSourceProvider(editing.value as number, input);
+    await toast('Source verified and saved.');
+    // Drop the pasted secrets from memory as soon as they are accepted.
+    sessionValues.value = {};
+    userAgent.value = '';
+    editing.value = null;
+    await refresh();
+  } catch (e) {
+    if (e instanceof ApiError && e.code === 'verify_failed') {
+      errorMsg.value = verifyMessage(e.reason);
+    } else if (e instanceof ApiError && e.code === 'unknown_provider') {
+      errorMsg.value = 'That source type is not supported.';
+    } else {
+      errorMsg.value = 'Could not save the source.';
+    }
+  } finally {
+    saving.value = false;
+  }
+}
+
+async function remove(p: SourceProvider): Promise<void> {
+  saving.value = true;
+  errorMsg.value = '';
+  try {
+    await api.deleteSourceProvider(p.id);
+    await toast(`${p.displayName} removed.`);
+    editing.value = null;
+    await refresh();
+  } catch {
+    errorMsg.value = 'Could not remove the source.';
+  } finally {
+    saving.value = false;
+  }
+}
 
 async function saveMaxSize(): Promise<void> {
   savingPolicy.value = true;
@@ -47,158 +245,89 @@ async function saveMaxSize(): Promise<void> {
     savingPolicy.value = false;
   }
 }
-const moviesParent = ref('');
-const tvParent = ref('');
-const cfClearance = ref('');
-const cApiKey = ref('');
-const cToken = ref('');
-const userAgent = ref('');
-const cPlatform = ref('');
-const cAppVersion = ref('');
-
-const KIND = 'thirtynama';
-
-// Once configured, the stored session material is kept when a secret field is
-// left blank — so only the changed pieces (or just the folders) need re-entry.
-const configured = computed(() => !!status.value?.configured);
-const secretPlaceholder = computed(() => (configured.value ? 'Stored — leave blank to keep' : ''));
-
-watch(
-  () => props.isOpen,
-  async (open) => {
-    if (!open) return;
-    errorMsg.value = '';
-    await refresh();
-  },
-);
-
-async function refresh(): Promise<void> {
-  loading.value = true;
-  try {
-    const s = await api.getSourceStatus();
-    status.value = s;
-    // Prefill the non-secret config so it's clear what's stored. Secret fields
-    // stay blank by design — the server never returns them.
-    if (s.configured) {
-      if (s.providerName) displayName.value = s.providerName;
-      moviesParent.value = s.moviesParent;
-      tvParent.value = s.tvParent;
-    }
-    maxSizeGB.value = s.maxDownloadMB ? String(+(s.maxDownloadMB / 1024).toFixed(1)) : '';
-  } catch {
-    status.value = null;
-  } finally {
-    loading.value = false;
-  }
-}
-
-function stateLabel(s: SourceStatus | null): string {
-  if (!s || !s.configured) return 'Not configured';
-  if (s.state === 'needs_refresh') return 'Needs refreshing';
-  if (s.state === 'active') return 'Active';
-  return s.state;
-}
-
-async function toast(message: string): Promise<void> {
-  await appToast({ message, duration: 2500 });
-}
-
-async function save(): Promise<void> {
-  errorMsg.value = '';
-  if (!moviesParent.value.trim()) {
-    errorMsg.value = 'A movies folder is required.';
-    return;
-  }
-  // First-time setup needs the full session; a re-verify/edit of an existing
-  // source can leave the secret fields blank to keep what's stored.
-  if (!configured.value && (!cToken.value.trim() || !cfClearance.value.trim() || !userAgent.value.trim())) {
-    errorMsg.value = 'Clearance cookie, auth token, and User-Agent are required.';
-    return;
-  }
-  saving.value = true;
-  try {
-    await api.putSourceSession({
-      kind: KIND,
-      displayName: displayName.value.trim(),
-      moviesParent: moviesParent.value.trim(),
-      tvParent: tvParent.value.trim(),
-      session: {
-        cfClearance: cfClearance.value.trim(),
-        cApiKey: cApiKey.value.trim(),
-        cToken: cToken.value.trim(),
-        userAgent: userAgent.value.trim(),
-        cPlatform: cPlatform.value.trim(),
-        cAppVersion: cAppVersion.value.trim(),
-      },
-    });
-    await toast('Source verified and saved.');
-    // Clear the secret fields from memory once accepted.
-    cfClearance.value = cApiKey.value = cToken.value = '';
-    await refresh();
-  } catch (e) {
-    if (e instanceof ApiError && e.code === 'provider_verify_failed') {
-      errorMsg.value = 'Verification failed — the session may be expired or the IP no longer matches. Re-capture and try again.';
-    } else if (e instanceof ApiError && e.code === 'unknown_provider') {
-      errorMsg.value = 'That provider is not supported.';
-    } else {
-      errorMsg.value = 'Could not save the source.';
-    }
-  } finally {
-    saving.value = false;
-  }
-}
-
-async function remove(): Promise<void> {
-  saving.value = true;
-  errorMsg.value = '';
-  try {
-    await api.deleteSourceSession();
-    await toast('Source removed.');
-    await refresh();
-  } catch {
-    errorMsg.value = 'Could not remove the source.';
-  } finally {
-    saving.value = false;
-  }
-}
 </script>
 
 <template>
   <ion-modal :is-open="isOpen" @didDismiss="emit('dismiss')">
     <ion-header :translucent="true">
       <ion-toolbar>
-        <ion-title>Download source</ion-title>
+        <ion-title>Download sources</ion-title>
         <ion-buttons slot="end">
-          <ion-button @click="emit('dismiss')">Close</ion-button>
+          <ion-button v-if="editing !== null" @click="editing = null">Back</ion-button>
+          <ion-button v-else @click="emit('dismiss')">Close</ion-button>
         </ion-buttons>
       </ion-toolbar>
     </ion-header>
-    <ion-content class="ion-padding settings-cards">
+
+    <ion-content class="ion-padding">
       <div v-if="loading" class="centered"><ion-spinner /></div>
 
-      <template v-else>
+      <!-- The list of configured sources. -->
+      <template v-else-if="editing === null">
         <ion-list :inset="true">
-          <ion-list-header>Status</ion-list-header>
-          <ion-item>
-            <ion-label>State</ion-label>
-            <ion-note slot="end" :color="status?.state === 'active' ? 'success' : status?.state === 'needs_refresh' ? 'warning' : 'medium'">
-              {{ stateLabel(status) }}
-            </ion-note>
+          <ion-list-header><ion-label>Sources</ion-label></ion-list-header>
+          <ion-item v-if="providers.length === 0">
+            <ion-label>
+              <p>No sources configured yet.</p>
+            </ion-label>
           </ion-item>
-          <ion-item v-if="status?.configured">
-            <ion-label>Provider</ion-label>
-            <ion-note slot="end">{{ status?.providerName }}</ion-note>
+          <ion-item v-for="p in providers" :key="p.id" button @click="openEdit(p)">
+            <ion-label>
+              <h3>{{ p.displayName }}</h3>
+              <p>{{ p.kind }}</p>
+            </ion-label>
+            <ion-note slot="end" :color="stateColor(p)">{{ stateLabel(p) }}</ion-note>
+          </ion-item>
+          <ion-item button :disabled="kinds.length === 0" @click="openNew()">
+            <ion-icon slot="start" :icon="addOutline" />
+            <ion-label>Add a source</ion-label>
           </ion-item>
         </ion-list>
 
         <ion-list :inset="true">
-          <ion-list-header>Destination folders</ion-list-header>
+          <ion-list-header><ion-label>Limits</ion-label></ion-list-header>
+          <ion-item>
+            <ion-input
+              v-model="maxSizeGB"
+              label="Max download size (GB)"
+              label-placement="stacked"
+              placeholder="e.g. 10"
+              inputmode="decimal"
+            />
+          </ion-item>
+          <ion-item>
+            <ion-button :disabled="savingPolicy" @click="saveMaxSize()">Save limit</ion-button>
+          </ion-item>
+          <ion-note class="hint">
+            Applies to every source. Leave blank for no limit.
+          </ion-note>
+        </ion-list>
+      </template>
+
+      <!-- Add / edit one source. -->
+      <template v-else>
+        <ion-list :inset="true">
+          <ion-list-header>
+            <ion-label>{{ isNew ? 'Add a source' : editingProvider?.displayName }}</ion-label>
+          </ion-list-header>
+
+          <ion-item v-if="isNew">
+            <ion-select v-model="formKind" label="Source type" label-placement="stacked" interface="popover">
+              <ion-select-option v-for="k in kinds" :key="k.kind" :value="k.kind">
+                {{ k.name }}
+              </ion-select-option>
+            </ion-select>
+          </ion-item>
+
+          <ion-item>
+            <ion-input v-model="displayName" label="Display name" label-placement="stacked" />
+          </ion-item>
           <ion-item>
             <ion-input
               v-model="moviesParent"
               label="Movies parent"
               label-placement="stacked"
-              placeholder="e.g. movie or video/movies"
+              placeholder="e.g. video/movies"
             />
           </ion-item>
           <ion-item>
@@ -206,63 +335,31 @@ async function remove(): Promise<void> {
               v-model="tvParent"
               label="TV / series parent"
               label-placement="stacked"
-              placeholder="e.g. tv-show (used later)"
+              placeholder="e.g. video/tv"
             />
+          </ion-item>
+          <ion-item v-if="!isNew">
+            <ion-toggle v-model="enabled">Enabled</ion-toggle>
           </ion-item>
         </ion-list>
 
+        <!-- Generated from the driver's declared fields, so a new source type
+             needs no change here. -->
         <ion-list :inset="true">
-          <ion-list-header>Download policy</ion-list-header>
-          <ion-note class="hint">
-            Refuse individual downloads larger than this so users balance quality against bandwidth and
-            storage. 0 or blank means no limit.
-          </ion-note>
-          <ion-item>
-            <ion-input
-              v-model="maxSizeGB"
-              type="number"
-              inputmode="decimal"
-              label="Max download size (GB)"
-              label-placement="stacked"
-              placeholder="e.g. 10"
-            />
-            <ion-button slot="end" :disabled="savingPolicy" @click="saveMaxSize">Save</ion-button>
-          </ion-item>
-        </ion-list>
-
-        <ion-list :inset="true">
-          <ion-list-header>Session material</ion-list-header>
-          <ion-note class="hint">
-            Capture these from your logged-in browser on the same network as the NAS. They are stored
-            encrypted and never shown again.
-            <template v-if="configured"> Leave a field blank to keep the stored value.</template>
-          </ion-note>
-          <ion-item>
-            <ion-input v-model="displayName" label="Display name" label-placement="stacked" />
-          </ion-item>
-          <ion-item>
-            <ion-textarea
-              v-model="cfClearance"
-              label="cf_clearance cookie"
-              label-placement="stacked"
-              :placeholder="secretPlaceholder"
-              :auto-grow="true"
-              :rows="2"
-            />
-          </ion-item>
-          <ion-item>
-            <ion-textarea
-              v-model="cToken"
-              label="c-token"
-              label-placement="stacked"
-              :placeholder="secretPlaceholder"
-              :auto-grow="true"
-              :rows="2"
-            />
-          </ion-item>
-          <ion-item>
-            <ion-input v-model="cApiKey" label="c-api-key" label-placement="stacked" :placeholder="secretPlaceholder" />
-          </ion-item>
+          <ion-list-header><ion-label>Session</ion-label></ion-list-header>
+          <template v-for="f in sessionFields" :key="f.key">
+            <ion-item>
+              <ion-textarea
+                v-model="sessionValues[f.key]"
+                :label="f.label"
+                label-placement="stacked"
+                :placeholder="f.secret ? secretPlaceholder : ''"
+                :auto-grow="true"
+                :rows="1"
+              />
+            </ion-item>
+            <ion-note v-if="f.help" class="hint">{{ f.help }}</ion-note>
+          </template>
           <ion-item>
             <ion-textarea
               v-model="userAgent"
@@ -270,34 +367,35 @@ async function remove(): Promise<void> {
               label-placement="stacked"
               :placeholder="secretPlaceholder"
               :auto-grow="true"
-              :rows="2"
+              :rows="1"
             />
           </ion-item>
-          <ion-item>
-            <ion-input v-model="cPlatform" label="c-platform (optional)" label-placement="stacked" />
-          </ion-item>
-          <ion-item>
-            <ion-input v-model="cAppVersion" label="c-app-version (optional)" label-placement="stacked" />
-          </ion-item>
+          <ion-note class="hint">
+            Captured from a browser where you are already signed in. Values are stored
+            encrypted and are never shown again — leave a field blank to keep what is stored.
+          </ion-note>
         </ion-list>
 
         <ion-note v-if="errorMsg" color="danger" class="error">{{ errorMsg }}</ion-note>
 
-        <ion-button expand="block" :disabled="saving" @click="save">
-          <ion-spinner v-if="saving" slot="start" name="crescent" />
-          Verify &amp; Save
-        </ion-button>
-        <ion-button
-          v-if="status?.configured"
-          expand="block"
-          fill="clear"
-          color="danger"
-          :disabled="saving"
-          @click="remove"
-        >
-          Remove source
-        </ion-button>
+        <div class="actions">
+          <ion-button :disabled="saving" @click="save()">
+            {{ isNew ? 'Verify and add' : 'Verify and save' }}
+          </ion-button>
+          <ion-button
+            v-if="!isNew && editingProvider"
+            color="danger"
+            fill="outline"
+            :disabled="saving"
+            @click="remove(editingProvider)"
+          >
+            <ion-icon slot="start" :icon="trashOutline" />
+            Remove
+          </ion-button>
+        </div>
       </template>
+
+      <ion-note v-if="errorMsg && editing === null" color="danger" class="error">{{ errorMsg }}</ion-note>
     </ion-content>
   </ion-modal>
 </template>
@@ -306,14 +404,22 @@ async function remove(): Promise<void> {
 .centered {
   display: flex;
   justify-content: center;
-  padding-top: 30vh;
+  padding: 2rem 0;
 }
 .hint {
   display: block;
-  padding: 0 16px 8px;
+  padding: 0 1rem 0.75rem;
+  font-size: 0.78rem;
+  line-height: 1.35;
 }
 .error {
   display: block;
-  margin: 8px 4px;
+  padding: 0.5rem 1rem;
+}
+.actions {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  padding: 0 1rem 1rem;
 }
 </style>

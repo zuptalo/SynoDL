@@ -17,6 +17,15 @@ import (
 	"sync"
 )
 
+// Degradation / verify reason categories. Kept here so the API, the drivers and
+// the store all name the same states.
+const (
+	ReasonNeedsRefresh = "needs_refresh"
+	ReasonUnsubscribed = "unsubscribed"
+	ReasonUnreachable  = "unreachable"
+	ReasonTimeout      = "timeout"
+)
+
 // TitleType values.
 const (
 	TypeMovie  = "movie"
@@ -24,16 +33,35 @@ const (
 	TypeAnime  = "anime"
 )
 
-// Session is the (secret) material the server sends to the provider. It mirrors
+// Session is the (secret) material the server sends to ONE provider. It mirrors
 // store.SourceSession but is defined here so this package doesn't depend on the
 // store. Never serialize it to a client.
+//
+// Fields is a provider-declared bag rather than a fixed struct. That is
+// deliberate, and it is a containment measure as much as a generalization: with
+// two sources configured, a fixed struct meant every driver saw — and the shared
+// client blindly sent — every other driver's credentials. Now a driver receives
+// only the keys it declared in SessionFields, and builds its own headers and
+// cookies from them (see Req.Headers / Req.Cookies).
 type Session struct {
-	CFClearance string
-	CAPIKey     string
-	CToken      string
-	UserAgent   string
-	CPlatform   string
-	CAppVersion string
+	Fields    map[string]string
+	UserAgent string
+}
+
+// Get returns one declared field ("" when absent).
+func (s Session) Get(key string) string { return s.Fields[key] }
+
+// SessionField describes one piece of material a provider needs, so the admin UI
+// can render the right form without knowing anything about the provider. Help is
+// shown at the point of paste — which is where a provider whose material is
+// unusually powerful (a full account cookie rather than a scoped token) must say
+// so, per the constitution's credential-safety rules.
+type SessionField struct {
+	Key      string `json:"key"`
+	Label    string `json:"label"`
+	Help     string `json:"help,omitempty"`
+	Secret   bool   `json:"secret"`
+	Required bool   `json:"required"`
 }
 
 // Config is a provider's non-secret settings needed to make calls: the outbound
@@ -117,10 +145,15 @@ type SearchQuery struct {
 
 // CatalogTitle is one search result (no download links).
 type CatalogTitle struct {
-	ID        string `json:"id"`
-	Type      string `json:"type"`
-	Title     string `json:"title"`
-	PosterURL string `json:"posterUrl"`
+	ID string `json:"id"`
+	// Which configured source produced this item. SourceName is shown as a label
+	// in combined mode so a title carried by two sources reads as two sources
+	// offering it, rather than as a duplicate (FR-005a / FR-012a).
+	SourceID   int64  `json:"sourceId,omitempty"`
+	SourceName string `json:"sourceName,omitempty"`
+	Type       string `json:"type"`
+	Title      string `json:"title"`
+	PosterURL  string `json:"posterUrl"`
 	// A reliable secondary poster (the provider's sized/placeholder image) the
 	// client falls back to when PosterURL fails to load — e.g. a title whose
 	// primary cover URL is present but 404s. Empty when there is no alternative.
@@ -142,6 +175,18 @@ type SearchResult struct {
 	Page  int            `json:"page"`
 	Pages int            `json:"pages"`
 	Items []CatalogTitle `json:"items"`
+	// Sources that couldn't answer this query. A failing source never fails the
+	// whole request — the healthy ones still render and this explains the gap
+	// (FR-012). Empty for a single-source query that succeeded.
+	Degraded []DegradedSource `json:"degraded,omitempty"`
+}
+
+// DegradedSource names a source that dropped out of a combined query. Reason is
+// a category only — never an upstream body, URL, or anything secret-derived.
+type DegradedSource struct {
+	SourceID int64  `json:"sourceId"`
+	Name     string `json:"name"`
+	Reason   string `json:"reason"` // needs_refresh | unsubscribed | unreachable | timeout
 }
 
 // QualityOption is a downloadable variant of a title. The signed URL it resolves
@@ -174,6 +219,11 @@ type TitleDetail struct {
 type Provider interface {
 	// Kind is the stable registry key (e.g. "thirtynama").
 	Kind() string
+	// DisplayName is the human name offered when an admin adds this kind.
+	DisplayName() string
+	// SessionFields declares the material this provider needs. The admin UI is
+	// generated from it, so adding a driver needs no client change.
+	SessionFields() []SessionField
 	// Hosts returns the provider's fixed outbound allowlist (API + signed
 	// download hosts). The admin never types these; they are provider-defined so
 	// the outbound surface stays bounded and known.
