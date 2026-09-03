@@ -85,3 +85,41 @@ design flaws. What each was, and how it was resolved:
 
 **Residual risk accepted**: the instance-wide signal (CHK013–CHK016) remains a deliberate
 least-privilege trade-off, justified in plan.md under Complexity Tracking rather than resolved.
+
+## Session 2026-09-04 — the widened FileStation read
+
+Added when ownership moved from folder names to file contents. `SYNO.FileStation.List` is
+already allowlisted, but it is now called with `filetype=file`, so the server reads **file
+names inside a browsed title's folder** where it previously read only directory names.
+
+### Requirement Completeness
+
+- [ ] CHK017 - Is it stated that no new `SYNO.*` API is added, and that the change is a widened *return* from an already-allowlisted one? [Completeness, Plan §Constitution Check]
+- [ ] CHK018 - Are the requirements explicit that file names are read but never persisted? [Completeness, Data Model §Credential-Safety Impact]
+- [ ] CHK019 - Is there a requirement covering what happens when a title folder listing fails, distinct from the folder being absent? [Coverage, Spec §FR-009, §FR-010c]
+- [ ] CHK020 - Are the requirements for the per-user lookup budget quantified, or only asserted to exist? [Measurability, Spec §FR-025b]
+
+### Requirement Clarity
+
+- [ ] CHK021 - Is "video file" defined by a stated rule rather than left to implementation judgement? [Clarity, Research §1]
+- [ ] CHK022 - Is it unambiguous that a client cannot influence WHICH path is listed, only which catalog title is asked about? [Ambiguity, Spec §FR-025a]
+- [ ] CHK023 - Does the spec state what a season's episode list may and may not imply, so "absent from the list" is not read as "does not exist"? [Clarity, Spec §FR-016a, §FR-016b]
+
+### Consistency
+
+- [ ] CHK024 - Do the logging requirements still forbid folder AND file names now that more names are read? [Consistency, Constitution III]
+- [ ] CHK025 - Is the 5-minute retention stated consistently for both index layers, or does one imply a different freshness? [Consistency, Spec §FR-010]
+- [ ] CHK026 - Does the ownership signal expose strictly less than the folder listing it derives from? [Consistency, Spec §FR-025]
+
+### Edge Cases
+
+- [ ] CHK027 - Are requirements defined for a folder holding only non-video files, distinguishing it from an empty one? [Edge Case, Spec §FR-001a]
+- [ ] CHK028 - Is the case of a video file being written by an active download addressed, rather than left to read as owned? [Edge Case, Spec §FR-001b]
+- [ ] CHK029 - Are requirements stated for a season folder whose episode numbering cannot be parsed? [Edge Case, Spec §FR-016b]
+- [ ] CHK030 - Is there a requirement bounding how many folder listings a single catalog response may trigger? [Gap, Spec §FR-010b]
+
+### Notes
+
+CHK020 and CHK030 are the two most likely to be found wanting: both concern bounding cost
+and abuse, and both are currently stated qualitatively. If either fails, the remedy is a
+number in the spec, not a note in the plan.
