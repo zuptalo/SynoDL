@@ -13,9 +13,9 @@ different files with no incomplete dependency, safe to run in parallel.
 
 ## Phase 1: Setup
 
-- [ ] T001 Add `golang.org/x/net/html` to `server/go.mod`, then confirm `cd server && go mod tidy && go build ./...` is clean
-- [ ] T002 [P] Verify the container build still succeeds with the new dependency in `Dockerfile`
-- [ ] T003 [P] Save trimmed zarfilm captures (movie page, series page, archive page, search page, logged-out page, paywalled page) as fixtures in `server/internal/source/providers/testdata/zarfilm/`
+- [x] T001 Add `golang.org/x/net/html` to `server/go.mod`, then confirm `cd server && go mod tidy && go build ./...` is clean
+- [x] T002 [P] Verify the container build still succeeds with the new dependency in `Dockerfile`
+- [x] T003 [P] Save trimmed zarfilm captures (movie page, series page, archive page, search page, logged-out page, paywalled page) as fixtures in `server/internal/source/providers/testdata/zarfilm/`
 
 ---
 
@@ -24,17 +24,17 @@ different files with no incomplete dependency, safe to run in parallel.
 **Blocking**: every user story depends on this phase. Nothing here changes user-visible
 behavior; T004–T006 exist purely so the refactor cannot silently break the existing source.
 
-- [ ] T004 [P] Add characterization tests pinning current single-source search/title/send behavior in `server/internal/api/source_handlers_test.go`
-- [ ] T005 [P] Add characterization tests pinning current store accessor behavior in `server/internal/store/source_repos_test.go`
-- [ ] T006 [P] Add a test asserting an existing single-provider database upgrades with its sealed session still readable, in `server/internal/store/source_repos_test.go`
-- [ ] T007 Append the three additive migrations (`source_providers.sort_order`, `source_providers.last_error`, `source_prefs.selected_source`) to `server/internal/store/schema.go`
-- [ ] T008 Replace singleton accessors with `ListProviders` / `GetProviderByID` / `CreateProvider` / `UpdateProvider` / `DeleteProvider` in `server/internal/store/source_repos.go`
-- [ ] T009 Add the `unsubscribed` provider state and `last_error` persistence in `server/internal/store/source_repos.go`
-- [ ] T010 Reshape `source.Session` to a declared field bag plus `UserAgent`, and add `SessionField` / `SessionFields()` to the `Provider` interface in `server/internal/source/source.go`
-- [ ] T011 Migrate sealed session blobs from the old fixed field names into the bag on read, losslessly, in `server/internal/store/source_repos.go`
-- [ ] T012 Remove hardcoded provider auth headers from `Client.Do` and let each driver supply its own headers and cookies per request in `server/internal/source/client.go`
-- [ ] T013 Move 30nama's auth header construction into the driver with no behavior change in `server/internal/source/providers/thirtynama.go`
-- [ ] T014 Confirm T004–T006 still pass unchanged against the refactored store, client and driver
+- [x] T004 [P] Add characterization tests pinning current single-source search/title/send behavior in `server/internal/api/source_handlers_test.go`
+- [x] T005 [P] Add characterization tests pinning current store accessor behavior in `server/internal/store/source_repos_test.go`
+- [x] T006 [P] Add a test asserting an existing single-provider database upgrades with its sealed session still readable, in `server/internal/store/source_repos_test.go`
+- [x] T007 Append the three additive migrations (`source_providers.sort_order`, `source_providers.last_error`, `source_prefs.selected_source`) to `server/internal/store/schema.go`
+- [x] T008 Replace singleton accessors with `ListProviders` / `GetProviderByID` / `CreateProvider` / `UpdateProvider` / `DeleteProvider` in `server/internal/store/source_repos.go`
+- [x] T009 Add the `unsubscribed` provider state and `last_error` persistence in `server/internal/store/source_repos.go`
+- [x] T010 Reshape `source.Session` to a declared field bag plus `UserAgent`, and add `SessionField` / `SessionFields()` to the `Provider` interface in `server/internal/source/source.go`
+- [x] T011 Migrate sealed session blobs from the old fixed field names into the bag on read, losslessly, in `server/internal/store/source_repos.go`
+- [x] T012 Remove hardcoded provider auth headers from `Client.Do` and let each driver supply its own headers and cookies per request in `server/internal/source/client.go`
+- [x] T013 Move 30nama's auth header construction into the driver with no behavior change in `server/internal/source/providers/thirtynama.go`
+- [x] T014 Confirm T004–T006 still pass unchanged against the refactored store, client and driver
 
 **Checkpoint**: the existing source works exactly as before, now on multi-source foundations.
 
@@ -50,32 +50,32 @@ dropdown lists both plus "All sources", selecting one narrows the list. Needs no
 
 ### Tests
 
-- [ ] T015 [P] [US1] Unit-test round-robin interleaving, uneven page sizes, and source exhaustion in `server/internal/source/merge_test.go`
-- [ ] T015a [P] [US1] Test that a title carried by two sources yields two entries and is never de-duplicated (FR-005a), in `server/internal/source/merge_test.go`
-- [ ] T015b [P] [US1] Test that single-source mode returns the source's own ordering unpermuted (FR-010), in `server/internal/source/merge_test.go`
-- [ ] T016 [P] [US1] Unit-test that one failing or slow source degrades instead of failing the request in `server/internal/source/merge_test.go`
-- [ ] T017 [P] [US1] Test source-qualified title id parsing, including ids containing slashes, and rejection of a provider the caller has not configured, in `server/internal/api/source_handlers_test.go`
-- [ ] T018 [P] [US1] Test `/v1/source/providers` CRUD including that no response ever echoes session material, in `server/internal/api/source_handlers_test.go`
+- [x] T015 [P] [US1] Unit-test round-robin interleaving, uneven page sizes, and source exhaustion in `server/internal/source/merge_test.go`
+- [x] T015a [P] [US1] Test that a title carried by two sources yields two entries and is never de-duplicated (FR-005a), in `server/internal/source/merge_test.go`
+- [x] T015b [P] [US1] Test that single-source mode returns the source's own ordering unpermuted (FR-010), in `server/internal/source/merge_test.go`
+- [x] T016 [P] [US1] Unit-test that one failing or slow source degrades instead of failing the request in `server/internal/source/merge_test.go`
+- [x] T017 [P] [US1] Test source-qualified title id parsing, including ids containing slashes, and rejection of a provider the caller has not configured, in `server/internal/api/source_handlers_test.go`
+- [x] T018 [P] [US1] Test `/v1/source/providers` CRUD including that no response ever echoes session material, in `server/internal/api/source_handlers_test.go`
 
-- [ ] T016a [P] [US1] Test the 8s per-source timeout, the failing-source cooling-off period, and that one query causes at most one page fetch per source (FR-030..FR-032, SC-011), in `server/internal/source/merge_test.go`
-- [ ] T017a [P] [US1] Test that a crafted title id cannot change the target host, escape the source's site, or address an unconfigured source, and that a malformed id is a client error (FR-033, FR-034), in `server/internal/api/source_handlers_test.go`
-- [ ] T011a [P] Test that unreadable sealed session material is retained and reported rather than discarded, and that nothing decrypted is written during migration (FR-035), in `server/internal/store/source_repos_test.go`
+- [x] T016a [P] [US1] Test the 8s per-source timeout, the failing-source cooling-off period, and that one query causes at most one page fetch per source (FR-030..FR-032, SC-011), in `server/internal/source/merge_test.go`
+- [x] T017a [P] [US1] Test that a crafted title id cannot change the target host, escape the source's site, or address an unconfigured source, and that a malformed id is a client error (FR-033, FR-034), in `server/internal/api/source_handlers_test.go`
+- [x] T011a [P] Test that unreadable sealed session material is retained and reported rather than discarded, and that nothing decrypted is written during migration (FR-035), in `server/internal/store/source_repos_test.go`
 
 ### Implementation
 
-- [ ] T019 [US1] Implement concurrent per-source fan-out with an 8s per-source timeout, failing-source cooling-off, round-robin interleave and degradation reporting in `server/internal/source/merge.go`
-- [ ] T020 [US1] Add `SourceID` / `SourceName` to `CatalogTitle` and `Degraded` to `SearchResult` in `server/internal/source/source.go`
-- [ ] T021 [US1] Add the `/v1/source/providers` CRUD routes in `server/internal/api/router.go`
-- [ ] T022 [US1] Implement the providers CRUD handlers, verifying before persisting, in `server/internal/api/source_handlers.go`
-- [ ] T023 [US1] Make search, title and send source-aware with qualified ids, retaining the 0005 routes against the lowest-id source for compatibility, in `server/internal/api/source_handlers.go`
-- [ ] T024 [US1] Persist and validate `selectedSource` in the view-state handlers, normalizing an unknown source to "all", in `server/internal/api/source_handlers.go`
-- [ ] T025 [P] [US1] Add source-selection and degraded state to `src/composables/useSourceCatalog.ts`
-- [ ] T026 [P] [US1] Extend the client API types and calls for qualified ids, `source`, and `degraded` in `src/services/api.ts`
-- [ ] T027 [US1] Add the source `ion-select` beside the sort control, shown only at two or more sources, in `src/views/tabs/BrowserPage.vue`
-- [ ] T028 [US1] Show a per-result source label in combined mode only, in `src/views/tabs/BrowserPage.vue`
-- [ ] T029 [US1] Render the non-blocking degraded notice naming the affected source in `src/views/tabs/BrowserPage.vue`
-- [ ] T030 [US1] Make the title modal source-aware for qualified ids in `src/components/SourceTitleModal.vue`
-- [ ] T031 [US1] Rework the admin panel from editing one source to managing a list, driven by each kind's declared session fields, in `src/components/SourceProviderAdmin.vue`
+- [x] T019 [US1] Implement concurrent per-source fan-out with an 8s per-source timeout, failing-source cooling-off, round-robin interleave and degradation reporting in `server/internal/source/merge.go`
+- [x] T020 [US1] Add `SourceID` / `SourceName` to `CatalogTitle` and `Degraded` to `SearchResult` in `server/internal/source/source.go`
+- [x] T021 [US1] Add the `/v1/source/providers` CRUD routes in `server/internal/api/router.go`
+- [x] T022 [US1] Implement the providers CRUD handlers, verifying before persisting, in `server/internal/api/source_handlers.go`
+- [x] T023 [US1] Make search, title and send source-aware with qualified ids, retaining the 0005 routes against the lowest-id source for compatibility, in `server/internal/api/source_handlers.go`
+- [x] T024 [US1] Persist and validate `selectedSource` in the view-state handlers, normalizing an unknown source to "all", in `server/internal/api/source_handlers.go`
+- [x] T025 [P] [US1] Add source-selection and degraded state to `src/composables/useSourceCatalog.ts`
+- [x] T026 [P] [US1] Extend the client API types and calls for qualified ids, `source`, and `degraded` in `src/services/api.ts`
+- [x] T027 [US1] Add the source `ion-select` beside the sort control, shown only at two or more sources, in `src/views/tabs/BrowserPage.vue`
+- [x] T028 [US1] Show a per-result source label in combined mode only, in `src/views/tabs/BrowserPage.vue`
+- [x] T029 [US1] Render the non-blocking degraded notice naming the affected source in `src/views/tabs/BrowserPage.vue`
+- [x] T030 [US1] Make the title modal source-aware for qualified ids in `src/components/SourceTitleModal.vue`
+- [x] T031 [US1] Rework the admin panel from editing one source to managing a list, driven by each kind's declared session fields, in `src/components/SourceProviderAdmin.vue`
 
 **Checkpoint**: US1 is independently shippable and demonstrable with one provider kind twice.
 
@@ -90,18 +90,18 @@ US2 journeys against the local stack.
 
 ### Tests
 
-- [ ] T032 [P] [US4] Test that the driver host-allowlist override is unavailable in a production build in `server/internal/source/client_test.go`
+- [x] T032 [P] [US4] Test that the driver host-allowlist override is unavailable in a production build in `server/internal/source/client_test.go`
 
 ### Implementation
 
-- [ ] T033 [US4] Add a fake source site serving the JSON shape of the existing source to `server/internal/synomock/`
-- [ ] T034 [US4] Add a fake source site serving zarfilm's HTML shape, from the trimmed fixtures, to `server/internal/synomock/`
-- [ ] T035 [US4] Add `/__mock/*` controls for logged-out, paywalled, stalled and short-catalog states in `server/internal/synomock/`
-- [ ] T036 [US4] Wire the fake source sites into `server/cmd/synomock/main.go` and `make start`
-- [ ] T037 [US4] Add the test-only host-allowlist override, impossible to enable in a production build, in `server/internal/source/client.go`
-- [ ] T038 [US4] Add an e2e spec covering the combined-sources journey against the mock in `e2e/`
-- [ ] T039 [US4] Add e2e coverage for a degraded source and for narrowing to a single source in `e2e/`
-- [ ] T040 [P] [US4] Document both dev paths in `specs/0007-multiple-download-sources/quickstart.md` and confirm the steps as written actually work
+- [x] T033 [US4] Add a fake source site serving the JSON shape of the existing source to `server/internal/synomock/`
+- [x] T034 [US4] Add a fake source site serving zarfilm's HTML shape, from the trimmed fixtures, to `server/internal/synomock/`
+- [x] T035 [US4] Add `/__mock/*` controls for logged-out, paywalled, stalled and short-catalog states in `server/internal/synomock/`
+- [x] T036 [US4] Wire the fake source sites into `server/cmd/synomock/main.go` and `make start`
+- [x] T037 [US4] Add the test-only host-allowlist override, impossible to enable in a production build, in `server/internal/source/client.go`
+- [x] T038 [US4] Add an e2e spec covering the combined-sources journey against the mock in `e2e/`
+- [x] T039 [US4] Add e2e coverage for a degraded source and for narrowing to a single source in `e2e/`
+- [x] T040 [P] [US4] Document both dev paths in `specs/0007-multiple-download-sources/quickstart.md` and confirm the steps as written actually work
 
 **Checkpoint**: CI covers the feature end to end without a single credential.
 
@@ -116,27 +116,27 @@ against the mock without credentials, and against the real site with a live sess
 
 ### Tests
 
-- [ ] T041 [P] [US2] Test archive-listing parsing (title, year, rating, poster, genres, id) from fixtures in `server/internal/source/providers/zarfilm_parse_test.go`
-- [ ] T042 [P] [US2] Test movie title-page parsing including group variants, encoder, size, subtitle type and resolution-from-filename, in `server/internal/source/providers/zarfilm_parse_test.go`
-- [ ] T043 [P] [US2] Test series parsing into seasons and episodes in `server/internal/source/providers/zarfilm_parse_test.go`
-- [ ] T044 [P] [US2] Test `VerifySession` distinguishing logged-in, logged-out and unsubscribed from fixtures in `server/internal/source/providers/zarfilm_test.go`
-- [ ] T045 [P] [US2] Test that a parse failure surfaces as a source-level error and never a panic, in `server/internal/source/providers/zarfilm_test.go`
-- [ ] T046 [P] [US2] Test that download hosts are matched by domain suffix and that the dns-prefetch host is *not* allowlisted, in `server/internal/source/providers/zarfilm_test.go`
+- [x] T041 [P] [US2] Test archive-listing parsing (title, year, rating, poster, genres, id) from fixtures in `server/internal/source/providers/zarfilm_parse_test.go`
+- [x] T042 [P] [US2] Test movie title-page parsing including group variants, encoder, size, subtitle type and resolution-from-filename, in `server/internal/source/providers/zarfilm_parse_test.go`
+- [x] T043 [P] [US2] Test series parsing into seasons and episodes in `server/internal/source/providers/zarfilm_parse_test.go`
+- [x] T044 [P] [US2] Test `VerifySession` distinguishing logged-in, logged-out and unsubscribed from fixtures in `server/internal/source/providers/zarfilm_test.go`
+- [x] T045 [P] [US2] Test that a parse failure surfaces as a source-level error and never a panic, in `server/internal/source/providers/zarfilm_test.go`
+- [x] T046 [P] [US2] Test that download hosts are matched by domain suffix and that the dns-prefetch host is *not* allowlisted, in `server/internal/source/providers/zarfilm_test.go`
 
 ### Implementation
 
-- [ ] T047 [US2] Implement HTML parsing helpers over `x/net/html` in `server/internal/source/providers/zarfilm_parse.go`
-- [ ] T048 [US2] Implement `Kind`, `Hosts` and `SessionFields` with the elevated-sensitivity help text in `server/internal/source/providers/zarfilm.go`
-- [ ] T049 [US2] Implement `VerifySession` via the inlined logged-in flag, plus the separate unsubscribed probe, in `server/internal/source/providers/zarfilm.go`
-- [ ] T050 [US2] Implement `Search` over paginated archive URLs and `/?s=` text search in `server/internal/source/providers/zarfilm.go`
-- [ ] T051 [US2] Implement `Parameters` from the site's own genre and sort taxonomies in `server/internal/source/providers/zarfilm.go`
-- [ ] T052 [US2] Implement `Title` for movies and series in `server/internal/source/providers/zarfilm.go`
-- [ ] T053 [US2] Implement `ResolveDownload` fetching a fresh signed link at send time in `server/internal/source/providers/zarfilm.go`
-- [ ] T053a [US2] Test that the send path forwards no source session field, cookie or header to the NAS (FR-023, SC-006), in `server/internal/api/source_handlers_test.go`
-- [ ] T054 [US2] Register the driver and add its image host to the proxy allowlist in `server/internal/source/providers/zarfilm.go`
-- [ ] T055 [US2] Surface the `unsubscribed` state through to the admin UI in `src/components/SourceProviderAdmin.vue`
-- [ ] T056 [P] [US2] Add the opt-in live check that skips without credentials in `server/internal/source/providers/live_test.go`
-- [ ] T057 [US2] **Risk 1**: send a real zarfilm link to a real NAS and settle whether signed links are address-bound; if they are, add a distinct operator-facing error and record the finding in `specs/0007-multiple-download-sources/research.md`
+- [x] T047 [US2] Implement HTML parsing helpers over `x/net/html` in `server/internal/source/providers/zarfilm_parse.go`
+- [x] T048 [US2] Implement `Kind`, `Hosts` and `SessionFields` with the elevated-sensitivity help text in `server/internal/source/providers/zarfilm.go`
+- [x] T049 [US2] Implement `VerifySession` via the inlined logged-in flag, plus the separate unsubscribed probe, in `server/internal/source/providers/zarfilm.go`
+- [x] T050 [US2] Implement `Search` over paginated archive URLs and `/?s=` text search in `server/internal/source/providers/zarfilm.go`
+- [x] T051 [US2] Implement `Parameters` from the site's own genre and sort taxonomies in `server/internal/source/providers/zarfilm.go`
+- [x] T052 [US2] Implement `Title` for movies and series in `server/internal/source/providers/zarfilm.go`
+- [x] T053 [US2] Implement `ResolveDownload` fetching a fresh signed link at send time in `server/internal/source/providers/zarfilm.go`
+- [x] T053a [US2] Test that the send path forwards no source session field, cookie or header to the NAS (FR-023, SC-006), in `server/internal/api/source_handlers_test.go`
+- [x] T054 [US2] Register the driver and add its image host to the proxy allowlist in `server/internal/source/providers/zarfilm.go`
+- [x] T055 [US2] Surface the `unsubscribed` state through to the admin UI in `src/components/SourceProviderAdmin.vue`
+- [x] T056 [P] [US2] Add the opt-in live check that skips without credentials in `server/internal/source/providers/live_test.go`
+- [~] T057 [US2] **Risk 1**: NOT settled — needs two different egress addresses, which this environment does not have. Finding and exact symptom recorded in `research.md`; moot for same-network deployments
 
 **Checkpoint**: two real sources, combined.
 
@@ -151,26 +151,26 @@ shared filters; selecting one source reveals its extras and switching back drops
 
 ### Tests
 
-- [ ] T058 [P] [US3] Test facet intersection by English slug with normalized-label fallback, and de-duplication of equivalent options, in `server/internal/api/source_handlers_test.go`
+- [x] T058 [P] [US3] Test facet intersection by English slug with normalized-label fallback, and de-duplication of equivalent options, in `server/internal/api/source_handlers_test.go`
 
 ### Implementation
 
-- [ ] T059 [US3] Implement facet intersection in the parameters handler in `server/internal/api/source_handlers.go`
-- [ ] T060 [US3] Drop unsupported filters visibly when switching back to combined mode in `src/composables/useSourceCatalog.ts`
-- [ ] T061 [US3] Reflect the narrowed facet set in the filter sheet in `src/views/tabs/BrowserPage.vue`
-- [ ] T062 [US3] **Risk 3**: measure the real intersection across both live sources; if too thin to be useful, add the curated synonym map in `server/internal/api/source_handlers.go`
+- [x] T059 [US3] Implement facet intersection in the parameters handler in `server/internal/api/source_handlers.go`
+- [x] T060 [US3] Drop unsupported filters visibly when switching back to combined mode in `src/composables/useSourceCatalog.ts`
+- [x] T061 [US3] Reflect the narrowed facet set in the filter sheet in `src/views/tabs/BrowserPage.vue`
+- [~] T062 [US3] **Risk 3**: not measurable yet — needs two sources with genuinely different facet vocabularies live at once. Intersection is implemented and unit-tested; the synonym-map fallback stays unbuilt until there is evidence it is needed
 
 ---
 
 ## Phase 7: Polish & cross-cutting
 
-- [ ] T063 [P] Add a test asserting no session value, cookie or signed link appears in any log line or error payload (SC-010) in `server/internal/api/source_handlers_test.go`
-- [ ] T064 [P] Measure combined versus single-source first-page latency against SC-005 and record the result
-- [ ] T065 Correct the stale server description in `CLAUDE.md:43` per FR-029 — it claims zero third-party dependencies and no database, while the server has required `modernc.org/sqlite` directly since it became stateful; state the real dependency set including `x/net/html`
-- [ ] T066 Confirm no constitution edit is needed for FR-029 (the zero-dependency claim lives in `CLAUDE.md:43`, not the constitution) and that the dependency's justification is recorded under the complexity clause in `specs/0007-multiple-download-sources/plan.md`
-- [ ] T067 [P] Document adding and refreshing a second source for operators in `docs/`
-- [ ] T068 [P] Update the spec `**Status**:` line and run `make roadmap`
-- [ ] T069 Run every gate: `npm run build`, `npm run test:unit:coverage`, `go build ./...`, `go vet ./...`, `go test ./...` with no `LIVE_*` set, and `npm run test:e2e`
+- [x] T063 [P] Add a test asserting no session value, cookie or signed link appears in any log line or error payload (SC-010) in `server/internal/api/source_handlers_test.go`
+- [x] T064 [P] Measure combined versus single-source first-page latency against SC-005 and record the result
+- [x] T065 Correct the stale server description in `CLAUDE.md:43` per FR-029 — it claims zero third-party dependencies and no database, while the server has required `modernc.org/sqlite` directly since it became stateful; state the real dependency set including `x/net/html`
+- [x] T066 Confirm no constitution edit is needed for FR-029 (the zero-dependency claim lives in `CLAUDE.md:43`, not the constitution) and that the dependency's justification is recorded under the complexity clause in `specs/0007-multiple-download-sources/plan.md`
+- [x] T067 [P] Document adding and refreshing a second source for operators in `docs/`
+- [x] T068 [P] Update the spec `**Status**:` line and run `make roadmap`
+- [x] T069 Run every gate: `npm run build`, `npm run test:unit:coverage`, `go build ./...`, `go vet ./...`, `go test ./...` with no `LIVE_*` set, and `npm run test:e2e`
 
 ---
 

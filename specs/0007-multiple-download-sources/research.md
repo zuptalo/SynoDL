@@ -265,11 +265,24 @@ download host** — allowlisting it would widen the outbound surface for nothing
 `200`, `Content-Length: 686147352`, `Accept-Ranges: bytes`. So Download Station can fetch it
 with no session material (FR-023), and range requests work, which Download Station relies on.
 
-**Link address-binding — UNVERIFIED**: the check above ran from the same public address that
-minted the link, so address-binding cannot be ruled out. This must be settled during
-implementation by sending one link to a real NAS. If links prove address-bound, deployments
-where SynoDL and the NAS egress differently would fail at download time, and the failure must
-be reported distinctly rather than as a generic source error. Tracked as a risk, not a blocker.
+**Link address-binding — STILL UNVERIFIED, and here is exactly how far it got.** The
+portability check ran from the same public address that minted the link, so it proves the link
+needs no cookie and no matching User-Agent — not that it is portable across addresses. Settling
+it needs two different egress addresses, which this environment does not have: a send to the
+mock NAS proves nothing, because the mock does not actually fetch anything.
+
+What can be said:
+
+- the link carries `md5`, `u` (account id) and `expires` and nothing address-shaped, which is
+  suggestive but not conclusive — the signature could bind an address server-side;
+- for a deployment where SynoDL and the NAS sit on the same network and leave through the same
+  router, the question is moot either way, and that is the common case (including this
+  project's own k3s deployment);
+- only a split-egress deployment could be affected, and the symptom would be specific:
+  Download Station accepts the task and then stalls at 0% with an auth error.
+
+Left as a known risk rather than a fabricated conclusion. If it ever bites, the fix is to
+report that failure distinctly instead of as a generic source error.
 
 ---
 
@@ -309,8 +322,8 @@ search, title, and link resolution against the real site.
 
 | # | Risk | Mitigation |
 |---|---|---|
-| 1 | Signed links may be address-bound, breaking split SynoDL/NAS deployments | Send one to a real NAS early; report distinctly if confirmed |
+| 1 | Signed links may be address-bound, breaking split SynoDL/NAS deployments | **Open.** Needs two egress addresses to settle, which was not available. Moot for same-network deployments; see R7 for the exact symptom if it ever bites |
 | 2 | zarfilm markup can change without notice | Live checks catch drift; parse failures degrade to a source-level error, never a crash |
 | 3 | Facet intersection may leave too few shared filters to be useful | Measure once both sources are live; curated synonym map as fallback |
 | 4 | Session-shape migration could strand an existing operator's pasted material | Read old sealed blobs by key; cover with an explicit migration test |
-| 5 | Combined latency could breach SC-005 | Fetch sources concurrently with a per-source timeout; degrade rather than wait |
+| 5 | Combined latency could breach SC-005 | **Closed.** Measured against the real site with two sources: combined 376 ms median vs 487 ms single-source (0.77×, budget 1.50×). Concurrent fan-out means combined costs the slowest source, not the sum |

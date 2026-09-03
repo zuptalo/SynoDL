@@ -19,7 +19,7 @@ Specs are grouped by category band; status moves
 | [0004](specs/0004-task-list-bulk/spec.md) | Task-list bulk actions, selection mode, app badge, and newest-first sort | 🟢 shipped |
 | [0005](specs/0005-source-catalog/spec.md) | Download-source catalog — browse, search, and send an admin-configured provider to Download Station | 🟡 in-progress |
 | [0006](specs/0006-per-user-download/spec.md) | Per-User Download Statistics and Richer Notifications | 🟢 shipped |
-| [0007](specs/0007-multiple-download-sources/spec.md) | Multiple Download Sources | 🟡 in-progress |
+| [0007](specs/0007-multiple-download-sources/spec.md) | Multiple Download Sources | 🔵 in-review |
 
 ## ⚡ Ad-hoc (1001–1999)
 
