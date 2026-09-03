@@ -218,6 +218,10 @@ SMALL_WORDS = {
     "a", "an", "and", "as", "at", "but", "by", "for", "from", "in", "into",
     "nor", "of", "on", "onto", "or", "over", "the", "to", "up", "upon", "via",
     "vs", "with",
+    # A standalone lowercase "x" is the "versus" sense — "Godzilla x Kong",
+    # "Spy x Family" — never a word to capitalise. A title's real X ("Saw X",
+    # "Malcolm X") is written uppercase, so it is untouched either way.
+    "x",
     "de", "del", "della", "des", "di", "du", "el", "et", "la", "las", "le",
     "les", "los", "van", "von",
 }

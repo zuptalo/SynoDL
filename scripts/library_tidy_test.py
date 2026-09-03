@@ -414,6 +414,12 @@ class TitleCasing(unittest.TestCase):
         self.m("Operation.Fortune.Ruse.de.Guerre.2023.1080p.WEBRip.DDP5.1.x264-RiGHTNOW",
                "Operation Fortune Ruse de Guerre (2023)")
 
+    def test_a_lowercase_x_is_the_versus_sense(self):
+        self.m("Godzilla.x.Kong.The.New.Empire.2024.2160p.WEB-DL.DDP5.1.HDR10+.H.265-POKE[TGx]",
+               "Godzilla x Kong The New Empire (2024)")
+        # An uppercase X in the source is part of the title and stays.
+        self.m("Saw.X.2023.2160p.WEB-DL.DDP5.1.Atmos.H.265-FLUX[TGx]", "Saw X (2023)")
+
     def test_numbers_and_symbols_are_untouched(self):
         self.m("28 years later", "28 Years Later")
         self.m("apocalipsis z", "Apocalipsis Z")
