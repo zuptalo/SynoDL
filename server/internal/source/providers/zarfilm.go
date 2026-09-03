@@ -47,40 +47,65 @@ const (
 func (zarfilm) SessionFields() []source.SessionField {
 	return []source.SessionField{
 		{
-			Key: zarFieldCookie, Label: "Login cookie", Secret: true, Required: true,
-			Help: "The wordpress_logged_in_* cookie value from a browser where you are " +
-				"signed in. This is a FULL ACCOUNT credential — anyone holding it can do " +
-				"anything your site account can, unlike a scoped API token. Signed download " +
-				"links also carry your account id. Sign out at the site to invalidate a " +
-				"cookie you have finished with.",
+			Key: zarFieldCookie, Label: "Cookie header", Secret: true, Required: true,
+			Help: "Paste the WHOLE cookie line from a browser where you are signed in — " +
+				"names included, e.g. \"wordpress_logged_in_ab12…=xyz; _lscache_vary=…\". " +
+				"In Chrome, DevTools → Network → reload a page → right-click the request → " +
+				"Copy as cURL, and take what follows -b. The names matter: the login " +
+				"cookie's name carries a per-site hash, and the value on its own " +
+				"authenticates as nobody. This is a FULL ACCOUNT credential — anyone " +
+				"holding it can do anything your site account can, unlike a scoped API " +
+				"token. Signed download links also carry your account id. Sign out at the " +
+				"site to invalidate a cookie you have finished with.",
 		},
 		{
-			Key: zarFieldVary, Label: "_lscache_vary cookie", Secret: true, Required: false,
-			Help: "Selects the logged-in cache variant. Without it a cached anonymous page " +
-				"can come back and look like an expired session.",
+			Key: zarFieldVary, Label: "Extra cookies (optional)", Secret: true, Required: false,
+			Help: "Only needed if the cookie line above did not already include " +
+				"_lscache_vary. That cookie selects the logged-in cache variant; without " +
+				"it the site can return a cached anonymous page, which looks exactly like " +
+				"an expired session.",
 		},
 	}
 }
 
 // auth builds this driver's own credentials. They travel only to this site's
 // hosts — the shared client no longer assembles auth for anybody.
+//
+// The pasted field is parsed as a COOKIE HEADER, not as a single value, because
+// the name matters and an operator cannot reconstruct it. WordPress's login
+// cookie is named `wordpress_logged_in_<per-install hash>`, and sending the
+// value under a generic `wordpress_logged_in` authenticates as nobody — the site
+// answers as an anonymous visitor, which is indistinguishable from an expired
+// session unless you know to look for it.
+//
+// So a whole `Cookie:` blob can be pasted into one field (which is what "Copy as
+// cURL" yields) and the cookies this driver needs are picked out of it.
 func (zarfilm) auth(s source.Session) (headers, cookies map[string]string) {
 	cookies = map[string]string{}
-	if c := s.Get(zarFieldCookie); c != "" {
-		// Accept either a bare value or a full "name=value" paste, since the
-		// cookie's name carries a per-install hash an operator can't be expected to
-		// strip by hand.
-		if name, val, found := strings.Cut(c, "="); found && strings.HasPrefix(name, "wordpress_logged_in") {
-			cookies[strings.TrimSpace(name)] = strings.TrimSpace(val)
-		} else {
-			cookies["wordpress_logged_in"] = c
+	collect := func(blob string) {
+		for _, part := range strings.Split(blob, ";") {
+			name, val, found := strings.Cut(strings.TrimSpace(part), "=")
+			if !found {
+				continue
+			}
+			name, val = strings.TrimSpace(name), strings.TrimSpace(val)
+			// Only this site's own auth cookies are forwarded. A pasted blob can
+			// carry analytics and other unrelated cookies; there is no reason to
+			// send those anywhere.
+			if strings.HasPrefix(name, "wordpress_logged_in") || strings.HasPrefix(name, "_lscache_vary") {
+				cookies[name] = val
+			}
 		}
 	}
-	if v := s.Get(zarFieldVary); v != "" {
-		if name, val, found := strings.Cut(v, "="); found && strings.HasPrefix(name, "_lscache_vary") {
-			cookies[strings.TrimSpace(name)] = strings.TrimSpace(val)
-		} else {
-			cookies["_lscache_vary"] = v
+	collect(s.Get(zarFieldCookie))
+	collect(s.Get(zarFieldVary))
+
+	// A value with no "=" at all can only be used under a guessed name. Real
+	// sites reject that, but the in-repo fake accepts anything, so keep it
+	// working rather than making the credential-free dev path a special case.
+	if len(cookies) == 0 {
+		if c := strings.TrimSpace(s.Get(zarFieldCookie)); c != "" {
+			cookies["wordpress_logged_in"] = c
 		}
 	}
 	return nil, cookies

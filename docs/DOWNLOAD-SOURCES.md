@@ -24,9 +24,16 @@ the resulting session material. The form shows exactly which pieces the chosen
 source needs.
 
 To capture them: sign in to the site in your browser, open the developer tools'
-network tab, reload a page, and copy the request's cookie and `User-Agent`
-values. Chrome's **Copy → Copy as cURL** on the page request gives you both at
-once.
+network tab, reload a page, then right-click the page request and choose
+**Copy → Copy as cURL**. Paste what follows `-b` into the cookie field and what
+follows `-H 'user-agent:` into the User-Agent field.
+
+> **Paste the cookie line whole, names included** — `name=value; name=value` —
+> not just a value. Some sites name their login cookie with a per-site hash, so
+> the value on its own authenticates as nobody, and the site then answers as if
+> you were a stranger. That looks exactly like an expired session, which makes it
+> a genuinely confusing mistake to debug. Extra cookies in the line are ignored;
+> only the ones the source needs are ever sent.
 
 > **Treat this material as a password.** For some sources it *is* one: a site
 > login cookie grants everything your account there can do, which is far more

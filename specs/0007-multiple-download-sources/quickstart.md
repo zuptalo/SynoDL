@@ -68,10 +68,20 @@ zarfilm's login requires a human-solved captcha. Both are authorized by pasting 
 browser where you are already logged in.
 
 **zarfilm**: log in at https://zarfilm.com/sign-in/, open any movie page, DevTools → Network →
-reload, right-click the document request → Copy → **Copy as cURL**. The `-b '…'` blob is the
-cookie and the `-H 'user-agent: …'` line is the User-Agent. You need `wordpress_logged_in_*`
-and `_lscache_vary` — the latter selects the logged-in cache variant, and without it a cached
-anonymous page can come back and look like an expired session.
+reload, right-click the document request → Copy → **Copy as cURL**. Paste the whole `-b '…'`
+blob into the cookie field and the `-H 'user-agent: …'` value into the User-Agent field.
+
+Paste the cookie line **with its names**, not just a value. Verified against the live site:
+
+| Cookie header sent | Result |
+|---|---|
+| `wordpress_logged_in_<hash>=V; _lscache_vary=…` | logged in (`"u":"1057599"`) |
+| `wordpress_logged_in=V; _lscache_vary=…` | logged **out** (`"u":"0"`) |
+| `wordpress_logged_in_<hash>=V` alone | logged **out** — a cached anonymous page |
+
+The login cookie's name carries a per-install hash, so the value alone authenticates as nobody;
+and `_lscache_vary` selects the logged-in cache variant. Both failures look identical to an
+expired session, which is why the field takes the whole line and picks out what it needs.
 
 > That cookie is a **full account credential**, not a scoped token: anyone holding it can do
 > anything your site account can. Signed download links embed your account id too. Treat both
