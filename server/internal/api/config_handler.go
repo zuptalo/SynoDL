@@ -27,6 +27,10 @@ func handleConfig(d Deps) http.Handler {
 			// of the default that would drift the moment an operator changes it
 			// (spec 1022, FR-021).
 			"uploadMaxMB": d.uploadCapBytes() >> 20,
+			// Whether the app may run in a plain browser tab rather than insisting
+			// on being installed first. Served from here because the client has to
+			// know before it decides to put the install gate up.
+			"allowBrowserAccess": d.Cfg.AllowBrowserAccess,
 		})
 	})
 }

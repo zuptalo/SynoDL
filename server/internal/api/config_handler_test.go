@@ -60,3 +60,33 @@ func TestConfigHostFromStoredConfigInStatefulMode(t *testing.T) {
 		t.Errorf("nasHost = %q, want the wizard's stored address 'nas'", body.NASHost)
 	}
 }
+
+// The client has to know before it decides whether to put the install gate up,
+// so this has to reach it unauthenticated, on the same endpoint it already reads
+// at startup.
+func TestConfigReportsBrowserAccessAndUploadCap(t *testing.T) {
+	fake := &fakeSyno{}
+	srv := newTestServer(t, fake)
+
+	resp := doReq(t, srv, "GET", "/v1/config", "", "", nil)
+	if resp.StatusCode != 200 {
+		t.Fatalf("GET /v1/config = %d", resp.StatusCode)
+	}
+	var got struct {
+		AllowBrowserAccess bool  `json:"allowBrowserAccess"`
+		UploadMaxMB        int64 `json:"uploadMaxMB"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&got); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	// The test server builds a Config with the zero value, which is the default:
+	// the gate stays up unless an operator lifts it.
+	if got.AllowBrowserAccess {
+		t.Error("allowBrowserAccess defaulted to true")
+	}
+	// The cap is reported so the upload screen states the real limit rather than
+	// a copy of the default that would drift.
+	if got.UploadMaxMB <= 0 {
+		t.Errorf("uploadMaxMB = %d, want a positive cap", got.UploadMaxMB)
+	}
+}

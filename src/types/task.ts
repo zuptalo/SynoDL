@@ -46,4 +46,9 @@ export interface ServerConfig {
    * states cannot drift from the one actually enforced.
    */
   uploadMaxMB?: number;
+  /**
+   * Whether the app may run in an ordinary browser tab instead of requiring
+   * installation (spec 1008 gate). Operator-set; off unless turned on.
+   */
+  allowBrowserAccess?: boolean;
 }
