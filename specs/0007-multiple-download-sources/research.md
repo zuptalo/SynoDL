@@ -259,7 +259,10 @@ Observed TTL ~18 hours, so links are resolved at send time (FR-022) — which is
 `ResolveDownload` already exists for. The host is `indllserver.info` under a numbered subdomain
 (`dl6.`), so it is allowlisted by domain suffix exactly as the other source's rotating storage
 domain is. **`zhomis.info` appears as a `dns-prefetch` hint on title pages and is not the
-download host** — allowlisting it would widen the outbound surface for nothing.
+download host** — allowlisting it as one would widen the outbound surface for nothing.
+(Correction, 2026-09-03: it is not the download host, but it *is* the site's published
+**mirror** — which is exactly why the site prefetches it. Handled as an alternate domain
+in spec 1020, not as a download host.)
 
 **Link portability — verified**: a `HEAD` with no cookie and a `curl/8` User-Agent returned
 `200`, `Content-Length: 686147352`, `Accept-Ranges: bytes`. So Download Station can fetch it

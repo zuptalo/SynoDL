@@ -52,6 +52,26 @@ are told which of these it was:
 | **No active subscription** | Signed in fine, but the account cannot download. Re-pasting will not help — the subscription is the problem. |
 | Could not reach the source | The site is unreachable from your server. |
 
+## When a site changes address
+
+Sites of this kind get blocked periodically and publish an alternate address to
+reach them at. Each source has an **Alternate address** field for that, pre-filled
+with the mirror SynoDL currently knows about.
+
+When the main address stops answering, SynoDL retries the same request against
+the alternate one, and browsing carries on as normal. It goes back to the main
+address by itself once that recovers — there is nothing to switch back. Only an
+*availability* failure triggers this: being signed out is not an outage, and
+retrying elsewhere would fail the same way while hiding the real cause.
+
+If the site publishes a new alternate address, edit the field; it takes effect
+immediately and needs no SynoDL update.
+
+> Your saved sign-in for that source is sent to the alternate address too, so
+> only enter one the site itself published. This is the single outbound address
+> SynoDL will use that it did not ship with, which is why it must be `https` and
+> applies to that one source only.
+
 ## Everyday behaviour
 
 **Combined browsing.** With "All sources" selected, results are drawn from every

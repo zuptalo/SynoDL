@@ -62,6 +62,7 @@ const displayName = ref('');
 const moviesParent = ref('');
 const tvParent = ref('');
 const enabled = ref(true);
+const altBase = ref('');
 const sessionValues = ref<Record<string, string>>({});
 const userAgent = ref('');
 
@@ -125,6 +126,9 @@ function openNew(): void {
   moviesParent.value = '';
   tvParent.value = '';
   enabled.value = true;
+  // Start from the mirror SynoDL knows about, so the common case needs no
+  // research — the operator only edits it when the site changes address.
+  altBase.value = currentKind.value?.defaultAltBase ?? '';
   sessionValues.value = {};
   userAgent.value = '';
 }
@@ -137,6 +141,7 @@ function openEdit(p: SourceProvider): void {
   moviesParent.value = p.moviesParent;
   tvParent.value = p.tvParent;
   enabled.value = p.enabled;
+  altBase.value = p.altBase ?? '';
   // Never prefilled — the server does not return stored session material.
   sessionValues.value = {};
   userAgent.value = '';
@@ -147,6 +152,7 @@ function openEdit(p: SourceProvider): void {
 watch(formKind, () => {
   if (!isNew.value) return;
   displayName.value = currentKind.value?.name ?? '';
+  altBase.value = currentKind.value?.defaultAltBase ?? '';
   sessionValues.value = {};
 });
 
@@ -192,6 +198,7 @@ async function save(): Promise<void> {
       displayName: displayName.value.trim(),
       moviesParent: moviesParent.value.trim(),
       tvParent: tvParent.value.trim(),
+      altBase: altBase.value.trim(),
       enabled: enabled.value,
       session,
     };
@@ -206,6 +213,8 @@ async function save(): Promise<void> {
   } catch (e) {
     if (e instanceof ApiError && e.code === 'verify_failed') {
       errorMsg.value = verifyMessage(e.reason);
+    } else if (e instanceof ApiError && e.code === 'bad_alt_base') {
+      errorMsg.value = e.reason ?? 'That alternate address is not usable.';
     } else if (e instanceof ApiError && e.code === 'unknown_provider') {
       errorMsg.value = 'That source type is not supported.';
     } else {
@@ -338,6 +347,19 @@ async function saveMaxSize(): Promise<void> {
               placeholder="e.g. video/tv"
             />
           </ion-item>
+          <ion-item>
+            <ion-input
+              v-model="altBase"
+              label="Alternate address (optional)"
+              label-placement="stacked"
+              placeholder="https://example.com"
+            />
+          </ion-item>
+          <ion-note class="hint">
+            Used only when the main site is unreachable — these sites are blocked
+            periodically and publish a mirror. Your saved sign-in for this source will be
+            sent to this address too, so only enter one the site itself published.
+          </ion-note>
           <ion-item v-if="!isNew">
             <ion-toggle v-model="enabled">Enabled</ion-toggle>
           </ion-item>

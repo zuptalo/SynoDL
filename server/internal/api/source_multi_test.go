@@ -339,3 +339,57 @@ func TestStatusIsHealthyWhileAnySourceIsUsable(t *testing.T) {
 		t.Fatalf("all sources dead should report needs_refresh: %s", rec.Body.String())
 	}
 }
+
+// spec 1020: the alternate address is the one outbound host a source can reach
+// that is not provider-declared, so it is validated rather than trusted.
+func TestAltBaseIsValidatedAndScoped(t *testing.T) {
+	resetFake()
+	source.ResetBreakers()
+	h, st := newStatefulRouter(t)
+	admin := adminAfterSetup(t, h)
+
+	for _, bad := range []string{
+		"http://insecure.example",       // clear text would expose the session
+		"https://user:pw@example.com",   // credentials smuggled into the URL
+		"https://example.com/some/path", // must be a bare domain
+		"https://example.com?x=1",
+		"not a url",
+		"ftp://example.com",
+	} {
+		body := `{"kind":"faketest","displayName":"X","moviesParent":"movie","tvParent":"tv",` +
+			`"altBase":"` + bad + `","session":{"c_token":"t","user_agent":"ua"}}`
+		rec := do(t, h, "POST", "/v1/source/providers", body, admin)
+		if rec.Code == http.StatusCreated {
+			t.Fatalf("accepted an unusable alternate address %q", bad)
+		}
+	}
+
+	// A good one is stored and reported back (it is an address, not a secret).
+	good := `{"kind":"faketest","displayName":"X","moviesParent":"movie","tvParent":"tv",` +
+		`"altBase":"https://mirror.example","session":{"c_token":"t","user_agent":"ua"}}`
+	rec := do(t, h, "POST", "/v1/source/providers", good, admin)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create with a valid alternate = %d %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "mirror.example") {
+		t.Fatalf("alternate address not returned: %s", rec.Body.String())
+	}
+
+	// FR-010: it widens THIS source's reach and nothing else's. A second source
+	// must not inherit it.
+	rec = do(t, h, "POST", "/v1/source/providers",
+		`{"kind":"faketest","displayName":"Y","moviesParent":"movie","tvParent":"tv","altBase":"",`+
+			`"session":{"c_token":"t","user_agent":"ua"}}`, admin)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("second create = %d %s", rec.Code, rec.Body.String())
+	}
+	providers, err := st.ListProviders()
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	for _, p := range providers {
+		if p.DisplayName == "Y" && strings.Contains(p.AltBase, "mirror.example") {
+			t.Fatal("a second source inherited the first source's alternate address")
+		}
+	}
+}

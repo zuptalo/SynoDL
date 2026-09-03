@@ -65,11 +65,20 @@ type SessionField struct {
 }
 
 // Config is a provider's non-secret settings needed to make calls: the outbound
-// host allowlists.
+// host allowlists, plus the optional alternate base URL to fall back to.
 type Config struct {
 	APIHosts      []string
 	DownloadHosts []string
 	ImageHosts    []string // poster/cover CDN hosts the image proxy may fetch
+	// AltBase is an operator-set mirror for THIS source, used when the main
+	// domain is unavailable (spec 1020). Sites of this kind get blocked
+	// periodically and publish an alternate address; without this, a routine
+	// outage silently removes a source the operator is paying for.
+	//
+	// Operator-set, not discovered: a site must never be able to advertise its
+	// own next mirror and have us adopt it, because that would let it redirect
+	// our credentials at will.
+	AltBase string
 }
 
 // ImageHostAllowed reports whether host is a poster/cover host for ANY registered
