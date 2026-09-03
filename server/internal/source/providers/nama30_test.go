@@ -45,7 +45,7 @@ func TestThirtynamaParameters(t *testing.T) {
 	})
 	defer done()
 
-	p, err := thirtynama{}.Parameters(context.Background(), source.NewClient(), cfg, source.Session{})
+	p, err := nama30{}.Parameters(context.Background(), source.NewClient(), cfg, source.Session{})
 	if err != nil {
 		t.Fatalf("Parameters: %v", err)
 	}
@@ -141,7 +141,7 @@ func TestThirtynamaSearchAdvanced(t *testing.T) {
 	defer done()
 	c := source.NewClient()
 
-	res, err := thirtynama{}.Search(context.Background(), c, cfg, source.Session{},
+	res, err := nama30{}.Search(context.Background(), c, cfg, source.Session{},
 		source.SearchQuery{Page: 1, Filters: source.SearchFilters{Type: "movie", Quality: "4K"}})
 	if err != nil {
 		t.Fatalf("Search: %v", err)
@@ -180,7 +180,7 @@ func TestThirtynamaSearchQueryUsesFullSearch(t *testing.T) {
 	defer done()
 	// A type filter must NOT reach the full_search path: the provider only accepts
 	// type/all there (type/15 or type/movie return zero results).
-	_, err := thirtynama{}.Search(context.Background(), source.NewClient(), cfg, source.Session{},
+	_, err := nama30{}.Search(context.Background(), source.NewClient(), cfg, source.Session{},
 		source.SearchQuery{Query: "soul", Page: 2, Filters: source.SearchFilters{Type: "movie"}})
 	if err != nil {
 		t.Fatalf("Search: %v", err)
@@ -210,7 +210,7 @@ func TestThirtynamaFullSearchTypeFilterReFilters(t *testing.T) {
 	defer done()
 
 	// Movies filter → type/all path, series dropped.
-	res, err := thirtynama{}.Search(context.Background(), source.NewClient(), cfg, source.Session{},
+	res, err := nama30{}.Search(context.Background(), source.NewClient(), cfg, source.Session{},
 		source.SearchQuery{Query: "batman", Filters: source.SearchFilters{Type: "movie"}})
 	if err != nil {
 		t.Fatalf("Search: %v", err)
@@ -228,7 +228,7 @@ func TestThirtynamaFullSearchTypeFilterReFilters(t *testing.T) {
 	}
 
 	// The provider's numeric type code must narrow the same way.
-	res2, err := thirtynama{}.Search(context.Background(), source.NewClient(), cfg, source.Session{},
+	res2, err := nama30{}.Search(context.Background(), source.NewClient(), cfg, source.Session{},
 		source.SearchQuery{Query: "batman", Filters: source.SearchFilters{Type: "15"}})
 	if err != nil {
 		t.Fatalf("Search (code): %v", err)
@@ -238,7 +238,7 @@ func TestThirtynamaFullSearchTypeFilterReFilters(t *testing.T) {
 	}
 
 	// No type filter → all three types come back.
-	res3, err := thirtynama{}.Search(context.Background(), source.NewClient(), cfg, source.Session{},
+	res3, err := nama30{}.Search(context.Background(), source.NewClient(), cfg, source.Session{},
 		source.SearchQuery{Query: "batman"})
 	if err != nil {
 		t.Fatalf("Search (no filter): %v", err)
@@ -261,7 +261,7 @@ func TestThirtynamaVerifyUsesAdvancedSearch(t *testing.T) {
 		w.Write(fixture(t, "advanced_search.json"))
 	})
 	defer done()
-	if err := (thirtynama{}).VerifySession(context.Background(), source.NewClient(), cfg, source.Session{}); err != nil {
+	if err := (nama30{}).VerifySession(context.Background(), source.NewClient(), cfg, source.Session{}); err != nil {
 		t.Fatalf("VerifySession: %v", err)
 	}
 	if !strings.Contains(gotPath, "advanced_search") {
@@ -281,7 +281,7 @@ func TestThirtynamaShortQueryBrowses(t *testing.T) {
 		w.Write(fixture(t, "advanced_search.json"))
 	})
 	defer done()
-	_, err := thirtynama{}.Search(context.Background(), source.NewClient(), cfg, source.Session{},
+	_, err := nama30{}.Search(context.Background(), source.NewClient(), cfg, source.Session{},
 		source.SearchQuery{Query: "a"})
 	if err != nil {
 		t.Fatalf("Search: %v", err)
@@ -301,7 +301,7 @@ func TestThirtynamaToleratesLooseTypes(t *testing.T) {
 	]}}`
 	cfg, done := fakeProvider(t, func(w http.ResponseWriter, r *http.Request) { w.Write([]byte(body)) })
 	defer done()
-	res, err := thirtynama{}.Search(context.Background(), source.NewClient(), cfg, source.Session{}, source.SearchQuery{})
+	res, err := nama30{}.Search(context.Background(), source.NewClient(), cfg, source.Session{}, source.SearchQuery{})
 	if err != nil {
 		t.Fatalf("Search with a bool cover must not error: %v", err)
 	}
@@ -334,7 +334,7 @@ func TestThirtynamaDecodesHTMLEntities(t *testing.T) {
 	]}}`
 	cfg, done := fakeProvider(t, func(w http.ResponseWriter, r *http.Request) { w.Write([]byte(body)) })
 	defer done()
-	res, err := thirtynama{}.Search(context.Background(), source.NewClient(), cfg, source.Session{}, source.SearchQuery{})
+	res, err := nama30{}.Search(context.Background(), source.NewClient(), cfg, source.Session{}, source.SearchQuery{})
 	if err != nil {
 		t.Fatalf("Search: %v", err)
 	}
@@ -352,7 +352,7 @@ func TestThirtynamaFullSearchNestedShape(t *testing.T) {
 	var gotPath string
 	cfg, done := fakeProvider(t, func(w http.ResponseWriter, r *http.Request) { gotPath = r.URL.Path; w.Write([]byte(body)) })
 	defer done()
-	res, err := thirtynama{}.Search(context.Background(), source.NewClient(), cfg, source.Session{}, source.SearchQuery{Query: "matrix"})
+	res, err := nama30{}.Search(context.Background(), source.NewClient(), cfg, source.Session{}, source.SearchQuery{Query: "matrix"})
 	if err != nil {
 		t.Fatalf("full_search: %v", err)
 	}
@@ -378,7 +378,7 @@ func TestThirtynamaBrowseFiltersAndSort(t *testing.T) {
 	})
 	defer done()
 
-	_, err := thirtynama{}.Search(context.Background(), source.NewClient(), cfg, source.Session{},
+	_, err := nama30{}.Search(context.Background(), source.NewClient(), cfg, source.Session{},
 		source.SearchQuery{Sort: "favorite", Filters: source.SearchFilters{
 			Type: "series", Score: "8", Genre: []string{"3355"},
 		}})
@@ -402,7 +402,7 @@ func TestThirtynamaBrowseFiltersAndSort(t *testing.T) {
 	}
 
 	// Empty sort → Most popular default (spec 2007); movie → code 15.
-	_, _ = thirtynama{}.Search(context.Background(), source.NewClient(), cfg, source.Session{},
+	_, _ = nama30{}.Search(context.Background(), source.NewClient(), cfg, source.Session{},
 		source.SearchQuery{Filters: source.SearchFilters{Type: "movie"}})
 	dec2, _ := url.QueryUnescape(gotBody)
 	if !strings.Contains(gotPath, "orderby/favorite") {
@@ -413,7 +413,7 @@ func TestThirtynamaBrowseFiltersAndSort(t *testing.T) {
 	}
 
 	// An explicit ascending order reverses the browse.
-	_, _ = thirtynama{}.Search(context.Background(), source.NewClient(), cfg, source.Session{},
+	_, _ = nama30{}.Search(context.Background(), source.NewClient(), cfg, source.Session{},
 		source.SearchQuery{Sort: "favorite", Order: "asc"})
 	if !strings.Contains(gotPath, "orderby/favorite/order/asc") {
 		t.Fatalf("ascending path = %q, want orderby/favorite/order/asc", gotPath)
@@ -421,7 +421,7 @@ func TestThirtynamaBrowseFiltersAndSort(t *testing.T) {
 
 	// A type value that's already a provider code (from the live facet list, e.g.
 	// "15" for Movies) passes straight through — it must NOT be dropped or altered.
-	_, _ = thirtynama{}.Search(context.Background(), source.NewClient(), cfg, source.Session{},
+	_, _ = nama30{}.Search(context.Background(), source.NewClient(), cfg, source.Session{},
 		source.SearchQuery{Filters: source.SearchFilters{Type: "15"}})
 	if dec, _ := url.QueryUnescape(gotBody); !strings.Contains(dec, `"type":"15"`) {
 		t.Fatalf("numeric type code must pass through; body = %q", dec)
@@ -453,7 +453,7 @@ func TestThirtynamaYearSortSendsNoImplicitBounds(t *testing.T) {
 		{Sort: "favorite"},
 		{}, // the empty sort, whatever it resolves to
 	} {
-		_, err := thirtynama{}.Search(context.Background(), source.NewClient(), cfg, source.Session{}, q)
+		_, err := nama30{}.Search(context.Background(), source.NewClient(), cfg, source.Session{}, q)
 		if err != nil {
 			t.Fatalf("Search %+v: %v", q, err)
 		}
@@ -463,7 +463,7 @@ func TestThirtynamaYearSortSendsNoImplicitBounds(t *testing.T) {
 	}
 
 	// A user-set range still reaches the provider untouched.
-	_, _ = thirtynama{}.Search(context.Background(), source.NewClient(), cfg, source.Session{},
+	_, _ = nama30{}.Search(context.Background(), source.NewClient(), cfg, source.Session{},
 		source.SearchQuery{Sort: "year", Filters: source.SearchFilters{YearFrom: "2000", YearTo: "2010"}})
 	if !strings.Contains(body(), `"min_year":"2000"`) || !strings.Contains(body(), `"max_year":"2010"`) {
 		t.Fatalf("user-set year range must survive; body = %q", body())
@@ -483,7 +483,7 @@ func TestThirtynamaDefaultSortIsFavorite(t *testing.T) {
 	defer done()
 
 	for _, sort := range []string{"", "nonsense"} {
-		_, err := thirtynama{}.Search(context.Background(), source.NewClient(), cfg, source.Session{},
+		_, err := nama30{}.Search(context.Background(), source.NewClient(), cfg, source.Session{},
 			source.SearchQuery{Sort: sort})
 		if err != nil {
 			t.Fatalf("Search sort=%q: %v", sort, err)
@@ -507,13 +507,13 @@ func TestThirtynamaFullSearchTypeInPath(t *testing.T) {
 	defer done()
 
 	// No type → type/all.
-	_, _ = thirtynama{}.Search(context.Background(), source.NewClient(), cfg, source.Session{},
+	_, _ = nama30{}.Search(context.Background(), source.NewClient(), cfg, source.Session{},
 		source.SearchQuery{Query: "matrix"})
 	if !strings.Contains(gotPath, "full_search/type/all/") {
 		t.Fatalf("untyped text search path = %q, want type/all", gotPath)
 	}
 	// A type filter still uses type/all in the path (not type/16).
-	_, _ = thirtynama{}.Search(context.Background(), source.NewClient(), cfg, source.Session{},
+	_, _ = nama30{}.Search(context.Background(), source.NewClient(), cfg, source.Session{},
 		source.SearchQuery{Query: "matrix", Filters: source.SearchFilters{Type: "series"}})
 	if !strings.Contains(gotPath, "full_search/type/all/") {
 		t.Fatalf("typed text search path = %q, want type/all", gotPath)
@@ -535,7 +535,7 @@ func TestThirtynamaSeriesDownload(t *testing.T) {
 	defer done()
 	c := source.NewClient()
 
-	td, err := thirtynama{}.Title(context.Background(), c, cfg, source.Session{}, "12157")
+	td, err := nama30{}.Title(context.Background(), c, cfg, source.Session{}, "12157")
 	if err != nil {
 		t.Fatalf("Title: %v", err)
 	}
@@ -547,7 +547,7 @@ func TestThirtynamaSeriesDownload(t *testing.T) {
 	}
 
 	// Resolving season 1 yields one link per episode.
-	links, size, err := thirtynama{}.ResolveDownload(context.Background(), c, cfg, source.Session{}, "12157", "s1")
+	links, size, err := nama30{}.ResolveDownload(context.Background(), c, cfg, source.Session{}, "12157", "s1")
 	if err != nil {
 		t.Fatalf("ResolveDownload: %v", err)
 	}
@@ -561,7 +561,7 @@ func TestThirtynamaTitleAndResolve(t *testing.T) {
 	defer done()
 	c := source.NewClient()
 
-	td, err := thirtynama{}.Title(context.Background(), c, cfg, source.Session{}, "217561")
+	td, err := nama30{}.Title(context.Background(), c, cfg, source.Session{}, "217561")
 	if err != nil {
 		t.Fatalf("Title: %v", err)
 	}
@@ -577,7 +577,7 @@ func TestThirtynamaTitleAndResolve(t *testing.T) {
 		t.Fatal("quality label leaked a URL")
 	}
 
-	links, size, err := thirtynama{}.ResolveDownload(context.Background(), c, cfg, source.Session{}, "217561", "217561512085")
+	links, size, err := nama30{}.ResolveDownload(context.Background(), c, cfg, source.Session{}, "217561", "217561512085")
 	if err != nil {
 		t.Fatalf("ResolveDownload: %v", err)
 	}
@@ -589,7 +589,7 @@ func TestThirtynamaTitleAndResolve(t *testing.T) {
 	}
 
 	// Unknown quality id.
-	if _, _, err := (thirtynama{}).ResolveDownload(context.Background(), c, cfg, source.Session{}, "217561", "nope"); err == nil {
+	if _, _, err := (nama30{}).ResolveDownload(context.Background(), c, cfg, source.Session{}, "217561", "nope"); err == nil {
 		t.Fatal("want error for unknown quality id")
 	}
 }
@@ -600,7 +600,7 @@ func TestThirtynamaResolveRejectsDisallowedDownloadHost(t *testing.T) {
 		w.Write([]byte(`{"success":true,"result":{"download":[{"id":"q1","quality":"x","dl":"https://evil.example.com/f"}]}}`))
 	})
 	defer done()
-	_, _, err := thirtynama{}.ResolveDownload(context.Background(), source.NewClient(), cfg, source.Session{}, "1", "q1")
+	_, _, err := nama30{}.ResolveDownload(context.Background(), source.NewClient(), cfg, source.Session{}, "1", "q1")
 	if err != source.ErrHostNotAllowed {
 		t.Fatalf("err = %v, want ErrHostNotAllowed", err)
 	}
@@ -609,7 +609,7 @@ func TestThirtynamaResolveRejectsDisallowedDownloadHost(t *testing.T) {
 func TestThirtynamaVerifySession(t *testing.T) {
 	// Success.
 	cfg, done := fakeProvider(t, defaultHandler(t))
-	if err := (thirtynama{}).VerifySession(context.Background(), source.NewClient(), cfg, source.Session{}); err != nil {
+	if err := (nama30{}).VerifySession(context.Background(), source.NewClient(), cfg, source.Session{}); err != nil {
 		t.Fatalf("VerifySession ok: %v", err)
 	}
 	done()
@@ -620,7 +620,7 @@ func TestThirtynamaVerifySession(t *testing.T) {
 		w.Write([]byte(`<html>404 Not Found</html>`))
 	})
 	defer done2()
-	err := thirtynama{}.VerifySession(context.Background(), source.NewClient(), cfg2, source.Session{})
+	err := nama30{}.VerifySession(context.Background(), source.NewClient(), cfg2, source.Session{})
 	var ve *source.ErrProviderVerify
 	if err == nil || !asVerify(err, &ve) || ve.Reason != "invalid_token" {
 		t.Fatalf("verify err = %v, want ErrProviderVerify{invalid_token}", err)
@@ -632,7 +632,7 @@ func TestThirtynamaSearchExpiredTokenNeedsRefresh(t *testing.T) {
 		w.Write([]byte(`{"success":false,"msg":"unauthorized","result":null}`))
 	})
 	defer done()
-	_, err := thirtynama{}.Search(context.Background(), source.NewClient(), cfg, source.Session{},
+	_, err := nama30{}.Search(context.Background(), source.NewClient(), cfg, source.Session{},
 		source.SearchQuery{Query: "x"})
 	nr, ok := source.AsNeedsRefresh(err)
 	if !ok || nr.Layer != source.LayerToken {

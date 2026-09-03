@@ -20,6 +20,14 @@ import (
 // newStatefulRouter builds the router in stateful mode over a fresh store and a
 // NAS manager whose clients point at a fresh mock DSM.
 func newStatefulRouter(t *testing.T) (http.Handler, *store.Store) {
+	h, st, _ := newStatefulRouterWithMock(t)
+	return h, st
+}
+
+// newStatefulRouterWithMock is newStatefulRouter plus the mock DSM's base URL,
+// for tests that need to drive its /__mock/* control endpoints (e.g. seeding a
+// folder tree so Discover's ownership markers have something to find).
+func newStatefulRouterWithMock(t *testing.T) (http.Handler, *store.Store, string) {
 	t.Helper()
 	c, _ := store.NewCipher("kdf-input-for-tests")
 	st, err := store.Open(filepath.Join(t.TempDir(), "db.sqlite"), c)
@@ -31,13 +39,13 @@ func newStatefulRouter(t *testing.T) (http.Handler, *store.Store) {
 	t.Cleanup(mock.Close)
 	factory := func(base string, insecure bool) syno.Client { return syno.NewHTTPClient(mock.URL, false) }
 	d := Deps{
-		Cfg:      config.Config{MaxTorrentMB: 16, LoginPerMinute: 1000},
+		Cfg:      config.Config{MaxTorrentMB: 16, LoginPerMinute: 1000, UploadMaxMB: 8},
 		Version:  "test",
 		Stateful: true,
 		Store:    st,
 		NAS:      nas.New(st, factory),
 	}
-	return NewRouter(d), st
+	return NewRouter(d), st, mock.URL
 }
 
 func do(t *testing.T, h http.Handler, method, path, body string, headers map[string]string) *httptest.ResponseRecorder {

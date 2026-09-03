@@ -44,6 +44,7 @@ deployment: one container, no database, no volumes, nothing stored server-side.
 | `SYNO_TLS_INSECURE` | `false` | Accept a self-signed NAS certificate (outbound connection only — opt in deliberately) |
 | `PORT` | `8080` | HTTP listen port |
 | `MAX_TORRENT_MB` | `16` | Upload size cap for `.torrent` files |
+| `UPLOAD_MAX_MB` | `2048` | Size cap for a file uploaded straight into the library. Every byte streams through the container on its way to the NAS, so this is sized for episodes and sidecars; larger media is a File Station or SMB job |
 
 A `docker-compose.yml` with the same setup is included. Images are published
 multi-arch (amd64 + arm64) to `ghcr.io/zuptalo/synodl` and

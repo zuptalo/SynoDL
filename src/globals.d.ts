@@ -7,3 +7,11 @@ declare module '*.vue' {
   const component: DefineComponent<object, object, unknown>;
   export default component;
 }
+
+// Bundled source marks (spec 1021 follow-up). Vite resolves an image import to
+// its emitted URL; declaring it here keeps vue-tsc happy without pulling in the
+// whole vite/client type surface.
+declare module '*.png' {
+  const src: string;
+  export default src;
+}

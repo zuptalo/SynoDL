@@ -57,13 +57,15 @@ jobs:
       - run: go build ./...
       - run: go vet ./...
       - run: go test ./...
-      # Coverage floor on the security-critical packages: config (env contract)
-      # and syno (the DSM allowlist + error mapping). Ratchet these floors up as
+      # Coverage floor on the security-critical packages: config (env contract),
+      # syno (the DSM allowlist + error mapping), and library (the rules deciding
+      # whether a Discover title is already on the NAS — a false positive there
+      # makes a user skip a title they wanted). Ratchet these floors up as
       # coverage grows — they may rise, never regress (constitution Principle II).
       - name: Coverage floor (critical packages)
         run: |
           set -euo pipefail
-          declare -A floors=( [config]=85 [syno]=75 )
+          declare -A floors=( [config]=85 [syno]=75 [library]=85 )
           for pkg in "${!floors[@]}"; do
             go test "./internal/$pkg/" -covermode=set -coverprofile=/tmp/cover.out >/dev/null
             pct=$(go tool cover -func=/tmp/cover.out | awk '/^total:/ {print substr($3, 1, length($3)-1)}')

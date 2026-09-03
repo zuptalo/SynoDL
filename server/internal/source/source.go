@@ -177,6 +177,15 @@ type CatalogTitle struct {
 	Genres        []string `json:"genres"`
 	ComingSoon    bool     `json:"comingSoon"`
 	FreeDownload  bool     `json:"freeDownload"`
+	// InLibrary reports that a folder for this title already exists under the
+	// configured parent on the NAS (spec 0008), so Discover can mark it and the
+	// user does not download it twice.
+	//
+	// Set by the API layer from the library snapshot — drivers never populate it,
+	// exactly like SourceID/SourceName above. Omitted when false, which keeps the
+	// payload byte-identical for the majority of titles and means an absent field
+	// and `false` are the same answer: "not present, or not known".
+	InLibrary bool `json:"inLibrary,omitempty"`
 }
 
 // SearchResult is a page of results.
@@ -226,7 +235,7 @@ type TitleDetail struct {
 // are stateless: all secrets/config arrive per call so the same driver serves
 // any configured instance.
 type Provider interface {
-	// Kind is the stable registry key (e.g. "thirtynama").
+	// Kind is the stable registry key (e.g. "30nama").
 	Kind() string
 	// DisplayName is the human name offered when an admin adds this kind.
 	DisplayName() string

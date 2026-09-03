@@ -24,6 +24,9 @@ const (
 	apiStat     = "SYNO.DownloadStation.Statistic"
 	apiFSList   = "SYNO.FileStation.List"
 	apiFSCreate = "SYNO.FileStation.CreateFolder"
+	// The one API that writes file CONTENT to the NAS (spec 1022). Everything
+	// else here reads, or creates an empty folder.
+	apiFSUpload = "SYNO.FileStation.Upload"
 )
 
 // maxSupported caps the API version we negotiate: we speak min(our max, the
@@ -35,6 +38,7 @@ var maxSupported = map[string]int{
 	apiStat:     1,
 	apiFSList:   2,
 	apiFSCreate: 2,
+	apiFSUpload: 2,
 }
 
 // HTTPClient is the real DSM client. It is safe for concurrent use; the only
@@ -43,6 +47,11 @@ var maxSupported = map[string]int{
 type HTTPClient struct {
 	base string // e.g. https://nas.local:5001
 	hc   *http.Client
+	// A second client for uploads. hc carries a 60s timeout, which is right for
+	// the small calls everything else makes and would sever a multi-gigabyte
+	// upload mid-transfer. This one has no deadline of its own; the request
+	// context governs it, so a cancelled or dropped upload still stops promptly.
+	uploadHC *http.Client
 
 	mu   sync.Mutex
 	apis map[string]endpoint
@@ -66,9 +75,11 @@ func NewHTTPClient(baseURL string, tlsInsecure bool) *HTTPClient {
 		hc: &http.Client{
 			Transport: transport,
 			// Downloads run on the NAS, not through us, so every proxied call is
-			// small; a generous timeout still protects against a hung NAS.
+			// small; a generous timeout still protects against a hung NAS. The
+			// one exception is an upload, which uses uploadHC below.
 			Timeout: 60 * time.Second,
 		},
+		uploadHC: &http.Client{Transport: transport},
 	}
 }
 
@@ -410,4 +421,72 @@ func toFolders(files []dsmFile) []Folder {
 		out = append(out, Folder{Name: f.Name, Path: f.Path})
 	}
 	return out
+}
+
+// UploadFile streams a file into a folder on the NAS (spec 1022).
+//
+// The body is piped straight from the caller's reader into the multipart
+// request, so a two-gigabyte file never exists in this process's memory — the
+// difference from CreateTaskFile above, which buffers because a .torrent is
+// kilobytes. DSM requires the file part LAST, after the fields.
+//
+// `overwrite` is deliberately NOT sent. DSM's default is to fail when the file
+// already exists, which is what we want: a collision must be reported, never
+// resolved by silently replacing somebody's file or silently dropping the
+// upload.
+//
+// The file name is used exactly as given. Callers MUST have validated it as a
+// single path segment first (library.ValidUploadName) — it is client-supplied
+// text that becomes part of a path on the NAS.
+func (c *HTTPClient) UploadFile(ctx context.Context, sid, destFolder, filename string, body io.Reader) error {
+	ep, err := c.endpointFor(ctx, apiFSUpload)
+	if err != nil {
+		return err
+	}
+	fields := url.Values{
+		"api":            {apiFSUpload},
+		"version":        {fmt.Sprint(min(maxSupported[apiFSUpload], ep.MaxVersion))},
+		"method":         {"upload"},
+		"_sid":           {sid},
+		"path":           {destFolder},
+		"create_parents": {"false"},
+	}
+
+	pr, pw := io.Pipe()
+	mw := multipart.NewWriter(pw)
+	go func() {
+		// Whatever happens, the writer end closes, so the request body ends and
+		// the HTTP call cannot hang waiting for more.
+		var werr error
+		defer func() { _ = pw.CloseWithError(werr) }()
+		for k, vs := range fields {
+			for _, v := range vs {
+				if werr = mw.WriteField(k, v); werr != nil {
+					return
+				}
+			}
+		}
+		var part io.Writer
+		if part, werr = mw.CreateFormFile("file", filename); werr != nil {
+			return
+		}
+		if _, werr = io.Copy(part, body); werr != nil {
+			return
+		}
+		werr = mw.Close()
+	}()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.base+"/webapi/"+ep.Path, pr)
+	if err != nil {
+		_ = pr.CloseWithError(err)
+		return err
+	}
+	req.Header.Set("Content-Type", mw.FormDataContentType())
+	resp, err := c.uploadHC.Do(req)
+	if err != nil {
+		_ = pr.CloseWithError(err)
+		return &Error{Kind: KindNAS, API: apiFSUpload}
+	}
+	defer resp.Body.Close()
+	return decodeEnvelope(resp.Body, apiFSUpload, nil)
 }

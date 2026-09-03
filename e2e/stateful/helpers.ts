@@ -74,7 +74,7 @@ export async function addSource(
   token: string,
   displayName: string,
   sortOrder: number,
-  kind: 'zarfilm' | 'thirtynama' = 'zarfilm',
+  kind: 'zarfilm' | '30nama' = 'zarfilm',
 ): Promise<number> {
   const res = await api(token, '/v1/source/providers', {
     method: 'POST',
@@ -120,4 +120,71 @@ export async function login(page: Page): Promise<void> {
 export async function gotoDiscover(page: Page): Promise<void> {
   await page.goto('/tabs/browser');
   await expect(page.locator('.card, .state').first()).toBeVisible({ timeout: 30_000 });
+}
+
+/**
+ * Seed folders into the mock NAS's tree, so a spec can set up "this title is
+ * already downloaded" (spec 0008). Parents are created implicitly, and seeding
+ * is additive — the fixture folders stay.
+ */
+export async function seedLibrary(
+  folders: Record<string, string[]>,
+  reset = true,
+): Promise<void> {
+  const res = await mockFetch('/__mock/library', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ reset, folders }),
+  });
+  if (!res.ok) throw new Error(`seed library failed: ${res.status}`);
+}
+
+/**
+ * Force the ownership snapshot to rebuild.
+ *
+ * The server holds its reading of the NAS for five minutes (FR-010), so a spec
+ * that seeds folders AFTER a search has already warmed the snapshot would
+ * otherwise be asserting against a stale one. Touching a source is the same
+ * invalidation a real configuration change triggers (FR-008a); a real user gets
+ * the same effect by sending a download, or by waiting out the TTL.
+ */
+export async function refreshLibrary(token: string, sourceId: number, displayName: string): Promise<void> {
+  const res = await api(token, `/v1/source/providers/${sourceId}`, {
+    method: 'PUT',
+    body: JSON.stringify({
+      kind: 'zarfilm',
+      displayName,
+      moviesParent: 'movie',
+      tvParent: 'tv-show',
+      session: {},
+    }),
+  });
+  if (!res.ok) throw new Error(`refresh library failed: ${res.status} ${await res.text()}`);
+}
+
+/** One page of catalog results, straight from the API. */
+export async function apiSearch(
+  token: string,
+  body: Record<string, unknown> = { page: 1 },
+): Promise<Array<{ id: string; title: string; type: string; inLibrary?: boolean }>> {
+  const res = await api(token, '/v1/source/search', { method: 'POST', body: JSON.stringify(body) });
+  if (!res.ok) throw new Error(`search failed: ${res.status} ${await res.text()}`);
+  return ((await res.json()) as { items: Array<{ id: string; title: string; type: string; inLibrary?: boolean }> })
+    .items;
+}
+
+/**
+ * The folder name SynoDL would create for a title — a port of sanitizeFolderName
+ * in server/internal/api/source_handlers.go. Kept here so a spec can seed the
+ * exact folder a real send would have produced.
+ */
+export function folderNameFor(title: string): string {
+  return title
+    .replace(/[/\\:*?"<>|\x00-\x1f]/g, ' ')
+    .split(/\s+/)
+    .filter(Boolean)
+    .join(' ')
+    .replace(/^[ .]+|[ .]+$/g, '')
+    .slice(0, 120)
+    .trim();
 }

@@ -30,9 +30,9 @@ func TestLiveThirtynama(t *testing.T) {
 			"c_app_version": os.Getenv("LIVE_APPVER"),
 		},
 	}
-	cfg := thirtynama{}.Hosts()
+	cfg := nama30{}.Hosts()
 	c := source.NewClient()
-	p := thirtynama{}
+	p := nama30{}
 	ctx := context.Background()
 
 	if err := p.VerifySession(ctx, c, cfg, s); err != nil {

@@ -1,6 +1,6 @@
 /** US3 — Add a download: URLs, torrent upload, destination picker, caps. */
 import { expect, test } from '@playwright/test';
-import { login, resetMock, seedTasks } from './helpers';
+import { login, openNewTask, resetMock, seedTasks } from './helpers';
 
 test.beforeEach(async () => {
   await resetMock();
@@ -9,7 +9,7 @@ test.beforeEach(async () => {
 
 test('multi-URL input counts links, creates one task per URL with the picked destination', async ({ page }) => {
   await login(page);
-  await page.getByTestId('newtask-open').click();
+  await openNewTask(page);
 
   await page
     .getByTestId('newtask-urls')
@@ -39,7 +39,7 @@ test('multi-URL input counts links, creates one task per URL with the picked des
 
 test('a large mixed-delimiter paste is parsed and added in batches of ten', async ({ page }) => {
   await login(page);
-  await page.getByTestId('newtask-open').click();
+  await openNewTask(page);
 
   // 12 links separated by a mix of commas, semicolons, spaces, tabs, newlines.
   const urls = Array.from({ length: 12 }, (_, i) => `http://mirror.example/file${i}.iso`);
@@ -57,7 +57,7 @@ test('a large mixed-delimiter paste is parsed and added in batches of ten', asyn
 
 test('cancel leaves the destination picker without changing the destination', async ({ page }) => {
   await login(page);
-  await page.getByTestId('newtask-open').click();
+  await openNewTask(page);
   await page.getByTestId('newtask-destination').click();
   await expect(page.getByTestId('folder-item').first()).toBeVisible();
   await page.getByTestId('folder-cancel').click();
@@ -66,7 +66,7 @@ test('cancel leaves the destination picker without changing the destination', as
 
 test('create a subfolder inside a folder and select it as the destination', async ({ page }) => {
   await login(page);
-  await page.getByTestId('newtask-open').click();
+  await openNewTask(page);
   await page.getByTestId('newtask-destination').click();
   await page.getByTestId('folder-item').filter({ hasText: 'movie' }).click();
 
@@ -85,7 +85,7 @@ test('create a subfolder inside a folder and select it as the destination', asyn
 
 test('the destination picker reopens inside the current destination, not root', async ({ page }) => {
   await login(page);
-  await page.getByTestId('newtask-open').click();
+  await openNewTask(page);
   await page.getByTestId('newtask-destination').click();
   await page.getByTestId('folder-item').filter({ hasText: 'movie' }).click();
   await page.getByTestId('folder-confirm').click();
@@ -98,7 +98,7 @@ test('the destination picker reopens inside the current destination, not root', 
 
 test('create a folder in the current destination right from the task screen', async ({ page }) => {
   await login(page);
-  await page.getByTestId('newtask-open').click();
+  await openNewTask(page);
   await page.getByTestId('newtask-destination').click();
   await page.getByTestId('folder-item').filter({ hasText: 'movie' }).click();
   await page.getByTestId('folder-confirm').click();
@@ -114,7 +114,7 @@ test('create a folder in the current destination right from the task screen', as
 
 test('the folder picker search filters by a partial name match anywhere', async ({ page }) => {
   await login(page);
-  await page.getByTestId('newtask-open').click();
+  await openNewTask(page);
   await page.getByTestId('newtask-destination').click();
   await expect(page.getByTestId('folder-item').first()).toBeVisible();
 
@@ -132,7 +132,7 @@ test('the folder picker search filters by a partial name match anywhere', async 
 
 test('favoriting a folder gives a one-tap quick-select chip', async ({ page }) => {
   await login(page);
-  await page.getByTestId('newtask-open').click();
+  await openNewTask(page);
   await page.getByTestId('newtask-destination').click();
   await page.getByTestId('folder-item').filter({ hasText: 'movie' }).click();
   await page.getByTestId('folder-favorite').click();
@@ -150,7 +150,7 @@ test('paste appends bulk URLs (never glued into one) and Clear empties the box',
 }) => {
   await context.grantPermissions(['clipboard-read', 'clipboard-write']);
   await login(page);
-  await page.getByTestId('newtask-open').click();
+  await openNewTask(page);
 
   // First bulk of 2.
   await page.evaluate(() => navigator.clipboard.writeText('http://a/1.iso\nhttp://a/2.iso'));
@@ -173,7 +173,7 @@ test('paste appends bulk URLs (never glued into one) and Clear empties the box',
 
 test('junk-only input keeps the confirm button disabled', async ({ page }) => {
   await login(page);
-  await page.getByTestId('newtask-open').click();
+  await openNewTask(page);
   await page.getByTestId('newtask-urls').locator('textarea').fill('definitely not a link');
   await expect(page.getByTestId('newtask-count')).toHaveText('0 links detected');
   // ion-button is a custom element: Playwright's toBeDisabled only understands
@@ -183,7 +183,7 @@ test('junk-only input keeps the confirm button disabled', async ({ page }) => {
 
 test('a .torrent upload becomes a task named after the file', async ({ page }) => {
   await login(page);
-  await page.getByTestId('newtask-open').click();
+  await openNewTask(page);
   await page.getByTestId('newtask-file').setInputFiles({
     name: 'great-distro.torrent',
     mimeType: 'application/x-bittorrent',
@@ -196,7 +196,7 @@ test('a .torrent upload becomes a task named after the file', async ({ page }) =
 
 test('an oversized torrent is refused with a clear message', async ({ page }) => {
   await login(page);
-  await page.getByTestId('newtask-open').click();
+  await openNewTask(page);
   // The e2e server runs the default 16 MiB cap; send 17 MiB.
   await page.getByTestId('newtask-file').setInputFiles({
     name: 'huge.torrent',

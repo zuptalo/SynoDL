@@ -1,0 +1,594 @@
+[
+ {
+  "op": "move",
+  "parent": "/movie",
+  "dest": "/movie/Crime 101",
+  "files": [
+   "Crime_101_2026_10bit_DV_HDR_2160p_x265_BrRip_8CH_PSA_30NAMA-backdrop.jpg"
+  ]
+ },
+ {
+  "op": "move",
+  "parent": "/movie",
+  "dest": "/movie/Crime 101",
+  "files": [
+   "Crime_101_2026_10bit_DV_HDR_2160p_x265_BrRip_8CH_PSA_30NAMA-landscape.jpg"
+  ]
+ },
+ {
+  "op": "move",
+  "parent": "/movie",
+  "dest": "/movie/Crime 101",
+  "files": [
+   "Crime_101_2026_10bit_DV_HDR_2160p_x265_BrRip_8CH_PSA_30NAMA-logo.png"
+  ]
+ },
+ {
+  "op": "move",
+  "parent": "/movie",
+  "dest": "/movie/Crime 101",
+  "files": [
+   "Crime_101_2026_10bit_DV_HDR_2160p_x265_BrRip_8CH_PSA_30NAMA-poster.jpg"
+  ]
+ },
+ {
+  "op": "move",
+  "parent": "/movie",
+  "dest": "/movie/Crime 101",
+  "files": [
+   "Crime_101_2026_10bit_DV_HDR_2160p_x265_BrRip_8CH_PSA_30NAMA.fas.srt"
+  ]
+ },
+ {
+  "op": "move",
+  "parent": "/movie",
+  "dest": "/movie/Crime 101",
+  "files": [
+   "Crime_101_2026_10bit_DV_HDR_2160p_x265_BrRip_8CH_PSA_30NAMA.mkv"
+  ]
+ },
+ {
+  "op": "move",
+  "parent": "/movie",
+  "dest": "/movie/Crime 101",
+  "files": [
+   "Crime_101_2026_10bit_DV_HDR_2160p_x265_BrRip_8CH_PSA_30NAMA.nfo"
+  ]
+ },
+ {
+  "op": "move",
+  "parent": "/movie",
+  "dest": "/movie/Hoppers (2026)",
+  "files": [
+   "Hoppers_2026_10bit_DV_HDR_2160p_x265_BrRip_8CH_PSA_30NAMA-backdrop.jpg"
+  ]
+ },
+ {
+  "op": "move",
+  "parent": "/movie",
+  "dest": "/movie/Hoppers (2026)",
+  "files": [
+   "Hoppers_2026_10bit_DV_HDR_2160p_x265_BrRip_8CH_PSA_30NAMA-landscape.jpg"
+  ]
+ },
+ {
+  "op": "move",
+  "parent": "/movie",
+  "dest": "/movie/Hoppers (2026)",
+  "files": [
+   "Hoppers_2026_10bit_DV_HDR_2160p_x265_BrRip_8CH_PSA_30NAMA-logo.png"
+  ]
+ },
+ {
+  "op": "move",
+  "parent": "/movie",
+  "dest": "/movie/Hoppers (2026)",
+  "files": [
+   "Hoppers_2026_10bit_DV_HDR_2160p_x265_BrRip_8CH_PSA_30NAMA-poster.jpg"
+  ]
+ },
+ {
+  "op": "move",
+  "parent": "/movie",
+  "dest": "/movie/Hoppers (2026)",
+  "files": [
+   "Hoppers_2026_10bit_DV_HDR_2160p_x265_BrRip_8CH_PSA_30NAMA.mkv"
+  ]
+ },
+ {
+  "op": "move",
+  "parent": "/movie",
+  "dest": "/movie/Hoppers (2026)",
+  "files": [
+   "Hoppers_2026_10bit_DV_HDR_2160p_x265_BrRip_8CH_PSA_30NAMA.nfo"
+  ]
+ },
+ {
+  "op": "move",
+  "parent": "/movie",
+  "dest": "/movie/I Can Only Imagine 2 (2026)",
+  "files": [
+   "I_Can_Only_Imagine_2_2026_10bit_2160p_x265_WEB-DL_6CH_YIFY_30NAMA-backdrop.jpg"
+  ]
+ },
+ {
+  "op": "move",
+  "parent": "/movie",
+  "dest": "/movie/I Can Only Imagine 2 (2026)",
+  "files": [
+   "I_Can_Only_Imagine_2_2026_10bit_2160p_x265_WEB-DL_6CH_YIFY_30NAMA-landscape.jpg"
+  ]
+ },
+ {
+  "op": "move",
+  "parent": "/movie",
+  "dest": "/movie/I Can Only Imagine 2 (2026)",
+  "files": [
+   "I_Can_Only_Imagine_2_2026_10bit_2160p_x265_WEB-DL_6CH_YIFY_30NAMA-logo.png"
+  ]
+ },
+ {
+  "op": "move",
+  "parent": "/movie",
+  "dest": "/movie/I Can Only Imagine 2 (2026)",
+  "files": [
+   "I_Can_Only_Imagine_2_2026_10bit_2160p_x265_WEB-DL_6CH_YIFY_30NAMA-poster.jpg"
+  ]
+ },
+ {
+  "op": "move",
+  "parent": "/movie",
+  "dest": "/movie/I Can Only Imagine 2 (2026)",
+  "files": [
+   "I_Can_Only_Imagine_2_2026_10bit_2160p_x265_WEB-DL_6CH_YIFY_30NAMA.mkv"
+  ]
+ },
+ {
+  "op": "move",
+  "parent": "/movie",
+  "dest": "/movie/I Can Only Imagine 2 (2026)",
+  "files": [
+   "I_Can_Only_Imagine_2_2026_10bit_2160p_x265_WEB-DL_6CH_YIFY_30NAMA.nfo"
+  ]
+ },
+ {
+  "op": "move",
+  "parent": "/movie",
+  "dest": "/movie/Michael (2026)",
+  "files": [
+   "Michael_2026_10bit_DV_HDR_2160p_x265_BrRip_6CH_PSA_30NAMA-backdrop.jpg"
+  ]
+ },
+ {
+  "op": "move",
+  "parent": "/movie",
+  "dest": "/movie/Michael (2026)",
+  "files": [
+   "Michael_2026_10bit_DV_HDR_2160p_x265_BrRip_6CH_PSA_30NAMA-landscape.jpg"
+  ]
+ },
+ {
+  "op": "move",
+  "parent": "/movie",
+  "dest": "/movie/Michael (2026)",
+  "files": [
+   "Michael_2026_10bit_DV_HDR_2160p_x265_BrRip_6CH_PSA_30NAMA-logo.png"
+  ]
+ },
+ {
+  "op": "move",
+  "parent": "/movie",
+  "dest": "/movie/Michael (2026)",
+  "files": [
+   "Michael_2026_10bit_DV_HDR_2160p_x265_BrRip_6CH_PSA_30NAMA-poster.jpg"
+  ]
+ },
+ {
+  "op": "move",
+  "parent": "/movie",
+  "dest": "/movie/Michael (2026)",
+  "files": [
+   "Michael_2026_10bit_DV_HDR_2160p_x265_BrRip_6CH_PSA_30NAMA.fas.srt"
+  ]
+ },
+ {
+  "op": "move",
+  "parent": "/movie",
+  "dest": "/movie/Michael (2026)",
+  "files": [
+   "Michael_2026_10bit_DV_HDR_2160p_x265_BrRip_6CH_PSA_30NAMA.mkv"
+  ]
+ },
+ {
+  "op": "move",
+  "parent": "/movie",
+  "dest": "/movie/Michael (2026)",
+  "files": [
+   "Michael_2026_10bit_DV_HDR_2160p_x265_BrRip_6CH_PSA_30NAMA.nfo"
+  ]
+ },
+ {
+  "op": "move",
+  "parent": "/movie",
+  "dest": "/movie/No Good Men (2026)",
+  "files": [
+   "No_Good_Men_2026_1080p_WEB-DL_AAC_YIFY_30NAMA-backdrop.jpg"
+  ]
+ },
+ {
+  "op": "move",
+  "parent": "/movie",
+  "dest": "/movie/No Good Men (2026)",
+  "files": [
+   "No_Good_Men_2026_1080p_WEB-DL_AAC_YIFY_30NAMA-poster.jpg"
+  ]
+ },
+ {
+  "op": "move",
+  "parent": "/movie",
+  "dest": "/movie/No Good Men (2026)",
+  "files": [
+   "No_Good_Men_2026_1080p_WEB-DL_AAC_YIFY_30NAMA.eng.srt"
+  ]
+ },
+ {
+  "op": "move",
+  "parent": "/movie",
+  "dest": "/movie/No Good Men (2026)",
+  "files": [
+   "No_Good_Men_2026_1080p_WEB-DL_AAC_YIFY_30NAMA.mp4"
+  ]
+ },
+ {
+  "op": "move",
+  "parent": "/movie",
+  "dest": "/movie/No Good Men (2026)",
+  "files": [
+   "No_Good_Men_2026_1080p_WEB-DL_AAC_YIFY_30NAMA.nfo"
+  ]
+ },
+ {
+  "op": "move",
+  "parent": "/movie",
+  "dest": "/movie/Remarkably Bright Creatures (2026)",
+  "files": [
+   "Remarkably_Bright_Creatures_2026_10bit_2160p_x265_WEB-DL_6CH_YIFY_30NAMA-backdrop.jpg"
+  ]
+ },
+ {
+  "op": "move",
+  "parent": "/movie",
+  "dest": "/movie/Remarkably Bright Creatures (2026)",
+  "files": [
+   "Remarkably_Bright_Creatures_2026_10bit_2160p_x265_WEB-DL_6CH_YIFY_30NAMA-landscape.jpg"
+  ]
+ },
+ {
+  "op": "move",
+  "parent": "/movie",
+  "dest": "/movie/Remarkably Bright Creatures (2026)",
+  "files": [
+   "Remarkably_Bright_Creatures_2026_10bit_2160p_x265_WEB-DL_6CH_YIFY_30NAMA-logo.png"
+  ]
+ },
+ {
+  "op": "move",
+  "parent": "/movie",
+  "dest": "/movie/Remarkably Bright Creatures (2026)",
+  "files": [
+   "Remarkably_Bright_Creatures_2026_10bit_2160p_x265_WEB-DL_6CH_YIFY_30NAMA-poster.jpg"
+  ]
+ },
+ {
+  "op": "move",
+  "parent": "/movie",
+  "dest": "/movie/Remarkably Bright Creatures (2026)",
+  "files": [
+   "Remarkably_Bright_Creatures_2026_10bit_2160p_x265_WEB-DL_6CH_YIFY_30NAMA.mkv"
+  ]
+ },
+ {
+  "op": "move",
+  "parent": "/movie",
+  "dest": "/movie/Remarkably Bright Creatures (2026)",
+  "files": [
+   "Remarkably_Bright_Creatures_2026_10bit_2160p_x265_WEB-DL_6CH_YIFY_30NAMA.nfo"
+  ]
+ },
+ {
+  "op": "move",
+  "parent": "/movie",
+  "dest": "/movie/Skyking (2026)",
+  "files": [
+   "Skyking_2026_1080p_WEB-DL_6CH_YIFY_30NAMA(1)-backdrop.jpg"
+  ]
+ },
+ {
+  "op": "move",
+  "parent": "/movie",
+  "dest": "/movie/Skyking (2026)",
+  "files": [
+   "Skyking_2026_1080p_WEB-DL_6CH_YIFY_30NAMA(1)-landscape.jpg"
+  ]
+ },
+ {
+  "op": "move",
+  "parent": "/movie",
+  "dest": "/movie/Skyking (2026)",
+  "files": [
+   "Skyking_2026_1080p_WEB-DL_6CH_YIFY_30NAMA(1)-logo.png"
+  ]
+ },
+ {
+  "op": "move",
+  "parent": "/movie",
+  "dest": "/movie/Skyking (2026)",
+  "files": [
+   "Skyking_2026_1080p_WEB-DL_6CH_YIFY_30NAMA(1)-poster.jpg"
+  ]
+ },
+ {
+  "op": "move",
+  "parent": "/movie",
+  "dest": "/movie/Skyking (2026)",
+  "files": [
+   "Skyking_2026_1080p_WEB-DL_6CH_YIFY_30NAMA(1).eng.sdh.srt"
+  ]
+ },
+ {
+  "op": "move",
+  "parent": "/movie",
+  "dest": "/movie/Skyking (2026)",
+  "files": [
+   "Skyking_2026_1080p_WEB-DL_6CH_YIFY_30NAMA(1).mp4"
+  ]
+ },
+ {
+  "op": "move",
+  "parent": "/movie",
+  "dest": "/movie/Skyking (2026)",
+  "files": [
+   "Skyking_2026_1080p_WEB-DL_6CH_YIFY_30NAMA(1).nfo"
+  ]
+ },
+ {
+  "op": "move",
+  "parent": "/movie",
+  "dest": "/movie/Skyking (2026)",
+  "files": [
+   "Skyking_2026_1080p_WEB-DL_6CH_YIFY_30NAMA-backdrop.jpg"
+  ]
+ },
+ {
+  "op": "move",
+  "parent": "/movie",
+  "dest": "/movie/Skyking (2026)",
+  "files": [
+   "Skyking_2026_1080p_WEB-DL_6CH_YIFY_30NAMA-landscape.jpg"
+  ]
+ },
+ {
+  "op": "move",
+  "parent": "/movie",
+  "dest": "/movie/Skyking (2026)",
+  "files": [
+   "Skyking_2026_1080p_WEB-DL_6CH_YIFY_30NAMA-logo.png"
+  ]
+ },
+ {
+  "op": "move",
+  "parent": "/movie",
+  "dest": "/movie/Skyking (2026)",
+  "files": [
+   "Skyking_2026_1080p_WEB-DL_6CH_YIFY_30NAMA-poster.jpg"
+  ]
+ },
+ {
+  "op": "move",
+  "parent": "/movie",
+  "dest": "/movie/Skyking (2026)",
+  "files": [
+   "Skyking_2026_1080p_WEB-DL_6CH_YIFY_30NAMA.eng.sdh.srt"
+  ]
+ },
+ {
+  "op": "move",
+  "parent": "/movie",
+  "dest": "/movie/Skyking (2026)",
+  "files": [
+   "Skyking_2026_1080p_WEB-DL_6CH_YIFY_30NAMA.mp4"
+  ]
+ },
+ {
+  "op": "move",
+  "parent": "/movie",
+  "dest": "/movie/Skyking (2026)",
+  "files": [
+   "Skyking_2026_1080p_WEB-DL_6CH_YIFY_30NAMA.nfo"
+  ]
+ },
+ {
+  "op": "move",
+  "parent": "/movie",
+  "dest": "/movie/The Groove Under the Groove (2026)",
+  "files": [
+   "The_Groove_Under_the_Groove_2026_10bit_1080p_x265_WEB-DL_30nama_30NAMA-backdrop.jpg"
+  ]
+ },
+ {
+  "op": "move",
+  "parent": "/movie",
+  "dest": "/movie/The Groove Under the Groove (2026)",
+  "files": [
+   "The_Groove_Under_the_Groove_2026_10bit_1080p_x265_WEB-DL_30nama_30NAMA-logo.png"
+  ]
+ },
+ {
+  "op": "move",
+  "parent": "/movie",
+  "dest": "/movie/The Groove Under the Groove (2026)",
+  "files": [
+   "The_Groove_Under_the_Groove_2026_10bit_1080p_x265_WEB-DL_30nama_30NAMA-poster.jpg"
+  ]
+ },
+ {
+  "op": "move",
+  "parent": "/movie",
+  "dest": "/movie/The Groove Under the Groove (2026)",
+  "files": [
+   "The_Groove_Under_the_Groove_2026_10bit_1080p_x265_WEB-DL_30nama_30NAMA.mkv"
+  ]
+ },
+ {
+  "op": "move",
+  "parent": "/movie",
+  "dest": "/movie/The Groove Under the Groove (2026)",
+  "files": [
+   "The_Groove_Under_the_Groove_2026_10bit_1080p_x265_WEB-DL_30nama_30NAMA.nfo"
+  ]
+ },
+ {
+  "op": "move",
+  "parent": "/tv-show",
+  "dest": "/tv-show/Whiskey on the Rocks/Season 01",
+  "files": [
+   "Whiskey_on_the_rocks_S01E01_1080p_WEB-DL_30nama_30NAMA-thumb.jpg"
+  ]
+ },
+ {
+  "op": "move",
+  "parent": "/tv-show",
+  "dest": "/tv-show/Whiskey on the Rocks/Season 01",
+  "files": [
+   "Whiskey_on_the_rocks_S01E01_1080p_WEB-DL_30nama_30NAMA.mkv"
+  ]
+ },
+ {
+  "op": "move",
+  "parent": "/tv-show",
+  "dest": "/tv-show/Whiskey on the Rocks/Season 01",
+  "files": [
+   "Whiskey_on_the_rocks_S01E01_1080p_WEB-DL_30nama_30NAMA.nfo"
+  ]
+ },
+ {
+  "op": "move",
+  "parent": "/tv-show",
+  "dest": "/tv-show/Whiskey on the Rocks/Season 01",
+  "files": [
+   "Whiskey_on_the_rocks_S01E02_1080p_WEB-DL_30nama_30NAMA-thumb.jpg"
+  ]
+ },
+ {
+  "op": "move",
+  "parent": "/tv-show",
+  "dest": "/tv-show/Whiskey on the Rocks/Season 01",
+  "files": [
+   "Whiskey_on_the_rocks_S01E02_1080p_WEB-DL_30nama_30NAMA.mkv"
+  ]
+ },
+ {
+  "op": "move",
+  "parent": "/tv-show",
+  "dest": "/tv-show/Whiskey on the Rocks/Season 01",
+  "files": [
+   "Whiskey_on_the_rocks_S01E02_1080p_WEB-DL_30nama_30NAMA.nfo"
+  ]
+ },
+ {
+  "op": "move",
+  "parent": "/tv-show",
+  "dest": "/tv-show/Whiskey on the Rocks/Season 01",
+  "files": [
+   "Whiskey_on_the_rocks_S01E03_1080p_WEB-DL_30nama_30NAMA-thumb.jpg"
+  ]
+ },
+ {
+  "op": "move",
+  "parent": "/tv-show",
+  "dest": "/tv-show/Whiskey on the Rocks/Season 01",
+  "files": [
+   "Whiskey_on_the_rocks_S01E03_1080p_WEB-DL_30nama_30NAMA.mkv"
+  ]
+ },
+ {
+  "op": "move",
+  "parent": "/tv-show",
+  "dest": "/tv-show/Whiskey on the Rocks/Season 01",
+  "files": [
+   "Whiskey_on_the_rocks_S01E03_1080p_WEB-DL_30nama_30NAMA.nfo"
+  ]
+ },
+ {
+  "op": "move",
+  "parent": "/tv-show",
+  "dest": "/tv-show/Whiskey on the Rocks/Season 01",
+  "files": [
+   "Whiskey_on_the_rocks_S01E04_1080p_WEB-DL_30nama_30NAMA-thumb.jpg"
+  ]
+ },
+ {
+  "op": "move",
+  "parent": "/tv-show",
+  "dest": "/tv-show/Whiskey on the Rocks/Season 01",
+  "files": [
+   "Whiskey_on_the_rocks_S01E04_1080p_WEB-DL_30nama_30NAMA.mkv"
+  ]
+ },
+ {
+  "op": "move",
+  "parent": "/tv-show",
+  "dest": "/tv-show/Whiskey on the Rocks/Season 01",
+  "files": [
+   "Whiskey_on_the_rocks_S01E04_1080p_WEB-DL_30nama_30NAMA.nfo"
+  ]
+ },
+ {
+  "op": "move",
+  "parent": "/tv-show",
+  "dest": "/tv-show/Whiskey on the Rocks/Season 01",
+  "files": [
+   "Whiskey_on_the_rocks_S01E05_1080p_WEB-DL_30nama_30NAMA-thumb.jpg"
+  ]
+ },
+ {
+  "op": "move",
+  "parent": "/tv-show",
+  "dest": "/tv-show/Whiskey on the Rocks/Season 01",
+  "files": [
+   "Whiskey_on_the_rocks_S01E05_1080p_WEB-DL_30nama_30NAMA.mkv"
+  ]
+ },
+ {
+  "op": "move",
+  "parent": "/tv-show",
+  "dest": "/tv-show/Whiskey on the Rocks/Season 01",
+  "files": [
+   "Whiskey_on_the_rocks_S01E05_1080p_WEB-DL_30nama_30NAMA.nfo"
+  ]
+ },
+ {
+  "op": "move",
+  "parent": "/tv-show",
+  "dest": "/tv-show/Whiskey on the Rocks/Season 01",
+  "files": [
+   "Whiskey_on_the_rocks_S01E06_1080p_WEB-DL_30nama_30NAMA-thumb.jpg"
+  ]
+ },
+ {
+  "op": "move",
+  "parent": "/tv-show",
+  "dest": "/tv-show/Whiskey on the Rocks/Season 01",
+  "files": [
+   "Whiskey_on_the_rocks_S01E06_1080p_WEB-DL_30nama_30NAMA.mkv"
+  ]
+ },
+ {
+  "op": "move",
+  "parent": "/tv-show",
+  "dest": "/tv-show/Whiskey on the Rocks/Season 01",
+  "files": [
+   "Whiskey_on_the_rocks_S01E06_1080p_WEB-DL_30nama_30NAMA.nfo"
+  ]
+ }
+]

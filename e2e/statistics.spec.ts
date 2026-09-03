@@ -13,7 +13,7 @@
  * stateful e2e harness (tracked separately).
  */
 import { expect, test } from '@playwright/test';
-import { login, resetMock } from './helpers';
+import { login, openNewTask, resetMock } from './helpers';
 
 test.beforeEach(async () => {
   await resetMock();
@@ -30,7 +30,7 @@ test('the Statistics section is hidden in stateless mode', async ({ page }) => {
 
 test('the new-task category picker is hidden in stateless mode', async ({ page }) => {
   await login(page); // lands on Tasks
-  await page.getByTestId('newtask-open').click();
+  await openNewTask(page);
 
   // The add-task modal opens (URL box present) but carries no category picker,
   // since categories only feed the stateful statistics.

@@ -25,7 +25,7 @@ test('with one source the picker stays hidden and Discover is unchanged', async 
   // FR-013: a selector with nothing to select is not shown.
   await expect(page.locator('.source-select')).toHaveCount(0);
   // FR-012a: nor is a source label, which would be noise on every card.
-  await expect(page.locator('.source-tag')).toHaveCount(0);
+  await expect(page.locator('.src-mark')).toHaveCount(0);
 });
 
 test('two sources are combined by default, interleaved and labelled', async ({ page }) => {
@@ -41,11 +41,13 @@ test('two sources are combined by default, interleaved and labelled', async ({ p
   await expect(page.locator('.source-select')).toBeVisible();
   await expect(page.locator('.source-select')).toContainText('All sources');
 
-  // FR-009/SC-002: both sources are represented on the first screenful.
-  const labels = page.locator('.source-tag');
-  const texts = await labels.allInnerTexts();
-  expect(texts).toContain('Alpha Source');
-  expect(texts).toContain('Beta Source');
+  // FR-009/SC-002: both sources are represented on the first screenful. The
+  // label is a source mark now rather than text, so the name is read off its
+  // title/alt — which is also what a screen reader gets.
+  const marks = page.locator('.src-mark');
+  const names = await marks.evaluateAll((els) => els.map((e) => e.getAttribute('title') ?? ''));
+  expect(names).toContain('Alpha Source');
+  expect(names).toContain('Beta Source');
 
   // FR-005a: the same title from both sources is TWO entries, not merged.
   const titles = await page.locator('.card .meta h3').allInnerTexts();
@@ -66,7 +68,7 @@ test('picking one source narrows the list and drops the labels', async ({ page }
 
   await expect(page.locator('.source-select')).toContainText('Beta Source', { timeout: 20_000 });
   // Only that source's results, so the label is redundant and suppressed.
-  await expect(page.locator('.source-tag')).toHaveCount(0);
+  await expect(page.locator('.src-mark')).toHaveCount(0);
   await expect(page.locator('.card').first()).toBeVisible();
 
   // FR-008: the choice follows the user, so a reload keeps it.
@@ -79,7 +81,7 @@ test('one source failing still shows the other, and says which is missing', asyn
   // to break exactly one of them and watch the other carry on. Backing both with
   // the same fake would break both and prove nothing.
   await addSource(token, 'Html Source', 0, 'zarfilm');
-  await addSource(token, 'Json Source', 1, 'thirtynama');
+  await addSource(token, 'Json Source', 1, '30nama');
   await login(page);
   await gotoDiscover(page);
   await expect(page.locator('.card').first()).toBeVisible();
@@ -99,7 +101,7 @@ test('one source failing still shows the other, and says which is missing', asyn
   // which one to go and fix.
   await expect(page.locator('.degraded')).toContainText('Html Source', { timeout: 30_000 });
   // The healthy source is still labelled on its results.
-  await expect(page.locator('.source-tag').first()).toContainText('Json Source');
+  await expect(page.locator('.src-mark').first()).toHaveAttribute('title', 'Json Source');
 
   await setSourceState('zar/logged-in');
 });

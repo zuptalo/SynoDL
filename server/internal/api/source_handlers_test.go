@@ -1,6 +1,7 @@
 package api
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"net/http"
@@ -12,7 +13,7 @@ import (
 
 // A controllable fake provider registered for handler tests, so tests exercise
 // the HANDLER (auth, storage, error mapping, folder-grant, subfolder+task)
-// without any real network. The concrete thirtynama driver is tested in the
+// without any real network. The concrete nama30 driver is tested in the
 // source/providers package.
 type fakeSrc struct{}
 
@@ -318,7 +319,7 @@ func TestSourceSendMovie(t *testing.T) {
 
 	// Admin send → subfolder under movies parent + task, no leaked link.
 	rec := do(t, h, "POST", "/v1/source/send", `{"titleId":"217561","qualityId":"q1","title":"Soul 2020"}`, admin)
-	if rec.Code != 200 || !strings.Contains(rec.Body.String(), `"destination":"movie/Soul 2020"`) {
+	if rec.Code != 200 || !strings.Contains(rec.Body.String(), `"destination":"movie/Soul (2020)"`) {
 		t.Fatalf("send = %d %s", rec.Code, rec.Body.String())
 	}
 	if strings.Contains(rec.Body.String(), "dl.fake") {
@@ -364,9 +365,9 @@ func TestSourceSendPersistsCatalogMetadata(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SourceDownloads: %v", err)
 	}
-	md, ok := media["movie/Soul 2020"]
+	md, ok := media["movie/Soul (2020)"]
 	if !ok {
-		t.Fatalf("no stored row for movie/Soul 2020; got %v", media)
+		t.Fatalf("no stored row for movie/Soul (2020); got %v", media)
 	}
 	if md.PosterURL != "https://cdn.example.info/poster/soul-l.webp" {
 		t.Fatalf("poster not persisted: %q", md.PosterURL)
@@ -444,5 +445,254 @@ func TestSourcePrefs(t *testing.T) {
 	do(t, h, "PUT", "/v1/source/prefs", `{"preferredQuality":"1080p"}`, admin)
 	if rec := do(t, h, "GET", "/v1/source/prefs", "", admin); !strings.Contains(rec.Body.String(), `"preferredQuality":"1080p"`) {
 		t.Fatalf("prefs after set = %s", rec.Body.String())
+	}
+}
+
+// ---- spec 0008: ownership markers on search results ----------------------
+
+// seedMockFolders adds folders to the mock DSM's tree so a test can set up "the
+// NAS already holds these titles".
+func seedMockFolders(t *testing.T, mockURL string, folders map[string][]string) {
+	t.Helper()
+	raw, _ := json.Marshal(map[string]any{"folders": folders})
+	resp, err := http.Post(mockURL+"/__mock/library", "application/json", bytes.NewReader(raw))
+	if err != nil {
+		t.Fatalf("seed mock library: %v", err)
+	}
+	resp.Body.Close()
+}
+
+// FR-001/FR-011: a title whose folder already exists under the configured parent
+// comes back flagged, and one that does not comes back unflagged.
+func TestSearchMarksTitlesAlreadyOnTheNAS(t *testing.T) {
+	resetFake()
+	h, _ := newStatefulRouter(t)
+	admin := adminAfterSetup(t, h)
+	configureFake(t, h, admin, "movie")
+
+	// The mock's fixture tree holds /tv-show/Friends and /movie/Kids.
+	fakeSearch = source.SearchResult{Page: 1, Pages: 1, Items: []source.CatalogTitle{
+		{ID: "1", Type: "series", Title: "Friends 1994 - 2004"},      // on the NAS
+		{ID: "2", Type: "movie", Title: "Kids 1995"},                 // on the NAS
+		{ID: "3", Type: "movie", Title: "Some Film Nobody Has 2020"}, // not
+	}}
+	rec := do(t, h, "POST", "/v1/source/search", `{"page":1}`, admin)
+	if rec.Code != 200 {
+		t.Fatalf("search = %d %s", rec.Code, rec.Body.String())
+	}
+	got := decodeOwnership(t, rec.Body.Bytes())
+	if len(got) != 3 {
+		t.Fatalf("got %d items, want 3", len(got))
+	}
+	// Keyed by TITLE, not id: the response re-qualifies ids as "<sourceId>:<id>",
+	// so an id-keyed assertion silently matches nothing and passes vacuously.
+	want := map[string]bool{
+		"Friends 1994 - 2004":       true,
+		"Kids 1995":                 true,
+		"Some Film Nobody Has 2020": false,
+	}
+	for title, wantIn := range want {
+		if got[title] != wantIn {
+			t.Errorf("%q inLibrary = %v, want %v", title, got[title], wantIn)
+		}
+	}
+	// An absent title must omit the field entirely (omitempty), so an older
+	// client sees exactly the payload it saw before.
+	if strings.Contains(rec.Body.String(), `"Some Film Nobody Has 2020","posterUrl":"","inLibrary"`) {
+		t.Error("an absent title should omit inLibrary entirely")
+	}
+}
+
+// decodeOwnership maps each returned title to its inLibrary flag.
+func decodeOwnership(t *testing.T, body []byte) map[string]bool {
+	t.Helper()
+	var res struct {
+		Items []struct {
+			Title     string `json:"title"`
+			InLibrary bool   `json:"inLibrary"`
+		} `json:"items"`
+	}
+	if err := json.Unmarshal(body, &res); err != nil {
+		t.Fatalf("decode: %v (%s)", err, body)
+	}
+	out := make(map[string]bool, len(res.Items))
+	for _, it := range res.Items {
+		out[it.Title] = it.InLibrary
+	}
+	return out
+}
+
+// FR-005: the one failure this feature cannot afford. A folder for the 2017 It
+// must never mark the 1990 one as owned.
+func TestSearchDoesNotMarkASameNameDifferentYearTitle(t *testing.T) {
+	resetFake()
+	h, _, mockURL := newStatefulRouterWithMock(t)
+	admin := adminAfterSetup(t, h)
+	configureFake(t, h, admin, "movie")
+	seedMockFolders(t, mockURL, map[string][]string{"/movie": {"It 2017"}})
+
+	fakeSearch = source.SearchResult{Page: 1, Pages: 1, Items: []source.CatalogTitle{
+		{ID: "1", Type: "movie", Title: "It 2017"},
+		{ID: "2", Type: "movie", Title: "It 1990"},
+	}}
+	rec := do(t, h, "POST", "/v1/source/search", `{"page":1}`, admin)
+	got := decodeOwnership(t, rec.Body.Bytes())
+	if !got["It 2017"] {
+		t.Error("It 2017 should be marked — its folder is right there")
+	}
+	if got["It 1990"] {
+		t.Error("It 1990 was wrongly marked; a false positive makes a user skip a title they wanted")
+	}
+}
+
+// FR-009: when the parent folders cannot be read, the search still succeeds and
+// simply marks nothing. A failed scan is never an error the user sees.
+func TestSearchStillSucceedsWhenTheLibraryCannotBeRead(t *testing.T) {
+	resetFake()
+	h, _ := newStatefulRouter(t)
+	admin := adminAfterSetup(t, h)
+	// Parents that do not exist on the NAS: every listing fails.
+	configureFake(t, h, admin, "no-such-parent")
+
+	fakeSearch = source.SearchResult{Page: 1, Pages: 1, Items: []source.CatalogTitle{
+		{ID: "1", Type: "movie", Title: "Kids 1995"},
+	}}
+	rec := do(t, h, "POST", "/v1/source/search", `{"page":1}`, admin)
+	if rec.Code != 200 {
+		t.Fatalf("search = %d %s — an unreadable parent must not fail the search", rec.Code, rec.Body.String())
+	}
+	if strings.Contains(rec.Body.String(), `"inLibrary":true`) {
+		t.Error("nothing should be marked when the library could not be read")
+	}
+}
+
+// ---- spec 1021: destinations in the shape a media server scrapes -----------
+
+func sendDest(t *testing.T, h http.Handler, who map[string]string, body string) string {
+	t.Helper()
+	rec := do(t, h, "POST", "/v1/source/send", body, who)
+	if rec.Code != 200 {
+		t.Fatalf("send = %d %s", rec.Code, rec.Body.String())
+	}
+	var out struct {
+		Destination string `json:"destination"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	return out.Destination
+}
+
+// FR-001: a movie's year moves into parentheses.
+func TestSendNamesAMovieForPlex(t *testing.T) {
+	resetFake()
+	h, _ := newStatefulRouter(t)
+	admin := adminAfterSetup(t, h)
+	configureFake(t, h, admin, "movie")
+	fakeLinks = []string{"http://dl.fake/dm4.mkv"}
+
+	got := sendDest(t, h, admin, `{"titleId":"1","qualityId":"q1","title":"Despicable Me 4 2024"}`)
+	if got != "movie/Despicable Me 4 (2024)" {
+		t.Errorf("destination = %q, want movie/Despicable Me 4 (2024)", got)
+	}
+}
+
+// FR-002/FR-003: a series lands in "Show (Year)/Season NN", and a year RANGE
+// collapses to the first year — a scraper keys a show on when it started.
+func TestSendNamesASeasonForPlex(t *testing.T) {
+	resetFake()
+	h, _ := newStatefulRouter(t)
+	admin := adminAfterSetup(t, h)
+	configureFake(t, h, admin, "movie")
+	fakeLinks = []string{
+		"http://dl.fake/Friends.S01E01.1080p.mkv",
+		"http://dl.fake/Friends.S01E02.1080p.mkv",
+	}
+
+	got := sendDest(t, h, admin,
+		`{"titleId":"1","qualityId":"q1","type":"series","title":"Friends 1994 - 2004"}`)
+	if got != "tv-show/Friends (1994)/Season 01" {
+		t.Errorf("destination = %q, want tv-show/Friends (1994)/Season 01", got)
+	}
+}
+
+// FR-006: an undeterminable season goes in the show's folder rather than a
+// guessed one — a scraper still reads episodes there.
+func TestSendWithoutADetectableSeasonUsesTheShowFolder(t *testing.T) {
+	resetFake()
+	h, _ := newStatefulRouter(t)
+	admin := adminAfterSetup(t, h)
+	configureFake(t, h, admin, "movie")
+	fakeLinks = []string{"http://dl.fake/chernobyl-part-one.mkv"}
+
+	got := sendDest(t, h, admin,
+		`{"titleId":"1","qualityId":"q1","type":"series","title":"Chernobyl 2019"}`)
+	if got != "tv-show/Chernobyl (2019)" {
+		t.Errorf("destination = %q, want tv-show/Chernobyl (2019)", got)
+	}
+}
+
+// A pack spanning two seasons is ambiguous: filing half of it under the wrong
+// season is worse than filing all of it in the show's folder.
+func TestSendSpanningSeasonsUsesTheShowFolder(t *testing.T) {
+	resetFake()
+	h, _ := newStatefulRouter(t)
+	admin := adminAfterSetup(t, h)
+	configureFake(t, h, admin, "movie")
+	fakeLinks = []string{
+		"http://dl.fake/Show.S01E10.mkv",
+		"http://dl.fake/Show.S02E01.mkv",
+	}
+
+	got := sendDest(t, h, admin, `{"titleId":"1","qualityId":"q1","type":"series","title":"Show 2020"}`)
+	if got != "tv-show/Show (2020)" {
+		t.Errorf("destination = %q, want tv-show/Show (2020)", got)
+	}
+}
+
+// FR-008: the catalog metadata is keyed by destination, so it must be stored
+// against the NEW path or the Tasks list loses the poster and the owner.
+func TestSendRemembersMetadataAgainstTheNewDestination(t *testing.T) {
+	resetFake()
+	h, st := newStatefulRouter(t)
+	admin := adminAfterSetup(t, h)
+	configureFake(t, h, admin, "movie")
+	fakeLinks = []string{"http://dl.fake/Friends.S01E01.mkv"}
+
+	dest := sendDest(t, h, admin,
+		`{"titleId":"1","qualityId":"q1","type":"series","title":"Friends 1994 - 2004","posterUrl":"http://p/x.jpg"}`)
+	downloads, err := st.SourceDownloads()
+	if err != nil {
+		t.Fatalf("SourceDownloads: %v", err)
+	}
+	md, ok := downloads[dest]
+	if !ok {
+		t.Fatalf("no metadata stored for %q; have %v", dest, downloads)
+	}
+	if md.PosterURL != "http://p/x.jpg" || md.OwnerName == "" {
+		t.Errorf("metadata lost its poster or owner: %+v", md)
+	}
+}
+
+// FR-013: the deeper season path is still governed by folder grants.
+func TestSeasonPathStillHonoursFolderGrants(t *testing.T) {
+	resetFake()
+	h, _ := newStatefulRouter(t)
+	admin := adminAfterSetup(t, h)
+	configureFake(t, h, admin, "movie")
+	fakeLinks = []string{"http://dl.fake/Friends.S01E01.mkv"}
+
+	// Granted the TV parent: the season subfolder beneath it is allowed.
+	allowed := makeUser(t, h, admin, "dave", `"tv-show"`)
+	if got := sendDest(t, h, allowed,
+		`{"titleId":"1","qualityId":"q1","type":"series","title":"Friends 1994"}`); got != "tv-show/Friends (1994)/Season 01" {
+		t.Errorf("granted user got %q", got)
+	}
+	// Granted only the movies parent: refused, season folder or not.
+	denied := makeUser(t, h, admin, "erin", `"movie"`)
+	rec := do(t, h, "POST", "/v1/source/send",
+		`{"titleId":"1","qualityId":"q1","type":"series","title":"Friends 1994"}`, denied)
+	if rec.Code != http.StatusForbidden {
+		t.Errorf("ungranted user = %d, want 403", rec.Code)
 	}
 }

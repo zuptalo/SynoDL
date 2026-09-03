@@ -20,6 +20,7 @@ Specs are grouped by category band; status moves
 | [0005](specs/0005-source-catalog/spec.md) | Download-source catalog — browse, search, and send an admin-configured provider to Download Station | 🟡 in-progress |
 | [0006](specs/0006-per-user-download/spec.md) | Per-User Download Statistics and Richer Notifications | 🟢 shipped |
 | [0007](specs/0007-multiple-download-sources/spec.md) | Multiple Download Sources | 🔵 in-review |
+| [0008](specs/0008-show-which-discover/spec.md) | Show which Discover titles you already have | 🟡 in-progress |
 
 ## ⚡ Ad-hoc (1001–1999)
 
@@ -43,6 +44,8 @@ Specs are grouped by category band; status moves
 | [1018](specs/1018-discover-infinite-scroll/spec.md) | Discover keeps loading ahead of a fast scroller | 🔵 in-review |
 | [1019](specs/1019-imdb-rating-links/spec.md) | The IMDb rating opens the title on IMDb | 🔵 in-review |
 | [1020](specs/1020-fall-back-source/spec.md) | Alternate Domain Fallback for a Download Source | 🔵 in-review |
+| [1021](specs/1021-name-new-downloads/spec.md) | Name new downloads the way Plex expects | 🔵 in-review |
+| [1022](specs/1022-upload-file-straight/spec.md) | Upload a file straight into your library | 🔵 in-review |
 
 ## 🐛 Hotfixes & Bug Fixes (2001+)
 

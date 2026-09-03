@@ -40,6 +40,15 @@ type fakeSyno struct {
 	gotActionIDs  []string
 	gotFolderPath string
 	gotFolderName string
+
+	// uploads records what was written to the NAS, keyed by destination folder
+	// (spec 1022), so a test can assert both the path the server composed and
+	// the name it kept.
+	uploads map[string][]string
+
+	// folderListCalls counts ListFolder calls, so the library snapshot tests can
+	// assert that a shared parent is listed once rather than once per source.
+	folderListCalls int
 }
 
 func (f *fakeSyno) Login(_ context.Context, account, password, otp string) (string, error) {
@@ -111,6 +120,7 @@ func (f *fakeSyno) ListShares(_ context.Context, _ string) ([]syno.Folder, error
 
 func (f *fakeSyno) ListFolder(_ context.Context, _ string, path string) ([]syno.Folder, error) {
 	f.gotFolderPath = path
+	f.folderListCalls++
 	if f.err != nil {
 		return nil, f.err
 	}
@@ -159,4 +169,25 @@ func doReq(t *testing.T, srv *httptest.Server, method, path, sid, contentType st
 	}
 	t.Cleanup(func() { resp.Body.Close() })
 	return resp
+}
+
+func (f *fakeSyno) UploadFile(_ context.Context, _ string, destFolder, filename string, body io.Reader) error {
+	if f.err != nil {
+		return f.err
+	}
+	// Drain it, the way a real upload would, so a streaming test sees the bytes
+	// actually move rather than the reader being ignored.
+	if _, err := io.Copy(io.Discard, body); err != nil {
+		return err
+	}
+	if f.uploads == nil {
+		f.uploads = map[string][]string{}
+	}
+	for _, existing := range f.uploads[destFolder] {
+		if existing == filename {
+			return &syno.Error{Kind: syno.KindNAS, Code: 414, API: "SYNO.FileStation.Upload"}
+		}
+	}
+	f.uploads[destFolder] = append(f.uploads[destFolder], filename)
+	return nil
 }

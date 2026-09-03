@@ -64,3 +64,31 @@ func TestDisplay(t *testing.T) {
 		t.Errorf("Display fallback = %q", got)
 	}
 }
+
+// Spec 1021: a series now lands in "Show (Year)/Season NN", so the leaf of the
+// destination is the SEASON. This must stay in step with task-title.ts, where
+// the same cases are asserted — a notification reading "Season 01 · S01E05"
+// would name no show at all.
+func TestTitleStepsPastASeasonFolder(t *testing.T) {
+	cases := []struct {
+		name, dest, uri  string
+		wantTitle, wantEp string
+	}{
+		{"Friends.S01E05.1080p.mkv", "tv-show/Friends (1994)/Season 01", "", "Friends (1994)", "S01E05"},
+		{"Whiskey.S01E02.mkv", "tv-show/Whiskey on the Rocks/Season 01", "", "Whiskey on the Rocks", "S01E02"},
+		{"Show.S10E01.mkv", "tv-show/Show (2020)/Season 10", "", "Show (2020)", "S10E01"},
+		// The old flat naming still works (FR-011).
+		{"Friends.S02E01.mkv", "tv-show/Friends 1994 - 2004", "", "Friends 1994 - 2004", "S02E01"},
+		// A movie in the new naming.
+		{"Despicable.Me.4.2024.mkv", "movie/Despicable Me 4 (2024)", "", "Despicable Me 4 (2024)", ""},
+		// A title that merely starts with the word is not a season folder.
+		{"Seasons.of.Love.mkv", "movie/Seasons of Love (2019)", "", "Seasons of Love (2019)", ""},
+	}
+	for _, c := range cases {
+		title, ep := Title(c.name, c.dest, c.uri)
+		if title != c.wantTitle || ep != c.wantEp {
+			t.Errorf("Title(%q, %q) = (%q, %q), want (%q, %q)",
+				c.name, c.dest, title, ep, c.wantTitle, c.wantEp)
+		}
+	}
+}

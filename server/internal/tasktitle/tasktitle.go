@@ -53,9 +53,25 @@ func pathParts(destination string) []string {
 	return out
 }
 
+// seasonFolderRE matches a season subfolder, which a series' destination now
+// ends in (spec 1021): "Season 01", "Season 2024". Anchored at both ends so a
+// real title beginning with the word — "Seasons of Love" — is not mistaken for
+// one. Mirrors SEASON_FOLDER in task-title.ts.
+var seasonFolderRE = regexp.MustCompile(`(?i)^season\s+\d{1,4}$`)
+
+// titleEnd is the index one past the per-title folder. Normally the end of the
+// path, but a leaf that is a season folder means the title is one level up.
+func titleEnd(parts []string) int {
+	if len(parts) >= 2 && seasonFolderRE.MatchString(parts[len(parts)-1]) {
+		return len(parts) - 1
+	}
+	return len(parts)
+}
+
 func isMediaFolder(destination string) bool {
 	parts := pathParts(destination)
-	return len(parts) >= 2 && mediaParentRE.MatchString(parts[len(parts)-2])
+	end := titleEnd(parts)
+	return end >= 2 && mediaParentRE.MatchString(parts[end-2])
 }
 
 // Title returns a readable title and (when detectable) the "S01E05" episode
@@ -67,8 +83,8 @@ func Title(name, destination, uri string) (title, episode string) {
 	episode = episodeOf(name, uri)
 	parts := pathParts(destination)
 	folder := ""
-	if len(parts) > 0 {
-		folder = parts[len(parts)-1]
+	if end := titleEnd(parts); end > 0 {
+		folder = parts[end-1]
 	}
 	useFolder := folder != "" && (episode != "" || isMediaFolder(destination))
 	if useFolder {

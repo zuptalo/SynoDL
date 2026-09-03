@@ -14,7 +14,7 @@ import (
 // environment is set — see mockbase_prod.go.
 //
 //	SOURCE_MOCK_ZARFILM=http://localhost:8291/mocksrc/zar
-//	SOURCE_MOCK_THIRTYNAMA=http://localhost:8291/mocksrc/tn
+//	SOURCE_MOCK_30NAMA=http://localhost:8291/mocksrc/tn
 func mockBase(kind string) string {
 	return strings.TrimRight(os.Getenv("SOURCE_MOCK_"+strings.ToUpper(kind)), "/")
 }

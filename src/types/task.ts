@@ -40,4 +40,10 @@ export interface ServerConfig {
   version: string;
   releaseNotes: Array<{ sha: string; subject: string }>;
   nasHost: string;
+  /**
+   * Largest single upload the server accepts, in MB (spec 1022). Read from the
+   * server rather than duplicated in the client, so the limit the upload screen
+   * states cannot drift from the one actually enforced.
+   */
+  uploadMaxMB?: number;
 }

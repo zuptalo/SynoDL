@@ -245,4 +245,13 @@ var migrations = []string{
 	// provider-declared. It is administrator configuration, never client input,
 	// and applies only to the source it is set on.
 	`ALTER TABLE source_providers ADD COLUMN alt_base TEXT NOT NULL DEFAULT '';`,
+	// 0019 — the 30nama driver's registry key was "thirtynama", which leaked into
+	// the admin list as the source's name. The key is now "30nama", matching what
+	// the site is actually called.
+	//
+	// Existing rows MUST be rewritten here: kind is how a stored source finds its
+	// driver, so a row left on the old key would find none and the operator's
+	// configured source would go dark — with its sealed session intact but
+	// unusable. The UPDATE is a no-op on an install that never had one.
+	`UPDATE source_providers SET kind = '30nama' WHERE kind = 'thirtynama';`,
 }

@@ -225,3 +225,79 @@ func TestTaskNameFromURIDropsQuery(t *testing.T) {
 		t.Fatalf("magnet name = %q", got)
 	}
 }
+
+// listFolderNames lists the directory names under an absolute path.
+func listFolderNames(t *testing.T, srv *httptest.Server, sid, dir string) []string {
+	t.Helper()
+	out := post(t, srv, "/webapi/entry.cgi", url.Values{
+		"api": {"SYNO.FileStation.List"}, "method": {"list"},
+		"folder_path": {dir}, "_sid": {sid},
+	})
+	if out["success"] != true {
+		t.Fatalf("list %s failed: %v", dir, out)
+	}
+	files := out["data"].(map[string]any)["files"].([]any)
+	names := make([]string, 0, len(files))
+	for _, f := range files {
+		names = append(names, f.(map[string]any)["name"].(string))
+	}
+	return names
+}
+
+func hasName(xs []string, want string) bool {
+	for _, x := range xs {
+		if x == want {
+			return true
+		}
+	}
+	return false
+}
+
+// Spec 0008: the fixture tree is hardcoded in resetLocked with no way to add to
+// it, which made Discover's ownership markers untestable end to end.
+func TestMockLibrarySeeding(t *testing.T) {
+	srv := httptest.NewServer(New().Handler())
+	t.Cleanup(srv.Close)
+	sid := loginSid(t, srv)
+
+	seed := map[string]any{"folders": map[string][]string{
+		"/movie":                         {"Dune 2021"},
+		"/tv-show/Friends 1994/Season 1": {},
+	}}
+	postJSON(t, srv, "/__mock/library", seed)
+
+	// The seeded title is listed under its parent...
+	if got := listFolderNames(t, srv, sid, "/movie"); !hasName(got, "Dune 2021") {
+		t.Errorf("/movie = %v, want it to contain Dune 2021", got)
+	}
+	// ...alongside the original fixtures, because seeding is additive.
+	if got := listFolderNames(t, srv, sid, "/movie"); !hasName(got, "Kids") {
+		t.Errorf("seeding dropped the fixture folders: %v", got)
+	}
+	// Intermediate levels are created implicitly, and can be descended into.
+	if got := listFolderNames(t, srv, sid, "/tv-show"); !hasName(got, "Friends 1994") {
+		t.Errorf("/tv-show = %v, want it to contain Friends 1994", got)
+	}
+	if got := listFolderNames(t, srv, sid, "/tv-show/Friends 1994"); !hasName(got, "Season 1") {
+		t.Errorf("nested season folder missing: %v", got)
+	}
+
+	// Reseeding the same name must not duplicate it.
+	postJSON(t, srv, "/__mock/library", seed)
+	n := 0
+	for _, name := range listFolderNames(t, srv, sid, "/movie") {
+		if name == "Dune 2021" {
+			n++
+		}
+	}
+	if n != 1 {
+		t.Errorf("Dune 2021 appears %d times after reseeding, want 1", n)
+	}
+
+	// Reset restores the plain fixtures.
+	postJSON(t, srv, "/__mock/reset", map[string]any{})
+	sid = loginSid(t, srv)
+	if got := listFolderNames(t, srv, sid, "/movie"); hasName(got, "Dune 2021") {
+		t.Errorf("reset did not clear the seeded folders: %v", got)
+	}
+}

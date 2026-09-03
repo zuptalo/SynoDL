@@ -23,6 +23,10 @@ func handleConfig(d Deps) http.Handler {
 			"version":      d.Version,
 			"releaseNotes": d.ReleaseNotes,
 			"nasHost":      nasHostFor(d),
+			// So the upload screen can state the real limit rather than a copy
+			// of the default that would drift the moment an operator changes it
+			// (spec 1022, FR-021).
+			"uploadMaxMB": d.uploadCapBytes() >> 20,
 		})
 	})
 }

@@ -343,6 +343,9 @@ func handleCreateProvider(d Deps) http.Handler {
 		}
 		_ = d.Store.SetProviderStateErr(id, state, reason, now, now)
 		source.ResetBreakers()
+		// A new source brings new parent folders, so the ownership snapshot is
+		// answering for the wrong set until it is rebuilt (FR-008a, spec 0008).
+		d.invalidateLibrary()
 		p, _ := d.Store.GetProviderByID(id)
 		if p == nil {
 			httpx.Error(w, http.StatusInternalServerError, "server")
@@ -438,6 +441,9 @@ func handleUpdateProvider(d Deps) http.Handler {
 		// The admin has just fixed whatever was failing; making them wait out a
 		// cooling-off window would be absurd.
 		source.ResetBreakers()
+		// An edit may have moved the parent folders, and a stale snapshot would
+		// keep answering for the old ones (FR-008a, spec 0008).
+		d.invalidateLibrary()
 		updated, _ := d.Store.GetProviderByID(id)
 		httpx.JSON(w, http.StatusOK, toProviderView(*updated))
 	})
@@ -456,6 +462,9 @@ func handleDeleteProvider(d Deps) http.Handler {
 			return
 		}
 		source.ResetBreakers()
+		// Its parents are no longer configured; the snapshot must stop answering
+		// for them (FR-008a, spec 0008).
+		d.invalidateLibrary()
 		httpx.JSON(w, http.StatusOK, map[string]any{"deleted": id})
 	})
 }

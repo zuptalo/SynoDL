@@ -71,3 +71,16 @@ export async function login(page: Page, account = 'admin', password = 'secret'):
   await page.getByTestId('login-submit').click();
   await expect(page).toHaveURL(/\/tabs\/tasks/);
 }
+
+/**
+ * Open the "add a task" modal from the Tasks tab.
+ *
+ * The FAB expands into two ways to put something in the library — fetch it by
+ * URL, or upload a file from this device (spec 1022) — so opening the modal is
+ * two taps rather than one. It lives here so the interaction is described in a
+ * single place instead of at every call site.
+ */
+export async function openNewTask(page: Page): Promise<void> {
+  await page.getByTestId('newtask-fab').click();
+  await page.getByTestId('newtask-open').click();
+}

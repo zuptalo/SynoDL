@@ -73,3 +73,60 @@ describe('taskTitle', () => {
     expect(t).toEqual({ title: 'e2e-fixture.iso', episode: '', year: '' });
   });
 });
+
+// Spec 1021: a series now lands in "Show (Year)/Season NN", so the leaf of the
+// destination is the SEASON, not the title. Without stepping up, every episode
+// in the Tasks list would read "Season 01".
+describe('season subfolders (spec 1021)', () => {
+  it('takes the title from the show folder, not the season folder', () => {
+    expect(
+      taskTitle({
+        name: 'Friends.S01E05.1080p.WEB-DL.mkv',
+        destination: 'tv-show/Friends (1994)/Season 01',
+        uri: '',
+      }),
+    ).toEqual({ title: 'Friends', episode: 'S01E05', year: '1994' });
+  });
+
+  it('handles a season folder without a year on the show', () => {
+    expect(
+      taskTitle({
+        name: 'Whiskey.S01E02.mkv',
+        destination: 'tv-show/Whiskey on the Rocks/Season 01',
+        uri: '',
+      }),
+    ).toEqual({ title: 'Whiskey on the Rocks', episode: 'S01E02', year: '' });
+  });
+
+  it('still reads a movie in the new naming', () => {
+    expect(
+      taskTitle({
+        name: 'Despicable.Me.4.2024.2160p.mkv',
+        destination: 'movie/Despicable Me 4 (2024)',
+        uri: '',
+      }),
+    ).toEqual({ title: 'Despicable Me 4', episode: '', year: '2024' });
+  });
+
+  // FR-011: downloads sent before the change keep working.
+  it('still reads the old flat naming', () => {
+    expect(
+      taskTitle({
+        name: 'Friends.S02E01.mkv',
+        destination: 'tv-show/Friends 1994 - 2004',
+        uri: '',
+      }),
+    ).toEqual({ title: 'Friends', episode: 'S02E01', year: '1994 – 2004' });
+  });
+
+  // A folder that merely starts with "Season" is not a season folder.
+  it('does not mistake a title for a season folder', () => {
+    expect(
+      taskTitle({
+        name: 'Seasons.of.Love.2019.mkv',
+        destination: 'movie/Seasons of Love (2019)',
+        uri: '',
+      }).title,
+    ).toBe('Seasons of Love');
+  });
+});

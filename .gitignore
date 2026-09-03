@@ -36,3 +36,4 @@ server/.env
 # commands. Ephemeral working state — the tracked source of truth is specs/.
 .specify/feature.json
 .devdata/
+__pycache__/
