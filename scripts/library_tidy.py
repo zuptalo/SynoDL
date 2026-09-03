@@ -702,7 +702,20 @@ def main(argv: list[str]) -> int:
                 print("\nDry run. Re-run with --apply to reverse these.")
             return 0
 
+        # The undo record is written after EVERY operation, not at the end.
+        # A library this size is hundreds of round-trips, and a dropped
+        # connection or a Ctrl-C halfway through would otherwise leave the
+        # folders half-renamed with no record of what had moved.
         applied: list[dict] = []
+        undo = f"library-tidy-undo-{time.strftime('%Y%m%d-%H%M%S')}.json"
+
+        def record(entry: dict) -> None:
+            applied.append(entry)
+            tmp = undo + ".tmp"
+            with open(tmp, "w") as fh:
+                json.dump(applied, fh, indent=1)
+            os.replace(tmp, undo)  # atomic: never a half-written undo file
+
         for parent, is_tv in ((args.movies, False), (args.tv, True)):
             print(f"\n{parent}  ({'TV' if is_tv else 'movies'})")
             print("-" * (len(parent) + 12))
@@ -715,7 +728,7 @@ def main(argv: list[str]) -> int:
                     continue
                 try:
                     dsm.rename(f"{parent}/{c.old}", c.new)
-                    applied.append({"op": "rename", "parent": parent, "old": c.old, "new": c.new})
+                    record({"op": "rename", "parent": parent, "old": c.old, "new": c.new})
                 except Exception as exc:  # one bad folder must not strand the rest
                     print(f"  FAILED   {c.old}: {exc}", file=sys.stderr)
 
@@ -746,17 +759,14 @@ def main(argv: list[str]) -> int:
                         dsm.create_folder(dest, m.season)
                         dest = f"{dest}/{m.season}"
                     dsm.move([f"{parent}/{f}" for f in m.files], dest)
-                    applied.append({"op": "move", "parent": parent, "dest": dest,
-                                    "files": m.files})
+                    record({"op": "move", "parent": parent, "dest": dest, "files": m.files})
                 except Exception as exc:
                     print(f"  FAILED   -> {m.dest}: {exc}", file=sys.stderr)
 
         if args.apply and applied:
-            stamp = time.strftime("%Y%m%d-%H%M%S")
-            undo = f"library-tidy-undo-{stamp}.json"
-            with open(undo, "w") as fh:
-                json.dump(applied, fh, indent=1)
-            print(f"\nRenamed {len(applied)} folder(s). To reverse:\n"
+            renames = sum(1 for e in applied if e["op"] == "rename")
+            movedf = sum(len(e["files"]) for e in applied if e["op"] == "move")
+            print(f"\nRenamed {renames} folder(s) and moved {movedf} file(s). To reverse:\n"
                   f"  python3 {sys.argv[0]} --nas {args.nas} --user {args.user} --undo {undo} --apply")
         elif not args.apply:
             print("\nDRY RUN — nothing was changed. Re-run with --apply to perform the\n"
