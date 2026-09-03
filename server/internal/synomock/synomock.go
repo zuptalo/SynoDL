@@ -63,6 +63,9 @@ type Server struct {
 	nextSID  int
 	offset   time.Duration // virtual-clock offset advanced by /__mock/tick
 	folders  map[string][]string
+	// Files placed by SYNO.FileStation.Upload, keyed by folder (spec 1022), so a
+	// test can assert what actually landed and where.
+	uploads map[string][]string
 	// Fake download sources (spec 0007), so dev and e2e can exercise the catalog
 	// without pasting real credentials for a real site. See sources.go.
 	zarSrc *SourceState
@@ -92,6 +95,7 @@ func (s *Server) resetLocked() {
 	s.nextSID = 0
 	s.offset = 0
 	s.resetFoldersLocked()
+	s.uploads = map[string][]string{}
 	s.tasks = nil
 	s.seedLocked([]Task{
 		{Name: "ubuntu-24.04-desktop-amd64.iso", Type: "bt", Status: "downloading",
@@ -187,6 +191,7 @@ func (s *Server) handleInfo(w http.ResponseWriter, r *http.Request) {
 		"SYNO.DownloadStation.Statistic": map[string]any{"path": "DownloadStation/statistic.cgi", "minVersion": 1, "maxVersion": 1},
 		"SYNO.FileStation.List":          map[string]any{"path": "entry.cgi", "minVersion": 1, "maxVersion": 2},
 		"SYNO.FileStation.CreateFolder":  map[string]any{"path": "entry.cgi", "minVersion": 1, "maxVersion": 2},
+		"SYNO.FileStation.Upload":        map[string]any{"path": "entry.cgi", "minVersion": 1, "maxVersion": 2},
 	})
 }
 
@@ -372,6 +377,10 @@ func (s *Server) handleStatistic(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleFileStation(w http.ResponseWriter, r *http.Request) {
+	// An upload arrives as multipart, which ParseForm alone does not read.
+	if strings.HasPrefix(r.Header.Get("Content-Type"), "multipart/") {
+		_ = r.ParseMultipartForm(32 << 20)
+	}
 	_ = r.ParseForm()
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -403,6 +412,32 @@ func (s *Server) handleFileStation(w http.ResponseWriter, r *http.Request) {
 		default:
 			fail(w, 101)
 		}
+	case "SYNO.FileStation.Upload":
+		if r.FormValue("method") != "upload" {
+			fail(w, 101)
+			return
+		}
+		dir := strings.TrimRight(r.FormValue("path"), "/")
+		if _, exists := s.folders[dir]; !exists {
+			fail(w, 408) // no such folder
+			return
+		}
+		_, hdr, err := r.FormFile("file")
+		if err != nil || hdr == nil || hdr.Filename == "" {
+			fail(w, 101)
+			return
+		}
+		for _, existing := range s.uploads[dir] {
+			if existing == hdr.Filename {
+				// Real DSM refuses when overwrite is not requested, and the
+				// client deliberately never requests it.
+				fail(w, 414)
+				return
+			}
+		}
+		s.uploads[dir] = append(s.uploads[dir], hdr.Filename)
+		ok(w, map[string]any{"blSkip": false})
+		return
 	case "SYNO.FileStation.CreateFolder":
 		if r.FormValue("method") != "create" {
 			fail(w, 101)

@@ -296,6 +296,14 @@ export async function streamTasks(
 
 // Download-source catalog (spec 0005). Session material is write-only: the
 // server never returns it, so there is no "get session" — only status.
+/** What a completed upload landed as (spec 1022). */
+export interface UploadResult {
+  /** The folder the SERVER composed — never one the client asked for. */
+  destination: string;
+  /** The stored name, which may differ from the one sent: it is based. */
+  file: string;
+  uploaded: boolean;
+}
 export interface SourceStatus {
   configured: boolean;
   enabled: boolean;
@@ -653,6 +661,54 @@ export const api = {
   pauseTasks: (ids: string[]) => request<void>('/v1/tasks/pause', json({ ids })),
   resumeTasks: (ids: string[]) => request<void>('/v1/tasks/resume', json({ ids })),
   deleteTasks: (ids: string[]) => request<void>('/v1/tasks/delete', json({ ids })),
+
+  /**
+   * Stream one file into the library (spec 1022).
+   *
+   * XHR rather than fetch, because this is the only call where the user needs
+   * to see how far along it is and to be able to stop it — fetch reports no
+   * upload progress and cannot be cancelled mid-body without extra machinery.
+   *
+   * The fields go BEFORE the file so the server can refuse a bad title without
+   * reading the body at all.
+   */
+  uploadFile: (
+    input: { kind: 'movie' | 'tv'; title: string; season?: string; file: File },
+    onProgress?: (fraction: number) => void,
+  ): { promise: Promise<UploadResult>; cancel: () => void } => {
+    const form = new FormData();
+    form.append('kind', input.kind);
+    form.append('title', input.title);
+    if (input.season) form.append('season', input.season);
+    form.append('file', input.file, input.file.name);
+
+    const xhr = new XMLHttpRequest();
+    const promise = new Promise<UploadResult>((resolve, reject) => {
+      xhr.open('POST', '/v1/fs/upload');
+      if (currentSid) xhr.setRequestHeader('X-Syno-Sid', currentSid);
+      if (currentToken) xhr.setRequestHeader('X-SynoDL-Session', currentToken);
+      xhr.upload.onprogress = (e) => {
+        if (e.lengthComputable && onProgress) onProgress(e.loaded / e.total);
+      };
+      xhr.onload = () => {
+        let body: Record<string, unknown> = {};
+        try {
+          body = JSON.parse(xhr.responseText) as Record<string, unknown>;
+        } catch {
+          /* a non-JSON body is still an error we can report by status */
+        }
+        if (xhr.status >= 200 && xhr.status < 300) {
+          resolve(body as unknown as UploadResult);
+          return;
+        }
+        reject(new ApiError(String(body.error ?? 'upload_failed'), xhr.status));
+      };
+      xhr.onerror = () => reject(new ApiError('offline', 0));
+      xhr.onabort = () => reject(new ApiError('cancelled', 0));
+      xhr.send(form);
+    });
+    return { promise, cancel: () => xhr.abort() };
+  },
 
   shares: () => request<{ folders: Folder[] }>('/v1/fs/shares'),
   listFolder: (path: string) =>

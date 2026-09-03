@@ -45,6 +45,7 @@ Specs are grouped by category band; status moves
 | [1019](specs/1019-imdb-rating-links/spec.md) | The IMDb rating opens the title on IMDb | 🔵 in-review |
 | [1020](specs/1020-fall-back-source/spec.md) | Alternate Domain Fallback for a Download Source | 🔵 in-review |
 | [1021](specs/1021-name-new-downloads/spec.md) | Name new downloads the way Plex expects | 🔵 in-review |
+| [1022](specs/1022-upload-file-straight/spec.md) | Upload a file straight into your library | 🔵 in-review |
 
 ## 🐛 Hotfixes & Bug Fixes (2001+)
 

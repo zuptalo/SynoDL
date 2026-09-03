@@ -35,6 +35,10 @@ type Config struct {
 	SynoTLSInsecure bool
 	// MaxTorrentMB caps .torrent file uploads forwarded to the NAS.
 	MaxTorrentMB int
+	// UploadMaxMB caps a direct file upload into the library (spec 1022). Sized
+	// for episodes and sidecars; larger media stays a File Station or SMB job,
+	// because every byte streams through this process on its way to the NAS.
+	UploadMaxMB int
 	// LoginPerMinute rate-limits POST /v1/session per client IP so the proxy
 	// cannot be used to brute-force the NAS.
 	LoginPerMinute int
@@ -64,6 +68,7 @@ func Load() (Config, error) {
 		SynoURL:         os.Getenv("SYNO_URL"),
 		SynoTLSInsecure: envBool("SYNO_TLS_INSECURE", false),
 		MaxTorrentMB:    envInt("MAX_TORRENT_MB", 16),
+		UploadMaxMB:     envInt("UPLOAD_MAX_MB", 2048),
 		LoginPerMinute:  envInt("LOGIN_PER_MINUTE", 10),
 		StreamMax:       envInt("STREAM_MAX_CONCURRENT", 64),
 		DataDir:         env("DATA_DIR", "/data"),
@@ -98,6 +103,9 @@ func Load() (Config, error) {
 	}
 
 	cfg.SynoURL = strings.TrimRight(cfg.SynoURL, "/")
+	if cfg.UploadMaxMB < 1 {
+		cfg.UploadMaxMB = 1
+	}
 	if cfg.MaxTorrentMB < 1 {
 		cfg.MaxTorrentMB = 1
 	}

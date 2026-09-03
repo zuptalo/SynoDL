@@ -5,6 +5,7 @@ import {
   IonButtons,
   IonContent,
   IonFab,
+  IonFabList,
   IonFabButton,
   IonHeader,
   IonSearchbar,
@@ -17,7 +18,14 @@ import {
   IonTitle,
   IonToolbar,
 } from '@ionic/vue';
-import { addOutline, checkmarkOutline, ellipsisHorizontal, optionsOutline } from 'ionicons/icons';
+import {
+  addOutline,
+  checkmarkOutline,
+  cloudUploadOutline,
+  ellipsisHorizontal,
+  linkOutline,
+  optionsOutline,
+} from 'ionicons/icons';
 import { computed, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useTasks } from '@/composables/useTasks';
@@ -29,6 +37,7 @@ import type { Task } from '@/types/task';
 import TaskItem from '@/components/TaskItem.vue';
 import TaskFilterSheet from '@/components/TaskFilterSheet.vue';
 import NewTaskModal from '@/components/NewTaskModal.vue';
+import UploadModal from '@/components/UploadModal.vue';
 import TaskDetailModal from '@/components/TaskDetailModal.vue';
 import type { RefresherCustomEvent } from '@ionic/vue';
 
@@ -37,6 +46,7 @@ const { filter, apply } = useTaskFilter();
 
 const filterOpen = ref(false);
 const newTaskOpen = ref(false);
+const uploadOpen = ref(false);
 
 const visible = computed(() => applyTaskFilter(tasks.value, filter.value));
 
@@ -307,9 +317,32 @@ async function onDelete(id: string): Promise<void> {
         >
           <ion-icon :icon="checkmarkOutline" />
         </ion-fab-button>
-        <ion-fab-button v-else class="app-fab" data-testid="newtask-open" @click="newTaskOpen = true">
-          <ion-icon :icon="addOutline" />
-        </ion-fab-button>
+        <!-- Two ways to put something in the library now: fetch it by URL, or
+             send a file from this device (spec 1022). An ion-fab-list is the
+             stock way to offer both without a second floating button. -->
+        <template v-else>
+          <ion-fab-button class="app-fab" data-testid="newtask-fab">
+            <ion-icon :icon="addOutline" />
+          </ion-fab-button>
+          <ion-fab-list side="top">
+            <ion-fab-button
+              class="app-fab"
+              title="Add by URL"
+              data-testid="newtask-open"
+              @click="newTaskOpen = true"
+            >
+              <ion-icon :icon="linkOutline" />
+            </ion-fab-button>
+            <ion-fab-button
+              class="app-fab"
+              title="Upload a file"
+              data-testid="upload-open"
+              @click="uploadOpen = true"
+            >
+              <ion-icon :icon="cloudUploadOutline" />
+            </ion-fab-button>
+          </ion-fab-list>
+        </template>
       </ion-fab>
     </ion-content>
 
@@ -320,6 +353,7 @@ async function onDelete(id: string): Promise<void> {
       @dismiss="filterOpen = false"
     />
     <NewTaskModal :is-open="newTaskOpen" @created="onCreated" @dismiss="newTaskOpen = false" />
+    <UploadModal :is-open="uploadOpen" @uploaded="onCreated" @dismiss="uploadOpen = false" />
     <TaskDetailModal
       :is-open="detailId !== null"
       :task="detailTask"

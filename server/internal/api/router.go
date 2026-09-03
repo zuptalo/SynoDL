@@ -111,6 +111,11 @@ func NewRouter(d Deps) http.Handler {
 		mux.Handle("GET /v1/fs/shares", handleListSharesStateful(d))
 		mux.Handle("GET /v1/fs/list", handleListFolderStateful(d))
 		mux.Handle("POST /v1/fs/folder", handleCreateFolderStateful(d))
+		// Direct upload into the library (spec 1022). Rate-limited per client:
+		// this is the one route that writes file CONTENT to the NAS, and an
+		// unbounded one is a way to fill the operator's volume as fast as the
+		// link allows.
+		mux.Handle("POST /v1/fs/upload", limiter.Middleware(handleUpload(d)))
 
 		// Download-source catalog (spec 0005): an admin-configured external
 		// provider, browsable/searchable, whose picks are sent to the NAS. The

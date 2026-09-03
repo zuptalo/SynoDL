@@ -39,7 +39,7 @@ func newStatefulRouterWithMock(t *testing.T) (http.Handler, *store.Store, string
 	t.Cleanup(mock.Close)
 	factory := func(base string, insecure bool) syno.Client { return syno.NewHTTPClient(mock.URL, false) }
 	d := Deps{
-		Cfg:      config.Config{MaxTorrentMB: 16, LoginPerMinute: 1000},
+		Cfg:      config.Config{MaxTorrentMB: 16, LoginPerMinute: 1000, UploadMaxMB: 8},
 		Version:  "test",
 		Stateful: true,
 		Store:    st,

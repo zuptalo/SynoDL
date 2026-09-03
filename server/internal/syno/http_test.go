@@ -2,6 +2,7 @@ package syno
 
 import (
 	"context"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -359,4 +360,72 @@ func TestClassify(t *testing.T) {
 			t.Errorf("classify(%s, %d) = %s, want %s", tc.api, tc.code, got, tc.want)
 		}
 	}
+}
+
+// Spec 1022: the one call that writes file CONTENT to the NAS. Exercised
+// against synomock so the multipart shape, the API discovery, and the
+// no-overwrite behaviour are all verified against something that answers like
+// DSM rather than against a hand-rolled expectation.
+func TestFileStationUpload(t *testing.T) {
+	c := newTestClient(t)
+	sid := login(t, c)
+
+	if err := c.UploadFile(context.Background(), sid, "/movie", "Dune (2021).mkv",
+		strings.NewReader("pretend this is a film")); err != nil {
+		t.Fatalf("upload: %v", err)
+	}
+
+	// A second upload of the same name must FAIL rather than overwrite. The
+	// client never sends overwrite=true, so DSM refuses — which is what lets a
+	// collision be reported instead of silently replacing somebody's file.
+	err := c.UploadFile(context.Background(), sid, "/movie", "Dune (2021).mkv",
+		strings.NewReader("a different film"))
+	if err == nil {
+		t.Fatal("re-uploading the same name should fail, not overwrite")
+	}
+
+	// A folder that does not exist is an error, not a silent create.
+	if err := c.UploadFile(context.Background(), sid, "/movie/Nope", "x.mkv",
+		strings.NewReader("x")); err == nil {
+		t.Error("uploading into a missing folder should fail")
+	}
+}
+
+// The body must stream: a large file may not be assembled in memory first.
+func TestUploadStreamsRatherThanBuffers(t *testing.T) {
+	c := newTestClient(t)
+	sid := login(t, c)
+
+	// A reader that would be ruinous to buffer, counted as it is consumed.
+	const size = 8 << 20
+	read := 0
+	body := &countingReader{n: size, seen: &read}
+	if err := c.UploadFile(context.Background(), sid, "/movie", "big.mkv", body); err != nil {
+		t.Fatalf("upload: %v", err)
+	}
+	if read != size {
+		t.Errorf("streamed %d bytes, want %d", read, size)
+	}
+}
+
+// countingReader yields n zero bytes and records how many were consumed.
+type countingReader struct {
+	n    int
+	seen *int
+}
+
+func (r *countingReader) Read(p []byte) (int, error) {
+	if r.n == 0 {
+		return 0, io.EOF
+	}
+	k := len(p)
+	if k > r.n {
+		k = r.n
+	}
+	for i := range p[:k] {
+		p[i] = 0
+	}
+	r.n -= k
+	*r.seen += k
+	return k, nil
 }
