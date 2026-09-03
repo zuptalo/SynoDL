@@ -65,25 +65,38 @@ from dataclasses import dataclass, field
 # it is kept free of network code and covered by library_tidy_test.py.
 # --------------------------------------------------------------------------
 
-# Tokens that describe a RELEASE rather than a title. Everything from the first
-# one onward is dropped, because scene names put the title first and the
-# technical description after it. Matched on whole words only, so "Her" is not
-# eaten by "hdr" and "It" survives entirely.
-JUNK = r"""
-    2160p|1080p|720p|576p|480p|4k|uhd|fhd|hd
-  | bluray|blu-?ray|bdrip|brrip|bdremux|remux|web-?dl|web-?rip|web|hdtv|pdtv
-  | dvdrip|dvdscr|dvd|hdrip|hdcam|camrip|cam|telesync|ts|tc|r5|vodrip
-  | x264|x265|h\.?264|h\.?265|hevc|avc|xvid|divx|10bit|8bit
-  | aac|ac3|eac3|dd|ddp|dts(?:-hd)?|truehd|atmos|flac|mp3|opus|2ch|6ch|8ch
-  | hdr10\+?|hdr|dovi|dv|sdr|imax|remastered|restored
-  | proper|repack|internal|limited|extended|uncut|unrated|theatrical|directors?
-  | dual|multi|subbed|dubbed|hardsub|softsub|softsubbed|farsi|persian|dubla|zirnevis
-  | complete|completed|season|seasons|series|collection|pack|trilogy|duology
+# STRONG release tokens: resolution, source, codec, audio. These never appear in
+# a real title, so a name can safely be cut at the first one.
+STRONG = r"""
+    2160p|1080p|720p|576p|480p|4k|uhd|fhd
+  | bluray|blu-?ray|bdrip|brrip|bdremux|remux|web-?dl|web-?rip|webdl|hdtv|pdtv
+  | dvdrip|dvdscr|hdrip|hdcam|camrip|telesync|vodrip
+  | x264|x265|h\.?264|h\.?265|hevc|avc|xvid|divx|av1|10bit|8bit
+  | aac|ac3|eac3|ddp?\d?|dts(?:-hd)?|truehd|atmos|flac|opus|\d+ch|\d+mb
+  | hdr10\+?|hdr|dovi|sdr|webrip
 """
-JUNK_RE = re.compile(rf"(?<![^\W_])(?:{JUNK})(?![^\W_])", re.IGNORECASE | re.VERBOSE)
+STRONG_RE = re.compile(rf"(?<![^\W_])(?:{STRONG})(?![^\W_])", re.IGNORECASE | re.VERBOSE)
 
-# Release groups trail the name after a dash: "-RARBG", "-YTS.MX", "- YIFY".
-GROUP_RE = re.compile(r"[\s._-]+-\s*[A-Za-z0-9]{2,12}(?:\.[A-Za-z]{2,4})?\s*$")
+# WEAK tokens: real words that a title may legitimately contain. "The Persian
+# Version", "An Extended Look" and "Force of Nature" are all films. These are
+# only removed where they cannot be part of the title — after the release year,
+# or trailing at the very end of a name that has no year at all. Cutting at them
+# anywhere, as an earlier version did, truncated "The Persian Version" to "The".
+# A PACK word is safe to drop from the end of any name; a LANGUAGE is not.
+# "The English" is a title, and stripping its last word would leave "The" —
+# exactly the bug this rewrite exists to fix.
+WEAK_PACK_RE = re.compile(
+    r"(?:[\s._-]+(?:complete|completed|collection|pack|seasons?))+\s*$", re.IGNORECASE)
+
+WEAK = r"""
+    proper|repack|internal|limited|extended|uncut|unrated|theatrical|hybrid
+  | remastered|restored|imax|dual|multi|subbed|dubbed|hardsub|softsub|dubla
+  | complete|completed|collection|pack|season|seasons
+  | korean|chinese|japanese|french|german|spanish|italian|hindi|tamil|telugu
+  | russian|swedish|nordic|danish|norwegian|finnish|turkish|arabic|thai
+  | farsi|persian|english|latino|castellano|ita|eng|esp
+"""
+WEAK_RE = re.compile(rf"(?<![^\W_])(?:{WEAK})(?![^\W_])", re.IGNORECASE | re.VERBOSE)
 
 # A season span the folder name announces: "S01-S10", "Season 1-5", "S01".
 SEASON_RE = re.compile(
@@ -111,47 +124,89 @@ def _spaces(s: str) -> str:
     rather than a rename, so it is removed at the source instead of being relied
     on not to occur.
     """
-    for ch in (".", "_", "/", "\\"):
+    # A dot is a scene separator in "Dune.Part.Two.2024", but part of the title
+    # in "E.T.", "House M.D." and "Megan 2.0". Two or more dots BETWEEN word
+    # characters means the whole name is dot-separated; a single one is spelling.
+    if len(re.findall(r"(?<=\w)\.(?=\w)", s)) >= 2:
+        s = s.replace(".", " ")
+    for ch in ("_", "/", "\\"):
         s = s.replace(ch, " ")
     return re.sub(r"\s+", " ", s).strip()
 
 
-def extract_year(name: str) -> tuple[str, int | None]:
-    """Split the release year off a folder name.
+def split_on_year(name: str) -> tuple[str, str, int | None]:
+    """Split a name around its release year.
 
-    Returns (name-without-that-year, year). The LAST plausible year wins when a
-    title itself contains one — "Blade Runner 2049 2017" is the 2017 film, not a
-    film called "Blade Runner" from 2049. A name that is ONLY a year keeps it as
-    the title, because "1917" and "2012" are real films.
+    Returns (head, tail, year): the part BEFORE the year, the part after it, and
+    the year. The split matters more than the year does — everything after a
+    release year is release description ("2160p.WEB-DL.KOREAN.Hybrid-AOC"), so
+    the head alone is the title. That single rule removes the need to guess
+    whether a word like "Persian" or "Extended" is a tag or part of the name.
+
+    The LAST plausible year wins when a title contains one of its own, so
+    "Hijack 1971 2024" is the 2024 film. A name that is ONLY a year keeps it,
+    because "1917" and "2012" are films.
     """
     if _spaces(YEAR_RE.sub("", name)).strip(" -–.[](){}") == "":
-        return name, None  # the year IS the title, e.g. "1917" or "2012"
+        return name, "", None  # the year IS the title
 
     # A range is checked first and wins outright: in "Friends 1994 - 2004" the
     # last year is when the show ENDED, and taking it would file the show under
     # the wrong year in every scraper.
     if (r := YEAR_RANGE_RE.search(name)) is not None:
-        return name[: r.start()] + " " + name[r.end():], int(r.group(1))
+        return name[: r.start()], name[r.end():], int(r.group(1))
 
     years = list(YEAR_RE.finditer(name))
     if not years:
-        return name, None
+        return name, "", None
     m = years[-1]
-    return name[: m.start()] + " " + name[m.end():], int(m.group(1))
+    return name[: m.start()], name[m.end():], int(m.group(1))
 
 
-def clean_title(raw: str, *, is_tv: bool) -> str:
-    """Reduce a messy folder name to just the title."""
+def extract_year(name: str) -> tuple[str, int | None]:
+    """Back-compatible view of split_on_year: (name without the year, year)."""
+    head, tail, year = split_on_year(name)
+    return (head + " " + tail) if tail else head, year
+
+
+def clean_title(raw: str, *, is_tv: bool, had_year: bool = True) -> str:
+    """Reduce a name to just the title.
+
+    `had_year` says whether a release year was found and this is the part before
+    it. When it was, the caller has already discarded the description, so only
+    presentation noise is left to remove. When it was NOT, the name still has its
+    description attached and has to be cut at the first STRONG token — but weak
+    tokens are stripped only from the very end, never mid-name, so a title that
+    happens to contain one survives.
+    """
     s = _spaces(raw)
     s = BRACKET_RE.sub(" ", s)
-    s = GROUP_RE.sub(" ", s)
     if is_tv:
         s = SEASON_RE.sub(" ", s)
-    # Everything from the first release token onward is description, not title.
-    m = JUNK_RE.search(s)
+    m = STRONG_RE.search(s)
     if m and _spaces(s[: m.start()]):
         s = s[: m.start()]
-    s = _spaces(s).strip(" -–—.,")
+    # "…S01-S10 COMPLETE" -> "…", with or without a year: no title ends in one
+    # of these words.
+    prev = None
+    while prev != s:
+        prev = s
+        s = WEAK_PACK_RE.sub("", s)
+    if not had_year:
+        # No year, so the description is still attached and the STRONG cut may
+        # have missed a trailing language or edition tag. Trailing ONLY — a weak
+        # word sitting mid-title ("The Persian Version") must survive.
+        prev = None
+        while prev != s:
+            prev = s
+            s = re.sub(rf"(?:[\s._-]+(?:{WEAK}))+\s*$", "", s, flags=re.IGNORECASE | re.VERBOSE)
+    s = _spaces(s).strip(" -–—,([{)]}")
+    # A trailing dot is separator debris ("28 Days Later..."), unless it is the
+    # full stop of an initial ("House M.D."), where it is part of the spelling.
+    while s.endswith("."):
+        if re.search(r"(?:^|[\s.])[A-Za-z]\.$", s):
+            break
+        s = s[:-1].rstrip(" -–—,")
     # Re-casing is deliberately timid, because it is the one change here with no
     # objective right answer. An ALL-CAPS name is left alone: "WALL-E", "UP" and
     # "M*A*S*H" are titles, not shouting, and a scraper matches case-insensitively
@@ -168,8 +223,8 @@ def clean_title(raw: str, *, is_tv: bool) -> str:
 
 def target_name(folder: str, *, is_tv: bool) -> str:
     """The Plex/Jellyfin name for a folder: 'Title (Year)', or 'Title'."""
-    without_year, year = extract_year(folder)
-    title = clean_title(without_year, is_tv=is_tv)
+    head, _tail, year = split_on_year(_spaces(folder))
+    title = clean_title(head, is_tv=is_tv, had_year=year is not None)
     if not title:
         return folder.strip()  # nothing survived; leave it alone
     return f"{title} ({year})" if year else title
@@ -258,7 +313,7 @@ def title_key(name: str, *, is_tv: bool) -> tuple[str, int | None, str | None]:
     to letters and digits only — the same rule the server's matcher uses.
     """
     season = None
-    base = name
+    base = _spaces(name)
     if is_tv and (m := EPISODE_RE.search(base)):
         season = int(m.group(1) or m.group(3))
         base = base[: m.start()]
@@ -289,10 +344,12 @@ def plan_loose_files(
     # Where a title already has a folder, use ITS name, whatever spelling it has,
     # so loose extras land inside it rather than in a near-duplicate beside it.
     dir_by_key: dict[str, str] = {}
+    dir_by_key_year: dict[tuple[str, int | None], str] = {}
     for d in existing_dirs:
-        k, _, _ = title_key(d, is_tv=is_tv)
+        k, y, _ = title_key(d, is_tv=is_tv)
         if k:
             dir_by_key.setdefault(k, d)
+            dir_by_key_year.setdefault((k, y), d)
 
     anchors: dict[tuple[str, str | None], dict] = {}
     pending: list[tuple[str, str, int | None, str | None]] = []
@@ -348,7 +405,10 @@ def plan_loose_files(
                 unattributed.append((f, "two files would collide in the destination"))
             continue
 
-        existing = dir_by_key.get(slot["key"])
+        # A year match is a stronger signal than the title alone: a library can
+        # hold both "Hoppers" and "Hoppers (2026)", and the dated one is where a
+        # 2026 file belongs.
+        existing = dir_by_key_year.get((slot["key"], slot["year"])) or dir_by_key.get(slot["key"])
         if existing:
             dest, create = existing, False
         else:
@@ -368,6 +428,7 @@ def _rebuild_name(slot: dict, is_tv: bool) -> str:
     """A representative name for the group, used to derive the folder name."""
     sample = slot["files"][0]
     stem, _ = split_ext(sample)
+    stem = _spaces(stem)
     if is_tv and (m := EPISODE_RE.search(stem)):
         stem = stem[: m.start()]
     return stem
@@ -385,6 +446,10 @@ class Change:
 @dataclass
 class Plan:
     changes: list[Change] = field(default_factory=list)
+    # Groups of existing folders that resolve to the same title and year. The
+    # tool will not merge them — that is a judgement about which copy to keep —
+    # but staying silent would leave a library quietly split in two.
+    duplicates: list[list[str]] = field(default_factory=list)
 
     @property
     def renames(self) -> list[Change]:
@@ -395,9 +460,39 @@ class Plan:
         return [c for c in self.changes if c.action in ("conflict", "unsafe")]
 
 
+def find_duplicate_folders(folders: list[str], *, is_tv: bool) -> list[list[str]]:
+    """Folders that are the same title, written differently.
+
+    A library grown by hand collects these — "Hoppers" beside "Hoppers 2026",
+    "The Loud House" beside "The-Loud-House". Different YEARS are not duplicates:
+    "Nefarious 2019" and "Nefarious 2023" are two films.
+    """
+    groups: dict[tuple[str, int | None], list[str]] = {}
+    for f in folders:
+        head, _tail, year = split_on_year(_spaces(f))
+        title = clean_title(head, is_tv=is_tv, had_year=year is not None)
+        key = re.sub(r"[^0-9a-z]+", "", title.casefold())
+        if key:
+            groups.setdefault((key, year), []).append(f)
+    # A folder carrying no year is the same title as one that does, so fold the
+    # year-less group into a dated one when there is exactly one candidate.
+    out: list[list[str]] = []
+    seen: set[str] = set()
+    by_key: dict[str, list[str]] = {}
+    for (key, _year), names in groups.items():
+        by_key.setdefault(key, []).extend(names)
+    for key, names in by_key.items():
+        dated = {n for n in names if split_on_year(n)[2] is not None}
+        years = {split_on_year(n)[2] for n in dated}
+        if len(names) > 1 and len(years) <= 1 and not any(n in seen for n in names):
+            seen.update(names)
+            out.append(sorted(names))
+    return out
+
+
 def build_plan(parent: str, folders: list[str], *, is_tv: bool) -> Plan:
     """Decide what each folder under one parent should be called."""
-    plan = Plan()
+    plan = Plan(duplicates=find_duplicate_folders(folders, is_tv=is_tv))
     existing = {f.casefold() for f in folders}
     claimed: dict[str, str] = {}
     for old in folders:
@@ -560,6 +655,11 @@ def print_plan(plan: Plan) -> None:
         print(f"  SKIP     {c.old:<{width}}  ->  {c.new}   [{c.note}]")
     kept = sum(1 for c in plan.changes if c.action == "keep")
     print(f"\n  {len(plan.renames)} to rename, {len(plan.problems)} skipped, {kept} already correct")
+    if plan.duplicates:
+        print("\n  REVIEW — these look like the same title held in more than one folder.\n"
+              "  Nothing is merged: which copy to keep is a judgement, not a rename.")
+        for group in plan.duplicates:
+            print(f"    {'  |  '.join(group)}")
 
 
 def main(argv: list[str]) -> int:

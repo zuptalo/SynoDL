@@ -257,3 +257,105 @@ class LooseFileGrouping(unittest.TestCase):
         self.assertEqual(moved + len(loose), 2)
         for m in moves:
             self.assertEqual(len(set(m.files)), len(m.files))
+
+
+class RealLibraryRegressions(unittest.TestCase):
+    """Cases taken from a real library's dry run, where the planner got it wrong.
+
+    Each one was a rename that would have been applied. The first is the worst:
+    a film reduced to the word "The".
+    """
+
+    def m(self, raw, want):
+        self.assertEqual(target_name(raw, is_tv=False), want)
+
+    def t(self, raw, want):
+        self.assertEqual(target_name(raw, is_tv=True), want)
+
+    def test_a_language_word_inside_a_title_is_not_a_release_tag(self):
+        # "Persian" was treated as a dubbing tag, truncating the title to "The".
+        self.m("The Persian Version 2023", "The Persian Version (2023)")
+        self.m("My_Favorite_Cake_Irani", "My Favorite Cake Irani")
+
+    def test_a_subtitle_after_a_dash_is_not_a_release_group(self):
+        # "- Prodigy" looked like "-RARBG" and was stripped, which would have
+        # merged a spin-off into the parent show's folder.
+        self.t("Star Trek - Prodigy 2021", "Star Trek - Prodigy (2021)")
+        self.m("Hotel Transylvania - Transformania 2022", "Hotel Transylvania - Transformania (2022)")
+        self.m("Birth-Rebirth 2023", "Birth-Rebirth (2023)")
+        self.m("Primal - Tales of Savagery 2019", "Primal - Tales of Savagery (2019)")
+
+    def test_words_that_are_release_tags_only_after_the_year(self):
+        self.m("Grand Theft Auto VI An Extended Look 2026", "Grand Theft Auto VI An Extended Look (2026)")
+        self.m("A.Real.Pain.2024.Hybrid.2160p.WEB-DL.DV.HDR.DDP5.1.Atmos.H265-AOC", "A Real Pain (2024)")
+        self.m("Companion.2025.Hybrid.2160p.WEB-DL.DV.HDR.DDP5.1.Atmos.H265-AOC", "Companion (2025)")
+
+    def test_a_language_after_the_year_is_dropped(self):
+        self.m("Kill.Boksoon.2023.KOREAN.1080p.NF.WEB-DL.x265.10bit.HDR.DDP5.Atmos-WDYM", "Kill Boksoon (2023)")
+        self.m("JUNGE.2023.KOREAN.1080p.NF.WEBRip.DDP5.1.Atmos.x264-SMURF", "JUNGE (2023)")
+        self.m("Ride.On.2023.CHINESE.1080p.WEBRip.1400MB.DD5.1.x264-GalaxyRG[TGx]", "Ride On (2023)")
+        self.m("Project.Wolf.Hunting.2022.KOREAN.1080p.WEBRip.x265-VXT", "Project Wolf Hunting (2022)")
+
+    def test_initials_keep_their_dots(self):
+        # Dots are a scene separator, but "E.T." and "M.D." are how the titles
+        # are spelled. Only convert when the name is dot-separated throughout.
+        self.m("E.T. the Extra-Terrestrial 1982", "E.T. the Extra-Terrestrial (1982)")
+        self.t("House M.D. 2004", "House M.D. (2004)")
+        self.t("Mr. Robot 2015", "Mr. Robot (2015)")
+        self.m("Fantastic Mr. Fox 2009", "Fantastic Mr. Fox (2009)")
+        self.m("Megan 2.0", "Megan 2.0")
+        # ...but a genuinely dot-separated scene name still converts.
+        self.m("Society.of.the.Snow.2023.4K.SDR.2160p.WEBDL Ita Eng x265-NAHOM", "Society of the Snow (2023)")
+        self.m("Dune.Part.Two.2024.1080p.WEB-DL.DDP2.0.H264-AOC", "Dune Part Two (2024)")
+
+    def test_a_year_inside_the_title_survives(self):
+        self.m("Hijack.1971.2024.1080p.WEB-DL.DD5.1.H.264-FLUX[TGx]", "Hijack 1971 (2024)")
+        self.m("1992.2024.1080p.AMZN.WEBRip.1400MB.DD5.1.x264-GalaxyRG[TGx]", "1992 (2024)")
+        self.m("65.2023.2160p.WEB-DL.x265.10bit.HDR.DDP5.1-FLUX", "65 (2023)")
+        self.m("Together 99 (2023) [1080p] [WEBRip] [5.1] [YTS.MX]", "Together 99 (2023)")
+
+    def test_trailing_separator_before_the_year(self):
+        self.t("Breaking Bad - 2008", "Breaking Bad (2008)")
+        self.m("Exhuma - 2024", "Exhuma (2024)")
+        self.m("Woman and Child - 2025", "Woman and Child (2025)")
+
+    def test_series_pack_names_without_a_year(self):
+        self.t("Breaking.Bad.S01-S05.COMPLETE.1080p.BluRay-GROUP", "Breaking Bad")
+        self.m("THE.HUNGER.GAMES.THE.BALLAD.OF.SONGBIRDS.AND.SNAKES.1080p.WEB.DL-MassModz",
+               "THE HUNGER GAMES THE BALLAD OF SONGBIRDS AND SNAKES")
+
+    def test_titles_that_were_already_right_stay_right(self):
+        for raw, want in [
+            ("Dune.2021.1080p.BluRay.x264-RARBG", "Dune (2021)"),
+            ("A Simple Favor (2018) [2160p] [4K] [BluRay] [5.1] [YTS.MX]", "A Simple Favor (2018)"),
+            ("Vicky Cristina Barcelona (2008) (1080p BluRay x265 HEVC 10bit AAC 3.0 afm72)",
+             "Vicky Cristina Barcelona (2008)"),
+            ("Kandahar (2023) (2160p MA WEB-DL H265 HDR DDP 5.1 English - HONE)[TGx]", "Kandahar (2023)"),
+            ("Don 2 2011 1080p BluRay x265 Hindi DDP5.1 - SP3LL", "Don 2 (2011)"),
+            ("Chloe_2009_1080p_BluRay_REMUX", "Chloe (2009)"),
+            ("Whiplash 2014 1080p HQ BluRay AV1 Opus 5.1 [981]", "Whiplash (2014)"),
+            ("Justice League – Gotham City Breakout 2016", "Justice League – Gotham City Breakout (2016)"),
+            ("Léon The Professional 1994", "Léon The Professional (1994)"),
+        ]:
+            self.assertEqual(target_name(raw, is_tv=False), want, raw)
+
+
+class DuplicateFolders(unittest.TestCase):
+    """Two folders for one title. The tool must say so, not pick one silently."""
+
+    def test_reports_two_folders_for_the_same_title(self):
+        plan = build_plan("/movie", ["Hoppers", "Hoppers 2026"], is_tv=False)
+        self.assertTrue(plan.duplicates, "two folders for one title were not reported")
+        names = {n for group in plan.duplicates for n in group}
+        self.assertEqual(names, {"Hoppers", "Hoppers 2026"})
+
+    def test_different_years_are_not_duplicates(self):
+        plan = build_plan("/movie", ["Nefarious 2019", "Nefarious 2023"], is_tv=False)
+        self.assertEqual(plan.duplicates, [])
+
+    def test_loose_files_prefer_the_folder_whose_year_matches(self):
+        moves, _ = plan_loose_files(
+            ["Hoppers_2026_2160p_x265.mkv"],
+            existing_dirs=["Hoppers", "Hoppers (2026)"], is_tv=False,
+        )
+        self.assertEqual(moves[0].dest, "Hoppers (2026)")
