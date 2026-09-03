@@ -1,19 +1,47 @@
-# HTTP routing on k3s's built-in Traefik. Unlike the Ring deployment (which needs
-# raw TLS-over-:443 SNI passthrough for its embedded TURN/SFU), SynoDL is a plain
-# HTTP app that terminates NO TLS of its own. TLS is terminated UPSTREAM — by the
-# edge Traefik that fronts the cluster — which then forwards cleartext HTTP to this
-# node's `web` (:80) entrypoint, where this route matches the Host and hands off to
-# the synodl Service.
+# HTTP routing on k3s's built-in Traefik.
 #
-#   edge Traefik (terminates TLS for ${APP_HOST})  ──HTTP──►  k3s :80 (web)
-#        └─ HostSNI/Host = ${APP_HOST}                              │
-#                                                     Host(`${APP_HOST}`) ─► synodl:8080
+# TLS is terminated HERE, in-cluster, by the k3s Traefik's own ACME resolver
+# (`letsencrypt`, configured on the traefik HelmChartConfig in kube-system). The
+# edge proxy that fronts the cluster does NOT terminate for this host — it
+# SNI-passthroughs :443 straight to the k3s node, which is what lets the ACME
+# TLS-ALPN-01 challenge reach Traefik at all:
 #
-# This is why the route sits on `web`, not `websecure`: k3s's Traefik here has no
-# ACME cert-resolver, so terminating TLS in-cluster would only yield Traefik's
-# default self-signed cert. Keep TLS at the edge. (If you later configure an ACME
-# resolver on k3s Traefik and want it to terminate TLS instead, move this to the
-# `websecure` entrypoint and add a `tls:` block with your certResolver.)
+#   edge Traefik  ──TCP, tls.passthrough──►  k3s :443 (websecure) ─► synodl:8080
+#        └─ HostSNI(`${APP_HOST}`)                └─ terminates + renews the cert
+#
+# Why passthrough rather than terminating at the edge: TLS-ALPN-01 negotiates the
+# `acme-tls/1` protocol on :443, so the connection has to arrive at the Traefik
+# that owns the cert with SNI intact. Terminating upstream would break renewal.
+#
+# Two routers, deliberately:
+#
+#   synodl-tls  the real one — websecure, with the cert resolver.
+#   synodl      plain HTTP on `web`. Kept because it costs nothing and is the
+#               fallback path for an edge that DOES terminate TLS and forwards
+#               cleartext to :80 (the older setup, and what a different operator
+#               may still be running). It also keeps this app reachable while a
+#               cert is still being issued, instead of failing closed.
+#
+# NOTE: the cert cannot be issued until :443 for ${APP_HOST} actually reaches this
+# cluster. If the edge still routes this host somewhere else, Traefik will serve
+# its default self-signed cert and retry ACME in the background until it does.
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: synodl-tls
+  namespace: synodl
+spec:
+  entryPoints:
+    - websecure
+  routes:
+    - match: Host(`${APP_HOST}`)
+      kind: Rule
+      services:
+        - name: synodl
+          port: 8080
+  tls:
+    certResolver: letsencrypt
+---
 apiVersion: traefik.io/v1alpha1
 kind: IngressRoute
 metadata:

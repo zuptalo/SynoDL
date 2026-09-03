@@ -10,7 +10,10 @@ import {
   IonHeader,
   IonSearchbar,
   IonIcon,
+  IonLabel,
   IonList,
+  IonListHeader,
+  IonNote,
   IonPage,
   IonRefresher,
   IonRefresherContent,
@@ -38,6 +41,8 @@ import TaskItem from '@/components/TaskItem.vue';
 import TaskFilterSheet from '@/components/TaskFilterSheet.vue';
 import NewTaskModal from '@/components/NewTaskModal.vue';
 import UploadModal from '@/components/UploadModal.vue';
+import { useUploads } from '@/composables/useUploads';
+import UploadItem from '@/components/UploadItem.vue';
 import TaskDetailModal from '@/components/TaskDetailModal.vue';
 import type { RefresherCustomEvent } from '@ionic/vue';
 
@@ -47,6 +52,16 @@ const { filter, apply } = useTaskFilter();
 const filterOpen = ref(false);
 const newTaskOpen = ref(false);
 const uploadOpen = ref(false);
+
+// Uploads report HERE as well as in the sheet, so dismissing the sheet is a UI
+// choice rather than losing sight of a transfer that is still running. A job
+// only leaves this list when it is dismissed, so a failure cannot go unnoticed.
+const { jobs: uploads, retry: retryUpload, cancel: cancelUpload, dismiss: dismissUpload } =
+  useUploads();
+// The warning only belongs on screen while something is actually in flight.
+const uploadRunning = computed(() =>
+  uploads.value.some((j) => j.state === 'sending' || j.state === 'waiting'),
+);
 
 const visible = computed(() => applyTaskFilter(tasks.value, filter.value));
 
@@ -286,6 +301,23 @@ async function onDelete(id: string): Promise<void> {
         <ion-refresher-content />
       </ion-refresher>
 
+      <!-- Uploads sit above the downloads and read the same way: they are
+           transfers in progress, not notices. -->
+      <ion-list v-if="uploads.length" data-testid="upload-list">
+        <ion-list-header><ion-label>Uploads</ion-label></ion-list-header>
+        <UploadItem
+          v-for="job in uploads"
+          :key="job.id"
+          :job="job"
+          @stop="cancelUpload"
+          @retry="retryUpload"
+          @clear="dismissUpload"
+        />
+        <ion-note v-if="uploadRunning" class="upload-hint" color="medium">
+          Keep the app open while an upload is running.
+        </ion-note>
+      </ion-list>
+
       <div v-if="!loaded" class="center"><ion-spinner name="crescent" /></div>
       <div v-else-if="visible.length === 0" class="center empty" data-testid="tasks-empty">
         <p>{{ tasks.length === 0 ? 'No download tasks.' : 'No tasks match the filters.' }}</p>
@@ -363,6 +395,14 @@ async function onDelete(id: string): Promise<void> {
 </template>
 
 <style scoped>
+.bad {
+  color: var(--ion-color-danger);
+}
+.upload-hint {
+  display: block;
+  padding: 4px 16px 8px;
+  font-size: 0.75rem;
+}
 .speeds {
   display: flex;
   flex-direction: column;

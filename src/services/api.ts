@@ -673,13 +673,26 @@ export const api = {
    * reading the body at all.
    */
   uploadFile: (
-    input: { kind: 'movie' | 'tv'; title: string; season?: string; file: File },
+    input: {
+      kind: 'movie' | 'tv';
+      title: string;
+      season?: string;
+      file: File;
+      /** Replace a file of the same name. Only ever set from an explicit user choice. */
+      overwrite?: boolean;
+    },
     onProgress?: (fraction: number) => void,
   ): { promise: Promise<UploadResult>; cancel: () => void } => {
     const form = new FormData();
     form.append('kind', input.kind);
     form.append('title', input.title);
     if (input.season) form.append('season', input.season);
+    // Sent BEFORE the file, and read as a field by the server before it reaches
+    // the file part: the NAS needs an exact Content-Length up front (DSM refuses
+    // a chunked upload body), and the size cannot be recovered once the file is
+    // being streamed.
+    form.append('size', String(input.file.size));
+    if (input.overwrite) form.append('overwrite', 'true');
     form.append('file', input.file, input.file.name);
 
     const xhr = new XMLHttpRequest();

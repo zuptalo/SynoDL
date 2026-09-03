@@ -35,9 +35,17 @@ type Config struct {
 	SynoTLSInsecure bool
 	// MaxTorrentMB caps .torrent file uploads forwarded to the NAS.
 	MaxTorrentMB int
-	// UploadMaxMB caps a direct file upload into the library (spec 1022). Sized
-	// for episodes and sidecars; larger media stays a File Station or SMB job,
-	// because every byte streams through this process on its way to the NAS.
+	// AllowBrowserAccess lets the PWA run in an ordinary browser tab instead of
+	// requiring installation first. Off by default: SynoDL is meant to be
+	// installed, which is what makes Web Push and the app shell reliable. An
+	// operator turns it on deliberately — to look at the app from a desktop
+	// browser, or to debug something without installing.
+	AllowBrowserAccess bool
+	// UploadMaxMB caps a direct file upload into the library (spec 1022), in MB.
+	// Every byte streams through this process on its way to the NAS and is never
+	// buffered, so the cap bounds how long a transfer may run rather than how
+	// much memory it can take — which is why it can sit at 10 GB on a container
+	// limited to a couple of hundred MB of RAM.
 	UploadMaxMB int
 	// LoginPerMinute rate-limits POST /v1/session per client IP so the proxy
 	// cannot be used to brute-force the NAS.
@@ -60,19 +68,20 @@ type Config struct {
 // failing fast (with every missing variable listed) outside dev.
 func Load() (Config, error) {
 	cfg := Config{
-		Env:             env("ENV", "dev"),
-		Port:            os.Getenv("PORT"),
-		AllowedOrigins:  splitComma(env("ALLOWED_ORIGINS", "http://localhost:5273,http://localhost:5274")),
-		StaticDir:       os.Getenv("STATIC_DIR"),
-		DevProxy:        os.Getenv("DEV_PROXY"),
-		SynoURL:         os.Getenv("SYNO_URL"),
-		SynoTLSInsecure: envBool("SYNO_TLS_INSECURE", false),
-		MaxTorrentMB:    envInt("MAX_TORRENT_MB", 16),
-		UploadMaxMB:     envInt("UPLOAD_MAX_MB", 2048),
-		LoginPerMinute:  envInt("LOGIN_PER_MINUTE", 10),
-		StreamMax:       envInt("STREAM_MAX_CONCURRENT", 64),
-		DataDir:         env("DATA_DIR", "/data"),
-		SecretsKey:      os.Getenv("SECRETS_KEY"),
+		Env:                env("ENV", "dev"),
+		Port:               os.Getenv("PORT"),
+		AllowedOrigins:     splitComma(env("ALLOWED_ORIGINS", "http://localhost:5273,http://localhost:5274")),
+		StaticDir:          os.Getenv("STATIC_DIR"),
+		DevProxy:           os.Getenv("DEV_PROXY"),
+		SynoURL:            os.Getenv("SYNO_URL"),
+		SynoTLSInsecure:    envBool("SYNO_TLS_INSECURE", false),
+		MaxTorrentMB:       envInt("MAX_TORRENT_MB", 16),
+		UploadMaxMB:        envInt("UPLOAD_MAX_MB", 10240),
+		AllowBrowserAccess: envBool("ALLOW_BROWSER_ACCESS", false),
+		LoginPerMinute:     envInt("LOGIN_PER_MINUTE", 10),
+		StreamMax:          envInt("STREAM_MAX_CONCURRENT", 64),
+		DataDir:            env("DATA_DIR", "/data"),
+		SecretsKey:         os.Getenv("SECRETS_KEY"),
 	}
 
 	if cfg.Env == "dev" && cfg.SynoURL == "" {

@@ -171,7 +171,7 @@ func doReq(t *testing.T, srv *httptest.Server, method, path, sid, contentType st
 	return resp
 }
 
-func (f *fakeSyno) UploadFile(_ context.Context, _ string, destFolder, filename string, body io.Reader) error {
+func (f *fakeSyno) UploadFile(_ context.Context, _ string, destFolder, filename string, _ int64, overwrite bool, body io.Reader) error {
 	if f.err != nil {
 		return f.err
 	}

@@ -185,14 +185,34 @@ func fail(w http.ResponseWriter, code int) {
 func (s *Server) handleInfo(w http.ResponseWriter, r *http.Request) {
 	// DSM7-shaped discovery table: FileStation rides entry.cgi, Download
 	// Station keeps its classic per-app cgi paths.
-	ok(w, map[string]any{
+	all := map[string]any{
 		"SYNO.API.Auth":                  map[string]any{"path": "auth.cgi", "minVersion": 1, "maxVersion": 7},
 		"SYNO.DownloadStation.Task":      map[string]any{"path": "DownloadStation/task.cgi", "minVersion": 1, "maxVersion": 3},
 		"SYNO.DownloadStation.Statistic": map[string]any{"path": "DownloadStation/statistic.cgi", "minVersion": 1, "maxVersion": 1},
 		"SYNO.FileStation.List":          map[string]any{"path": "entry.cgi", "minVersion": 1, "maxVersion": 2},
 		"SYNO.FileStation.CreateFolder":  map[string]any{"path": "entry.cgi", "minVersion": 1, "maxVersion": 2},
 		"SYNO.FileStation.Upload":        map[string]any{"path": "entry.cgi", "minVersion": 1, "maxVersion": 2},
-	})
+	}
+
+	// Real DSM answers ONLY for the APIs named in `query`, and silently omits
+	// anything not asked about. Returning the whole table regardless — as this
+	// did — hid a real bug for an entire release: the client never listed
+	// SYNO.FileStation.Upload in its discovery query, so on a real NAS the
+	// lookup missed and every upload failed before it made a request, while
+	// every test here passed. Honouring the filter is what makes a forgotten
+	// registration fail loudly in tests instead of only in production.
+	q := strings.TrimSpace(r.FormValue("query"))
+	if q == "" || q == "all" {
+		ok(w, all)
+		return
+	}
+	out := map[string]any{}
+	for _, name := range strings.Split(q, ",") {
+		if e, found := all[strings.TrimSpace(name)]; found {
+			out[strings.TrimSpace(name)] = e
+		}
+	}
+	ok(w, out)
 }
 
 func (s *Server) handleAuth(w http.ResponseWriter, r *http.Request) {
@@ -378,17 +398,33 @@ func (s *Server) handleStatistic(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleFileStation(w http.ResponseWriter, r *http.Request) {
 	// An upload arrives as multipart, which ParseForm alone does not read.
-	if strings.HasPrefix(r.Header.Get("Content-Type"), "multipart/") {
+	isMultipart := strings.HasPrefix(r.Header.Get("Content-Type"), "multipart/")
+	if isMultipart {
 		_ = r.ParseMultipartForm(32 << 20)
 	}
 	_ = r.ParseForm()
+
+	// Real DSM resolves the API and the SESSION from the query string before it
+	// parses a multipart body — so an upload carrying _sid as a form field is
+	// refused with "sid not found" even though that sid is perfectly valid for
+	// every other call. Reading these with FormValue (query OR body) let the mock
+	// accept a request DSM rejects, which is how an upload that could never work
+	// on real hardware passed the whole suite. Operands (path, create_parents,
+	// file) still come from the body, exactly as DSM expects them.
+	param := func(k string) string {
+		if isMultipart {
+			return r.URL.Query().Get(k)
+		}
+		return r.FormValue(k)
+	}
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if !s.authedLocked(r) {
+	if _, live := s.sessions[param("_sid")]; !live {
 		fail(w, 106)
 		return
 	}
-	switch r.FormValue("api") {
+	switch param("api") {
 	case "SYNO.FileStation.List":
 		switch r.FormValue("method") {
 		case "list_share":
@@ -413,7 +449,8 @@ func (s *Server) handleFileStation(w http.ResponseWriter, r *http.Request) {
 			fail(w, 101)
 		}
 	case "SYNO.FileStation.Upload":
-		if r.FormValue("method") != "upload" {
+		// Dispatch comes from the query too — see the note above.
+		if param("method") != "upload" {
 			fail(w, 101)
 			return
 		}
@@ -427,10 +464,19 @@ func (s *Server) handleFileStation(w http.ResponseWriter, r *http.Request) {
 			fail(w, 101)
 			return
 		}
+		// overwrite is an OPERAND, so it rides in the body like path and the file
+		// itself — unlike api/method/_sid, which DSM reads from the query.
+		overwrite := strings.EqualFold(strings.TrimSpace(r.FormValue("overwrite")), "true")
 		for _, existing := range s.uploads[dir] {
 			if existing == hdr.Filename {
-				// Real DSM refuses when overwrite is not requested, and the
-				// client deliberately never requests it.
+				if overwrite {
+					// Replacing is how a PARTIAL file from an interrupted upload
+					// gets recovered; the name is already recorded, so the entry
+					// simply stands and the content is considered replaced.
+					ok(w, map[string]any{"blSkip": false})
+					return
+				}
+				// Real DSM refuses a taken name unless overwrite was asked for.
 				fail(w, 414)
 				return
 			}
@@ -454,6 +500,18 @@ func (s *Server) handleFileStation(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		full := path.Join(parent, name)
+		// Real DSM refuses to create a folder that is already there (414),
+		// exactly as the upload case above refuses an existing file. The
+		// server relies on that: ensureSubfolder treats a failed create as
+		// "maybe it exists", lists the parent, and reuses the match. Appending
+		// unconditionally instead let the same title accumulate duplicate
+		// entries, which the ownership index then read as two separate folders.
+		for _, existing := range s.folders[parent] {
+			if existing == name {
+				fail(w, 414)
+				return
+			}
+		}
 		s.folders[parent] = append(s.folders[parent], name)
 		if _, exists := s.folders[full]; !exists {
 			s.folders[full] = []string{}

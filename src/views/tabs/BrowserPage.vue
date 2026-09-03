@@ -924,8 +924,18 @@ function goSettings(): void {
      for a small icon, but white text on it is 2.3:1 — well under the 4.5:1 a
      label this size needs. This shade takes white at 5.0:1. */
   background: #15803d;
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.45);
+  /* Posters are arbitrary artwork, so the ribbon has to separate itself from
+     whatever sits under it. A light edge plus a shadow does that against any
+     image — changing the HUE would not: a brighter fill still disappears on a
+     poster that happens to share it. The edge is slightly translucent so it
+     reads as a rim on both light and dark posters rather than a hard sticker. */
+  border: 1.5px solid rgba(255, 255, 255, 0.92);
+  box-shadow:
+    0 1px 5px rgba(0, 0, 0, 0.55),
+    0 0 0 1px rgba(0, 0, 0, 0.28);
   color: #fff;
+  /* Keeps the letters legible where the band crosses a bright patch. */
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
   font-size: 0.68rem;
   font-weight: 800;
   letter-spacing: 0.06em;

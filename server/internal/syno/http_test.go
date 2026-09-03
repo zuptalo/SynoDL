@@ -297,6 +297,39 @@ func TestFileStationCreateFolder(t *testing.T) {
 	}
 }
 
+// Uploading several files into one new title folder creates the folder once and
+// then re-creates it per file, so the second create has to behave the way a real
+// DSM does — refuse, rather than quietly add a second entry under the parent.
+// When the mock appended unconditionally the title appeared twice under /movie,
+// which is exactly what the ownership index reads.
+func TestCreateFolderTwiceDoesNotDuplicate(t *testing.T) {
+	c := newTestClient(t)
+	sid := login(t, c)
+
+	if _, err := c.CreateFolder(context.Background(), sid, "/movie", "Dupe"); err != nil {
+		t.Fatalf("first CreateFolder: %v", err)
+	}
+	// Real DSM answers "already exists"; the caller (ensureSubfolder) treats a
+	// failed create as "maybe it is there" and reuses it.
+	if _, err := c.CreateFolder(context.Background(), sid, "/movie", "Dupe"); AsError(err) == nil {
+		t.Fatal("re-creating an existing folder should surface a NAS error")
+	}
+
+	sub, err := c.ListFolder(context.Background(), sid, "/movie")
+	if err != nil {
+		t.Fatalf("ListFolder: %v", err)
+	}
+	n := 0
+	for _, f := range sub {
+		if f.Name == "Dupe" {
+			n++
+		}
+	}
+	if n != 1 {
+		t.Fatalf("/movie lists %q %d times, want exactly 1: %+v", "Dupe", n, sub)
+	}
+}
+
 func TestUnreachableNAS(t *testing.T) {
 	// A dead port: connection refused must map to KindUnreachable, never panic.
 	c := NewHTTPClient("http://127.0.0.1:1", false)
@@ -370,22 +403,24 @@ func TestFileStationUpload(t *testing.T) {
 	c := newTestClient(t)
 	sid := login(t, c)
 
-	if err := c.UploadFile(context.Background(), sid, "/movie", "Dune (2021).mkv",
-		strings.NewReader("pretend this is a film")); err != nil {
+	const film = "pretend this is a film"
+	if err := c.UploadFile(context.Background(), sid, "/movie", "Dune (2021).mkv", int64(len(film)), false,
+		strings.NewReader(film)); err != nil {
 		t.Fatalf("upload: %v", err)
 	}
 
 	// A second upload of the same name must FAIL rather than overwrite. The
 	// client never sends overwrite=true, so DSM refuses — which is what lets a
 	// collision be reported instead of silently replacing somebody's file.
-	err := c.UploadFile(context.Background(), sid, "/movie", "Dune (2021).mkv",
-		strings.NewReader("a different film"))
+	const other = "a different film"
+	err := c.UploadFile(context.Background(), sid, "/movie", "Dune (2021).mkv", int64(len(other)), false,
+		strings.NewReader(other))
 	if err == nil {
 		t.Fatal("re-uploading the same name should fail, not overwrite")
 	}
 
 	// A folder that does not exist is an error, not a silent create.
-	if err := c.UploadFile(context.Background(), sid, "/movie/Nope", "x.mkv",
+	if err := c.UploadFile(context.Background(), sid, "/movie/Nope", "x.mkv", 1, false,
 		strings.NewReader("x")); err == nil {
 		t.Error("uploading into a missing folder should fail")
 	}
@@ -400,7 +435,7 @@ func TestUploadStreamsRatherThanBuffers(t *testing.T) {
 	const size = 8 << 20
 	read := 0
 	body := &countingReader{n: size, seen: &read}
-	if err := c.UploadFile(context.Background(), sid, "/movie", "big.mkv", body); err != nil {
+	if err := c.UploadFile(context.Background(), sid, "/movie", "big.mkv", int64(size), false, body); err != nil {
 		t.Fatalf("upload: %v", err)
 	}
 	if read != size {
@@ -428,4 +463,118 @@ func (r *countingReader) Read(p []byte) (int, error) {
 	r.n -= k
 	*r.seen += k
 	return k, nil
+}
+
+// The bug this pins: an upload sent with a chunked request body.
+//
+// Streaming the multipart through an io.Pipe leaves the length unknown, so Go
+// sends Transfer-Encoding: chunked — and DSM's entry.cgi refuses an upload in
+// that form, instantly, before reading any of the file. Every real upload failed
+// while every test passed, because Go's own HTTP server (which synomock is)
+// accepts chunked happily. So asserting "the upload succeeded" can never catch
+// this; the wire framing itself has to be asserted.
+func TestUploadDeclaresContentLengthAndIsNotChunked(t *testing.T) {
+	var gotLen int64 = -1
+	var gotTE []string
+	inner := synomock.New().Handler()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// The upload is the only multipart request the client makes.
+		if strings.HasPrefix(r.Header.Get("Content-Type"), "multipart/form-data") {
+			gotLen = r.ContentLength
+			gotTE = append([]string(nil), r.TransferEncoding...)
+		}
+		inner.ServeHTTP(w, r)
+	}))
+	t.Cleanup(srv.Close)
+
+	c := NewHTTPClient(srv.URL, false)
+	sid := login(t, c)
+
+	const film = "pretend this is a film"
+	if err := c.UploadFile(context.Background(), sid, "/movie", "Dune (2021).mkv",
+		int64(len(film)), false, strings.NewReader(film)); err != nil {
+		t.Fatalf("upload: %v", err)
+	}
+
+	if gotLen <= 0 {
+		t.Errorf("upload sent Content-Length %d; DSM requires a real length", gotLen)
+	}
+	for _, te := range gotTE {
+		if te == "chunked" {
+			t.Error("upload was sent chunked; DSM rejects a chunked upload body")
+		}
+	}
+	// The declared length must cover the envelope as well as the file, or the
+	// server would be left waiting for bytes that never come.
+	if gotLen <= int64(len(film)) {
+		t.Errorf("Content-Length %d does not exceed the %d-byte file, so the "+
+			"multipart envelope was not counted", gotLen, len(film))
+	}
+}
+
+// Every API the client can call must also be one it ASKS the NAS about.
+//
+// The two lists were separate — maxSupported (versions we negotiate) and a
+// hand-written query string in endpointFor — and they silently disagreed:
+// SYNO.FileStation.Upload was in the first and missing from the second. Real DSM
+// answers only for the APIs named in the query, so the upload endpoint was never
+// in the discovered table and endpointFor failed before making any request,
+// returning a code-less error. Every upload on real hardware failed for a whole
+// release while the suite stayed green, because the mock ignored the filter.
+//
+// This asserts the invariant directly, so a newly added API cannot be
+// half-registered again.
+func TestEveryCallableAPIIsDiscoverable(t *testing.T) {
+	c := newTestClient(t)
+	for api := range maxSupported {
+		ep, err := c.endpointFor(context.Background(), api)
+		if err != nil {
+			t.Errorf("endpointFor(%s): %v — is it missing from the discovery query?", api, err)
+			continue
+		}
+		if ep.Path == "" {
+			t.Errorf("endpointFor(%s) returned an empty path", api)
+		}
+	}
+}
+
+// The discovery query is what the NAS is asked about, so it has to name every
+// API the client negotiates a version for — checked without a server so the
+// failure points at the list rather than at a request.
+func TestDiscoveryQueryCoversMaxSupported(t *testing.T) {
+	inQuery := map[string]bool{}
+	for _, api := range discoverableAPIs() {
+		inQuery[api] = true
+	}
+	for api := range maxSupported {
+		if !inQuery[api] {
+			t.Errorf("%s is callable but absent from the discovery query", api)
+		}
+	}
+}
+
+// Replacing is opt-in, and exists for one reason: an upload cut off part-way
+// leaves a PARTIAL file on the NAS, and without overwrite the retry is refused
+// with "already exists" — reporting a name collision for a file that is really a
+// broken fragment. Never the default, because it destroys content.
+func TestUploadOverwriteOnlyWhenAsked(t *testing.T) {
+	c := newTestClient(t)
+	sid := login(t, c)
+	const first, second = "a partial file", "the whole film"
+
+	if err := c.UploadFile(context.Background(), sid, "/movie", "Dune (2021).mkv",
+		int64(len(first)), false, strings.NewReader(first)); err != nil {
+		t.Fatalf("first upload: %v", err)
+	}
+	// Without overwrite the name is defended.
+	err := c.UploadFile(context.Background(), sid, "/movie", "Dune (2021).mkv",
+		int64(len(second)), false, strings.NewReader(second))
+	if se := AsError(err); se == nil || se.Code != 414 {
+		t.Fatalf("re-upload without overwrite = %v, want DSM 414", err)
+	}
+	// With it, the retry succeeds and the fragment is replaced.
+	if err := c.UploadFile(context.Background(), sid, "/movie", "Dune (2021).mkv",
+		int64(len(second)), true, strings.NewReader(second)); err != nil {
+		t.Fatalf("re-upload with overwrite: %v", err)
+	}
 }

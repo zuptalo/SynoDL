@@ -6,6 +6,7 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -17,7 +18,14 @@ func uploadBody(t *testing.T, kind, title, season, filename, content string) (st
 	t.Helper()
 	buf := &bytes.Buffer{}
 	mw := multipart.NewWriter(buf)
-	for _, kv := range [][2]string{{"kind", kind}, {"title", title}, {"season", season}} {
+	// size rides ahead of the file, exactly as the browser sends it: the handler
+	// needs the byte count before it can build a NAS request with a real
+	// Content-Length (DSM refuses a chunked upload body).
+	fields := [][2]string{
+		{"kind", kind}, {"title", title}, {"season", season},
+		{"size", strconv.Itoa(len(content))},
+	}
+	for _, kv := range fields {
 		if kv[1] != "" {
 			if err := mw.WriteField(kv[0], kv[1]); err != nil {
 				t.Fatal(err)

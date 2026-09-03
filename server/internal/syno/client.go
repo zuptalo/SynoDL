@@ -33,7 +33,7 @@ type Client interface {
 	// call in this interface that writes file CONTENT to the NAS; everything
 	// else reads, or creates an empty folder. The name must already have been
 	// validated as a single path segment by the caller.
-	UploadFile(ctx context.Context, sid, destFolder, filename string, body io.Reader) error
+	UploadFile(ctx context.Context, sid, destFolder, filename string, size int64, overwrite bool, body io.Reader) error
 }
 
 // Task is the wire shape served to the PWA (camelCase JSON). It flattens the

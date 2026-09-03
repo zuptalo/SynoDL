@@ -7,9 +7,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"mime/multipart"
 	"net/http"
 	"net/url"
+	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -39,6 +42,19 @@ var maxSupported = map[string]int{
 	apiFSList:   2,
 	apiFSCreate: 2,
 	apiFSUpload: 2,
+}
+
+// discoverableAPIs is every API this client may call, sorted so the discovery
+// request is byte-identical run to run. Sourced from maxSupported so the set the
+// client negotiates versions for and the set it asks the NAS about can never
+// drift apart.
+func discoverableAPIs() []string {
+	out := make([]string, 0, len(maxSupported))
+	for api := range maxSupported {
+		out = append(out, api)
+	}
+	sort.Strings(out)
+	return out
 }
 
 // HTTPClient is the real DSM client. It is safe for concurrent use; the only
@@ -94,7 +110,15 @@ func (c *HTTPClient) endpointFor(ctx context.Context, api string) (endpoint, err
 			"api":     {apiInfo},
 			"version": {"1"},
 			"method":  {"query"},
-			"query":   {strings.Join([]string{apiAuth, apiTask, apiStat, apiFSList, apiFSCreate}, ",")},
+			// Derived from maxSupported rather than written out again. The two
+			// lists MUST agree: an API the client can call but never asks about
+			// is absent from c.apis, so endpointFor fails before any request is
+			// made. That is exactly what happened to SYNO.FileStation.Upload —
+			// added to maxSupported by spec 1022, never added here, so every
+			// upload on a real NAS failed with a code-less error while the mock
+			// (which ignored this filter) passed every test. One list, so a new
+			// API cannot be half-registered.
+			"query": {strings.Join(discoverableAPIs(), ",")},
 		}
 		req, err := http.NewRequestWithContext(ctx, http.MethodGet,
 			c.base+"/webapi/query.cgi?"+q.Encode(), nil)
@@ -438,55 +462,94 @@ func toFolders(files []dsmFile) []Folder {
 // The file name is used exactly as given. Callers MUST have validated it as a
 // single path segment first (library.ValidUploadName) — it is client-supplied
 // text that becomes part of a path on the NAS.
-func (c *HTTPClient) UploadFile(ctx context.Context, sid, destFolder, filename string, body io.Reader) error {
+func (c *HTTPClient) UploadFile(
+	ctx context.Context, sid, destFolder, filename string, size int64, overwrite bool,
+	body io.Reader,
+) error {
 	ep, err := c.endpointFor(ctx, apiFSUpload)
 	if err != nil {
 		return err
 	}
+	// Dispatch and authentication ride in the QUERY STRING, not the multipart
+	// body. DSM's entry.cgi resolves the API and the session BEFORE it parses a
+	// multipart body, so a _sid sent as a form field is never seen and the call
+	// is rejected with 119 ("sid not found") — even though the very same sid
+	// works for every non-multipart call. Only the operands belong in the body.
+	q := url.Values{
+		"api":     {apiFSUpload},
+		"version": {fmt.Sprint(min(maxSupported[apiFSUpload], ep.MaxVersion))},
+		"method":  {"upload"},
+		"_sid":    {sid},
+	}
 	fields := url.Values{
-		"api":            {apiFSUpload},
-		"version":        {fmt.Sprint(min(maxSupported[apiFSUpload], ep.MaxVersion))},
-		"method":         {"upload"},
-		"_sid":           {sid},
 		"path":           {destFolder},
 		"create_parents": {"false"},
+		// Off unless the caller explicitly asked. DSM then refuses a name that is
+		// already taken (414) rather than replacing it, which turns a collision
+		// into a question for the user instead of a silently destroyed file. The
+		// one case where replacing is right is recovering a PARTIAL file left by
+		// an interrupted upload — and that is the user's call, not a default.
+		"overwrite": {strconv.FormatBool(overwrite)},
 	}
 
-	pr, pw := io.Pipe()
-	mw := multipart.NewWriter(pw)
-	go func() {
-		// Whatever happens, the writer end closes, so the request body ends and
-		// the HTTP call cannot hang waiting for more.
-		var werr error
-		defer func() { _ = pw.CloseWithError(werr) }()
-		for k, vs := range fields {
-			for _, v := range vs {
-				if werr = mw.WriteField(k, v); werr != nil {
-					return
-				}
+	// DSM's entry.cgi refuses an upload sent with a chunked request body — it
+	// requires a real Content-Length. Streaming the multipart through an io.Pipe
+	// leaves the length unknown, so Go falls back to Transfer-Encoding: chunked
+	// and the NAS rejects the call before reading a single byte of the file.
+	// That is invisible to the mock, whose Go HTTP server accepts chunked
+	// happily, so the tests passed while every real upload failed instantly.
+	//
+	// Compose the envelope AROUND the file instead of through it: everything
+	// before the file bytes and everything after are small and exactly known, so
+	// the total length can be declared up front while the file itself is still
+	// streamed and never buffered (uploads run to gigabytes; the pod has 192Mi).
+	var pre bytes.Buffer
+	mw := multipart.NewWriter(&pre)
+	for k, vs := range fields {
+		for _, v := range vs {
+			if err := mw.WriteField(k, v); err != nil {
+				return err
 			}
 		}
-		var part io.Writer
-		if part, werr = mw.CreateFormFile("file", filename); werr != nil {
-			return
-		}
-		if _, werr = io.Copy(part, body); werr != nil {
-			return
-		}
-		werr = mw.Close()
-	}()
+	}
+	// Writes only the part's headers into pre; the content follows from `body`.
+	if _, err := mw.CreateFormFile("file", filename); err != nil {
+		return err
+	}
+	// Deliberately NOT mw.Close(): that would append the terminating boundary
+	// here, before the file. It is written after the file bytes instead, in
+	// exactly the form Close would have produced.
+	post := []byte("\r\n--" + mw.Boundary() + "--\r\n")
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.base+"/webapi/"+ep.Path, pr)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
+		c.base+"/webapi/"+ep.Path+"?"+q.Encode(),
+		io.MultiReader(&pre, io.LimitReader(body, size), bytes.NewReader(post)))
 	if err != nil {
-		_ = pr.CloseWithError(err)
 		return err
 	}
 	req.Header.Set("Content-Type", mw.FormDataContentType())
+	// The whole point: an exact length, so the request is not chunked.
+	req.ContentLength = int64(pre.Len()) + size + int64(len(post))
+
 	resp, err := c.uploadHC.Do(req)
 	if err != nil {
-		_ = pr.CloseWithError(err)
+		slog.Warn("filestation upload transport error", "err", err.Error())
 		return &Error{Kind: KindNAS, API: apiFSUpload}
 	}
 	defer resp.Body.Close()
-	return decodeEnvelope(resp.Body, apiFSUpload, nil)
+
+	// Upload is the one call seen to answer success:false with NO error code,
+	// which leaves nothing to act on. A DSM envelope is a few dozen bytes, so
+	// read it and report the HTTP status alongside — the status distinguishes a
+	// FileStation refusal from a rejection by the web server in front of it
+	// (413/411), which look identical once the body has been discarded.
+	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 2<<10))
+	if e := decodeEnvelope(bytes.NewReader(raw), apiFSUpload, nil); e != nil {
+		slog.Warn("filestation upload rejected",
+			"status", resp.StatusCode,
+			"declared_length", req.ContentLength,
+			"body", strings.TrimSpace(string(raw)))
+		return e
+	}
+	return nil
 }

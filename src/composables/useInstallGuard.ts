@@ -5,10 +5,15 @@
  * install guide (components/InstallGuard.vue) so the user can't sign in until
  * they've installed it.
  *
- * Exception: localhost is allowed un-installed so local development and the e2e
- * suite aren't blocked. Real users hit the public origin and must install.
+ * Two exceptions. Localhost is allowed un-installed so local development and the
+ * e2e suite aren't blocked. And an operator can set ALLOW_BROWSER_ACCESS on the
+ * server to lift the gate entirely — for looking at the app from a desktop
+ * browser, or debugging without installing. It is off unless turned on: the
+ * default stays "install first", because that is what makes Web Push and the app
+ * shell reliable.
  */
-import { ref } from 'vue';
+import { computed, ref } from 'vue';
+import { api } from '@/services/api';
 import {
   detectPlatform,
   isAndroidWebView,
@@ -39,8 +44,25 @@ function isLocalhost(): boolean {
   return h === 'localhost' || h === '127.0.0.1' || h === '::1' || h === '[::1]';
 }
 
+// Remembered across loads so a browser-access instance does not flash the
+// install screen on every visit while the config request is in flight. The
+// server is still asked every time; this only decides the first frame.
+const BROWSER_OK_KEY = 'synodl.browserAccess';
+
+function cachedBrowserAllowed(): boolean {
+  try {
+    return localStorage.getItem(BROWSER_OK_KEY) === '1';
+  } catch {
+    return false; // private mode: fall back to enforcing the gate
+  }
+}
+
 // Singleton state shared across the (single) guard component.
-const mustInstall = ref(false);
+// blocked = "not installed, and not a localhost origin". browserAllowed is the
+// operator's opt-out, learned from the server.
+const blocked = ref(false);
+const browserAllowed = ref(false);
+const mustInstall = computed(() => blocked.value && !browserAllowed.value);
 const platform = ref<InstallPlatform>('desktop');
 const canPrompt = ref(false);
 const installUnavailable = ref(false); // Android embedded WebView — truly can't install
@@ -53,7 +75,26 @@ function start(): void {
   started = true;
   const ua = navigator.userAgent || '';
   platform.value = detectPlatform(ua, 'ontouchend' in document);
-  mustInstall.value = !isStandalone() && !isLocalhost();
+  browserAllowed.value = cachedBrowserAllowed();
+  blocked.value = !isStandalone() && !isLocalhost();
+
+  // Ask the server whether the gate applies here. A failure leaves the gate UP:
+  // the safe default is to insist on installing, never to let the app through
+  // because a request did not answer.
+  void api
+    .config()
+    .then((c) => {
+      const allowed = c.allowBrowserAccess === true;
+      browserAllowed.value = allowed;
+      try {
+        localStorage.setItem(BROWSER_OK_KEY, allowed ? '1' : '0');
+      } catch {
+        /* private mode: just don't remember it */
+      }
+    })
+    .catch(() => {
+      /* keep whatever the cache said; the gate stays up by default */
+    });
 
   if (platform.value === 'android' && mustInstall.value) {
     installUnavailable.value = isAndroidWebView(ua);
@@ -64,7 +105,7 @@ function start(): void {
     window
       .matchMedia('(display-mode: standalone)')
       .addEventListener('change', (e: MediaQueryListEvent) => {
-        if (e.matches) mustInstall.value = false;
+        if (e.matches) blocked.value = false;
       });
   } catch {
     /* Safari < 14 lacks addEventListener on MediaQueryList; ignore. */
@@ -79,7 +120,7 @@ function start(): void {
   window.addEventListener('appinstalled', () => {
     deferredPrompt = null;
     canPrompt.value = false;
-    mustInstall.value = false;
+    blocked.value = false;
   });
 }
 

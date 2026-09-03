@@ -154,3 +154,40 @@ func TestSplitComma(t *testing.T) {
 		}
 	}
 }
+
+// The install gate is lifted only by an operator turning it on deliberately, so
+// the default has to be off and the parsing has to be unambiguous.
+func TestAllowBrowserAccess(t *testing.T) {
+	clearEnv(t)
+	t.Setenv("SYNO_URL", "https://nas:5001")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.AllowBrowserAccess {
+		t.Error("AllowBrowserAccess defaults to true; the gate must be on unless asked for")
+	}
+
+	t.Setenv("ALLOW_BROWSER_ACCESS", "true")
+	cfg, err = Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if !cfg.AllowBrowserAccess {
+		t.Error(`ALLOW_BROWSER_ACCESS="true" did not lift the gate`)
+	}
+
+	// Anything that is not a true value leaves the gate up, rather than being
+	// read as "set, therefore on".
+	for _, v := range []string{"false", "0", "no", "", "maybe"} {
+		t.Setenv("ALLOW_BROWSER_ACCESS", v)
+		cfg, err = Load()
+		if err != nil {
+			t.Fatalf("Load(%q): %v", v, err)
+		}
+		if cfg.AllowBrowserAccess {
+			t.Errorf("ALLOW_BROWSER_ACCESS=%q lifted the gate", v)
+		}
+	}
+}
