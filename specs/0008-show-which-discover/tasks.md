@@ -30,8 +30,8 @@ under `e2e/`. Paths below are repository-relative.
 
 **Purpose**: Create the one new package and wire its quality gate before any logic exists.
 
-- [ ] T001 Run `make roadmap` to regenerate `ROADMAP.md` with this spec's row and commit it. **Do this first**: CI's `Roadmap up to date` guard is always-on and fails on every push while `ROADMAP.md` lacks a row for 0008, so leaving it to the end leaves the branch red throughout
-- [ ] T002 Create the new pure package with a doc comment explaining why matching lives outside `api/` (no I/O, exhaustively table-tested, carries a coverage floor) in `server/internal/library/library.go`
+- [x] T001 Run `make roadmap` to regenerate `ROADMAP.md` with this spec's row and commit it. **Do this first**: CI's `Roadmap up to date` guard is always-on and fails on every push while `ROADMAP.md` lacks a row for 0008, so leaving it to the end leaves the branch red throughout
+- [x] T002 Create the new pure package with a doc comment explaining why matching lives outside `api/` (no I/O, exhaustively table-tested, carries a coverage floor) in `server/internal/library/library.go`
 
 ---
 
@@ -43,18 +43,18 @@ under `e2e/`. Paths below are repository-relative.
 
 ### Tests (write first, watch them fail)
 
-- [ ] T003 [P] Failing table tests for `Key()` in `server/internal/library/match_test.go` — every trailing-year form enumerated by `src/services/title-year.ts` (`Esther 1986`, `(2014)`, `2008 - 2013`, `2008–2013`, `2019 -`), leading articles, bracketed extras, punctuation and case differences, a title that is *only* a year, and **Persian titles, which must not reduce to the empty string** (an ASCII filter would collapse them all together)
-- [ ] T004 [P] Failing tests for the year-agreement rule in `server/internal/library/match_test.go` — `It 1990` MUST NOT match `It 2017` (FR-005); a match still stands when either side carries no year; two folders sharing a key both come back (collisions are real per spec Edge Cases)
-- [ ] T005 [P] Failing tests for the snapshot in `server/internal/api/library_test.go` against the fake `syno.Client` — parents deduplicated across enabled sources so a shared parent is listed once (FR-007); a `ListFolder` error yields an `Empty` index that matches nothing rather than an error (FR-009); a reading younger than 5 minutes is reused and an older one is rebuilt (FR-010); invalidation after a send (FR-008) and after a source's parents change or a source is added/disabled/removed (FR-008a)
+- [x] T003 [P] Failing table tests for `Key()` in `server/internal/library/match_test.go` — every trailing-year form enumerated by `src/services/title-year.ts` (`Esther 1986`, `(2014)`, `2008 - 2013`, `2008–2013`, `2019 -`), leading articles, bracketed extras, punctuation and case differences, a title that is *only* a year, and **Persian titles, which must not reduce to the empty string** (an ASCII filter would collapse them all together)
+- [x] T004 [P] Failing tests for the year-agreement rule in `server/internal/library/match_test.go` — `It 1990` MUST NOT match `It 2017` (FR-005); a match still stands when either side carries no year; two folders sharing a key both come back (collisions are real per spec Edge Cases)
+- [x] T005 [P] Failing tests for the snapshot in `server/internal/api/library_test.go` against the fake `syno.Client` — parents deduplicated across enabled sources so a shared parent is listed once (FR-007); a `ListFolder` error yields an `Empty` index that matches nothing rather than an error (FR-009); a reading younger than 5 minutes is reused and an older one is rebuilt (FR-010); invalidation after a send (FR-008) and after a source's parents change or a source is added/disabled/removed (FR-008a)
 
 ### Implementation
 
-- [ ] T006 Implement `Key(name) (key, year string)` in `server/internal/library/match.go` — split the trailing year/range, drop a leading article and bracketed extras, lowercase, then keep only `unicode.IsLetter`/`unicode.IsDigit` runes (never an ASCII range)
-- [ ] T007 Implement `Entry`, `Index`, and `Lookup(catalogTitle, mediaType)` in `server/internal/library/match.go` per [data-model.md](./data-model.md) §1, including the `Empty` flag that distinguishes "nothing is there" from "we could not look"
-- [ ] T008 Implement the snapshot build and its mutex-guarded 5-minute cache in `server/internal/api/library.go` — collect the distinct `MoviesParent`/`TVParent` set across enabled providers, list each once via `d.NAS.Do` + `ListFolder("/"+parent)`, and swallow every failure into an `Empty` index
-- [ ] T009 Invalidate the snapshot after a successful send in `handleSourceSend` (`server/internal/api/source_handlers.go`) and from the provider create/update/delete handlers in `server/internal/api/source_multi.go` (FR-008, FR-008a)
-- [ ] T010 Add `[library]=85` to the `floors` map in the "Coverage floor (critical packages)" step of `.github/workflows/build-test.yml` (floors are a ratchet — add, never remove). **Must come after T006/T007**: the floor step runs `go test ./internal/library/` and parses a coverage percentage, so adding it while the package has no test files turns CI red
-- [ ] T011 [P] Add a `POST /__mock/library` control endpoint that seeds folders into the mock's tree, plus its test, in `server/internal/synomock/synomock.go` and `server/internal/synomock/synomock_test.go` — the mock's fixtures are hardcoded in `resetLocked()` today with no way to seed, so no story can be tested end-to-end without this
+- [x] T006 Implement `Key(name) (key, year string)` in `server/internal/library/match.go` — split the trailing year/range, drop a leading article and bracketed extras, lowercase, then keep only `unicode.IsLetter`/`unicode.IsDigit` runes (never an ASCII range)
+- [x] T007 Implement `Entry`, `Index`, and `Lookup(catalogTitle, mediaType)` in `server/internal/library/match.go` per [data-model.md](./data-model.md) §1, including the `Empty` flag that distinguishes "nothing is there" from "we could not look"
+- [x] T008 Implement the snapshot build and its mutex-guarded 5-minute cache in `server/internal/api/library.go` — collect the distinct `MoviesParent`/`TVParent` set across enabled providers, list each once via `d.NAS.Do` + `ListFolder("/"+parent)`, and swallow every failure into an `Empty` index
+- [x] T009 Invalidate the snapshot after a successful send in `handleSourceSend` (`server/internal/api/source_handlers.go`) and from the provider create/update/delete handlers in `server/internal/api/source_multi.go` (FR-008, FR-008a)
+- [x] T010 Add `[library]=85` to the `floors` map in the "Coverage floor (critical packages)" step of `.github/workflows/build-test.yml` (floors are a ratchet — add, never remove). **Must come after T006/T007**: the floor step runs `go test ./internal/library/` and parses a coverage percentage, so adding it while the package has no test files turns CI red
+- [x] T011 [P] Add a `POST /__mock/library` control endpoint that seeds folders into the mock's tree, plus its test, in `server/internal/synomock/synomock.go` and `server/internal/synomock/synomock_test.go` — the mock's fixtures are hardcoded in `resetLocked()` today with no way to seed, so no story can be tested end-to-end without this
 
 **Checkpoint**: matching and the snapshot are proven against fakes; user stories can begin.
 
@@ -69,15 +69,15 @@ carrying the marker while its neighbours do not.
 
 ### Tests for User Story 1
 
-- [ ] T012 [P] [US1] Failing tests in `server/internal/api/source_handlers_test.go` — a search result for a seeded title carries `inLibrary: true`; an unseeded one omits the field; and **every** item omits it when the snapshot failed to build, with the search itself still returning `200` (FR-009)
+- [x] T012 [P] [US1] Failing tests in `server/internal/api/source_handlers_test.go` — a search result for a seeded title carries `inLibrary: true`; an unseeded one omits the field; and **every** item omits it when the snapshot failed to build, with the search itself still returning `200` (FR-009)
 
 ### Implementation for User Story 1
 
-- [ ] T013 [US1] Add `InLibrary bool \`json:"inLibrary,omitempty"\`` to `CatalogTitle` in `server/internal/source/source.go`, documented as API-layer-set like the existing `SourceID`/`SourceName`
-- [ ] T014 [US1] Decorate `res.Items` from the snapshot in `handleSourceSearch` immediately before the response is written, in `server/internal/api/source_handlers.go` (mirrors `decorateTasks` in `task_ownership.go`)
-- [ ] T015 [US1] Add `inLibrary?: boolean` to the `CatalogTitle` interface in `src/services/api.ts`, documented so absence and `false` are treated identically
-- [ ] T016 [US1] Render the marker inside `.poster` in `src/views/tabs/BrowserPage.vue` — an `ion-icon` checkmark plus text on a `.badge.badge-have` modifier of the existing badge CSS, positioned `right` so it cannot collide with the `Soon` badge on the left, carrying an `aria-label` so the state is not colour-only (FR-012, FR-013)
-- [ ] T017 [US1] Add `e2e/stateful/library.spec.ts` — seed a folder matching a mock catalog title, assert the marker on that card and its absence on others, and assert a same-name-different-year title is NOT marked (SC-004)
+- [x] T013 [US1] Add `InLibrary bool \`json:"inLibrary,omitempty"\`` to `CatalogTitle` in `server/internal/source/source.go`, documented as API-layer-set like the existing `SourceID`/`SourceName`
+- [x] T014 [US1] Decorate `res.Items` from the snapshot in `handleSourceSearch` immediately before the response is written, in `server/internal/api/source_handlers.go` (mirrors `decorateTasks` in `task_ownership.go`)
+- [x] T015 [US1] Add `inLibrary?: boolean` to the `CatalogTitle` interface in `src/services/api.ts`, documented so absence and `false` are treated identically
+- [x] T016 [US1] Render the marker inside `.poster` in `src/views/tabs/BrowserPage.vue` — an `ion-icon` checkmark plus text on a `.badge.badge-have` modifier of the existing badge CSS, positioned `right` so it cannot collide with the `Soon` badge on the left, carrying an `aria-label` so the state is not colour-only (FR-012, FR-013)
+- [x] T017 [US1] Add `e2e/stateful/library.spec.ts` — seed a folder matching a mock catalog title, assert the marker on that card and its absence on others, and assert a same-name-different-year title is NOT marked (SC-004)
 
 **Checkpoint**: User Story 1 is shippable on its own — the request's core value is delivered.
 

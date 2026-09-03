@@ -27,6 +27,13 @@ type Deps struct {
 	Stateful bool
 	Store    *store.Store
 	NAS      *nas.Manager
+
+	// lib caches the "what is already on the NAS?" reading behind Discover's
+	// ownership markers (spec 0008). A POINTER because Deps is copied by value
+	// into every handler closure — a value field would give each handler its own
+	// cache. Built by NewRouter; nil in tests that do not need it, which
+	// libraryIndex treats as "know nothing".
+	lib *libraryCache
 }
 
 // NewRouter builds the full handler tree with the recover → log → CORS
@@ -34,6 +41,11 @@ type Deps struct {
 // outermost so even logging panics turn into a 500 line.
 func NewRouter(d Deps) http.Handler {
 	mux := http.NewServeMux()
+
+	// One library cache shared by every handler closure built below.
+	if d.lib == nil {
+		d.lib = &libraryCache{}
+	}
 
 	mux.HandleFunc("GET /healthz", handleHealth)
 	mux.Handle("GET /v1/config", handleConfig(d))

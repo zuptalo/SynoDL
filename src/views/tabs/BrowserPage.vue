@@ -33,6 +33,7 @@ import {
 import {
   arrowDownOutline,
   arrowUpOutline,
+  checkmarkCircle,
   closeCircleOutline,
   closeOutline,
   funnelOutline,
@@ -607,6 +608,15 @@ function goSettings(): void {
               />
               <div v-else class="poster-fallback">{{ t.title.charAt(0) }}</div>
               <span v-if="t.comingSoon" class="badge">Soon</span>
+              <!-- Already on the NAS (spec 0008). Sits on the RIGHT so it can
+                   never overlap the "Soon" badge on the left — a title can
+                   legitimately be both. The icon is paired with a text label and
+                   an aria-label rather than relying on colour, so the state
+                   survives both a colour-blind reader and a screen reader. -->
+              <span v-if="t.inLibrary" class="badge badge-have" aria-label="Already in your library">
+                <ion-icon :icon="checkmarkCircle" aria-hidden="true" />
+                Have it
+              </span>
             </div>
             <ion-label class="meta">
               <h3>{{ displayTitle(t.title) }}</h3>
@@ -858,6 +868,26 @@ function goSettings(): void {
   border-radius: 6px;
   background: rgba(0, 0, 0, 0.65);
   color: #fff;
+}
+/* The ownership badge is anchored right so it and "Soon" can coexist on the
+   same poster without overlapping. It keeps the base badge's dark scrim rather
+   than taking a solid colour of its own: the scrim is what makes a badge legible
+   over an arbitrary poster, and reusing it makes this read as a sibling of
+   "Soon" instead of a competing element. The green lives on the icon, where it
+   reinforces the label without carrying it — the text and aria-label do that, so
+   the meaning survives without colour. */
+.badge-have {
+  left: auto;
+  right: 6px;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+.badge-have ion-icon {
+  font-size: 0.85rem;
+  /* The same green the Tasks list uses for a finished download — "you already
+     have this" is the same idea, so it should not be a new colour. */
+  color: var(--app-status-finished);
 }
 .meta h3 {
   font-size: 0.9rem;

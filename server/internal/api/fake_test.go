@@ -40,6 +40,10 @@ type fakeSyno struct {
 	gotActionIDs  []string
 	gotFolderPath string
 	gotFolderName string
+
+	// folderListCalls counts ListFolder calls, so the library snapshot tests can
+	// assert that a shared parent is listed once rather than once per source.
+	folderListCalls int
 }
 
 func (f *fakeSyno) Login(_ context.Context, account, password, otp string) (string, error) {
@@ -111,6 +115,7 @@ func (f *fakeSyno) ListShares(_ context.Context, _ string) ([]syno.Folder, error
 
 func (f *fakeSyno) ListFolder(_ context.Context, _ string, path string) ([]syno.Folder, error) {
 	f.gotFolderPath = path
+	f.folderListCalls++
 	if f.err != nil {
 		return nil, f.err
 	}

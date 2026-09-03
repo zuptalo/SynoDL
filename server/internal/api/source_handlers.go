@@ -457,6 +457,19 @@ func handleSourceSearch(d Deps) http.Handler {
 			_ = d.Store.SetProviderStateErr(ref.ID, store.SourceNeedsRefresh, reason, 0, now)
 		}
 
+		// Mark the titles already sitting on the NAS (spec 0008). Read from the
+		// cached snapshot, so a warm cache adds no NAS round-trip to browsing; a
+		// snapshot that could not be built simply matches nothing, leaving the
+		// search untouched (FR-009). Same shape as decorateTasks in
+		// task_ownership.go: decorate on the way out, never in a driver.
+		if ix := d.libraryIndex(r.Context()); !ix.IsEmpty() {
+			for i := range res.Items {
+				if _, ok := ix.Lookup(res.Items[i].Title, mediaKind(res.Items[i].Type)); ok {
+					res.Items[i].InLibrary = true
+				}
+			}
+		}
+
 		allFailed := len(res.Items) == 0 && len(selected) > 0 && len(res.Degraded) >= len(selected)
 		// Everything we asked failed, but not yet often enough to call it dead:
 		// answer retryable rather than sending the user to the login prompt.
@@ -660,6 +673,11 @@ func handleSourceSend(d Deps) http.Handler {
 				Destination: dest, TaskName: fileNameFromURI(link), CreatedAt: now,
 			})
 		}
+		// The title now has a folder on the NAS, so the ownership snapshot behind
+		// Discover's markers is stale. Drop it rather than waiting out the TTL:
+		// a user who just sent something and scrolls back expects to see it
+		// marked (FR-008, spec 0008).
+		d.invalidateLibrary()
 		httpx.JSON(w, http.StatusOK,
 			map[string]any{"destination": dest, "created": true, "taskAdded": true, "count": len(selected)})
 	})

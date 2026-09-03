@@ -91,14 +91,7 @@ func (s *Server) resetLocked() {
 	s.nextID = 0
 	s.nextSID = 0
 	s.offset = 0
-	// The folder tree mirrors the reference screenshots' shares.
-	s.folders = map[string][]string{
-		"":         {"home", "movie", "music", "music-video", "rated-video", "tv-show"},
-		"/tv-show": {"Friends", "The Wire"},
-		"/movie":   {"4K", "Kids"},
-		"/music":   {},
-		"/home":    {"Downloads"},
-	}
+	s.resetFoldersLocked()
 	s.tasks = nil
 	s.seedLocked([]Task{
 		{Name: "ubuntu-24.04-desktop-amd64.iso", Type: "bt", Status: "downloading",
@@ -164,6 +157,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /__mock/reset", s.handleReset)
 	mux.HandleFunc("POST /__mock/seed", s.handleSeed)
 	mux.HandleFunc("POST /__mock/tick", s.handleTick)
+	mux.HandleFunc("POST /__mock/library", s.handleLibrary)
 	return mux
 }
 
@@ -454,6 +448,91 @@ func (s *Server) handleSeed(w http.ResponseWriter, r *http.Request) {
 	defer s.mu.Unlock()
 	s.seedLocked(body.Tasks)
 	ok(w, nil)
+}
+
+// handleLibrary seeds folders into the tree, so a test can set up "the NAS
+// already has these titles" (spec 0008). The fixture tree in resetLocked is
+// hardcoded and there was previously no way to add to it, which made the
+// ownership markers untestable end to end.
+//
+// Parents are created implicitly, so one call can seed a whole path. Seeding is
+// additive and idempotent per name; POST /__mock/reset restores the fixtures.
+func (s *Server) handleLibrary(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		// Reset restores the fixture tree before seeding, so a test starts from a
+		// known library without also resetting sessions, accounts, and tasks the
+		// way POST /__mock/reset does.
+		Reset   bool                `json:"reset"`
+		Folders map[string][]string `json:"folders"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		fail(w, 101)
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if body.Reset {
+		s.resetFoldersLocked()
+	}
+	for dir, names := range body.Folders {
+		s.ensureDirLocked(dir)
+		for _, name := range names {
+			s.addChildLocked(dir, name)
+		}
+	}
+	ok(w, nil)
+}
+
+// resetFoldersLocked restores the fixture folder tree, which mirrors the
+// reference screenshots' shares. Split out of resetLocked so a test can clear
+// seeded library folders without also dropping its session (spec 0008).
+func (s *Server) resetFoldersLocked() {
+	s.folders = map[string][]string{
+		"":         {"home", "movie", "music", "music-video", "rated-video", "tv-show"},
+		"/tv-show": {"Friends", "The Wire"},
+		"/movie":   {"4K", "Kids"},
+		"/music":   {},
+		"/home":    {"Downloads"},
+	}
+}
+
+// ensureDirLocked makes dir (and every ancestor) exist in the tree, so a caller
+// can seed "/tv-show/Friends 1994/Season 1" without first creating each level.
+func (s *Server) ensureDirLocked(dir string) {
+	dir = strings.TrimRight(dir, "/")
+	if dir == "" {
+		return
+	}
+	if _, exists := s.folders[dir]; exists {
+		return
+	}
+	parent := path.Dir(dir)
+	if parent == "." || parent == "/" {
+		parent = ""
+	}
+	s.ensureDirLocked(parent)
+	s.addChildLocked(parent, path.Base(dir))
+}
+
+// addChildLocked adds name under dir if it is not already there, and gives the
+// child its own (empty) entry so it can be listed and descended into.
+func (s *Server) addChildLocked(dir, name string) {
+	if name == "" {
+		return
+	}
+	for _, existing := range s.folders[dir] {
+		if existing == name {
+			return
+		}
+	}
+	s.folders[dir] = append(s.folders[dir], name)
+	full := path.Join(dir, name)
+	if dir == "" {
+		full = "/" + name
+	}
+	if _, exists := s.folders[full]; !exists {
+		s.folders[full] = []string{}
+	}
 }
 
 func (s *Server) handleTick(w http.ResponseWriter, r *http.Request) {

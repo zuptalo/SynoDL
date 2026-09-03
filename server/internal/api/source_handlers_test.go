@@ -1,6 +1,7 @@
 package api
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"net/http"
@@ -444,5 +445,123 @@ func TestSourcePrefs(t *testing.T) {
 	do(t, h, "PUT", "/v1/source/prefs", `{"preferredQuality":"1080p"}`, admin)
 	if rec := do(t, h, "GET", "/v1/source/prefs", "", admin); !strings.Contains(rec.Body.String(), `"preferredQuality":"1080p"`) {
 		t.Fatalf("prefs after set = %s", rec.Body.String())
+	}
+}
+
+// ---- spec 0008: ownership markers on search results ----------------------
+
+// seedMockFolders adds folders to the mock DSM's tree so a test can set up "the
+// NAS already holds these titles".
+func seedMockFolders(t *testing.T, mockURL string, folders map[string][]string) {
+	t.Helper()
+	raw, _ := json.Marshal(map[string]any{"folders": folders})
+	resp, err := http.Post(mockURL+"/__mock/library", "application/json", bytes.NewReader(raw))
+	if err != nil {
+		t.Fatalf("seed mock library: %v", err)
+	}
+	resp.Body.Close()
+}
+
+// FR-001/FR-011: a title whose folder already exists under the configured parent
+// comes back flagged, and one that does not comes back unflagged.
+func TestSearchMarksTitlesAlreadyOnTheNAS(t *testing.T) {
+	resetFake()
+	h, _ := newStatefulRouter(t)
+	admin := adminAfterSetup(t, h)
+	configureFake(t, h, admin, "movie")
+
+	// The mock's fixture tree holds /tv-show/Friends and /movie/Kids.
+	fakeSearch = source.SearchResult{Page: 1, Pages: 1, Items: []source.CatalogTitle{
+		{ID: "1", Type: "series", Title: "Friends 1994 - 2004"},      // on the NAS
+		{ID: "2", Type: "movie", Title: "Kids 1995"},                 // on the NAS
+		{ID: "3", Type: "movie", Title: "Some Film Nobody Has 2020"}, // not
+	}}
+	rec := do(t, h, "POST", "/v1/source/search", `{"page":1}`, admin)
+	if rec.Code != 200 {
+		t.Fatalf("search = %d %s", rec.Code, rec.Body.String())
+	}
+	got := decodeOwnership(t, rec.Body.Bytes())
+	if len(got) != 3 {
+		t.Fatalf("got %d items, want 3", len(got))
+	}
+	// Keyed by TITLE, not id: the response re-qualifies ids as "<sourceId>:<id>",
+	// so an id-keyed assertion silently matches nothing and passes vacuously.
+	want := map[string]bool{
+		"Friends 1994 - 2004":       true,
+		"Kids 1995":                 true,
+		"Some Film Nobody Has 2020": false,
+	}
+	for title, wantIn := range want {
+		if got[title] != wantIn {
+			t.Errorf("%q inLibrary = %v, want %v", title, got[title], wantIn)
+		}
+	}
+	// An absent title must omit the field entirely (omitempty), so an older
+	// client sees exactly the payload it saw before.
+	if strings.Contains(rec.Body.String(), `"Some Film Nobody Has 2020","posterUrl":"","inLibrary"`) {
+		t.Error("an absent title should omit inLibrary entirely")
+	}
+}
+
+// decodeOwnership maps each returned title to its inLibrary flag.
+func decodeOwnership(t *testing.T, body []byte) map[string]bool {
+	t.Helper()
+	var res struct {
+		Items []struct {
+			Title     string `json:"title"`
+			InLibrary bool   `json:"inLibrary"`
+		} `json:"items"`
+	}
+	if err := json.Unmarshal(body, &res); err != nil {
+		t.Fatalf("decode: %v (%s)", err, body)
+	}
+	out := make(map[string]bool, len(res.Items))
+	for _, it := range res.Items {
+		out[it.Title] = it.InLibrary
+	}
+	return out
+}
+
+// FR-005: the one failure this feature cannot afford. A folder for the 2017 It
+// must never mark the 1990 one as owned.
+func TestSearchDoesNotMarkASameNameDifferentYearTitle(t *testing.T) {
+	resetFake()
+	h, _, mockURL := newStatefulRouterWithMock(t)
+	admin := adminAfterSetup(t, h)
+	configureFake(t, h, admin, "movie")
+	seedMockFolders(t, mockURL, map[string][]string{"/movie": {"It 2017"}})
+
+	fakeSearch = source.SearchResult{Page: 1, Pages: 1, Items: []source.CatalogTitle{
+		{ID: "1", Type: "movie", Title: "It 2017"},
+		{ID: "2", Type: "movie", Title: "It 1990"},
+	}}
+	rec := do(t, h, "POST", "/v1/source/search", `{"page":1}`, admin)
+	got := decodeOwnership(t, rec.Body.Bytes())
+	if !got["It 2017"] {
+		t.Error("It 2017 should be marked — its folder is right there")
+	}
+	if got["It 1990"] {
+		t.Error("It 1990 was wrongly marked; a false positive makes a user skip a title they wanted")
+	}
+}
+
+// FR-009: when the parent folders cannot be read, the search still succeeds and
+// simply marks nothing. A failed scan is never an error the user sees.
+func TestSearchStillSucceedsWhenTheLibraryCannotBeRead(t *testing.T) {
+	resetFake()
+	h, _ := newStatefulRouter(t)
+	admin := adminAfterSetup(t, h)
+	// Parents that do not exist on the NAS: every listing fails.
+	configureFake(t, h, admin, "no-such-parent")
+
+	fakeSearch = source.SearchResult{Page: 1, Pages: 1, Items: []source.CatalogTitle{
+		{ID: "1", Type: "movie", Title: "Kids 1995"},
+	}}
+	rec := do(t, h, "POST", "/v1/source/search", `{"page":1}`, admin)
+	if rec.Code != 200 {
+		t.Fatalf("search = %d %s — an unreadable parent must not fail the search", rec.Code, rec.Body.String())
+	}
+	if strings.Contains(rec.Body.String(), `"inLibrary":true`) {
+		t.Error("nothing should be marked when the library could not be read")
 	}
 }
