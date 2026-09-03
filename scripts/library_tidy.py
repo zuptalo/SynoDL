@@ -207,18 +207,52 @@ def clean_title(raw: str, *, is_tv: bool, had_year: bool = True) -> str:
         if re.search(r"(?:^|[\s.])[A-Za-z]\.$", s):
             break
         s = s[:-1].rstrip(" -–—,")
-    # Re-casing is deliberately timid, because it is the one change here with no
-    # objective right answer. An ALL-CAPS name is left alone: "WALL-E", "UP" and
-    # "M*A*S*H" are titles, not shouting, and a scraper matches case-insensitively
-    # anyway — so re-casing them risks a wrong rename to fix nothing. A
-    # multi-word all-lowercase name ("the dark knight") is the one case where the
-    # intent is unambiguous. A single lowercase word is left alone too, because
-    # "icarly" might be exactly how it is meant to look.
-    if s and s.islower() and len(s.split()) > 1:
-        # Capitalise each alphabetic run, not each space-separated word, so
-        # "spider-man" becomes "Spider-Man" rather than "Spider-man".
-        s = re.sub(r"[a-z]+", lambda m: m.group().capitalize(), s)
-    return s
+    return titlecase(s)
+
+
+# Words that stay lowercase inside a title. The English set is the usual one;
+# the rest are romance-language particles that appear in this kind of library
+# ("Ruse de Guerre", "Pattie et la colère de Poséidon") and would look wrong
+# capitalised.
+SMALL_WORDS = {
+    "a", "an", "and", "as", "at", "but", "by", "for", "from", "in", "into",
+    "nor", "of", "on", "onto", "or", "over", "the", "to", "up", "upon", "via",
+    "vs", "with",
+    "de", "del", "della", "des", "di", "du", "el", "et", "la", "las", "le",
+    "les", "los", "van", "von",
+}
+
+
+def _cap(word: str) -> str:
+    """Capitalise a word, including each part of a hyphenated one.
+
+    Uses slicing rather than a [a-z] regex because an accented word must survive:
+    a naive per-run capitaliser turns "colère" into "ColèRe".
+    """
+    return "-".join(p[:1].upper() + p[1:] if p else p for p in word.split("-"))
+
+
+def titlecase(s: str) -> str:
+    """Capitalise the words of a title that are entirely lowercase.
+
+    A word carrying ANY uppercase letter is left exactly as it is. That single
+    condition is what makes this safe to run over a whole library: every
+    deliberately-styled title has an uppercase letter somewhere — "iCarly",
+    "M3GAN", "MaXXXine", "EXmas", "IF", "WALL-E" — so none of them can be
+    reached. It also means a word that is already correctly cased is never
+    churned, and an ALL-CAPS title stays as the owner wrote it.
+    """
+    words = s.split(" ")
+    out: list[str] = []
+    for i, w in enumerate(words):
+        if not w or any(ch.isupper() for ch in w):
+            out.append(w)
+            continue
+        core = "".join(ch for ch in w.casefold() if ch.isalpha())
+        edge = i == 0 or i == len(words) - 1
+        # A small word keeps its lowercase unless it opens or closes the title.
+        out.append(w if core in SMALL_WORDS and not edge else _cap(w))
+    return " ".join(out)
 
 
 def target_name(folder: str, *, is_tv: bool) -> str:

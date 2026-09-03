@@ -359,3 +359,61 @@ class DuplicateFolders(unittest.TestCase):
             existing_dirs=["Hoppers", "Hoppers (2026)"], is_tv=False,
         )
         self.assertEqual(moves[0].dest, "Hoppers (2026)")
+
+
+class TitleCasing(unittest.TestCase):
+    """Capitalise words that are entirely lowercase; never touch anything else.
+
+    The safety of this rests on one observation: a stylised title always carries
+    an uppercase letter somewhere ("iCarly", "M3GAN", "MaXXXine", "EXmas", "IF"),
+    so a rule that only ever touches an all-lowercase word cannot reach them.
+    """
+
+    def m(self, raw, want):
+        self.assertEqual(target_name(raw, is_tv=False), want)
+
+    def test_a_single_lowercase_word(self):
+        self.m("cuckoo 2024", "Cuckoo (2024)")
+        self.m("constantine 2005", "Constantine (2005)")
+        self.m("playdate 2025", "Playdate (2025)")
+        self.m("nobody 2", "Nobody 2")
+
+    def test_lowercase_words_inside_a_partly_cased_title(self):
+        self.m("meet Joe Black 1998", "Meet Joe Black (1998)")
+        self.m("Free guy 2020", "Free Guy (2020)")
+        self.m("Fantastic four 2025", "Fantastic Four (2025)")
+        self.m("The naked gun 2025", "The Naked Gun (2025)")
+        self.m("Devil wears Prada 2 2026", "Devil Wears Prada 2 (2026)")
+        self.m("Sentimental value 2025", "Sentimental Value (2025)")
+
+    def test_small_words_stay_lowercase_unless_first_or_last(self):
+        self.m("By the sea 2015", "By the Sea (2015)")
+        self.m("In the fade 2017", "In the Fade (2017)")
+        self.m("Talk to me 2022", "Talk to Me (2022)")
+        self.m("Masters of the universe", "Masters of the Universe")
+        self.m("in the grey", "In the Grey")
+        # A small word IS capitalised when it opens or closes the title.
+        self.m("the drama", "The Drama")
+        self.m("Tell no one 2006", "Tell No One (2006)")
+
+    def test_a_word_carrying_any_uppercase_is_left_alone(self):
+        # These are the titles the rule exists to protect.
+        for raw in ["MaXXXine 2024", "M3GAN 2023", "EXmas 2023", "IF 2024", "PK 2014",
+                    "JUNGE 2023", "Expend4bles 2023", "iCarly 2007", "WALL-E 2008"]:
+            expected = raw.rsplit(" ", 1)[0] + " (" + raw.rsplit(" ", 1)[1] + ")"
+            self.assertEqual(target_name(raw, is_tv=False), expected, raw)
+        self.m("THE.HUNGER.GAMES.THE.BALLAD.OF.SONGBIRDS.AND.SNAKES.1080p.WEB.DL-MassModz",
+               "THE HUNGER GAMES THE BALLAD OF SONGBIRDS AND SNAKES")
+
+    def test_accented_and_hyphenated_words(self):
+        # A naive [a-z] capitaliser turns "colère" into "ColèRe".
+        self.m("Pattie et la colère de Poséidon 2022", "Pattie et la Colère de Poséidon (2022)")
+        self.m("spider-man.no.way.home.2021.extended", "Spider-Man No Way Home (2021)")
+
+    def test_non_english_particles_stay_lowercase(self):
+        self.m("Operation.Fortune.Ruse.de.Guerre.2023.1080p.WEBRip.DDP5.1.x264-RiGHTNOW",
+               "Operation Fortune Ruse de Guerre (2023)")
+
+    def test_numbers_and_symbols_are_untouched(self):
+        self.m("28 years later", "28 Years Later")
+        self.m("apocalipsis z", "Apocalipsis Z")
