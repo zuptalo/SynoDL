@@ -492,3 +492,57 @@ class MoveRequestEncoding(unittest.TestCase):
             FailingDSM().move(["/movie/a.mkv"], "/movie/X")
         # 414 is "already exists" — the message must say so, not just the number.
         self.assertIn("already exists", str(cm.exception).lower())
+
+
+class Idempotence(unittest.TestCase):
+    """Tidying an already-tidy name must change nothing.
+
+    This is the invariant the tool lives or dies by: it is run repeatedly, and a
+    name that keeps flip-flopping would be renamed on every pass. It caught a
+    real bug — "1992 (2024)" was being stripped back to "1992", undoing the
+    correct rename the previous run had just performed.
+    """
+
+    CORPUS = [
+        ("1992 (2024)", 0), ("1917", 0), ("2012", 0), ("1917 (2019)", 0),
+        ("65 (2023)", 0), ("Blade Runner 2049 (2017)", 0), ("Hijack 1971 (2024)", 0),
+        ("Together 99 (2023)", 0), ("Code 8 Part II (2024)", 0), ("Apartment 7A (2024)", 0),
+        ("Dune (2021)", 0), ("The Persian Version (2023)", 0), ("E.T. the Extra-Terrestrial (1982)", 0),
+        ("Godzilla x Kong The New Empire (2024)", 0), ("Saw X (2023)", 0), ("MaXXXine (2024)", 0),
+        ("THE HUNGER GAMES THE BALLAD OF SONGBIRDS AND SNAKES", 0), ("Megan 2.0", 0),
+        ("Pattie et la Colère de Poséidon (2022)", 0), ("Operation Fortune Ruse de Guerre (2023)", 0),
+        ("Spider-Man Across the Spider-Verse (2023)", 0), ("Ne Zha 2", 0), ("Nobody 2", 0),
+        ("28 Days Later (2002)", 0), ("28 Years Later", 0), ("Mortal Kombat II", 0),
+        ("Star Trek - Prodigy (2021)", 1), ("Friends (1994)", 1), ("House M.D. (2004)", 1),
+        ("Mr. Robot (2015)", 1), ("The Loud House (2016)", 1), ("Squid Game 2 (2025)", 1),
+        ("Cosmos - A Spacetime Odyssey (2014)", 1), ("Whiskey on the Rocks", 1),
+    ]
+
+    def test_a_tidied_name_is_a_fixed_point(self):
+        for name, tv in self.CORPUS:
+            once = target_name(name, is_tv=bool(tv))
+            self.assertEqual(once, name, f"{name!r} is not already tidy")
+            self.assertEqual(target_name(once, is_tv=bool(tv)), once, f"{name!r} flip-flops")
+
+    def test_tidying_twice_matches_tidying_once(self):
+        messy = [
+            ("1992.2024.1080p.AMZN.WEBRip.1400MB.DD5.1.x264-GalaxyRG[TGx]", 0),
+            ("1917.2019.1080p.BluRay", 0),
+            ("Dune.2021.1080p.BluRay.x264-RARBG", 0),
+            ("Friends 1994 - 2004", 1),
+            ("Breaking.Bad.S01-S05.COMPLETE.1080p.BluRay-GROUP", 1),
+            ("The Persian Version 2023", 0),
+            ("cuckoo 2024", 0),
+            ("Vicky Cristina Barcelona (2008) (1080p BluRay x265 HEVC 10bit AAC 3.0 afm72)", 0),
+        ]
+        for name, tv in messy:
+            once = target_name(name, is_tv=bool(tv))
+            twice = target_name(once, is_tv=bool(tv))
+            self.assertEqual(twice, once, f"{name!r}: {once!r} -> {twice!r}")
+
+    def test_a_title_that_is_a_year_keeps_its_release_year(self):
+        self.assertEqual(target_name("1992 (2024)", is_tv=False), "1992 (2024)")
+        self.assertEqual(target_name("2012 (2009)", is_tv=False), "2012 (2009)")
+        self.assertEqual(target_name("1917 (2019)", is_tv=False), "1917 (2019)")
+        # ...and a bare year is still a title, not a stray release year.
+        self.assertEqual(target_name("1917", is_tv=False), "1917")

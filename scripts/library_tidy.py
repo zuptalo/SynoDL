@@ -147,20 +147,30 @@ def split_on_year(name: str) -> tuple[str, str, int | None]:
     "Hijack 1971 2024" is the 2024 film. A name that is ONLY a year keeps it,
     because "1917" and "2012" are films.
     """
-    if _spaces(YEAR_RE.sub("", name)).strip(" -–.[](){}") == "":
-        return name, "", None  # the year IS the title
+    def nothing_left(head: str, tail: str) -> bool:
+        """True when removing the candidate year leaves no title behind."""
+        return _spaces(head + " " + tail).strip(" -\u2013\u2014.,[](){}") == ""
 
     # A range is checked first and wins outright: in "Friends 1994 - 2004" the
     # last year is when the show ENDED, and taking it would file the show under
     # the wrong year in every scraper.
     if (r := YEAR_RANGE_RE.search(name)) is not None:
-        return name[: r.start()], name[r.end():], int(r.group(1))
+        head, tail = name[: r.start()], name[r.end():]
+        if not nothing_left(head, tail):
+            return head, tail, int(r.group(1))
 
     years = list(YEAR_RE.finditer(name))
     if not years:
         return name, "", None
     m = years[-1]
-    return name[: m.start()], name[m.end():], int(m.group(1))
+    head, tail = name[: m.start()], name[m.end():]
+    # "1917" and "2012" are films: the year is the whole name, so keep it as the
+    # title. The test is against THIS year only — an earlier version removed
+    # EVERY year first, so "1992 (2024)" looked year-only and lost its release
+    # year on each pass, undoing the previous run's correct rename.
+    if nothing_left(head, tail):
+        return name, "", None
+    return head, tail, int(m.group(1))
 
 
 def extract_year(name: str) -> tuple[str, int | None]:
