@@ -24,30 +24,30 @@ import {
   IonProgressBar,
   IonSegment,
   IonSegmentButton,
-  IonSelect,
-  IonSelectOption,
   IonTitle,
   IonToolbar,
 } from '@ionic/vue';
-import { checkmarkCircle, cloudUploadOutline, warningOutline } from 'ionicons/icons';
-import { ApiError, api, type UploadResult } from '@/services/api';
+import { checkmarkCircle, cloudUploadOutline, folderOutline, warningOutline } from 'ionicons/icons';
+import { api } from '@/services/api';
+import { useUploads } from '@/composables/useUploads';
+import { isPlexReady, plexName } from '@/services/title-year';
 
 const props = defineProps<{ isOpen: boolean }>();
 const emit = defineEmits<{ (e: 'dismiss'): void; (e: 'uploaded'): void }>();
 
 type Kind = 'movie' | 'tv';
-type Row = {
-  file: File;
-  progress: number;
-  state: 'waiting' | 'sending' | 'done' | 'failed';
-  message: string;
-};
+
+// The queue lives in the composable, not here, so dismissing this sheet leaves a
+// running transfer visible in the Tasks list instead of hiding it.
+const { jobs, enqueue, retry, cancel: cancelJob } = useUploads();
 
 const kind = ref<Kind>('movie');
 const title = ref('');
 const season = ref('');
-const files = ref<Row[]>([]);
-const busy = ref(false);
+// Files chosen but not yet sent. Once Upload is pressed they become jobs, and
+// `batch` remembers which ones so this sheet reports on its own upload only.
+const picked = ref<File[]>([]);
+const batch = ref<number[]>([]);
 const loadError = ref('');
 // Titles already on the NAS under the chosen parent. Picking one is what stops
 // a near-duplicate folder being created for a show that is already there.
@@ -55,14 +55,49 @@ const existing = ref<string[]>([]);
 const parents = ref<{ movie: string; tv: string }>({ movie: '', tv: '' });
 // Replaced by the server's real limit as soon as the modal opens; this is only
 // what to show for the instant before that lands.
-const maxMB = ref(2048);
-let cancelCurrent: (() => void) | null = null;
+const maxMB = ref(10240);
 
 const parentPath = computed(() => (kind.value === 'tv' ? parents.value.tv : parents.value.movie));
-const anyFiles = computed(() => files.value.length > 0);
+// "10240 MB" reads as noise; a cap this size belongs in GB. Whole numbers stay
+// whole ("10 GB", not "10.0 GB") and anything under a gigabyte stays in MB.
+const maxLabel = computed(() => {
+  const mb = maxMB.value;
+  if (mb < 1024) return `${mb} MB`;
+  const gb = mb / 1024;
+  return `${Number.isInteger(gb) ? gb : gb.toFixed(1)} GB`;
+});
+const rows = computed(() => jobs.value.filter((j) => batch.value.includes(j.id)));
+const started = computed(() => batch.value.length > 0);
+const busy = computed(() => rows.value.some((r) => r.state === 'sending' || r.state === 'waiting'));
+const anyFiles = computed(() => picked.value.length > 0);
+// Refused before a byte leaves the device, and named so it is obvious which one.
+const oversized = computed(() => picked.value.filter(tooBig).map((f) => f.name));
 const canSend = computed(
-  () => !busy.value && anyFiles.value && title.value.trim() !== '' && parentPath.value !== '',
+  () =>
+    !busy.value &&
+    anyFiles.value &&
+    isPlexReady(title.value) &&
+    parentPath.value !== '',
 );
+// Only nag once there is something to judge — an empty field is not yet "wrong".
+const titleNeedsYear = computed(() => title.value.trim() !== '' && !isPlexReady(title.value));
+
+/**
+ * Folders already on the NAS, narrowed by whatever has been typed.
+ *
+ * The library runs to hundreds of titles, so a plain dropdown is unusable on a
+ * phone. Filtering as you type turns the Title field into a combobox: type to
+ * find an existing show (so a new episode joins it rather than starting a
+ * near-duplicate), or keep typing to name something new.
+ */
+const filteredExisting = computed(() => {
+  const q = title.value.trim().toLowerCase();
+  if (!existing.value.length) return [];
+  const matches = q === '' ? existing.value : existing.value.filter((n) => n.toLowerCase().includes(q));
+  // Once the field IS one of the folders, the choice is made — stop suggesting.
+  if (matches.length === 1 && matches[0].toLowerCase() === q) return [];
+  return matches;
+});
 // Shown so the user can see where this is going before committing to it.
 const preview = computed(() => {
   const t = title.value.trim();
@@ -72,7 +107,10 @@ const preview = computed(() => {
     kind.value === 'tv' && season.value !== '' && Number.isFinite(n)
       ? `/Season ${String(n).padStart(2, '0')}`
       : '';
-  return `${parentPath.value}/${t}${seasonPart}`;
+  // The server names the folder with the Plex convention, so preview that
+  // rather than the raw title — otherwise this line promises a folder that is
+  // not the one the file lands in.
+  return `${parentPath.value}/${plexName(t)}${seasonPart}`;
 });
 
 async function loadContext(): Promise<void> {
@@ -108,8 +146,8 @@ watch(() => props.isOpen, (open) => {
   kind.value = 'movie';
   title.value = '';
   season.value = '';
-  files.value = [];
-  busy.value = false;
+  picked.value = [];
+  batch.value = [];
   void loadContext();
 });
 watch(kind, () => {
@@ -118,76 +156,27 @@ watch(kind, () => {
 });
 
 function onPick(e: Event): void {
-  const picked = (e.target as HTMLInputElement).files;
-  if (!picked) return;
-  files.value = Array.from(picked).map((file) => ({
-    file,
-    progress: 0,
-    state: 'waiting' as const,
-    message: '',
-  }));
+  const chosen = (e.target as HTMLInputElement).files;
+  if (!chosen) return;
+  picked.value = Array.from(chosen);
+  // A fresh selection starts a fresh upload; the previous batch stays in the
+  // Tasks list rather than being overwritten here.
+  batch.value = [];
 }
 
 const tooBig = (f: File) => f.size > maxMB.value * 1024 * 1024;
 
-function explain(e: unknown): string {
-  if (!(e instanceof ApiError)) return 'Upload failed.';
-  switch (e.code) {
-    case 'file_exists':
-      return 'A file of that name is already there — nothing was overwritten.';
-    case 'destination_forbidden':
-      return 'You do not have access to that folder.';
-    case 'parent_unset':
-      return 'No movie or TV folder is configured.';
-    case 'cancelled':
-      return 'Cancelled.';
-    case 'offline':
-      return 'Lost connection.';
-    default:
-      return e.message || 'Upload failed.';
-  }
-}
-
-async function send(): Promise<void> {
-  busy.value = true;
-  let anyOk = false;
-  for (const row of files.value) {
-    if (row.state === 'done') continue;
-    // Refused before a single byte leaves the device.
-    if (tooBig(row.file)) {
-      row.state = 'failed';
-      row.message = `Larger than the ${maxMB.value} MB limit.`;
-      continue;
-    }
-    row.state = 'sending';
-    row.progress = 0;
-    const { promise, cancel } = api.uploadFile(
-      { kind: kind.value, title: title.value.trim(), season: season.value, file: row.file },
-      (fraction) => {
-        row.progress = fraction;
-      },
-    );
-    cancelCurrent = cancel;
-    try {
-      const res: UploadResult = await promise;
-      row.state = 'done';
-      row.progress = 1;
-      row.message = res.destination;
-      anyOk = true;
-    } catch (e) {
-      // One file failing must not abandon the rest.
-      row.state = 'failed';
-      row.message = explain(e);
-    } finally {
-      cancelCurrent = null;
-    }
-  }
-  busy.value = false;
-  if (anyOk) emit('uploaded');
-}
-
-function stop(): void {
-  cancelCurrent?.();
+function send(): void {
+  // Hand the files to the shared queue and remember which ones are ours, so this
+  // sheet reports on its own upload while the queue outlives it.
+  batch.value = enqueue(picked.value.filter((f) => !tooBig(f)), {
+    kind: kind.value,
+    title: title.value.trim(),
+    season: season.value,
+  }).map((j) => j.id);
+  // The Tasks list refreshes on the first success; a failure stays visible here
+  // and there, so nothing needs to be reported back immediately.
+  emit('uploaded');
 }
 </script>
 
@@ -197,7 +186,9 @@ function stop(): void {
       <ion-toolbar>
         <ion-title>Upload to library</ion-title>
         <ion-buttons slot="end">
-          <ion-button data-testid="upload-cancel" @click="emit('dismiss')">Close</ion-button>
+          <ion-button data-testid="upload-cancel" @click="emit('dismiss')">
+            {{ started ? 'Dismiss' : 'Close' }}
+          </ion-button>
         </ion-buttons>
       </ion-toolbar>
     </ion-header>
@@ -210,23 +201,6 @@ function stop(): void {
       </ion-segment>
 
       <ion-list>
-        <!-- Picking a show already on the NAS uses that exact folder, so a new
-             episode joins the show instead of starting a near-duplicate. -->
-        <ion-item v-if="existing.length">
-          <ion-select
-            label="Already in your library"
-            label-placement="stacked"
-            interface="popover"
-            placeholder="or type a new title below"
-            data-testid="upload-existing"
-            @ion-change="title = String($event.detail.value ?? '')"
-          >
-            <ion-select-option v-for="name in existing" :key="name" :value="name">
-              {{ name }}
-            </ion-select-option>
-          </ion-select>
-        </ion-item>
-
         <ion-item>
           <ion-input
             v-model="title"
@@ -235,6 +209,30 @@ function stop(): void {
             data-testid="upload-title"
             :placeholder="kind === 'tv' ? 'Friends 1994' : 'Dune 2021'"
           />
+        </ion-item>
+        <!-- Typing filters what is already on the NAS, so an episode can be added
+             to an existing show. The whole matching set stays scrollable — an
+             earlier version capped it, which quietly made most of the library
+             unreachable unless you guessed enough of the name. -->
+        <div v-if="filteredExisting.length" class="suggestions">
+          <ion-item
+            v-for="name in filteredExisting"
+            :key="name"
+            button
+            :detail="false"
+            class="suggestion"
+            data-testid="upload-existing"
+            @click="title = name"
+          >
+            <ion-icon slot="start" :icon="folderOutline" size="small" />
+            <ion-label>{{ name }}</ion-label>
+          </ion-item>
+        </div>
+        <ion-item v-if="titleNeedsYear" lines="none">
+          <ion-note color="warning" data-testid="upload-title-hint">
+            Add the release year so your media server can identify it — e.g.
+            <strong>{{ kind === 'tv' ? 'Friends 1994' : 'Dune 2021' }}</strong>.
+          </ion-note>
         </ion-item>
         <ion-item v-if="kind === 'tv'">
           <ion-input
@@ -258,17 +256,35 @@ function stop(): void {
         <ion-icon slot="start" :icon="cloudUploadOutline" />
         <input type="file" multiple data-testid="upload-input" @change="onPick" />
       </ion-item>
+      <ion-note v-if="oversized.length" class="cap" color="danger">
+        Too large for the {{ maxLabel }} limit: {{ oversized.join(', ') }}.
+      </ion-note>
       <ion-note class="cap">
-        Video, subtitle, artwork and .nfo files, up to {{ maxMB }} MB each. The title is used to
+        Video, subtitle, artwork and .nfo files, up to {{ maxLabel }} each. The title is used to
         name the folder, so it is required.
       </ion-note>
 
       <ion-list v-if="anyFiles">
         <ion-list-header><ion-label>Files</ion-label></ion-list-header>
-        <ion-item v-for="row in files" :key="row.file.name">
+
+        <!-- Before sending, just the chosen names. Once sending, the shared
+             queue's rows, which keep reporting after this sheet is dismissed. -->
+        <template v-if="!started">
+          <ion-item v-for="f in picked" :key="f.name">
+            <ion-label><h3>{{ f.name }}</h3></ion-label>
+          </ion-item>
+        </template>
+
+        <ion-item v-for="row in rows" :key="row.id">
           <ion-label>
-            <h3>{{ row.file.name }}</h3>
-            <p v-if="row.message" :class="{ bad: row.state === 'failed' }">{{ row.message }}</p>
+            <h3>{{ row.name }}</h3>
+            <p
+              v-if="row.message"
+              :class="{ bad: row.state === 'failed' }"
+              data-testid="upload-result"
+            >
+              {{ row.message }}
+            </p>
             <ion-progress-bar
               v-if="row.state === 'sending'"
               :value="row.progress"
@@ -282,11 +298,34 @@ function stop(): void {
             color="success"
           />
           <ion-icon
-            v-else-if="row.state === 'failed'"
+            v-else-if="row.state === 'failed' || row.state === 'cancelled'"
             slot="end"
             :icon="warningOutline"
             color="danger"
           />
+          <ion-button
+            v-if="row.state === 'failed' || row.state === 'cancelled'"
+            slot="end"
+            size="small"
+            fill="clear"
+            data-testid="upload-retry"
+            @click="retry(row.id)"
+          >
+            Retry
+          </ion-button>
+          <!-- Replacing DESTROYS what is on the NAS, so it is only ever offered
+               for a real name collision, and never chosen automatically. -->
+          <ion-button
+            v-if="row.replaceable"
+            slot="end"
+            size="small"
+            fill="clear"
+            color="danger"
+            data-testid="upload-replace"
+            @click="retry(row.id, true)"
+          >
+            Replace
+          </ion-button>
         </ion-item>
       </ion-list>
 
@@ -299,14 +338,40 @@ function stop(): void {
       >
         Upload
       </ion-button>
-      <ion-button v-if="busy" expand="block" fill="clear" color="medium" @click="stop">
+      <ion-button
+        v-if="busy"
+        expand="block"
+        fill="clear"
+        color="medium"
+        data-testid="upload-stop"
+        @click="rows.filter((r) => r.state === 'sending').forEach((r) => cancelJob(r.id))"
+      >
         Stop
       </ion-button>
+      <!-- The transfer runs in the page, so leaving the app can kill it. Said
+           plainly rather than trapping the user in the sheet. -->
+      <ion-note v-if="busy" class="hint" color="medium">
+        Keep the app open until this finishes — leaving it may interrupt the upload.
+      </ion-note>
     </ion-content>
   </ion-modal>
 </template>
 
 <style scoped>
+.suggestion {
+  --min-height: 40px;
+}
+/* Bounded so a long match list scrolls within itself instead of pushing the
+   Upload button off the sheet. */
+.suggestions {
+  max-height: 34vh;
+  overflow-y: auto;
+}
+.hint {
+  display: block;
+  padding: 4px 16px 0;
+  font-size: 0.78rem;
+}
 .preview {
   display: block;
   margin: 10px 2px;
