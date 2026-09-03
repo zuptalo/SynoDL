@@ -190,6 +190,14 @@ const hasFilters = computed(() => {
   );
 });
 
+// True when the view differs from a fresh account's in ANY way — a filter, or a
+// sort/order the user changed. hasFilters alone is not enough for the reset
+// affordance: a user who has only changed the sort has just as much to undo,
+// and would otherwise be left with no one-tap way back.
+const viewChanged = computed(
+  () => hasFilters.value || sort.value !== DEFAULT_SORT || order.value !== DEFAULT_ORDER,
+);
+
 // The source list drives the picker and the per-result labels. It is admin-only
 // on the server, so a non-admin simply gets no list and sees no picker — which
 // is correct: a non-admin cannot add sources anyway, and the labels come with
@@ -479,6 +487,17 @@ async function clearFilters(): Promise<void> {
   await debouncedSearch();
 }
 
+// Put the whole view back to default — filters AND sort — in one round trip.
+// Clearing the filters and resetting the sort separately would run two searches
+// and flash an intermediate result the user never asked for.
+async function resetView(): Promise<void> {
+  filters.value = {};
+  sort.value = DEFAULT_SORT;
+  order.value = DEFAULT_ORDER;
+  void saveView();
+  await debouncedSearch();
+}
+
 // Remove a single active filter (or reset the sort) without opening the sheet.
 async function removeFilter(key: keyof SourceSearchFilters | 'sort'): Promise<void> {
   if (key === 'sort') {
@@ -530,6 +549,7 @@ export function useSourceCatalog() {
     errorMsg,
     hasMore,
     hasFilters,
+    viewChanged,
     preferredQuality,
     sources,
     selectedSource,
@@ -547,6 +567,7 @@ export function useSourceCatalog() {
     setSort,
     toggleOrder,
     clearFilters,
+    resetView,
     removeFilter,
     loadPrefs,
     savePref,
