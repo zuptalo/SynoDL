@@ -114,7 +114,16 @@ cannot use this source.
 npm run build                 # typecheck + build
 npm run test:unit:coverage
 cd server && go build ./... && go vet ./... && go test ./...
+cd server && go test -tags sourcemock ./...   # the dev/e2e build too
 npm run test:e2e
+```
+
+On macOS 12 the downloaded chromium will not install, but the suite still runs
+against the installed Chrome — `playwright.config.ts` honours `CHROMIUM_PATH`:
+
+```sh
+CHROMIUM_PATH="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" \
+  npx playwright test
 ```
 
 `go test` must stay green with **no** `LIVE_*` variables set — if a live check ever fails in

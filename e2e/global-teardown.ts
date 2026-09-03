@@ -25,9 +25,13 @@ export default function globalTeardown(): void {
     const pids = JSON.parse(readFileSync(PIDS_FILE, 'utf-8')) as {
       synodl?: number;
       synomock?: number;
+      synodlSf?: number;
+      synomockSf?: number;
     };
     stop(pids.synodl);
     stop(pids.synomock);
+    stop(pids.synodlSf);
+    stop(pids.synomockSf);
     rmSync(PIDS_FILE, { force: true });
   } catch {
     /* nothing to tear down */

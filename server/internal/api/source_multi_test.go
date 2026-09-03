@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"synodl/server/internal/config"
 	"synodl/server/internal/nas"
@@ -297,5 +298,44 @@ func TestUnreadableSessionIsReportedNotDiscarded(t *testing.T) {
 	_ = st.DB().QueryRow(`SELECT COUNT(*) FROM source_provider_secrets WHERE provider_id=1`).Scan(&n)
 	if n != 1 {
 		t.Fatal("unreadable session material was discarded rather than retained")
+	}
+}
+
+// FR-012, at the level that actually blanks the screen: /v1/source/status drives
+// a whole-view gate in the client, so with several sources it must be an
+// aggregate. Reporting the first source's health let one unhealthy source hide a
+// Discover view the others could fill — found by the browser test, fixed here
+// because the client gate must behave the same for non-admins, who cannot list
+// providers at all.
+func TestStatusIsHealthyWhileAnySourceIsUsable(t *testing.T) {
+	resetFake()
+	source.ResetBreakers()
+	h, st := newStatefulRouter(t)
+	admin := adminAfterSetup(t, h)
+	addProvider(t, h, admin, "Broken", 0)
+	addProvider(t, h, admin, "Healthy", 1)
+
+	// Source 1 is dead, source 2 is fine.
+	now := time.Now().Unix()
+	if err := st.SetProviderStateErr(1, store.SourceNeedsRefresh, source.ReasonNeedsRefresh, 0, now); err != nil {
+		t.Fatalf("set state: %v", err)
+	}
+	if err := st.SetProviderStateErr(2, store.SourceActive, "", now, now); err != nil {
+		t.Fatalf("set state: %v", err)
+	}
+
+	rec := do(t, h, "GET", "/v1/source/status", "", admin)
+	body := rec.Body.String()
+	if !strings.Contains(body, `"state":"active"`) {
+		t.Fatalf("one dead source must not make the whole catalog unavailable: %s", body)
+	}
+
+	// With EVERY source dead, the gate is correct to close.
+	if err := st.SetProviderStateErr(2, store.SourceNeedsRefresh, source.ReasonNeedsRefresh, 0, now); err != nil {
+		t.Fatalf("set state: %v", err)
+	}
+	rec = do(t, h, "GET", "/v1/source/status", "", admin)
+	if !strings.Contains(rec.Body.String(), `"state":"needs_refresh"`) {
+		t.Fatalf("all sources dead should report needs_refresh: %s", rec.Body.String())
 	}
 }

@@ -106,8 +106,11 @@ ports before adding a new listener):
 | 5274 | e2e test Vite |
 | 8280 | synodl dev (also the compose host mapping `8280:8080`) |
 | 8281 | e2e synodl |
-| 8291 | mock DSM dev |
-| 8292 | e2e mock DSM |
+| 8291 | mock DSM dev (TLS) |
+| 8292 | e2e mock DSM (stateless stack) |
+| 5275 | e2e test Vite for the stateful stack |
+| 8283 | e2e synodl, stateful (accounts + download sources) |
+| 8294 | e2e mock DSM for the stateful stack (TLS) |
 
 The production container still listens on the conventional **8080**
 internally — only dev listeners and the compose *host* port use the block.

@@ -221,23 +221,52 @@ func (d Deps) writeSourceRuntimeErr(w http.ResponseWriter, providerID int64, err
 // handleSourceStatus returns non-secret provider status for any signed-in user.
 func handleSourceStatus(d Deps) http.Handler {
 	return d.requireUser(func(w http.ResponseWriter, r *http.Request, u *store.User) {
-		p, err := d.Store.GetProvider()
+		providers, err := d.Store.ListProviders()
 		if err != nil {
 			httpx.Error(w, http.StatusInternalServerError, "server")
 			return
 		}
 		view := sourceStatusView{State: store.SourceNotConfigured, CanManage: u.IsAdmin}
 		view.MaxDownloadMB, _ = d.Store.GetMaxDownloadMB()
-		if p != nil {
-			view.Configured = true
-			view.Enabled = p.Enabled
-			view.State = p.State
-			view.ProviderName = p.DisplayName
-			view.Kind = p.Kind
-			view.MoviesParent = p.MoviesParent
-			view.TVParent = p.TVParent
-			view.LastVerifiedAt = p.LastVerifiedAt
+		if len(providers) == 0 {
+			httpx.JSON(w, http.StatusOK, view)
+			return
 		}
+
+		// This status drives a WHOLE-VIEW gate in the client ("the source needs
+		// refreshing"), so with several sources it has to be an aggregate. Reporting
+		// the first source's health would let one unhealthy source blank a Discover
+		// view that the others could fill perfectly well — the exact opposite of
+		// degrading gracefully (spec 0007 FR-012).
+		//
+		// So: healthy if ANY enabled source is usable; needs-refresh only when every
+		// one of them is unusable.
+		healthy := providers[0]
+		state := ""
+		for _, p := range providers {
+			if !p.Enabled {
+				continue
+			}
+			if state == "" || p.State == store.SourceActive {
+				state = p.State
+				healthy = p
+			}
+			if p.State == store.SourceActive {
+				break
+			}
+		}
+		if state == "" {
+			// Every source is disabled: configured, but nothing to browse.
+			state = providers[0].State
+		}
+		view.Configured = true
+		view.Enabled = healthy.Enabled
+		view.State = state
+		view.ProviderName = healthy.DisplayName
+		view.Kind = healthy.Kind
+		view.MoviesParent = healthy.MoviesParent
+		view.TVParent = healthy.TVParent
+		view.LastVerifiedAt = healthy.LastVerifiedAt
 		httpx.JSON(w, http.StatusOK, view)
 	})
 }

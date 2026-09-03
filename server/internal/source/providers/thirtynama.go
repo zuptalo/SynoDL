@@ -96,11 +96,30 @@ func (thirtynama) auth(s source.Session) (headers, cookies map[string]string) {
 // download storage host rotates its subdomain (eu-download-storage-NN.*), so it
 // is allowed by domain suffix.
 func (thirtynama) Hosts() source.Config {
-	return source.Config{
+	cfg := source.Config{
 		APIHosts:      []string{tnAPIHost, "30nama.com"},
 		DownloadHosts: []string{"divyacamilla.info"},
 		ImageHosts:    []string{"cdn.30nama.com"},
 	}
+	// Dev/e2e only, and only in a build carrying the `sourcemock` tag. See
+	// mockbase_prod.go: in a release build there is no such branch.
+	if b := mockBase("thirtynama"); b != "" {
+		if h := hostOf(b); h != "" {
+			cfg.APIHosts = append(cfg.APIHosts, h)
+			cfg.DownloadHosts = append(cfg.DownloadHosts, h, "mockdl.invalid")
+			cfg.ImageHosts = append(cfg.ImageHosts, h)
+		}
+	}
+	return cfg
+}
+
+// base is where this driver's requests go: the real API, or a fake one in a
+// dev/e2e build.
+func (thirtynama) base() string {
+	if b := mockBase("thirtynama"); b != "" {
+		return b
+	}
+	return apiBase
 }
 
 func (p thirtynama) VerifySession(ctx context.Context, c *source.Client, cfg source.Config, s source.Session) error {
@@ -345,7 +364,7 @@ func (p thirtynama) call(ctx context.Context, c *source.Client, cfg source.Confi
 	headers, cookies := p.auth(s)
 	resp, err := c.Do(ctx, s, cfg.APIHosts, source.Req{
 		Method:  "POST",
-		URL:     apiBase + path,
+		URL:     p.base() + path,
 		Body:    body,
 		XHR:     true,
 		Origin:  tnOrigin,

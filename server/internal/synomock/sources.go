@@ -269,14 +269,37 @@ func (s *Server) handleTNMock(w http.ResponseWriter, r *http.Request) {
 			page = n
 		}
 	}
+	scheme := "http"
+	if r.TLS != nil {
+		scheme = "https"
+	}
+	base := scheme + "://" + r.Host + "/mocksrc/tn"
 	posts := make([]map[string]any, 0, perPage)
 	if page <= pages {
 		for i := 1; i <= perPage; i++ {
 			n := (page-1)*perPage + i
+			// The post shape mirrors the real API's, including the nested image
+			// object — a flattened stand-in would unmarshal to an empty poster and
+			// quietly test nothing.
 			posts = append(posts, map[string]any{
-				"id": n, "title": fmt.Sprintf("%s Title %d", prefix, n),
-				"title_type": "movie", "imdb_id": "tt7654321", "imdb_score": 6.5,
-				"cover": fmt.Sprintf("/mocksrc/tn/cover-%d.jpg", n),
+				"id":            n,
+				"title":         fmt.Sprintf("%s Title %d", prefix, n),
+				"title_type":    "movie",
+				"imdb_id":       "tt7654321",
+				"imdb_score":    6.5,
+				"30nama_score":  7.1,
+				"english_plot":  "A mock title served by the in-repo fake source.",
+				"coming_soon":   false,
+				"free_download": true,
+				"image": map[string]any{
+					"cover": fmt.Sprintf("%s/cover-%d.jpg", base, n),
+					"poster": map[string]any{
+						"big":    fmt.Sprintf("%s/poster-%d.jpg", base, n),
+						"large":  fmt.Sprintf("%s/poster-%d.jpg", base, n),
+						"medium": fmt.Sprintf("%s/poster-%d.jpg", base, n),
+						"small":  fmt.Sprintf("%s/poster-%d.jpg", base, n),
+					},
+				},
 			})
 		}
 	}

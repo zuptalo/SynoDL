@@ -28,21 +28,48 @@ export default defineConfig({
     baseURL: 'http://localhost:5274',
     trace: 'retain-on-failure',
   },
-  webServer: {
-    command: 'npx vite --port 5274 --strictPort',
-    url: 'http://localhost:5274',
-    reuseExistingServer: false,
-    timeout: 60_000,
-    env: { SYNODL_PROXY_TARGET: `http://localhost:${process.env.SYNODL_E2E_PORT || 8281}` },
-  },
+  webServer: [
+    {
+      command: 'npx vite --port 5274 --strictPort',
+      url: 'http://localhost:5274',
+      reuseExistingServer: false,
+      timeout: 60_000,
+      env: { SYNODL_PROXY_TARGET: `http://localhost:${process.env.SYNODL_E2E_PORT || 8281}` },
+    },
+    // A second front end pointed at the STATEFUL backend, for the features that
+    // only exist there (accounts, download sources). Kept separate so the
+    // stateless specs above are completely unaffected.
+    {
+      command: 'npx vite --port 5275 --strictPort',
+      url: 'http://localhost:5275',
+      reuseExistingServer: false,
+      timeout: 60_000,
+      env: { SYNODL_PROXY_TARGET: `http://localhost:${process.env.SYNODL_E2E_SF_PORT || 8283}` },
+    },
+  ],
   projects: [
     {
       name: 'chromium',
+      // The stateful specs live in their own project against the other backend.
+      testIgnore: /stateful\//,
       use: {
         ...devices['Desktop Chrome'],
         // CHROMIUM_PATH points at a system Chromium when the environment can't
         // download Playwright's own build (e.g. a sandboxed dev container). CI
         // leaves it unset and uses `npx playwright install chromium`.
+        ...(process.env.CHROMIUM_PATH
+          ? { launchOptions: { executablePath: process.env.CHROMIUM_PATH } }
+          : {}),
+      },
+    },
+    {
+      // Stateful mode: SynoDL accounts and the download sources (spec 0007),
+      // which do not exist in the stateless build the project above tests.
+      name: 'chromium-stateful',
+      testMatch: /stateful\/.*\.spec\.ts/,
+      use: {
+        ...devices['Desktop Chrome'],
+        baseURL: 'http://localhost:5275',
         ...(process.env.CHROMIUM_PATH
           ? { launchOptions: { executablePath: process.env.CHROMIUM_PATH } }
           : {}),

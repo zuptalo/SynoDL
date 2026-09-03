@@ -178,11 +178,11 @@ async function onLogout(): Promise<void> {
         </ion-item>
       </ion-list>
 
-      <!-- Admin-only: configure the external download source (spec 0005). -->
+      <!-- Admin-only: configure the external download sources (specs 0005, 0007). -->
       <ion-list v-if="stateful && isAdmin" inset>
-        <ion-list-header>Download source</ion-list-header>
+        <ion-list-header>Download sources</ion-list-header>
         <ion-item button :detail="false" data-testid="settings-source" @click="sourceOpen = true">
-          <ion-label>Configure download source</ion-label>
+          <ion-label>Manage download sources</ion-label>
           <ion-icon slot="end" :icon="chevronForward" color="medium" />
         </ion-item>
       </ion-list>
