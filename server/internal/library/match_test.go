@@ -208,3 +208,39 @@ func TestNilIndexIsSafe(t *testing.T) {
 		t.Error("nil index should report empty")
 	}
 }
+
+// The library is being tidied into the Plex/Jellyfin convention — "Dune (2021)",
+// "Friends (1994)" — which is NOT the shape SynoDL itself writes. The ownership
+// markers must keep working across that rename, or tidying the library silently
+// switches the feature off.
+func TestLookupSurvivesTheTidyToPlexNaming(t *testing.T) {
+	// Folders as they look AFTER the tidy; catalog titles as the sources send them.
+	ix := Build(
+		[]Parent{{Path: "movie", Movies: true}, {Path: "tv-show", TV: true}},
+		map[string][]string{
+			"movie":   {"Dune (2021)", "Blade Runner 2049 (2017)", "WALL-E (2008)"},
+			"tv-show": {"Friends (1994)", "The Bear (2022)"},
+		},
+		time.Now(),
+	)
+	for _, c := range []struct {
+		catalogTitle string
+		kind         MediaKind
+	}{
+		{"Dune 2021", MediaMovie},
+		{"Blade Runner 2049 2017", MediaMovie},
+		{"WALL-E 2008", MediaMovie},
+		// A series' catalog title carries the whole run; the tidied folder keeps
+		// only the first air year, so the two must still agree.
+		{"Friends 1994 - 2004", MediaTV},
+		{"The Bear 2022 -", MediaTV},
+	} {
+		if _, ok := ix.Lookup(c.catalogTitle, c.kind); !ok {
+			t.Errorf("%q no longer matches its tidied folder — the badge would go dark", c.catalogTitle)
+		}
+	}
+	// And the year rule still holds after tidying.
+	if _, ok := ix.Lookup("Dune 1984", MediaMovie); ok {
+		t.Error("the 1984 Dune matched the 2021 folder")
+	}
+}
