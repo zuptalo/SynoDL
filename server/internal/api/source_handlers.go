@@ -468,8 +468,11 @@ func handleSourceSearch(d Deps) http.Handler {
 			// snapshot copy, and a page can carry forty items.
 			active := d.activeDestinations()
 			for i := range res.Items {
-				res.Items[i].Ownership = d.ownershipOf(
-					r.Context(), ix, res.Items[i].Title, mediaKind(res.Items[i].Type), active)
+				kind := mediaKind(res.Items[i].Type)
+				res.Items[i].Ownership = d.ownershipOf(r.Context(), ix, res.Items[i].Title, kind, active)
+				// Remember what this id is called, so opening it can report which
+				// seasons are here without trusting a title from the client.
+				d.rememberTitle(res.Items[i].ID, res.Items[i].Title, kind)
 			}
 		}
 
@@ -536,6 +539,18 @@ func handleSourceTitle(d Deps) http.Handler {
 		td.ID = source.QualifyID(ref.ID, td.ID)
 		if td.Qualities == nil {
 			td.Qualities = []source.QualityOption{}
+		}
+		// Which seasons and episodes are already here, so the user fetches only
+		// what is missing rather than a whole season for the sake of two episodes.
+		// The drivers do not return a title, so it comes from what this user's own
+		// search reported for this id. Not knowing it yields "unknown" — and so no
+		// marker — rather than "absent", which would claim the NAS lacks something
+		// nobody looked for (FR-010c).
+		if rec, known := d.rememberedTitle(td.ID); known {
+			td.Ownership, td.Seasons = d.titleDetail(
+				r.Context(), rec.title, rec.kind, d.activeDestinations())
+		} else {
+			td.Ownership = source.OwnershipUnknown
 		}
 		httpx.JSON(w, http.StatusOK, td)
 	})
@@ -789,9 +804,13 @@ func handleGetSourceView(d Deps) http.Handler {
 		}
 		// Pass the stored filters JSON through verbatim (default {}), so the client
 		// gets an object rather than a JSON-encoded string.
+		// Read separately from the rest of the view: its own column, and a failure
+		// to read it must not blank the whole view — showing everything is the safe
+		// default for a toggle whose job is to HIDE things.
+		hideOwned, _ := d.Store.GetSourceHideOwned(u.ID)
 		httpx.JSON(w, http.StatusOK, map[string]any{
 			"filters": json.RawMessage(orElse(filters, "{}")), "sort": sort, "order": order,
-			"selectedSource": selected,
+			"selectedSource": selected, "hideOwned": hideOwned,
 		})
 	})
 }
@@ -805,6 +824,9 @@ func handleSetSourceView(d Deps) http.Handler {
 			// "" = all sources. Persisted with the rest of the view so the choice
 			// follows the user across devices (FR-008).
 			SelectedSource string `json:"selectedSource"`
+			// Hide titles already here or already downloading (FR-019a, FR-022).
+			// Stored per user so it follows them across devices (FR-024).
+			HideOwned bool `json:"hideOwned"`
 		}
 		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<14)).Decode(&body); err != nil {
 			httpx.Error(w, http.StatusBadRequest, "bad request")
@@ -814,8 +836,13 @@ func handleSetSourceView(d Deps) http.Handler {
 		if filters == "" || filters == "null" {
 			filters = "{}"
 		}
+		now := time.Now().Unix()
 		if err := d.Store.SaveSourceViewFull(u.ID, filters, strings.TrimSpace(body.Sort),
-			strings.TrimSpace(body.Order), strings.TrimSpace(body.SelectedSource), time.Now().Unix()); err != nil {
+			strings.TrimSpace(body.Order), strings.TrimSpace(body.SelectedSource), now); err != nil {
+			httpx.Error(w, http.StatusInternalServerError, "server")
+			return
+		}
+		if err := d.Store.SaveSourceHideOwned(u.ID, body.HideOwned, now); err != nil {
 			httpx.Error(w, http.StatusInternalServerError, "server")
 			return
 		}

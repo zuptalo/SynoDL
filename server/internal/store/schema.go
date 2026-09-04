@@ -245,6 +245,11 @@ var migrations = []string{
 	// provider-declared. It is administrator configuration, never client input,
 	// and applies only to the source it is set on.
 	`ALTER TABLE source_providers ADD COLUMN alt_base TEXT NOT NULL DEFAULT '';`,
+
+	// Hide titles the user already has, or is already fetching, from Discover
+	// (spec 0008 FR-022/FR-024). On the per-user prefs row so it follows them
+	// across devices, like the rest of their Discover view.
+	`ALTER TABLE source_prefs ADD COLUMN hide_owned INTEGER NOT NULL DEFAULT 0;`,
 	// 0019 — the 30nama driver's registry key was "thirtynama", which leaked into
 	// the admin list as the source's name. The key is now "30nama", matching what
 	// the site is actually called.

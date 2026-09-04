@@ -364,6 +364,36 @@ func (s *Store) SaveSourceViewFull(userID int64, filters, sort, order, selected 
 	return err
 }
 
+// GetSourceHideOwned reports whether this user hides titles they already have.
+//
+// Deliberately its own accessor rather than a sixth return on GetSourceViewFull:
+// that signature is already at five positional values, and adding another would
+// make every call site harder to read than the feature is worth.
+func (s *Store) GetSourceHideOwned(userID int64) (bool, error) {
+	var hide int
+	err := s.db.QueryRow(`SELECT hide_owned FROM source_prefs WHERE user_id = ?`, userID).Scan(&hide)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil // never set: showing everything is the safe default
+	}
+	return hide == 1, err
+}
+
+// SaveSourceHideOwned upserts the toggle, leaving the rest of the row untouched.
+func (s *Store) SaveSourceHideOwned(userID int64, hide bool, now int64) error {
+	v := 0
+	if hide {
+		v = 1
+	}
+	_, err := s.db.Exec(`
+		INSERT INTO source_prefs (user_id, hide_owned, updated_at)
+		VALUES (?, ?, ?)
+		ON CONFLICT(user_id) DO UPDATE SET
+		  hide_owned = excluded.hide_owned,
+		  updated_at = excluded.updated_at`,
+		userID, v, now)
+	return err
+}
+
 // SourceDownload is the catalog metadata remembered for a Discover send, keyed by
 // its destination subfolder, so the Tasks list can label the download.
 type SourceDownload struct {

@@ -460,12 +460,27 @@ export interface QualityOption {
   season?: string;
   episodes?: number;
 }
+export interface SeasonPresence {
+  season: number;
+  /** Episode numbers read from the files. Empty with videoFiles > 0 means
+   *  "present, numbering unreadable" — still present. */
+  episodes: number[];
+  videoFiles: number;
+}
+
 export interface TitleDetail {
   id: string;
   type: string;
   title: string;
   sendable: boolean;
   qualities: QualityOption[];
+  ownership?: 'unknown' | 'absent' | 'owned' | 'downloading';
+  /**
+   * Seasons already on the NAS. Only seasons actually holding video appear, and
+   * there is deliberately no total: the catalog's episode count is not reliable,
+   * so nothing here ever claims a season is complete.
+   */
+  seasons?: SeasonPresence[];
 }
 /** Route a provider cover URL through the same-origin, server-cached image proxy
  *  (empty when there's no poster). */
@@ -614,11 +629,26 @@ export const api = {
     request<{ preferredQuality: string }>('/v1/source/prefs', jsonMethod('PUT', { preferredQuality })),
   // Per-user Discover view (facet filters + sort field + direction), synced across devices.
   getSourceView: () =>
-    request<{ filters: SourceSearchFilters; sort: string; order: string; selectedSource: string }>(
+    request<{
+      filters: SourceSearchFilters;
+      sort: string;
+      order: string;
+      selectedSource: string;
+      hideOwned: boolean;
+    }>(
       '/v1/source/view',
     ),
-  setSourceView: (filters: SourceSearchFilters, sort: string, order: string, selectedSource = '') =>
-    request<void>('/v1/source/view', jsonMethod('PUT', { filters, sort, order, selectedSource })),
+  setSourceView: (
+    filters: SourceSearchFilters,
+    sort: string,
+    order: string,
+    selectedSource = '',
+    hideOwned = false,
+  ) =>
+    request<void>(
+      '/v1/source/view',
+      jsonMethod('PUT', { filters, sort, order, selectedSource, hideOwned }),
+    ),
 
   // Admin: the configured sources, and the provider kinds available to add. No
   // response ever carries session material — those fields are write-only.

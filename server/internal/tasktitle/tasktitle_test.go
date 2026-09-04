@@ -71,7 +71,7 @@ func TestDisplay(t *testing.T) {
 // would name no show at all.
 func TestTitleStepsPastASeasonFolder(t *testing.T) {
 	cases := []struct {
-		name, dest, uri  string
+		name, dest, uri   string
 		wantTitle, wantEp string
 	}{
 		{"Friends.S01E05.1080p.mkv", "tv-show/Friends (1994)/Season 01", "", "Friends (1994)", "S01E05"},

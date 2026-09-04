@@ -25,8 +25,15 @@ import {
   IonToolbar,
 } from '@ionic/vue';
 import { arrowForwardOutline, chevronBackOutline, cloudDownloadOutline, openOutline } from 'ionicons/icons';
-import { api, ApiError, posterSrc, type CatalogTitle, type QualityOption } from '@/services/api';
-import { bySeasonThenSize, markSeasonBreaks, sizeMB } from '@/services/quality-sort';
+import {
+  api,
+  ApiError,
+  posterSrc,
+  type CatalogTitle,
+  type QualityOption,
+  type SeasonPresence,
+} from '@/services/api';
+import { bySeasonThenSize, markSeasonBreaks, seasonNum, sizeMB } from '@/services/quality-sort';
 import { appToast } from '@/services/toast';
 import { useSourceCatalog } from '@/composables/useSourceCatalog';
 import { splitYear } from '@/services/title-year';
@@ -97,6 +104,12 @@ const loading = ref(false);
 const sending = ref(false);
 const sendable = ref(true);
 const qualities = ref<QualityOption[]>([]);
+// Which seasons are already on the NAS, and which episodes each holds. Empty
+// when the title is a movie, is still downloading, or its folder could not be
+// read — in every one of those cases no marker is shown rather than a wrong one.
+const presentSeasons = ref<SeasonPresence[]>([]);
+// Whether the NAS already has this title at all (FR-019a).
+const ownership = ref<string>('unknown');
 const selected = ref('');
 const errorMsg = ref('');
 
@@ -182,6 +195,28 @@ const maxLabel = computed(() =>
 function tooLarge(q: QualityOption): boolean {
   return maxMB.value > 0 && sizeMB(q.size) > maxMB.value;
 }
+/** Seasons already here, by number, for a per-option lookup. */
+const seasonHave = computed(() => {
+  const m = new Map<number, SeasonPresence>();
+  for (const s of presentSeasons.value) m.set(s.season, s);
+  return m;
+});
+
+/**
+ * What to say about a season the user already has.
+ *
+ * Never "complete" and never "n of m": the catalog's episode count cannot be
+ * relied on, so claiming a season is finished would assert more than the files
+ * support (FR-016a). Listing the episode numbers says exactly what is there and
+ * lets the user see the gap themselves.
+ */
+function haveLabel(q: QualityOption): string {
+  const s = seasonHave.value.get(seasonNum(q));
+  if (!s) return '';
+  if (s.episodes.length === 0) return `On your NAS · ${s.videoFiles} file${s.videoFiles === 1 ? '' : 's'}`;
+  return `On your NAS · ep ${s.episodes.join(', ')}`;
+}
+
 // Whether the currently-selected quality is over the size cap (blocks Send).
 const selectedTooLarge = computed(() => {
   const q = qualities.value.find((x) => x.id === selected.value);
@@ -332,6 +367,8 @@ watch(
     loading.value = true;
     errorMsg.value = '';
     qualities.value = [];
+    presentSeasons.value = [];
+    ownership.value = 'unknown';
     selected.value = '';
     posterFailed.value = false;
     posterFellBack.value = false;
@@ -349,6 +386,8 @@ watch(
       const detail = await api.getSourceTitle(props.title.id);
       sendable.value = detail.sendable;
       qualities.value = detail.qualities;
+      presentSeasons.value = detail.seasons ?? [];
+      ownership.value = detail.ownership ?? 'unknown';
       // Default to the highest-quality tab, selecting its first usable option
       // (largest that's within the size limit). The user's preferred quality, if
       // it lives in that top tier, wins over the plain first.
@@ -387,10 +426,43 @@ async function toast(message: string): Promise<void> {
   await appToast({ message, duration: 3000 });
 }
 
+/**
+ * Ask before fetching something that is already here, or already on its way.
+ *
+ * Both cases get the prompt (FR-019a): neither is something the user needs to
+ * send again, and the daily allowance and the NAS's bandwidth are real costs.
+ * Cancelling sends nothing and consumes no allowance (FR-020); a title that is
+ * genuinely absent never prompts at all (FR-021).
+ */
+async function confirmDuplicate(): Promise<boolean> {
+  const season = seasonHave.value.get(seasonNum(selectedQuality.value ?? ({} as QualityOption)));
+  const already = ownership.value === 'owned' || ownership.value === 'downloading' || !!season;
+  if (!already) return true;
+
+  const what =
+    ownership.value === 'downloading'
+      ? 'This is downloading right now.'
+      : season
+        ? `You already have season ${season.season} — ${haveLabel(selectedQuality.value!).replace('On your NAS · ', '')}.`
+        : 'You already have this.';
+  const alert = await alertController.create({
+    header: 'Download it again?',
+    message: `${what} Downloading it again will use your allowance.`,
+    buttons: [
+      { text: 'Cancel', role: 'cancel' },
+      { text: 'Download anyway', role: 'confirm' },
+    ],
+  });
+  await alert.present();
+  const { role } = await alert.onDidDismiss();
+  return role === 'confirm';
+}
+
 async function send(episodesOverride?: number[]): Promise<void> {
   if (!selected.value || sending.value) return;
   // A series with nothing ticked has nothing to send.
   if (isSeriesPack.value && !episodesOverride && selectedEpisodes.value.length === 0) return;
+  if (!(await confirmDuplicate())) return;
   sending.value = true;
   errorMsg.value = '';
   try {
@@ -581,12 +653,23 @@ async function offerOverLimit(): Promise<void> {
                       <h3>
                         <span v-if="q.season" class="season">{{ q.season }} · </span>{{ q.label }}
                         <ion-badge v-if="tooLarge(q)" color="warning" class="too-large">Too large</ion-badge>
+                        <ion-badge
+                          v-if="haveLabel(q)"
+                          color="success"
+                          class="have"
+                          data-testid="season-have"
+                        >
+                          Have it
+                        </ion-badge>
                       </h3>
                       <p>
                         {{ q.size }}<template v-if="q.resolution"> · {{ q.resolution }}</template
                         >{{ q.encoder ? ' · ' + q.encoder : ''
                         }}<template v-if="q.episodes"> · {{ q.episodes }} eps</template>
                       </p>
+                      <!-- Which episodes, not how many of a total: the total is
+                           not something we can establish (FR-016a). -->
+                      <p v-if="haveLabel(q)" class="have-detail">{{ haveLabel(q) }}</p>
                     </ion-label>
                   </ion-radio>
                 </ion-item>
@@ -805,6 +888,13 @@ async function offerOverLimit(): Promise<void> {
 /* A stronger rule where the season changes, so season groups are obvious in a long
    pack list (the per-row hairlines alone all look identical). Drawn on the item's
    own top edge and paired with a little extra breathing room above the group. */
+.have {
+  margin-inline-start: 6px;
+}
+.have-detail {
+  color: var(--app-status-finished);
+  font-size: 0.72rem;
+}
 .season-break {
   border-top: 2px solid var(--ion-color-primary, #3dc2ff);
   --padding-top: 10px;
