@@ -360,3 +360,42 @@ func TestParseGenreSlugs(t *testing.T) {
 		}
 	}
 }
+
+// Spec 1026 US2: a season's quality names who encoded it after the final
+// separator. Real values, captured from the live site.
+func TestQualityEncoder(t *testing.T) {
+	for _, tc := range []struct{ quality, want string }{
+		{"WEB-DL 1080p FHD DDP5.1 - NHTFS", "NHTFS"},
+		{"WEB-DL 1080p - ZarFilm", "ZarFilm"},
+		{"WEB-DL 1080p x265 10bit - PSA", "PSA"},
+		{"WEB-DL 720p - Pahe", "Pahe"},
+		{"WEB-DL 480p - RMTeam", "RMTeam"},
+		// "WEB-DL" is hyphenated without spaces and must not be mistaken for the
+		// separator — otherwise every quality would report an encoder of "DL".
+		{"WEB-DL 1080p", ""},
+		{"BluRay 720p", ""},
+		{"", ""},
+		{" - ", ""},
+	} {
+		if got := qualityEncoder(tc.quality); got != tc.want {
+			t.Errorf("qualityEncoder(%q) = %q, want %q", tc.quality, got, tc.want)
+		}
+	}
+}
+
+func TestFileNameFromURL(t *testing.T) {
+	for _, tc := range []struct{ url, want string }{
+		{"https://dl9.example.invalid/Series/The.Gentlemen.S01E01.720p.x264.Pahe-ZarFilm.mkv?md5=X&expires=1", "The.Gentlemen.S01E01.720p.x264.Pahe-ZarFilm.mkv"},
+		{"https://dl9.example.invalid/Movies/Some.Movie.1080p.mkv", "Some.Movie.1080p.mkv"},
+		// A percent-encoded name is decoded, because that is how it lands on disk.
+		{"https://dl9.example.invalid/Movies/Some%20Movie%201080p.mkv", "Some Movie 1080p.mkv"},
+		// An upsell link is not a release and names no file.
+		{"https://zarfilm.com/pricing/", ""},
+		{"", ""},
+		{"::not a url::", ""},
+	} {
+		if got := fileNameFromURL(tc.url); got != tc.want {
+			t.Errorf("fileNameFromURL(%q) = %q, want %q", tc.url, got, tc.want)
+		}
+	}
+}

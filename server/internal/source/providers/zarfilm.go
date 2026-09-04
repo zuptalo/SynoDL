@@ -524,14 +524,29 @@ func (p zarfilm) Title(ctx context.Context, c *source.Client, cfg source.Config,
 			if sq.Paywalled && len(sq.Episodes) == 0 {
 				continue
 			}
+			// Who encoded it is named at the end of the quality, so it is lifted out
+			// and shown the way a movie's encoder is — and dropped from the label,
+			// which would otherwise print it twice (spec 1026 US2).
+			encoder := qualityEncoder(sq.Quality)
+			label := strings.TrimSpace(sq.Season + " " + qualityWithoutEncoder(sq.Quality))
+			// The file this option produces: the site rewrites the release tokens
+			// inside its file names, so the file itself is what identifies the
+			// release. Any episode names it — the episode number is reduced out
+			// when the two sides are compared.
+			releaseName := ""
+			if len(sq.Episodes) > 0 {
+				releaseName = fileNameFromURL(sq.Episodes[0])
+			}
 			td.Qualities = append(td.Qualities, source.QualityOption{
-				ID:         fmt.Sprintf("s%d-%d", sq.SeasonNum, i),
-				Label:      strings.TrimSpace(sq.Season + " " + sq.Quality),
-				Size:       sq.Size,
-				Resolution: sq.Resolution,
-				Hardsub:    sq.Subtitle != "" && !sq.Dubbed,
-				Season:     sq.Season,
-				Episodes:   len(sq.Episodes),
+				ID:          fmt.Sprintf("s%d-%d", sq.SeasonNum, i),
+				Label:       label,
+				Size:        sq.Size,
+				Resolution:  sq.Resolution,
+				Encoder:     encoder,
+				Hardsub:     sq.Subtitle != "" && !sq.Dubbed,
+				Season:      sq.Season,
+				Episodes:    len(sq.Episodes),
+				ReleaseName: releaseName,
 			})
 		}
 		return td, nil
@@ -552,6 +567,9 @@ func (p zarfilm) Title(ctx context.Context, c *source.Client, cfg source.Config,
 			Resolution: r.Resolution,
 			Encoder:    r.Encoder,
 			Hardsub:    r.Subtitle != "" && !r.Dubbed,
+			// Every movie option here is labelled with the site's own name as its
+			// encoder, so the file is the only thing that tells them apart.
+			ReleaseName: fileNameFromURL(r.URL),
 		})
 	}
 	// Rows existed but every one was a paywall: entitled callers see links, so

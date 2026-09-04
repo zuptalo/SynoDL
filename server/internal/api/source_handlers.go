@@ -559,13 +559,13 @@ func handleSourceTitle(d Deps) http.Handler {
 		// marker — rather than "absent", which would claim the NAS lacks something
 		// nobody looked for (FR-010c).
 		if rec, known := d.rememberedTitle(td.ID); known {
-			var releases map[int][]library.Release
-			td.Ownership, td.Seasons, releases = d.titleDetail(
+			var ev evidenceRec
+			td.Ownership, td.Seasons, ev = d.titleDetail(
 				r.Context(), rec.title, rec.kind, d.activeDestinations())
 			// Mark the ONE option the user already has, rather than every option
 			// for a season they have some of (spec 1025). Matching happens here so
 			// the release tokens never cross to the client.
-			td.Qualities = markOwnedOptions(td.Qualities, releases)
+			td.Qualities = markOwnedOptions(td.Qualities, ev)
 		} else {
 			td.Ownership = source.OwnershipUnknown
 		}

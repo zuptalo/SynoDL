@@ -78,3 +78,93 @@ func TestReleaseMatchesOption(t *testing.T) {
 		t.Fatal("an option with no group cannot be identified")
 	}
 }
+
+// The six qualities of ONE season of one real title, as the source actually
+// serves them (captured 2026-09-04). The release group cannot tell these apart —
+// five of them carry the site's own suffix and the sixth carries no separator at
+// all — which is why identity is taken from the file itself (spec 1026).
+var realZarfilmSeason = []string{
+	"The.Gentlemen.S01E01.1080p.WEB-DL.DDP5.1.Atmos.H.264.NHTFS-ZarFilm.mkv",
+	"The.Gentlemen.S01E01.Refined.Aggression.1080p.-ZarFilm.mkv",
+	"The.Gentlemen.S01E01.1080p.10bit.WEB-DL.6CH.x265.PSA-ZarFilm.mkv",
+	"The.Gentlemen.S01E01.720p.WEB-DL.x264.Pahe-ZarFilm.mkv",
+	"The.Gentlemen.S01E01.480p.WEB.x264.RMT-ZarFilm.mkv",
+	"The.Gentlemen.S01E01.1080p.WEB-DL.Dubbed.ZarFilm.mkv",
+}
+
+func TestReleaseKeyTellsRealReleasesApart(t *testing.T) {
+	seen := map[string]string{}
+	for _, name := range realZarfilmSeason {
+		k := ReleaseKey(name)
+		if k == "" {
+			t.Fatalf("%s: no key", name)
+		}
+		if prev, dup := seen[k]; dup {
+			t.Fatalf("%s and %s share a key %q — these are different releases", prev, name, k)
+		}
+		seen[k] = name
+	}
+}
+
+// A season the user only partly downloaded must still identify its release: the
+// option names episode 1, and what is on disk may be episode 5.
+func TestReleaseKeyIgnoresTheEpisodeNumber(t *testing.T) {
+	first := ReleaseKey("The.Gentlemen.S01E01.720p.WEB-DL.x264.Pahe-ZarFilm.mkv")
+	fifth := ReleaseKey("The.Gentlemen.S01E05.720p.WEB-DL.x264.Pahe-ZarFilm.mkv")
+	if first == "" || first != fifth {
+		t.Fatalf("episodes of one release must key alike: %q vs %q", first, fifth)
+	}
+	// The SEASON still matters — it is kept so two seasons of one release do not
+	// collapse onto each other.
+	if s2 := ReleaseKey("The.Gentlemen.S02E01.720p.WEB-DL.x264.Pahe-ZarFilm.mkv"); s2 == first {
+		t.Fatal("different seasons must not key alike")
+	}
+	// The other common episode notation reduces the same way.
+	if ReleaseKey("Show.1x01.720p.x264-Pahe.mkv") != ReleaseKey("Show.1x07.720p.x264-Pahe.mkv") {
+		t.Fatal("1xNN episodes of one release must key alike")
+	}
+}
+
+// Two movie options at one resolution, differing only by an encode no token can
+// see. This is the pair the previous matcher could not separate.
+func TestReleaseKeySeparatesEncodesAtTheSameResolution(t *testing.T) {
+	dubbed := ReleaseKey("Coyote.vs.Acme.2026.1080p.WEBRip.Dubbed.ZarFilm.mkv")
+	plain := ReleaseKey("Coyote.vs.Acme.2026.1080p.WEBRip.x264.ZarFilm.mkv")
+	if dubbed == "" || dubbed == plain {
+		t.Fatalf("these are different releases: %q vs %q", dubbed, plain)
+	}
+}
+
+func TestReleaseKeyIsInsensitiveToFormatting(t *testing.T) {
+	a := ReleaseKey("Some.Movie.2024.1080p.BluRay-Group.mkv")
+	for _, variant := range []string{
+		"some movie 2024 1080p bluray group.mkv",
+		"Some_Movie_2024_1080p_BluRay_Group.mp4",
+		"  Some.Movie.2024.1080p.BluRay-Group.mkv  ",
+		"/volume1/movie/Some Movie/Some.Movie.2024.1080p.BluRay-Group.mkv",
+	} {
+		if got := ReleaseKey(variant); got != a {
+			t.Fatalf("%q keyed %q, want %q", variant, got, a)
+		}
+	}
+}
+
+func TestReleaseKeyOfNothing(t *testing.T) {
+	for _, name := range []string{"", "   ", ".mkv", "...", "/"} {
+		if got := ReleaseKey(name); got != "" {
+			t.Fatalf("%q keyed %q, want empty", name, got)
+		}
+	}
+}
+
+// The key is filled even for a name the token comparison cannot identify — that
+// is the whole point: those names are exactly the ones ZarFilm serves.
+func TestReleaseOfCarriesAKeyEvenWhenUnidentifiable(t *testing.T) {
+	r, ok := ReleaseOf("Coyote.vs.Acme.2026.1080p.WEBRip.Dubbed.ZarFilm.mkv")
+	if ok {
+		t.Fatal("this name names no group, so the token path must still refuse it")
+	}
+	if r.Key == "" {
+		t.Fatal("but it must still carry a key")
+	}
+}

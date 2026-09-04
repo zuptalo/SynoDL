@@ -2,6 +2,7 @@ package providers
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -529,5 +530,77 @@ func TestZarfilmSendsEveryChosenFilter(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// Spec 1026: a season option must say who encoded it, and must name the file it
+// would produce — the site rewrites the release tokens inside its file names, so
+// the file itself is the only thing that tells two releases apart.
+func TestZarfilmSeasonOptionsCarryEncoderAndReleaseName(t *testing.T) {
+	site := newZarFakeSite(t)
+	td, err := zarfilm{}.Title(context.Background(), source.NewClient(), zarCfg(site),
+		zarSession("abc"), "series/the-loyalty-game")
+	if err != nil {
+		t.Fatalf("Title: %v", err)
+	}
+	if len(td.Qualities) < 2 {
+		t.Fatalf("expected several season options, got %d", len(td.Qualities))
+	}
+	names := map[string]bool{}
+	for _, q := range td.Qualities {
+		if q.Encoder == "" {
+			t.Errorf("option %q names no encoder", q.Label)
+		}
+		if q.ReleaseName == "" {
+			t.Fatalf("option %q names no file, so it can never be identified", q.Label)
+		}
+		// The encoder is shown separately, so it must not also be left in the label.
+		if strings.Contains(q.Label, " - "+q.Encoder) {
+			t.Errorf("option %q prints its encoder twice", q.Label)
+		}
+		names[q.ReleaseName] = true
+	}
+	// Distinct options must name distinct files, or nothing can tell them apart.
+	if len(names) != len(td.Qualities) {
+		t.Fatalf("%d options share only %d file names", len(td.Qualities), len(names))
+	}
+}
+
+// The movie shape too: every option here carries the site's own name as its
+// encoder, so the file is the only discriminator.
+func TestZarfilmMovieOptionsNameTheirFile(t *testing.T) {
+	site := newZarFakeSite(t)
+	td, err := zarfilm{}.Title(context.Background(), source.NewClient(), zarCfg(site),
+		zarSession("abc"), "the-whisper-man-2026")
+	if err != nil {
+		t.Fatalf("Title: %v", err)
+	}
+	names := map[string]bool{}
+	for _, q := range td.Qualities {
+		if q.ReleaseName == "" {
+			t.Fatalf("option %q names no file", q.Label)
+		}
+		names[q.ReleaseName] = true
+	}
+	if len(names) != len(td.Qualities) {
+		t.Fatalf("%d options share only %d file names", len(td.Qualities), len(names))
+	}
+}
+
+// A paywalled row is an upsell, not a release: it must name no file, so it can
+// never be mistaken for something already on the NAS.
+//
+// Asserted on the movie path because that is the one the fake site can actually
+// serve unentitled — its series branch is a captured subscribed page, chosen
+// before the paywall flag is consulted.
+func TestZarfilmPaywalledRowsNameNoFile(t *testing.T) {
+	site := newZarFakeSite(t)
+	site.paywalled = true
+	_, err := zarfilm{}.Title(context.Background(), source.NewClient(), zarCfg(site),
+		zarSession("abc"), "the-whisper-man-2026")
+	// Every row being an upsell is an entitlement problem, which is what the
+	// driver reports — there is no option left that could name a file.
+	if !errors.Is(err, source.ErrUnsubscribed) {
+		t.Fatalf("err = %v, want ErrUnsubscribed", err)
 	}
 }

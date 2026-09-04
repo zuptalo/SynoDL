@@ -435,13 +435,13 @@ func TestOnlyTheReleaseOnDiskIsMarked(t *testing.T) {
 	d, st := libDeps(t, fake)
 	addSource(t, st, "Alpha", "movie", "tv-show")
 
-	_, _, releases := d.titleDetail(context.Background(), "Show 2020", library.MediaTV, nil)
+	_, _, ev := d.titleDetail(context.Background(), "Show 2020", library.MediaTV, nil)
 	got := markOwnedOptions([]source.QualityOption{
 		{ID: "a", Season: "Season 1", Resolution: "1080p", Encoder: "Silence"},
 		{ID: "b", Season: "Season 1", Resolution: "1080p", Encoder: "TENEIGHTY"},
 		{ID: "c", Season: "Season 1", Resolution: "720p", Encoder: "Silence"},
 		{ID: "d", Season: "Season 2", Resolution: "1080p", Encoder: "Silence"},
-	}, releases)
+	}, ev)
 
 	owned := map[string]bool{}
 	for _, q := range got {
@@ -478,7 +478,7 @@ func TestUnidentifiableFilesMarkNothingButStayPresent(t *testing.T) {
 	d, st := libDeps(t, fake)
 	addSource(t, st, "Alpha", "movie", "tv-show")
 
-	own, seasons, releases := d.titleDetail(context.Background(), "Show 2020", library.MediaTV, nil)
+	own, seasons, ev := d.titleDetail(context.Background(), "Show 2020", library.MediaTV, nil)
 	if own != source.OwnershipOwned {
 		t.Fatalf("ownership = %q, want owned — an unidentifiable release is still a release", own)
 	}
@@ -487,7 +487,7 @@ func TestUnidentifiableFilesMarkNothingButStayPresent(t *testing.T) {
 	}
 	for _, q := range markOwnedOptions([]source.QualityOption{
 		{ID: "a", Season: "Season 1", Resolution: "1080p", Encoder: "Silence"},
-	}, releases) {
+	}, ev) {
 		if q.Owned {
 			t.Error("nothing may be marked when the files identify no release")
 		}
@@ -507,11 +507,11 @@ func TestMovieReleaseIsMatched(t *testing.T) {
 	d, st := libDeps(t, fake)
 	addSource(t, st, "Alpha", "movie", "tv-show")
 
-	_, _, releases := d.titleDetail(context.Background(), "Dune 2021", library.MediaMovie, nil)
+	_, _, ev := d.titleDetail(context.Background(), "Dune 2021", library.MediaMovie, nil)
 	got := markOwnedOptions([]source.QualityOption{
 		{ID: "a", Resolution: "2160p", Encoder: "FraMeSToR"},
 		{ID: "b", Resolution: "1080p", Encoder: "FraMeSToR"},
-	}, releases)
+	}, ev)
 	if !got[0].Owned {
 		t.Error("the movie release on disk must be marked")
 	}
@@ -531,12 +531,134 @@ func TestDownloadingTitleMarksNoRelease(t *testing.T) {
 	d, st := libDeps(t, fake)
 	addSource(t, st, "Alpha", "movie", "tv-show")
 
-	own, _, releases := d.titleDetail(context.Background(), "Dune 2021", library.MediaMovie,
+	own, _, ev := d.titleDetail(context.Background(), "Dune 2021", library.MediaMovie,
 		map[string]bool{"movie/Dune 2021": true})
 	if own != source.OwnershipDownloading {
 		t.Fatalf("ownership = %q, want downloading", own)
 	}
-	if len(releases) != 0 {
-		t.Fatalf("a folder mid-write must yield no releases, got %+v", releases)
+	if len(ev.releases) != 0 || len(ev.keys) != 0 {
+		t.Fatalf("a folder mid-write must yield no releases, got %+v", ev)
+	}
+}
+
+// seededSeries builds a title folder holding one season of the given files.
+func seededSeries(t *testing.T, files []string) (Deps, string) {
+	t.Helper()
+	fake := &fakeSyno{
+		loginSid: "sid",
+		subfolders: map[string][]syno.Folder{
+			"/tv-show":                {{Name: "Gentlemen 2024", Path: "/tv-show/Gentlemen 2024"}},
+			"/tv-show/Gentlemen 2024": {{Name: "Season 01"}},
+		},
+		files: map[string][]string{"/tv-show/Gentlemen 2024/Season 01": files},
+	}
+	d, st := libDeps(t, fake)
+	addSource(t, st, "Alpha", "movie", "tv-show")
+	return d, "Gentlemen 2024"
+}
+
+// Spec 1026 US1: the real source renames every file it serves with its own
+// suffix, so four different encoders report one group and the token comparison
+// separates nothing. The file each option PRODUCES still separates them.
+func TestOptionIsMarkedByTheFileItProduces(t *testing.T) {
+	// One quality of one season is on the NAS.
+	d, title := seededSeries(t, []string{
+		"The.Gentlemen.S01E01.720p.WEB-DL.x264.Pahe-ZarFilm.mkv",
+		"The.Gentlemen.S01E02.720p.WEB-DL.x264.Pahe-ZarFilm.mkv",
+	})
+	_, _, ev := d.titleDetail(context.Background(), title, library.MediaTV, nil)
+
+	// Every option carries the site's own name as its group, so tokens cannot
+	// tell any of these apart — only the files can.
+	got := markOwnedOptions([]source.QualityOption{
+		{ID: "nhtfs", Season: "Season 1", Resolution: "1080p", Encoder: "ZarFilm",
+			ReleaseName: "The.Gentlemen.S01E01.1080p.WEB-DL.DDP5.1.Atmos.H.264.NHTFS-ZarFilm.mkv"},
+		{ID: "psa", Season: "Season 1", Resolution: "1080p", Encoder: "ZarFilm",
+			ReleaseName: "The.Gentlemen.S01E01.1080p.10bit.WEB-DL.6CH.x265.PSA-ZarFilm.mkv"},
+		{ID: "pahe", Season: "Season 1", Resolution: "720p", Encoder: "ZarFilm",
+			ReleaseName: "The.Gentlemen.S01E01.720p.WEB-DL.x264.Pahe-ZarFilm.mkv"},
+		{ID: "rmt", Season: "Season 1", Resolution: "480p", Encoder: "ZarFilm",
+			ReleaseName: "The.Gentlemen.S01E01.480p.WEB.x264.RMT-ZarFilm.mkv"},
+	}, ev)
+
+	owned := map[string]bool{}
+	for _, q := range got {
+		owned[q.ID] = q.Owned
+	}
+	if !owned["pahe"] {
+		t.Error("the option that produced the files on disk must be marked")
+	}
+	for _, id := range []string{"nhtfs", "psa", "rmt"} {
+		if owned[id] {
+			t.Errorf("%s did not produce these files and must not be marked", id)
+		}
+	}
+}
+
+// FR-004, the load-bearing rule: a known-file mismatch is FINAL. If it fell back
+// to tokens here, every option would match — they all carry the same group — and
+// the over-marking this replaces would be back.
+func TestAKnownFileMismatchNeverFallsBackToTokens(t *testing.T) {
+	d, title := seededSeries(t, []string{"The.Gentlemen.S01E01.720p.WEB-DL.x264.Pahe-ZarFilm.mkv"})
+	_, _, ev := d.titleDetail(context.Background(), title, library.MediaTV, nil)
+
+	// This option's tokens WOULD match what is on disk (720p, group "zarfilm"),
+	// but it is not the file that is there.
+	got := markOwnedOptions([]source.QualityOption{
+		{ID: "other", Season: "Season 1", Resolution: "720p", Encoder: "ZarFilm",
+			ReleaseName: "The.Gentlemen.S01E01.720p.WEB-DL.x265.Someone-ZarFilm.mkv"},
+	}, ev)
+	if got[0].Owned {
+		t.Fatal("a file mismatch must be final; falling back to tokens re-marks everything")
+	}
+}
+
+// Acceptance 3: the option names episode 1, the user has episodes 5 and 6. Same
+// release, so it must still be recognised.
+func TestAPartlyDownloadedSeasonStillIdentifiesItsRelease(t *testing.T) {
+	d, title := seededSeries(t, []string{
+		"The.Gentlemen.S01E05.720p.WEB-DL.x264.Pahe-ZarFilm.mkv",
+		"The.Gentlemen.S01E06.720p.WEB-DL.x264.Pahe-ZarFilm.mkv",
+	})
+	_, _, ev := d.titleDetail(context.Background(), title, library.MediaTV, nil)
+
+	got := markOwnedOptions([]source.QualityOption{
+		{ID: "pahe", Season: "Season 1", ReleaseName: "The.Gentlemen.S01E01.720p.WEB-DL.x264.Pahe-ZarFilm.mkv"},
+	}, ev)
+	if !got[0].Owned {
+		t.Fatal("a partial season identifies its release just as well as a full one")
+	}
+}
+
+// Acceptance 4: something is here, but nothing this source offers produced it.
+func TestAFileNoOptionProducedMarksNothing(t *testing.T) {
+	d, title := seededSeries(t, []string{"Gentlemen.S01E01.BDRip.SomeoneElse.mkv"})
+	own, seasons, ev := d.titleDetail(context.Background(), title, library.MediaTV, nil)
+	if own != source.OwnershipOwned || len(seasons) == 0 {
+		t.Fatalf("the season is still here: own=%q seasons=%+v", own, seasons)
+	}
+	got := markOwnedOptions([]source.QualityOption{
+		{ID: "pahe", Season: "Season 1", ReleaseName: "The.Gentlemen.S01E01.720p.WEB-DL.x264.Pahe-ZarFilm.mkv"},
+	}, ev)
+	if got[0].Owned {
+		t.Fatal("nothing here was produced by this option")
+	}
+}
+
+// FR-005: a source that does not name its files keeps the token comparison, so
+// nothing about spec 1025's behaviour shifts where it already worked.
+func TestSourcesThatNameNoFileStillUseTokens(t *testing.T) {
+	d, title := seededSeries(t, []string{"Show.S01E01.1080p.BluRay.x265-Silence.mkv"})
+	_, _, ev := d.titleDetail(context.Background(), title, library.MediaTV, nil)
+
+	got := markOwnedOptions([]source.QualityOption{
+		{ID: "match", Season: "Season 1", Resolution: "1080p", Encoder: "Silence"},
+		{ID: "miss", Season: "Season 1", Resolution: "1080p", Encoder: "TENEIGHTY"},
+	}, ev)
+	if !got[0].Owned {
+		t.Error("the token path must still mark a genuine match")
+	}
+	if got[1].Owned {
+		t.Error("the token path must still reject a different encoder")
 	}
 }

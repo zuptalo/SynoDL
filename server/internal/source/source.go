@@ -259,6 +259,20 @@ type QualityOption struct {
 	// resolution and differ only by who encoded them, so it marked three options
 	// out of four wrongly.
 	Owned bool `json:"owned,omitempty"`
+
+	// ReleaseName is the file this option would produce, as its download link
+	// names it. Set by the driver where it knows; empty where it does not.
+	//
+	// It is how ownership is decided wherever it is present, because it is the one
+	// thing a source cannot overwrite: a source may rename the release tokens
+	// inside a file name — one renames every file it serves with its own suffix,
+	// collapsing four encoders onto one — but a given link still yields a given
+	// file, and that file is what lands on the NAS (spec 1026).
+	//
+	// `json:"-"` is deliberate and load-bearing: this must never reach the client,
+	// and a wire tag enforces that permanently rather than relying on every future
+	// handler to remember (FR-002).
+	ReleaseName string `json:"-"`
 }
 
 // TitleDetail is a title with its qualities. Sendable is false for types this

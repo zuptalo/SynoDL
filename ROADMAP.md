@@ -49,6 +49,7 @@ Specs are grouped by category band; status moves
 | [1023](specs/1023-zarfilm-titles-carry/spec.md) | ZarFilm titles carry an IMDb link and a synopsis | 🔵 in-review |
 | [1024](specs/1024-filter-and-sort/spec.md) | Filter and sort every source the same way | 🔵 in-review |
 | [1025](specs/1025-mark-version-you/spec.md) | Mark the version you actually downloaded | 🔵 in-review |
+| [1026](specs/1026-tell-one-release/spec.md) | Tell one release from another by the file it makes | 🔵 in-review |
 
 ## 🐛 Hotfixes & Bug Fixes (2001+)
 

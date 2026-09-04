@@ -1,6 +1,8 @@
 package providers
 
 import (
+	"net/url"
+	"path"
 	"regexp"
 	"strconv"
 	"strings"
@@ -353,6 +355,56 @@ func resolutionFromURL(u string) string {
 		return strings.ToLower(m[1])
 	}
 	return ""
+}
+
+// reQualityEncoder finds who encoded a season's release. A quality reads
+// "WEB-DL 1080p x265 10bit - PSA": the encoder is the last segment, set off by a
+// SPACED hyphen. The spaces matter — "WEB-DL" is hyphenated without them, and a
+// looser pattern would report an encoder of "DL" for every quality on the site.
+var reQualityEncoder = regexp.MustCompile(`\s-\s+([^-]+?)\s*$`)
+
+// qualityEncoder reads the encoder out of a season quality's description, or ""
+// when it names none — which is left empty rather than guessed at (FR-009).
+func qualityEncoder(quality string) string {
+	m := reQualityEncoder.FindStringSubmatch(quality)
+	if m == nil {
+		return ""
+	}
+	return strings.TrimSpace(m[1])
+}
+
+// qualityWithoutEncoder is the quality with its trailing encoder removed, for a
+// label that shows the encoder separately.
+func qualityWithoutEncoder(quality string) string {
+	if qualityEncoder(quality) == "" {
+		return strings.TrimSpace(quality)
+	}
+	return strings.TrimSpace(reQualityEncoder.ReplaceAllString(quality, ""))
+}
+
+// fileNameFromURL is the file a download link would produce — the name the NAS
+// saves it under, and so the one thing about a release the site does not rewrite
+// (spec 1026).
+//
+// "" for anything that is not a link to a file: an upsell link has a path but no
+// file at the end of it, and must not be mistaken for a release.
+func fileNameFromURL(u string) string {
+	parsed, err := url.Parse(strings.TrimSpace(u))
+	if err != nil {
+		return ""
+	}
+	name := path.Base(parsed.Path)
+	if name == "." || name == "/" || name == "" {
+		return ""
+	}
+	// A path segment with no extension is a page, not a file.
+	if !strings.Contains(name, ".") {
+		return ""
+	}
+	if dec, err := url.PathUnescape(name); err == nil {
+		name = dec
+	}
+	return name
 }
 
 // ---------- title metadata ----------
