@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/tls"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -564,7 +565,12 @@ func (c *HTTPClient) UploadFile(
 
 	resp, err := c.uploadHC.Do(req)
 	if err != nil {
-		slog.Warn("filestation upload transport error", "err", err.Error())
+		// A transport error's message embeds the full request URL, and THIS call
+		// carries the session id in its query string — so logging the raw error
+		// puts a live sid in the log, which Principle III forbids outright. Log
+		// the underlying cause ("context canceled", "connection refused") and
+		// never the URL that produced it.
+		slog.Warn("filestation upload transport error", "err", transportCause(err))
 		return &Error{Kind: KindNAS, API: apiFSUpload}
 	}
 	defer resp.Body.Close()
@@ -583,4 +589,17 @@ func (c *HTTPClient) UploadFile(
 		return e
 	}
 	return nil
+}
+
+// transportCause strips the request URL from a transport error.
+//
+// net/http wraps failures in *url.Error, whose Error() reads "Post <url>: <cause>".
+// For an upload that URL carries _sid, so the wrapper must never reach a log; the
+// cause alone says everything useful about what went wrong.
+func transportCause(err error) string {
+	var ue *url.Error
+	if errors.As(err, &ue) && ue.Err != nil {
+		return ue.Err.Error()
+	}
+	return err.Error()
 }
