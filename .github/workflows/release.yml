@@ -80,6 +80,14 @@ jobs:
     # condition, no chance of publishing something that was never verified.
     if: ${{ needs.changes.outputs.code == 'true' || inputs.force }}
     uses: ./.github/workflows/build-test.yml
+    with:
+      # No e2e here. The PR that produced this commit already ran the full suite
+      # including e2e; this re-run exists because branch protection does not
+      # require branches to be up to date (strict: false), so a stale merge can
+      # land a combination no branch ever had. Build, unit and server tests catch
+      # that class, and e2e roughly doubles the time before a publish for very
+      # little added against it.
+      e2e: false
 
   publish:
     name: Publish image (and release on a version bump)
