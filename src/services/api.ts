@@ -460,12 +460,27 @@ export interface QualityOption {
   season?: string;
   episodes?: number;
 }
+export interface SeasonPresence {
+  season: number;
+  /** Episode numbers read from the files. Empty with videoFiles > 0 means
+   *  "present, numbering unreadable" — still present. */
+  episodes: number[];
+  videoFiles: number;
+}
+
 export interface TitleDetail {
   id: string;
   type: string;
   title: string;
   sendable: boolean;
   qualities: QualityOption[];
+  ownership?: 'unknown' | 'absent' | 'owned' | 'downloading';
+  /**
+   * Seasons already on the NAS. Only seasons actually holding video appear, and
+   * there is deliberately no total: the catalog's episode count is not reliable,
+   * so nothing here ever claims a season is complete.
+   */
+  seasons?: SeasonPresence[];
 }
 /** Route a provider cover URL through the same-origin, server-cached image proxy
  *  (empty when there's no poster). */

@@ -181,6 +181,22 @@ export async function refreshLibrary(token: string, sourceId: number, displayNam
 }
 
 /** One page of catalog results, straight from the API. */
+export interface TitleDetailShape {
+  id: string;
+  title: string;
+  type: string;
+  ownership?: string;
+  seasons?: Array<{ season: number; episodes: number[]; videoFiles: number }>;
+}
+
+/** Season detail rides on the title endpoint, which already resolves through the
+ *  caller's own source access — see contracts/library-api.md §2. */
+export async function apiTitle(token: string, id: string): Promise<TitleDetailShape> {
+  const res = await api(token, `/v1/source/title/${encodeURIComponent(id)}`);
+  if (!res.ok) throw new Error(`title failed: ${res.status} ${await res.text()}`);
+  return (await res.json()) as TitleDetailShape;
+}
+
 export async function apiSearch(
   token: string,
   body: Record<string, unknown> = { page: 1 },

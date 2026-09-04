@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -40,14 +41,48 @@ type libraryCache struct {
 	// folders backing a title actually being shown (FR-010b), so a page of titles
 	// that match nothing costs no NAS read at all.
 	evidence map[string]evidenceRec
+
+	// titleNames remembers the catalog title behind a qualified title id, learned
+	// when a search passed through this server.
+	//
+	// The title endpoint needs a title to match against the library, and the
+	// drivers do not return one. The alternatives were worse: trusting a title
+	// supplied by the client would let a user ask about anything, which is the
+	// catalog-narrowing bypass FR-025c forbids; and parsing it out of each site's
+	// page is driver work that would drift per provider. Learning it from the
+	// user's OWN results means detail is only ever available for titles their
+	// catalog actually returned.
+	titleNames map[string]titleNameRec
 }
+
+// titleNameRec is one remembered catalog title.
+type titleNameRec struct {
+	title string
+	kind  library.MediaKind
+	at    time.Time
+}
+
+// maxRememberedTitles bounds the map. Discover pages are ~40 items, so this holds
+// a long browsing session; past it the map is dropped wholesale rather than
+// evicted one by one, because repopulating costs one search and the alternative
+// is bookkeeping nobody will maintain.
+const maxRememberedTitles = 2000
 
 // evidenceRec is one folder's answer, with its own expiry so a folder checked
 // long ago is re-read even while the name index is still warm.
 type evidenceRec struct {
 	hasVideo  bool
+	seasons   []seasonPresence
 	checkedAt time.Time
 }
+
+// seasonPresence is what a season folder actually holds.
+//
+// There is no Total and no Complete field, deliberately (FR-016a): the catalog's
+// episode count cannot be relied on, and asserting completeness we cannot verify
+// is the same over-claiming that FR-001a exists to prevent. VideoFiles > 0 with an
+// empty Episodes is valid and means "present, numbering unreadable" (FR-016b).
+type seasonPresence = source.SeasonPresence
 
 // maxSeasonScan bounds how many subfolders are opened looking for video. A title
 // folder has a handful of seasons; anything beyond this is a mis-configured parent
@@ -68,6 +103,8 @@ func (d Deps) invalidateLibrary() {
 	// Both layers, together. Keeping folder evidence across an invalidation would
 	// answer for a folder the new configuration may no longer include (FR-008a),
 	// and would hide the content of a title just sent (FR-008).
+	// Remembered titles are NOT dropped here: they record what the user saw, not
+	// what the NAS holds, and a configuration change does not unsee them.
 	d.lib.index, d.lib.builtAt, d.lib.evidence = nil, time.Time{}, nil
 	d.lib.mu.Unlock()
 }
@@ -187,32 +224,57 @@ func mediaKind(catalogType string) library.MediaKind {
 // ok is false when the folder could not be read. That is deliberately distinct
 // from "holds nothing": a failed read must never be reported as "you do not have
 // this" (FR-009, FR-010c), so the caller shows no marker rather than a wrong one.
-func (d Deps) folderEvidence(ctx context.Context, relPath string) (hasVideo, ok bool) {
+// folderEvidence reports what a title folder actually holds: whether there is any
+// video, and for a series which seasons and episodes are present.
+//
+// ok is false when the folder could not be read. That is deliberately distinct
+// from "holds nothing": a failed read must never be reported as "you do not have
+// this" (FR-009, FR-010c), so the caller shows no marker rather than a wrong one.
+func (d Deps) folderEvidence(ctx context.Context, relPath string) (evidenceRec, bool) {
 	if d.lib == nil || d.NAS == nil || relPath == "" {
-		return false, false
+		return evidenceRec{}, false
 	}
 	d.lib.mu.Lock()
 	if rec, found := d.lib.evidence[relPath]; found && time.Since(rec.checkedAt) < libraryTTL {
 		d.lib.mu.Unlock()
-		return rec.hasVideo, true
+		return rec, true
 	}
 	d.lib.mu.Unlock()
 
 	abs := "/" + relPath
-	found := false
+	rec := evidenceRec{}
+	// Episodes are collected per season as they are found, so a season stored
+	// flat and one stored in its own folder converge on the same shape.
+	bySeason := map[int]map[int]bool{}
+	counts := map[int]int{}
+
+	note := func(season, episode int, ok bool) {
+		if !ok {
+			return
+		}
+		if bySeason[season] == nil {
+			bySeason[season] = map[int]bool{}
+		}
+		bySeason[season][episode] = true
+	}
+
 	err := d.NAS.Do(ctx, func(c syno.Client, sid string) error {
 		files, e := c.ListFiles(ctx, sid, abs)
 		if e != nil {
 			return e
 		}
+		// Episodes sitting directly in the title folder (FR-015, flat layout).
 		for _, name := range files {
-			if library.IsVideo(name) {
-				found = true
-				return nil
+			if !library.IsVideo(name) {
+				continue
+			}
+			rec.hasVideo = true
+			if season, episode, ok := library.EpisodeOf(name); ok {
+				counts[season]++
+				note(season, episode, true)
 			}
 		}
-		// Nothing at this level. A series keeps its episodes in season folders, so
-		// one level down is still this title's content (FR-015).
+
 		dirs, e := c.ListFolder(ctx, sid, abs)
 		if e != nil {
 			return e
@@ -226,10 +288,33 @@ func (d Deps) folderEvidence(ctx context.Context, relPath string) (hasVideo, ok 
 				// One unreadable season must not condemn the whole title.
 				continue
 			}
+			// The season number comes from the FILES where they say, and from the
+			// folder name only as a fallback — the files are what actually landed.
+			folderSeason, folderOK := library.SeasonOfFolder(dir.Name)
 			for _, name := range sub {
-				if library.IsVideo(name) {
-					found = true
-					return nil
+				if !library.IsVideo(name) {
+					continue
+				}
+				rec.hasVideo = true
+				season, episode, ok := library.EpisodeOf(name)
+				if !ok && folderOK {
+					season, ok = folderSeason, false
+					counts[season]++
+					continue
+				}
+				if !ok {
+					continue
+				}
+				counts[season]++
+				note(season, episode, true)
+			}
+			// A season folder holding video whose names say nothing is still
+			// present (FR-016b) — record it so it is not silently dropped.
+			if folderOK && counts[folderSeason] == 0 {
+				for _, name := range sub {
+					if library.IsVideo(name) {
+						counts[folderSeason]++
+					}
 				}
 			}
 		}
@@ -238,16 +323,27 @@ func (d Deps) folderEvidence(ctx context.Context, relPath string) (hasVideo, ok 
 	if err != nil {
 		// Nothing is logged: a DSM error can carry the path, and folder and file
 		// names are NAS content (FR-026).
-		return false, false
+		return evidenceRec{}, false
 	}
+
+	for season, n := range counts {
+		eps := make([]int, 0, len(bySeason[season]))
+		for e := range bySeason[season] {
+			eps = append(eps, e)
+		}
+		sort.Ints(eps)
+		rec.seasons = append(rec.seasons, seasonPresence{Season: season, Episodes: eps, VideoFiles: n})
+	}
+	sort.Slice(rec.seasons, func(i, j int) bool { return rec.seasons[i].Season < rec.seasons[j].Season })
+	rec.checkedAt = time.Now()
 
 	d.lib.mu.Lock()
 	if d.lib.evidence == nil {
 		d.lib.evidence = map[string]evidenceRec{}
 	}
-	d.lib.evidence[relPath] = evidenceRec{hasVideo: found, checkedAt: time.Now()}
+	d.lib.evidence[relPath] = rec
 	d.lib.mu.Unlock()
-	return found, true
+	return rec, true
 }
 
 // ownershipOf resolves one catalog title against the library.
@@ -268,11 +364,11 @@ func (d Deps) ownershipOf(
 	if activeDests[entry.Path] {
 		return source.OwnershipDownloading
 	}
-	hasVideo, ok := d.folderEvidence(ctx, entry.Path)
+	rec, ok := d.folderEvidence(ctx, entry.Path)
 	if !ok {
 		return source.OwnershipUnknown
 	}
-	if hasVideo {
+	if rec.hasVideo {
 		return source.OwnershipOwned
 	}
 	// The folder is there and holds no video: created ahead of a download, or left
@@ -286,4 +382,64 @@ func (d Deps) activeDestinations() map[string]bool {
 		return nil
 	}
 	return d.ActiveDests()
+}
+
+// titleDetail answers "what of this title is already here" for one catalog title.
+//
+// Returns the ownership state and, for a series, the seasons actually present.
+// A movie gets no season breakdown (FR-018), and a folder that cannot be read
+// yields unknown with no seasons so the download options stay fully usable
+// (FR-017).
+func (d Deps) titleDetail(
+	ctx context.Context, title string, kind library.MediaKind, activeDests map[string]bool,
+) (string, []source.SeasonPresence) {
+	ix := d.libraryIndex(ctx)
+	if ix.IsEmpty() {
+		return source.OwnershipUnknown, nil
+	}
+	entry, matched := ix.Lookup(title, kind)
+	if !matched {
+		return source.OwnershipAbsent, nil
+	}
+	if activeDests[entry.Path] {
+		// Still arriving. Season detail from a half-written folder would be read
+		// as what the user HAS, so it is withheld rather than shown mid-flight.
+		return source.OwnershipDownloading, nil
+	}
+	rec, ok := d.folderEvidence(ctx, entry.Path)
+	if !ok {
+		return source.OwnershipUnknown, nil
+	}
+	if !rec.hasVideo {
+		return source.OwnershipAbsent, nil
+	}
+	if kind == library.MediaMovie {
+		return source.OwnershipOwned, nil
+	}
+	return source.OwnershipOwned, rec.seasons
+}
+
+// rememberTitle records the catalog title behind a qualified id, so the title
+// endpoint can match it against the library later.
+func (d Deps) rememberTitle(id, title string, kind library.MediaKind) {
+	if d.lib == nil || id == "" || strings.TrimSpace(title) == "" {
+		return
+	}
+	d.lib.mu.Lock()
+	defer d.lib.mu.Unlock()
+	if d.lib.titleNames == nil || len(d.lib.titleNames) > maxRememberedTitles {
+		d.lib.titleNames = map[string]titleNameRec{}
+	}
+	d.lib.titleNames[id] = titleNameRec{title: title, kind: kind, at: time.Now()}
+}
+
+// rememberedTitle returns what was learned about a qualified id, if anything.
+func (d Deps) rememberedTitle(id string) (titleNameRec, bool) {
+	if d.lib == nil {
+		return titleNameRec{}, false
+	}
+	d.lib.mu.Lock()
+	defer d.lib.mu.Unlock()
+	rec, ok := d.lib.titleNames[id]
+	return rec, ok
 }

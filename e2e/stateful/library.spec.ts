@@ -16,6 +16,7 @@ import { expect, test } from '@playwright/test';
 import {
   addSource,
   apiSearch,
+  apiTitle,
   apiToken,
   clearSources,
   folderNameFor,
@@ -149,11 +150,13 @@ test('a folder holding only metadata is not owned', async () => {
 test('video in a season subfolder counts as owned', async () => {
   const id = await addSource(token, 'Only Source', 0);
   const items = await apiSearch(token);
-  const series = items.find((i) => i.type === 'series' || i.type === 'anime') ?? items[0];
-  const folder = folderNameFor(series.title);
-  const base = `${parentFor(series.type)}/${folder}`;
+  // Any type will do here: the point is that video one level DOWN still counts,
+  // which is true for a movie folder with a subfolder as much as for a series.
+  const subject = items[0];
+  const folder = folderNameFor(subject.title);
+  const base = `${parentFor(subject.type)}/${folder}`;
 
-  await seedLibrary({ [parentFor(series.type)]: [folder], [base]: ['Season 01'] });
+  await seedLibrary({ [parentFor(subject.type)]: [folder], [base]: ['Season 01'] });
   await seedLibraryFiles({
     [base]: ['poster.jpg'],
     [`${base}/Season 01`]: ['Show.S01E01.mkv'],
@@ -161,5 +164,64 @@ test('video in a season subfolder counts as owned', async () => {
   await refreshLibrary(token, id, 'Only Source');
 
   const after = await apiSearch(token);
-  expect(after.find((i) => i.title === series.title)?.ownership).toBe('owned');
+  expect(after.find((i) => i.title === subject.title)?.ownership).toBe('owned');
+});
+
+
+// US2: which seasons are here, and which episodes each holds. The gap is what
+// makes it actionable — a user with episodes 1, 2 and 6 should see exactly that.
+test('a series reports which seasons and episodes are already here', async () => {
+  const id = await addSource(token, 'Only Source', 0);
+  const items = await apiSearch(token);
+  const series = items.find((i) => i.type === 'series' || i.type === 'anime');
+  // Skip rather than fall back to a movie: a movie has no season breakdown by
+  // design, so substituting one would assert series behaviour against something
+  // that is right to lack it, and pass or fail for the wrong reason.
+  test.skip(!series, 'catalog served no series');
+  const folder = folderNameFor(series!.title);
+  const base = `${parentFor(series!.type)}/${folder}`;
+
+  await seedLibrary({
+    [parentFor(series!.type)]: [folder],
+    [base]: ['Season 01', 'Season 02', 'Specials'],
+  });
+  await seedLibraryFiles({
+    [`${base}/Season 01`]: ['S.S01E01.mkv', 'S.S01E02.mkv', 'S.S01E06.mkv'],
+    [`${base}/Season 02`]: ['S.S02E01.mkv'],
+    [`${base}/Specials`]: ['season.nfo'], // metadata only — not present
+  });
+  await refreshLibrary(token, id, 'Only Source');
+
+  const detail = await apiTitle(token, series!.id);
+  expect(detail.ownership).toBe('owned');
+
+  const bySeason = new Map((detail.seasons ?? []).map((s) => [s.season, s]));
+  expect(bySeason.get(1)?.episodes).toEqual([1, 2, 6]);
+  expect(bySeason.get(2)?.episodes).toEqual([1]);
+  // A season folder holding only metadata is not present, just as a title folder
+  // holding only metadata is not owned.
+  expect(bySeason.has(0)).toBe(false);
+
+  // FR-016a: nothing may claim a season is complete or state a total. The
+  // catalog's episode count is not reliable, so the shape must not imply one.
+  const raw = JSON.stringify(detail);
+  expect(raw).not.toContain('"total"');
+  expect(raw).not.toContain('"complete"');
+});
+
+// FR-018: a movie is owned without a season breakdown.
+test('a movie reports no seasons', async () => {
+  const id = await addSource(token, 'Only Source', 0);
+  const items = await apiSearch(token);
+  const movie = items.find((i) => i.type === 'movie');
+  test.skip(!movie, 'catalog served no movie');
+  const folder = folderNameFor(movie!.title);
+
+  await seedLibrary({ [parentFor(movie!.type)]: [folder] });
+  await seedLibraryFiles({ [`${parentFor(movie!.type)}/${folder}`]: ['film.mkv'] });
+  await refreshLibrary(token, id, 'Only Source');
+
+  const detail = await apiTitle(token, movie!.id);
+  expect(detail.ownership).toBe('owned');
+  expect(detail.seasons ?? []).toEqual([]);
 });

@@ -326,3 +326,91 @@ func TestDownloadingOutranksOwned(t *testing.T) {
 		t.Errorf("ownershipOf with no active task = %q, want owned", got)
 	}
 }
+
+// US2: which seasons are here, and which episodes each holds. The gap is the
+// point — a user with episodes 1-6 and 9 should see that, not "season present".
+func TestSeasonAndEpisodePresence(t *testing.T) {
+	fake := &fakeSyno{
+		loginSid: "sid",
+		subfolders: map[string][]syno.Folder{
+			"/tv-show":              {{Name: "Friends 1994", Path: "/tv-show/Friends 1994"}},
+			"/tv-show/Friends 1994": {{Name: "Season 01"}, {Name: "Season 02"}, {Name: "Specials"}},
+		},
+		files: map[string][]string{
+			"/tv-show/Friends 1994":           {"poster.jpg"},
+			"/tv-show/Friends 1994/Season 01": {"F.S01E01.mkv", "F.S01E02.mkv", "F.S01E06.mkv", "sub.srt"},
+			"/tv-show/Friends 1994/Season 02": {"F.S02E01.mkv"},
+			"/tv-show/Friends 1994/Specials":  {"season.nfo"}, // no video: not present
+		},
+	}
+	d, st := libDeps(t, fake)
+	addSource(t, st, "Alpha", "movie", "tv-show")
+
+	own, seasons := d.titleDetail(context.Background(), "Friends 1994", library.MediaTV, nil)
+	if own != source.OwnershipOwned {
+		t.Fatalf("ownership = %q, want owned", own)
+	}
+	got := map[int][]int{}
+	for _, s := range seasons {
+		got[s.Season] = s.Episodes
+	}
+	if len(got[1]) != 3 || got[1][0] != 1 || got[1][2] != 6 {
+		t.Errorf("season 1 episodes = %v, want [1 2 6] — the gap at 3-5 is the whole point", got[1])
+	}
+	if len(got[2]) != 1 || got[2][0] != 1 {
+		t.Errorf("season 2 episodes = %v, want [1]", got[2])
+	}
+	// A season folder holding only metadata is not present, exactly as a title
+	// folder holding only metadata is not owned (FR-001a).
+	if _, listed := got[0]; listed {
+		t.Error("Specials holds no video and must not be listed as present")
+	}
+}
+
+// FR-016b: a season whose file names say nothing is still present. Dropping it
+// would report "you do not have this" for content that is right there.
+func TestSeasonWithUnreadableNumberingIsStillPresent(t *testing.T) {
+	fake := &fakeSyno{
+		loginSid: "sid",
+		subfolders: map[string][]syno.Folder{
+			"/tv-show":           {{Name: "Show 2020", Path: "/tv-show/Show 2020"}},
+			"/tv-show/Show 2020": {{Name: "Season 03"}},
+		},
+		files: map[string][]string{
+			"/tv-show/Show 2020":           {},
+			"/tv-show/Show 2020/Season 03": {"episode-one.mkv", "episode-two.mkv"},
+		},
+	}
+	d, st := libDeps(t, fake)
+	addSource(t, st, "Alpha", "movie", "tv-show")
+
+	own, seasons := d.titleDetail(context.Background(), "Show 2020", library.MediaTV, nil)
+	if own != source.OwnershipOwned {
+		t.Fatalf("ownership = %q, want owned", own)
+	}
+	if len(seasons) != 1 || seasons[0].Season != 3 {
+		t.Fatalf("seasons = %+v, want season 3 present", seasons)
+	}
+	if len(seasons[0].Episodes) != 0 {
+		t.Errorf("episodes = %v, want none — the names say nothing", seasons[0].Episodes)
+	}
+	if seasons[0].VideoFiles != 2 {
+		t.Errorf("videoFiles = %d, want 2", seasons[0].VideoFiles)
+	}
+}
+
+// FR-018: a movie is present without a season breakdown.
+func TestMovieHasNoSeasonBreakdown(t *testing.T) {
+	fake := &fakeSyno{
+		loginSid:   "sid",
+		subfolders: map[string][]syno.Folder{"/movie": {{Name: "Dune 2021", Path: "/movie/Dune 2021"}}},
+		files:      map[string][]string{"/movie/Dune 2021": {"Dune.2021.mkv"}},
+	}
+	d, st := libDeps(t, fake)
+	addSource(t, st, "Alpha", "movie", "tv-show")
+
+	own, seasons := d.titleDetail(context.Background(), "Dune 2021", library.MediaMovie, nil)
+	if own != source.OwnershipOwned || len(seasons) != 0 {
+		t.Errorf("movie = (%q, %+v), want owned with no seasons", own, seasons)
+	}
+}

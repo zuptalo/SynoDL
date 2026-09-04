@@ -468,8 +468,11 @@ func handleSourceSearch(d Deps) http.Handler {
 			// snapshot copy, and a page can carry forty items.
 			active := d.activeDestinations()
 			for i := range res.Items {
-				res.Items[i].Ownership = d.ownershipOf(
-					r.Context(), ix, res.Items[i].Title, mediaKind(res.Items[i].Type), active)
+				kind := mediaKind(res.Items[i].Type)
+				res.Items[i].Ownership = d.ownershipOf(r.Context(), ix, res.Items[i].Title, kind, active)
+				// Remember what this id is called, so opening it can report which
+				// seasons are here without trusting a title from the client.
+				d.rememberTitle(res.Items[i].ID, res.Items[i].Title, kind)
 			}
 		}
 
@@ -536,6 +539,18 @@ func handleSourceTitle(d Deps) http.Handler {
 		td.ID = source.QualifyID(ref.ID, td.ID)
 		if td.Qualities == nil {
 			td.Qualities = []source.QualityOption{}
+		}
+		// Which seasons and episodes are already here, so the user fetches only
+		// what is missing rather than a whole season for the sake of two episodes.
+		// The drivers do not return a title, so it comes from what this user's own
+		// search reported for this id. Not knowing it yields "unknown" — and so no
+		// marker — rather than "absent", which would claim the NAS lacks something
+		// nobody looked for (FR-010c).
+		if rec, known := d.rememberedTitle(td.ID); known {
+			td.Ownership, td.Seasons = d.titleDetail(
+				r.Context(), rec.title, rec.kind, d.activeDestinations())
+		} else {
+			td.Ownership = source.OwnershipUnknown
 		}
 		httpx.JSON(w, http.StatusOK, td)
 	})

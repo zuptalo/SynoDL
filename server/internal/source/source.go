@@ -236,6 +236,29 @@ type TitleDetail struct {
 	Title     string          `json:"title"`
 	Sendable  bool            `json:"sendable"`
 	Qualities []QualityOption `json:"qualities"`
+
+	// Ownership and Seasons are set by the handler on the way out, never by a
+	// driver — the same decoration pattern CatalogTitle.Ownership uses.
+	//
+	// Season detail rides on THIS response rather than a lookup of its own, and
+	// that is a security decision as much as a design one: this endpoint already
+	// resolves the title through the caller's own source access, so a user can
+	// only ask about a title they could already open. A free-standing lookup
+	// keyed by title text would have been a way around whatever narrowing applies
+	// to their catalog (FR-025a, FR-025c).
+	Ownership string `json:"ownership,omitempty"`
+	// Seasons is present only for a series, and lists only seasons that actually
+	// hold video. It never states a total or claims completeness (FR-016a).
+	Seasons []SeasonPresence `json:"seasons,omitempty"`
+}
+
+// SeasonPresence is what one season folder holds. Episodes are read from the file
+// names; an empty Episodes with VideoFiles > 0 means "present, numbering
+// unreadable" and MUST still render as present (FR-016b).
+type SeasonPresence struct {
+	Season     int   `json:"season"`
+	Episodes   []int `json:"episodes"`
+	VideoFiles int   `json:"videoFiles"`
 }
 
 // Provider maps generic catalog operations onto a specific site. Implementations

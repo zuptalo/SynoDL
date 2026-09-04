@@ -120,3 +120,33 @@ func EpisodeOf(name string) (season, episode int, ok bool) {
 	}
 	return s, e, true
 }
+
+// seasonFolder matches the folder names a season is stored under: "Season 01",
+// "Season 1", "S01", "Series 2" (the spelling some scrapers write), and the
+// specials folder, which Plex names "Specials" and which is season 0.
+//
+// Anchored at both ends so a real title beginning with the word — "Seasons of
+// Love" — is not mistaken for one, the same guard SEASON_FOLDER applies in
+// src/services/task-title.ts.
+var seasonFolder = regexp.MustCompile(`^(?i)\s*(?:season|series|s)\s*(\d{1,4})\s*$`)
+var specialsFolder = regexp.MustCompile(`^(?i)\s*specials?\s*$`)
+
+// SeasonOfFolder reads the season number a folder name declares.
+//
+// Used only as a FALLBACK: the season is taken from the episode files where they
+// say, because those are what actually landed. A folder can be named anything,
+// and its name is not evidence of what is inside it — the lesson FR-001a records.
+func SeasonOfFolder(name string) (int, bool) {
+	if specialsFolder.MatchString(name) {
+		return 0, true // Plex files specials as season 0
+	}
+	m := seasonFolder.FindStringSubmatch(name)
+	if m == nil {
+		return 0, false
+	}
+	n, err := strconv.Atoi(m[1])
+	if err != nil {
+		return 0, false
+	}
+	return n, true
+}

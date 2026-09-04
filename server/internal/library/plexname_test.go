@@ -137,3 +137,30 @@ func TestSeasonOfFilesStillAgreesAfterEpisodeCapture(t *testing.T) {
 		t.Error("a set spanning seasons must report unknown")
 	}
 }
+
+func TestSeasonOfFolder(t *testing.T) {
+	for _, c := range []struct {
+		name   string
+		season int
+		ok     bool
+	}{
+		{"Season 01", 1, true},
+		{"Season 1", 1, true},
+		{"season 12", 12, true},
+		{"S01", 1, true},
+		{"Series 2", 2, true},
+		{"Season 00", 0, true},
+		{"Specials", 0, true},
+		{"specials", 0, true},
+		// A real title starting with the word must not be read as a season.
+		{"Seasons of Love", 0, false},
+		{"Season", 0, false},
+		{"Friends (1994)", 0, false},
+		{"", 0, false},
+	} {
+		n, ok := SeasonOfFolder(c.name)
+		if ok != c.ok || (ok && n != c.season) {
+			t.Errorf("SeasonOfFolder(%q) = (%d,%v), want (%d,%v)", c.name, n, ok, c.season, c.ok)
+		}
+	}
+}

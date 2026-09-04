@@ -27,22 +27,26 @@ and "not checked yet" — and both must be distinguishable from "you have it".
 | A failed NAS read yields `unknown`, never `absent` | FR-009 |
 | Only titles in the current response are verified | FR-010b |
 
-## 2. `GET /v1/library/title`
+## 2. Season and episode detail on `GET /v1/source/title/{id}`
 
-Season and episode detail for one catalog title, for the download-options sheet.
+Season detail rides on the existing title endpoint rather than a lookup of its own.
 
-**Query**: `type=movie|series|anime`, `title=<raw catalog title>`
-
-The title is matched by the same rules as the grid; a client **cannot** name a path
-(FR-025a). Lookups are rate-limited per user (FR-025b).
+**This is a security decision, not just a design one.** That endpoint already
+resolves the title through the caller's own source access, so a user can only ask
+about a title they could already open. A free-standing lookup keyed by title text
+would have been exactly the way around a user's catalog narrowing that FR-025c
+forbids — and it would have needed its own rate limit and its own path-injection
+guard to claw back what this design gets for free (FR-025a, FR-025b, FR-025c).
 
 ```jsonc
 {
+  "id": "1:4821",
+  "title": "Friends 1994 - 2004",
+  "qualities": [ /* unchanged */ ],
   "ownership": "owned",
   "seasons": [
-    { "season": 1, "episodes": [1,2,3,4,5,6], "videoFiles": 6 },
-    { "season": 2, "episodes": [1,2],         "videoFiles": 2 },
-    { "season": 0, "episodes": [],            "videoFiles": 1 }
+    { "season": 1, "episodes": [1,2,6], "videoFiles": 3 },
+    { "season": 2, "episodes": [1],     "videoFiles": 1 }
   ]
 }
 ```
@@ -53,24 +57,17 @@ The title is matched by the same rules as the grid; a client **cannot** name a p
 | `episodes` | Numbers read from the file names, sorted and de-duplicated |
 | `videoFiles` | Count including files whose numbering could not be read |
 
-**No `total` and no `complete`, by contract** (FR-016a). The catalog's episode count is not
-reliable, so the response never implies one. `episodes: []` with `videoFiles > 0` is valid
-and means "present, numbering unreadable" (FR-016b) — a client MUST render that as present.
+**No `total` and no `complete`, by contract** (FR-016a). The catalog's episode
+count is not reliable, so the response never implies one. `episodes: []` with
+`videoFiles > 0` is valid and means "present, numbering unreadable" (FR-016b) — a
+client MUST render that as present.
 
-A movie returns `ownership` with `seasons: []` (FR-014). A folder that cannot be read
-returns `ownership: "unknown"` and `seasons: []` with **HTTP 200** — the sheet stays fully
-usable and shows no markers (FR-017), so this is not an error condition.
+A movie omits `seasons` entirely (FR-018). A folder that cannot be read returns
+`ownership: "unknown"` with no seasons and **HTTP 200** — the download options stay
+fully usable and show no markers (FR-017), so this is not an error condition.
 
-### Status codes
-
-| Code | When |
-|---|---|
-| 200 | Answered, including the degraded "unknown" case |
-| 400 | Missing or unrecognised `type`, or an empty `title` |
-| 401 | No SynoDL session |
-| 429 | Per-user lookup budget exceeded (FR-025b) |
-
-Note there is **no 404**: "not present" is a successful answer, not a missing resource.
+A title still downloading returns `ownership: "downloading"` and **no seasons**:
+detail read from a half-written folder would be taken for what the user has.
 
 ## Non-goals
 
