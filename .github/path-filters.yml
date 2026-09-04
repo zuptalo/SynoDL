@@ -1,0 +1,29 @@
+# Which paths the heavy build/test/e2e jobs actually validate.
+#
+# ONE list, shared by ci.yml (per-PR) and release.yml (per-merge), because two
+# copies would drift and the failure mode is silent: a workflow that skips
+# verification for a change it should have tested.
+#
+# `code` is true when anything here changed. If nothing matched, the change is
+# docs/specs/tooling-only — it cannot alter the built image, so there is nothing
+# to test and nothing new to publish.
+#
+# package.json is deliberately included: the version is stamped into both the PWA
+# and the Go binary, so a bump DOES change the image and must go through the full
+# suite and a real publish.
+code:
+  - 'src/**'
+  - 'server/**'
+  - 'e2e/**'
+  - 'public/**'
+  - 'index.html'
+  - 'package.json'
+  - 'package-lock.json'
+  - 'tsconfig*.json'
+  - 'vite.config.*'
+  - 'vitest.config.*'
+  - 'playwright.config.*'
+  - 'Dockerfile'
+  - '.dockerignore'
+  - '.github/workflows/**'
+  - '.github/path-filters.yml'

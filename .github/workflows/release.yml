@@ -4,8 +4,10 @@
 # full build + test suite on the merge commit and, only if that is green,
 # publishes the production image:
 #
-#   - ALWAYS: rolling `latest` + immutable `main-<shortsha>` — every green
-#     merge to main is deployable (k3s pulls from these).
+#   - On every merge that TOUCHES CODE: rolling `latest` + immutable
+#     `main-<shortsha>` — every such green merge is deployable (k3s pulls from
+#     these). A docs/specs-only merge cannot change the built image, so it neither
+#     re-runs the suite nor republishes; pass force=true to publish anyway.
 #   - WHEN package.json's version has no tag yet: additionally `X.Y.Z` +
 #     `X.Y`, an annotated `vX.Y.Z` tag, and a GitHub release. So "cutting a
 #     release" is simply merging a PR that bumps the version (the CI Version
@@ -20,6 +22,11 @@ on:
   # exempt, so auto-merge.yml calls this explicitly once a PR merges. Also
   # handy for a manual re-publish.
   workflow_dispatch:
+    inputs:
+      force:
+        description: 'Publish even when the merge touched no code (manual re-publish)'
+        type: boolean
+        default: false
 
 concurrency:
   group: release-main
@@ -29,7 +36,49 @@ permissions:
   contents: read
 
 jobs:
+  # Did this merge touch anything that can change the built image?
+  #
+  # auto-merge.yml merges with the workflow token, which suppresses the push
+  # event, so it dispatches this workflow explicitly — meaning nearly every real
+  # release arrives as workflow_dispatch with no `before` SHA to diff against.
+  # Diffing HEAD against its PARENT works identically for both triggers, and the
+  # merge is a squash so the parent is simply the previous state of main.
+  changes:
+    name: Detect changed paths
+    runs-on: ubuntu-latest
+    outputs:
+      # No parent (the very first commit) means nothing to compare — fall back to
+      # "code changed" so an undetectable case is verified rather than skipped.
+      code: ${{ steps.filter.outputs.code || 'true' }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 2 # HEAD and its parent is all the diff needs
+      - id: base
+        run: echo "sha=$(git rev-parse HEAD^ 2>/dev/null || true)" >> "$GITHUB_OUTPUT"
+      - uses: dorny/paths-filter@v4
+        id: filter
+        if: steps.base.outputs.sha != ''
+        with:
+          token: '' # local git diffing; see ci.yml for why
+          base: ${{ steps.base.outputs.sha }}
+          # Shared with ci.yml so the two cannot disagree about what "code" means.
+          filters: .github/path-filters.yml
+      - name: Say what was decided
+        run: |
+          if [ "${{ steps.filter.outputs.code || 'true' }}" = "true" ]; then
+            echo "Code changed (or no parent to compare) — verifying and publishing."
+          else
+            echo "Docs/specs/tooling only — the built image cannot differ, so this"
+            echo "merge neither re-runs the suite nor republishes."
+            echo "Re-run with force=true to publish anyway."
+          fi
+
   verify:
+    needs: changes
+    # publish depends on verify, so skipping here skips the publish too — one
+    # condition, no chance of publishing something that was never verified.
+    if: ${{ needs.changes.outputs.code == 'true' || inputs.force }}
     uses: ./.github/workflows/build-test.yml
 
   publish:

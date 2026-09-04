@@ -212,9 +212,12 @@ everything merges into it via PR.
   date` and `Version guard` checks, aggregated behind the single required
   `CI gate` check. A green PR **auto-merges** (`auto-merge.yml` schedules it;
   it refuses to act until branch protection with required checks exists).
-- **Every merge to `main` publishes.** `release.yml` re-verifies the merge
-  commit, then pushes rolling `ghcr.io/zuptalo/synodl:latest` + immutable
-  `:main-<sha>` (mirrored to docker.io). When the merge also bumped
+- **Every merge to `main` that touches code publishes.** `release.yml` re-verifies
+  the merge commit, then pushes rolling `ghcr.io/zuptalo/synodl:latest` + immutable
+  `:main-<sha>` (mirrored to docker.io). A docs/specs-only merge cannot change the
+  built image, so it neither re-runs the suite nor republishes — the same shared
+  path list (`.github/path-filters.yml`) that skips the heavy jobs on a PR. Force a
+  publish with `gh workflow run release.yml -f force=true`. When the merge also bumped
   `package.json`'s version to an untagged value, it additionally tags
   `vX.Y.Z`, publishes `X.Y.Z` + `X.Y`, and cuts the GitHub release — so
   "cutting a release" is just merging a PR that bumps the version
