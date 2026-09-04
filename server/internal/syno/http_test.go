@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -642,5 +643,56 @@ func seedTree(t *testing.T, c *HTTPClient, tree map[string][]string) {
 	defer resp.Body.Close()
 	if resp.StatusCode != 200 {
 		t.Fatalf("seed returned %d", resp.StatusCode)
+	}
+}
+
+// Principle III: a DSM session id must never appear in a log line.
+//
+// This is a real leak that shipped. Upload is the one call that puts _sid in the
+// QUERY STRING (DSM resolves the session before parsing a multipart body), and
+// net/http wraps a transport failure in *url.Error whose message is
+// "Post <full url>: <cause>". Logging that raw error put a live sid in the pod
+// log on every failed upload.
+func TestUploadTransportErrorNeverLogsTheSid(t *testing.T) {
+	const sid = "SUPERSECRETSIDVALUE123"
+
+	// A server that accepts discovery, then closes the connection mid-upload so
+	// the client sees a genuine transport error rather than a DSM envelope.
+	inner := synomock.New().Handler()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.Header.Get("Content-Type"), "multipart/form-data") {
+			// Hijack and drop it: no response at all.
+			hj, ok := w.(http.Hijacker)
+			if !ok {
+				t.Error("test server cannot hijack")
+				return
+			}
+			conn, _, err := hj.Hijack()
+			if err == nil {
+				_ = conn.Close()
+			}
+			return
+		}
+		inner.ServeHTTP(w, r)
+	}))
+	t.Cleanup(srv.Close)
+
+	var logged bytes.Buffer
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&logged, nil)))
+	t.Cleanup(func() { slog.SetDefault(prev) })
+
+	c := NewHTTPClient(srv.URL, false)
+	// Deliberately NOT a real login: the sid only has to reach the request.
+	_ = c.UploadFile(context.Background(), sid, "/movie", "x.mkv", 1, false,
+		strings.NewReader("x"))
+
+	if out := logged.String(); strings.Contains(out, sid) {
+		t.Errorf("the session id reached the log:\n%s", out)
+	}
+	// The cause must still be reported — stripping the URL must not silence the
+	// diagnostic that made this failure findable in the first place.
+	if logged.Len() == 0 {
+		t.Error("nothing was logged; the transport failure became invisible")
 	}
 }
