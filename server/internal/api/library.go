@@ -2,7 +2,9 @@ package api
 
 import (
 	"context"
+	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -71,8 +73,13 @@ const maxRememberedTitles = 2000
 // evidenceRec is one folder's answer, with its own expiry so a folder checked
 // long ago is re-read even while the name index is still warm.
 type evidenceRec struct {
-	hasVideo  bool
-	seasons   []seasonPresence
+	hasVideo bool
+	seasons  []seasonPresence
+	// releases is which encodes were found, keyed by season — season 0 meaning the
+	// title folder itself, so a movie is carried by the same field. It never
+	// leaves the server: options are matched here and the client is told only
+	// which option it already has (spec 1025, FR-006).
+	releases  map[int][]library.Release
 	checkedAt time.Time
 }
 
@@ -248,6 +255,8 @@ func (d Deps) folderEvidence(ctx context.Context, relPath string) (evidenceRec, 
 	bySeason := map[int]map[int]bool{}
 	counts := map[int]int{}
 
+	rec.releases = map[int][]library.Release{}
+
 	note := func(season, episode int, ok bool) {
 		if !ok {
 			return
@@ -256,6 +265,22 @@ func (d Deps) folderEvidence(ctx context.Context, relPath string) (evidenceRec, 
 			bySeason[season] = map[int]bool{}
 		}
 		bySeason[season][episode] = true
+	}
+
+	// noteRelease remembers WHICH encode a file is, from the name already in hand.
+	// Nothing here costs an extra NAS call, and the name itself is dropped — only
+	// the two tokens that identify the release are kept.
+	noteRelease := func(season int, name string) {
+		rel, ok := library.ReleaseOf(name)
+		if !ok {
+			return
+		}
+		for _, have := range rec.releases[season] {
+			if have == rel {
+				return // one entry per distinct release, not one per episode
+			}
+		}
+		rec.releases[season] = append(rec.releases[season], rel)
 	}
 
 	err := d.NAS.Do(ctx, func(c syno.Client, sid string) error {
@@ -272,7 +297,12 @@ func (d Deps) folderEvidence(ctx context.Context, relPath string) (evidenceRec, 
 			if season, episode, ok := library.EpisodeOf(name); ok {
 				counts[season]++
 				note(season, episode, true)
+				noteRelease(season, name)
+				continue
 			}
+			// A movie sits in the title folder with no season at all; season 0 is
+			// where its releases live.
+			noteRelease(0, name)
 		}
 
 		dirs, e := c.ListFolder(ctx, sid, abs)
@@ -307,6 +337,7 @@ func (d Deps) folderEvidence(ctx context.Context, relPath string) (evidenceRec, 
 				}
 				counts[season]++
 				note(season, episode, true)
+				noteRelease(season, name)
 			}
 			// A season folder holding video whose names say nothing is still
 			// present (FR-016b) — record it so it is not silently dropped.
@@ -392,31 +423,80 @@ func (d Deps) activeDestinations() map[string]bool {
 // (FR-017).
 func (d Deps) titleDetail(
 	ctx context.Context, title string, kind library.MediaKind, activeDests map[string]bool,
-) (string, []source.SeasonPresence) {
+) (string, []source.SeasonPresence, map[int][]library.Release) {
 	ix := d.libraryIndex(ctx)
 	if ix.IsEmpty() {
-		return source.OwnershipUnknown, nil
+		return source.OwnershipUnknown, nil, nil
 	}
 	entry, matched := ix.Lookup(title, kind)
 	if !matched {
-		return source.OwnershipAbsent, nil
+		return source.OwnershipAbsent, nil, nil
 	}
 	if activeDests[entry.Path] {
 		// Still arriving. Season detail from a half-written folder would be read
-		// as what the user HAS, so it is withheld rather than shown mid-flight.
-		return source.OwnershipDownloading, nil
+		// as what the user HAS, so it is withheld rather than shown mid-flight —
+		// and so are the releases, for the same reason.
+		return source.OwnershipDownloading, nil, nil
 	}
 	rec, ok := d.folderEvidence(ctx, entry.Path)
 	if !ok {
-		return source.OwnershipUnknown, nil
+		return source.OwnershipUnknown, nil, nil
 	}
 	if !rec.hasVideo {
-		return source.OwnershipAbsent, nil
+		return source.OwnershipAbsent, nil, nil
 	}
 	if kind == library.MediaMovie {
-		return source.OwnershipOwned, nil
+		return source.OwnershipOwned, nil, rec.releases
 	}
-	return source.OwnershipOwned, rec.seasons
+	return source.OwnershipOwned, rec.seasons, rec.releases
+}
+
+// markOwnedOptions flags the options whose release is the one already on the NAS.
+//
+// Both halves must agree — the resolution AND the group that produced the encode
+// — because a season's options routinely share a resolution and differ only by
+// encoder. Marking on a resolution match was the bug this replaces: it stamped
+// every option for a season the user had, which is wrong for all but one of them.
+//
+// An option nothing matches is simply left unmarked. That is not a claim the
+// user lacks it: the season's own presence is reported separately and is
+// untouched by whether any release could be identified (FR-004).
+func markOwnedOptions(qualities []source.QualityOption, releases map[int][]library.Release) []source.QualityOption {
+	if len(releases) == 0 {
+		return qualities
+	}
+	for i := range qualities {
+		q := qualities[i]
+		if q.Encoder == "" || q.Resolution == "" {
+			continue // an option that does not say what it is cannot be identified
+		}
+		for _, rel := range releases[seasonNumOf(q.Season)] {
+			if rel.Matches(q.Resolution, q.Encoder) {
+				qualities[i].Owned = true
+				break
+			}
+		}
+	}
+	return qualities
+}
+
+// reSeasonNum pulls the season number out of a source's own season label, which
+// may be in any language ("Season 2", "فصل 2") but writes the number in western
+// digits. Mirrors seasonNum() in the client's quality-sort.ts.
+var reSeasonNum = regexp.MustCompile(`(\d+)`)
+
+// seasonNumOf is 0 for an option with no season — a movie, whose releases are
+// recorded under season 0 too.
+func seasonNumOf(label string) int {
+	m := reSeasonNum.FindStringSubmatch(label)
+	if m == nil {
+		return 0
+	}
+	n, err := strconv.Atoi(m[1])
+	if err != nil {
+		return 0
+	}
+	return n
 }
 
 // rememberTitle records the catalog title behind a qualified id, so the title

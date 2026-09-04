@@ -342,24 +342,34 @@ func zarTitleHTML(base, slug string, paywalled bool) string {
 	return b.String()
 }
 
+// zarMockSeasons is how many seasons the fake series carries. More than one on
+// purpose: a single-season series cannot exercise "open the first season you do
+// not have, and opening another closes it", which is the whole of spec 1025's
+// second story.
+const zarMockSeasons = 3
+
 func zarSeriesHTML(base string, paywalled bool) string {
 	var b strings.Builder
-	b.WriteString(`<div class="single_dlbox"><div class="row_season_n_dl">
-  <div class="season_name"><span>فصل 1</span></div>
+	b.WriteString(`<div class="single_dlbox">`)
+	for season := 1; season <= zarMockSeasons; season++ {
+		fmt.Fprintf(&b, `<div class="row_season_n_dl">
+  <div class="season_name"><span>فصل %d</span></div>
   <div class="body_row_season_n_dl"><div class="item_quality_n_row">
     <div class="item_meta_qu_r_n"><div class="label_meta_qu">کیفیت : </div><div class="value_meta_qu">WEB-DL 1080p</div></div>
     <div class="item_meta_qu_r_n"><div class="label_meta_qu">حجم : </div><div class="value_meta_qu">900 MB</div></div>
     <div class="item_meta_qu_r_n sub_type_item_meta"><div class="value_meta_qu">Soft</div></div>
-    <div class="inner_parts_holder">`)
-	for ep := 1; ep <= 4; ep++ {
-		link := fmt.Sprintf(`https://dl9.mockdl.invalid/Series/Mock.S01E%02d.1080p.mkv?md5=MOCKSIG&u=424242&expires=99999999999`, ep)
-		cls := "dllinkhref"
-		if paywalled {
-			link, cls = base+"/pricing/", "dllinkhref vip_link"
+    <div class="inner_parts_holder">`, season)
+		for ep := 1; ep <= 4; ep++ {
+			link := fmt.Sprintf(`https://dl9.mockdl.invalid/Series/Mock.S%02dE%02d.1080p.mkv?md5=MOCKSIG&u=424242&expires=99999999999`, season, ep)
+			cls := "dllinkhref"
+			if paywalled {
+				link, cls = base+"/pricing/", "dllinkhref vip_link"
+			}
+			fmt.Fprintf(&b, `<div class="item_part"><a href="%s" class="%s">ep %d</a></div>`, link, cls, ep)
 		}
-		fmt.Fprintf(&b, `<div class="item_part"><a href="%s" class="%s">ep %d</a></div>`, link, cls, ep)
+		b.WriteString(`</div></div></div></div>`)
 	}
-	b.WriteString(`</div></div></div></div></div>`)
+	b.WriteString(`</div>`)
 	return b.String()
 }
 

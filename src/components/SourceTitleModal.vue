@@ -3,7 +3,8 @@ import { computed, onUnmounted, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import {
   alertController,
-  IonBadge,
+  IonAccordion,
+  IonAccordionGroup,
   IonButton,
   IonButtons,
   IonCheckbox,
@@ -15,7 +16,6 @@ import {
   IonList,
   IonModal,
   IonNote,
-  IonRadio,
   IonRadioGroup,
   IonSegment,
   IonSegmentButton,
@@ -24,6 +24,7 @@ import {
   IonTitle,
   IonToolbar,
 } from '@ionic/vue';
+import SourceQualityRow from '@/components/SourceQualityRow.vue';
 import { arrowForwardOutline, chevronBackOutline, cloudDownloadOutline, openOutline } from 'ionicons/icons';
 import {
   api,
@@ -33,7 +34,7 @@ import {
   type QualityOption,
   type SeasonPresence,
 } from '@/services/api';
-import { bySeasonThenSize, markSeasonBreaks, seasonNum, sizeMB } from '@/services/quality-sort';
+import { bySeasonThenSize, seasonNum, sizeMB } from '@/services/quality-sort';
 import { appToast } from '@/services/toast';
 import { useSourceCatalog } from '@/composables/useSourceCatalog';
 import { splitYear } from '@/services/title-year';
@@ -274,13 +275,91 @@ const tiers = computed<Tier[]>(() => {
   return [...map.values()].sort((a, b) => b.rank - a.rank);
 });
 const activeTier = ref('');
-// The active tier's options: by season, then largest file first — each tagged with
-// whether it opens a new season, so the list can draw a stronger divider there.
+
+/**
+ * The visible options grouped by season, for the accordion.
+ *
+ * A long pack list used to open fully expanded, every season at once, so a user
+ * collecting a series scrolled past the seasons they already had to reach the one
+ * they wanted (spec 1025 US2).
+ */
+interface SeasonGroup {
+  key: string;
+  season: number;
+  label: string;
+  options: QualityOption[];
+  /** What is already on the NAS for this season, if anything. */
+  present?: SeasonPresence;
+}
+// The active tier's options: by season, then largest file first. Seasons used to
+// be separated by a divider here; they are now their own accordion groups.
 const visibleQualities = computed(() =>
-  markSeasonBreaks(
-    qualities.value.filter((q) => tierOf(q).key === activeTier.value).slice().sort(bySeasonThenSize),
-  ),
+  qualities.value.filter((q) => tierOf(q).key === activeTier.value).slice().sort(bySeasonThenSize),
 );
+const seasonGroups = computed<SeasonGroup[]>(() => {
+  const out: SeasonGroup[] = [];
+  const byKey = new Map<number, SeasonGroup>();
+  for (const q of visibleQualities.value) {
+    const n = seasonNum(q);
+    let g = byKey.get(n);
+    if (!g) {
+      g = {
+        key: String(n),
+        season: n,
+        label: q.season || `Season ${n}`,
+        options: [],
+        present: seasonHave.value.get(n),
+      };
+      byKey.set(n, g);
+      out.push(g);
+    }
+    g.options.push(q);
+  }
+  return out;
+});
+
+// Group only when there is a season to group BY. A movie's options have none, and
+// wrapping them in a single accordion would add a layer that hides them behind a
+// tap for no benefit (FR-011).
+const groupedBySeason = computed(
+  () => visibleQualities.value.some((q) => !!q.season) && seasonGroups.value.length > 0,
+);
+
+/** Which group is open. Presentation only — it never touches `selected`. */
+const openSeason = ref<string | null>(null);
+
+/**
+ * The season to open on arrival: the first one NOT already on the NAS, so the
+ * common case — "I have 1 and 2, I want 3" — costs no taps. When every season is
+ * already here there is nothing to fetch, so nothing is opened (FR-008).
+ */
+function defaultOpenSeason(): string | null {
+  const missing = seasonGroups.value.find((g) => !g.present);
+  return missing ? missing.key : null;
+}
+
+function onSeasonToggle(value: string | null | undefined): void {
+  openSeason.value = value ?? null;
+}
+
+/** What a collapsed header says, so the season can be judged without opening it. */
+function seasonHeadline(g: SeasonGroup): string {
+  const count = `${g.options.length} option${g.options.length === 1 ? '' : 's'}`;
+  if (!g.present) return count;
+  const eps = g.present.episodes?.length ? ` · ep ${g.present.episodes.join(', ')}` : '';
+  return `On your NAS${eps} · ${count}`;
+}
+
+// Re-open the right season whenever the grouping changes — a different tier shows
+// a different set of packs, and the first season missing from THAT set may differ.
+watch(
+  () => seasonGroups.value.map((g) => `${g.key}:${g.present ? 1 : 0}`).join('|'),
+  () => {
+    openSeason.value = defaultOpenSeason();
+  },
+  { immediate: true },
+);
+
 // The default sendable option in a tier (first usable in the display order — the
 // earliest season's largest usable), else its first option.
 function firstUsableIn(tierKey: string): string {
@@ -676,38 +755,52 @@ async function offerOverLimit(): Promise<void> {
               </ion-segment-button>
             </ion-segment>
             <ion-radio-group v-model="selected">
-              <ion-list :inset="true">
-                <ion-item
+              <!-- No season to group by (a movie, or a source that lists releases
+                   flat): the options are the list. -->
+              <ion-list v-if="!groupedBySeason" :inset="true">
+                <source-quality-row
                   v-for="q in visibleQualities"
                   :key="q.id"
-                  :class="{ 'season-break': q.seasonBreak }"
-                >
-                  <ion-radio :value="q.id" label-placement="end" justify="start">
-                    <ion-label>
-                      <h3>
-                        <span v-if="q.season" class="season">{{ q.season }} · </span>{{ q.label }}
-                        <ion-badge v-if="tooLarge(q)" color="warning" class="too-large">Too large</ion-badge>
-                        <ion-badge
-                          v-if="haveLabel(q)"
-                          color="success"
-                          class="have"
-                          data-testid="season-have"
-                        >
-                          Have it
-                        </ion-badge>
-                      </h3>
-                      <p>
-                        {{ q.size }}<template v-if="q.resolution"> · {{ q.resolution }}</template
-                        >{{ q.encoder ? ' · ' + q.encoder : ''
-                        }}<template v-if="q.episodes"> · {{ q.episodes }} eps</template>
-                      </p>
-                      <!-- Which episodes, not how many of a total: the total is
-                           not something we can establish (FR-016a). -->
-                      <p v-if="haveLabel(q)" class="have-detail">{{ haveLabel(q) }}</p>
-                    </ion-label>
-                  </ion-radio>
-                </ion-item>
+                  :option="q"
+                  :too-large="tooLarge(q)"
+                  show-season
+                />
               </ion-list>
+
+              <!-- One season at a time. multiple=false gives the "opening one
+                   closes the other" behaviour the user asked for, from Ionic
+                   rather than from hand-rolled state (FR-009). -->
+              <ion-accordion-group
+                v-else
+                class="season-groups"
+                :value="openSeason"
+                @ion-change="(e: CustomEvent) => onSeasonToggle(e.detail.value)"
+              >
+                <ion-accordion v-for="g in seasonGroups" :key="g.key" :value="g.key">
+                  <ion-item slot="header" data-testid="season-group" :data-season="g.season">
+                    <ion-label>
+                      <h3 class="season">{{ g.label }}</h3>
+                      <!-- Enough to judge the season without opening it: whether it
+                           is here, which episodes, and how much is on offer. Which
+                           episodes, never how many of a total — the total is not
+                           something we can establish (FR-016a). -->
+                      <p class="season-sub" :class="{ present: !!g.present }">
+                        {{ seasonHeadline(g) }}
+                      </p>
+                    </ion-label>
+                  </ion-item>
+                  <div slot="content">
+                    <ion-list :inset="false" class="season-options">
+                      <source-quality-row
+                        v-for="q in g.options"
+                        :key="q.id"
+                        :option="q"
+                        :too-large="tooLarge(q)"
+                      />
+                    </ion-list>
+                  </div>
+                </ion-accordion>
+              </ion-accordion-group>
             </ion-radio-group>
 
             <!-- Series: pick which episodes to download (all by default). -->
@@ -910,29 +1003,25 @@ async function offerOverLimit(): Promise<void> {
 .tier-tabs {
   margin: 2px 8px 8px;
 }
-.too-large {
-  margin-left: 8px;
-  vertical-align: middle;
-  font-size: 0.7rem;
-}
 .season {
   color: var(--ion-color-primary, #3dc2ff);
   font-weight: 600;
 }
-/* A stronger rule where the season changes, so season groups are obvious in a long
-   pack list (the per-row hairlines alone all look identical). Drawn on the item's
-   own top edge and paired with a little extra breathing room above the group. */
-.have {
-  margin-inline-start: 6px;
+.season-groups {
+  margin: 0 8px 8px;
 }
-.have-detail {
+/* The header has to be readable at 360px too: it carries the episode list, which
+   is the longest string on the screen. */
+.season-sub {
+  white-space: normal;
+  overflow-wrap: anywhere;
+  font-size: 0.78rem;
+}
+.season-sub.present {
   color: var(--app-status-finished);
-  font-size: 0.72rem;
 }
-.season-break {
-  border-top: 2px solid var(--ion-color-primary, #3dc2ff);
-  --padding-top: 10px;
-  margin-top: 6px;
+.season-options {
+  margin: 0;
 }
 .error {
   display: block;

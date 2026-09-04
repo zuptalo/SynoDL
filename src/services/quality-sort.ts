@@ -30,18 +30,3 @@ export function bySeasonThenSize(a: QualityOption, b: QualityOption): number {
   return seasonNum(a) - seasonNum(b) || sizeMB(b.size) - sizeMB(a.size);
 }
 
-/** A download option tagged with whether it opens a new season group. */
-export type GroupedOption = QualityOption & { seasonBreak: boolean };
-
-/**
- * Tag each option in an ALREADY-SORTED list with `seasonBreak`: true when it
- * starts a new season, so the list can draw a stronger divider there. The first
- * row never breaks (nothing above it to separate from), and a list with no
- * seasons (a movie) never breaks.
- */
-export function markSeasonBreaks(options: QualityOption[]): GroupedOption[] {
-  return options.map((q, i) => ({
-    ...q,
-    seasonBreak: i > 0 && seasonNum(q) > 0 && seasonNum(q) !== seasonNum(options[i - 1]),
-  }));
-}

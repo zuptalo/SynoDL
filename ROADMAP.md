@@ -48,6 +48,7 @@ Specs are grouped by category band; status moves
 | [1022](specs/1022-upload-file-straight/spec.md) | Upload a file straight into your library | 🟢 shipped |
 | [1023](specs/1023-zarfilm-titles-carry/spec.md) | ZarFilm titles carry an IMDb link and a synopsis | 🔵 in-review |
 | [1024](specs/1024-filter-and-sort/spec.md) | Filter and sort every source the same way | 🔵 in-review |
+| [1025](specs/1025-mark-version-you/spec.md) | Mark the version you actually downloaded | 🔵 in-review |
 
 ## 🐛 Hotfixes & Bug Fixes (2001+)
 

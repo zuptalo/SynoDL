@@ -191,7 +191,17 @@ export interface TitleDetailShape {
    *  carry neither (spec 1023). */
   imdbId?: string;
   plot?: string;
-  qualities?: Array<Record<string, unknown>>;
+  qualities?: QualityShape[];
+}
+
+export interface QualityShape {
+  id: string;
+  label: string;
+  season?: string;
+  resolution?: string;
+  encoder?: string;
+  /** THIS release is the one on the NAS — not merely that its season is (spec 1025). */
+  owned?: boolean;
 }
 
 /** Season detail rides on the title endpoint, which already resolves through the
