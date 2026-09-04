@@ -40,24 +40,10 @@ jobs:
           # API's listFiles endpoint, which 404s on PRs with very large diffs —
           # git diff has no such limit and we have full history via fetch-depth: 0.
           token: ''
-          # `code` is true when ANY path the heavy jobs cover changed. If nothing
-          # here matched, the change is docs/specs/tooling-only and verify is skipped.
-          filters: |
-            code:
-              - 'src/**'
-              - 'server/**'
-              - 'e2e/**'
-              - 'public/**'
-              - 'index.html'
-              - 'package.json'
-              - 'package-lock.json'
-              - 'tsconfig*.json'
-              - 'vite.config.*'
-              - 'vitest.config.*'
-              - 'playwright.config.*'
-              - 'Dockerfile'
-              - '.dockerignore'
-              - '.github/workflows/**'
+          # The list lives in .github/path-filters.yml so ci.yml and release.yml
+          # cannot drift apart — two copies would eventually disagree, and the
+          # failure mode is silent: skipping verification for a real change.
+          filters: .github/path-filters.yml
 
   # The full build + test suite — on PRs with code changes and manual dispatch.
   verify:

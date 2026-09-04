@@ -5,6 +5,18 @@ name: build-test
 
 on:
   workflow_call:
+    inputs:
+      e2e:
+        description: >-
+          Run the Playwright suite. On by default, and left on for every PR.
+          release.yml turns it OFF when re-verifying a merge commit: the PR that
+          produced it already ran e2e, and the re-run exists to catch a STALE
+          merge — a combination the branch never had, because branch protection
+          does not require branches to be up to date. Build, unit and server
+          tests catch that class cheaply; e2e is the long pole and adds little
+          against it.
+        type: boolean
+        default: true
 
 permissions:
   contents: read
@@ -77,6 +89,7 @@ jobs:
 
   e2e:
     name: End-to-end (Playwright)
+    if: ${{ inputs.e2e }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
