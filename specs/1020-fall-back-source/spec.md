@@ -4,7 +4,7 @@
 
 **Created**: 2026-09-03
 
-**Status**: in-review
+**Status**: shipped
 <!-- SynoDL spec lifecycle: planned → in-progress → in-review → shipped. -->
 
 **Input**: User description: "The main domain of a source can be out of service, and they

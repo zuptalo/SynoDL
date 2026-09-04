@@ -4,7 +4,7 @@
 
 **Created**: 2026-07-27
 
-**Status**: in-review
+**Status**: shipped
 <!-- SynoDL spec lifecycle: planned → in-progress → in-review → shipped. -->
 
 **Input**: Operator request: "It still shows the NAS host in Settings and doesn't let me see and change

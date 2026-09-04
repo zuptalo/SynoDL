@@ -4,7 +4,7 @@
 
 **Created**: 2026-07-30
 
-**Status**: in-review
+**Status**: shipped
 <!-- SynoDL spec lifecycle: planned → in-progress → in-review → shipped. -->
 
 **Input**: Make the IMDb rating in a title's detail view a link to that title's IMDb page, opening

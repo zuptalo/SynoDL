@@ -4,7 +4,7 @@
 
 **Created**: 2026-07-28
 
-**Status**: in-review
+**Status**: shipped
 <!-- SynoDL spec lifecycle: planned → in-progress → in-review → shipped. -->
 
 **Input**: Operator request: "Only send notifications if a user has opted in AND is not online. If the

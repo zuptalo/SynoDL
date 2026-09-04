@@ -71,3 +71,11 @@ e2e. One GitHub issue per task.
 ## Implementation strategy
 MVP = US1 + US2 (cleaner titles + posters). US3 (Open in Discover) and US4 (field guard) layer on.
 All ship in one PR into `main`.
+
+
+## Reconciled 2026-09-04
+
+The spec is marked shipped because the feature is implemented and released —
+verified against the code, not against these boxes. The checkboxes were never
+maintained during implementation and are left as written: ticking them now would
+claim each task was completed as specified, which is more than was checked.
