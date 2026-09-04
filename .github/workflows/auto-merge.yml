@@ -44,9 +44,18 @@ jobs:
           REPO: ${{ github.repository }}
         run: |
           set -uo pipefail
-          # ~8-min ceiling (80 × 6 s), comfortably past the slowest check (e2e ~4
-          # min); the loop exits the instant the PR merges.
-          for i in $(seq 1 80); do
+          # ~20-min ceiling (200 × 6 s); the loop exits the instant the PR merges.
+          #
+          # This was 8 min, sized against "e2e ~4 min" — an estimate that stopped
+          # being true. A code PR now runs the full suite in ~10 min, so the poll
+          # expired BEFORE the checks went green and left green, mergeable PRs
+          # sitting open. It failed quietly, too: exiting with a warning rather
+          # than an error, so the run still showed as successful and the PR just
+          # never merged.
+          #
+          # Sized with real headroom rather than to the current number, so a suite
+          # that grows a little does not silently reintroduce the same stall.
+          for i in $(seq 1 200); do
             if [ "$(gh api "repos/$REPO/pulls/$PR" --jq '.merged')" = "true" ]; then
               echo "PR #$PR already merged."
               exit 0
@@ -67,7 +76,7 @@ jobs:
             esac
             sleep 6
           done
-          echo "::warning::#$PR not mergeable after ~8 min — merge manually once green."
+          echo "::warning::#$PR not mergeable after ~20 min — merge manually once green."
 
       - name: Dispatch the release after a self-merge
         if: steps.merge.outputs.merged == 'true'
