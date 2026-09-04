@@ -446,6 +446,11 @@ export interface SourceParameters {
   channels: SourceFacet[];
   encoders: SourceFacet[];
   ages: SourceFacet[];
+  /**
+   * The orderings the selected source(s) can actually honour. Empty when the
+   * source could not be asked, in which case the built-in list stands in.
+   */
+  sorts: SourceFacet[];
   minYear: number;
   maxYear: number;
 }

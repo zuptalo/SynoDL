@@ -315,24 +315,39 @@ func (p zarfilm) Search(ctx context.Context, c *source.Client, cfg source.Config
 	if page < 1 {
 		page = 1
 	}
-	var path string
+	// The route selects WHAT is being browsed; everything the user narrowed by
+	// rides in the query string. Genre used to take over the route
+	// (/genre/<slug>/), which meant a genre could never be combined with the
+	// series listing and never composed with a sort — and the route's English
+	// slugs do not exist for series at all.
 	query := strings.TrimSpace(q.Query)
+	var path string
+	params := url.Values{}
 	switch {
 	case query != "":
-		path = "/page/" + strconv.Itoa(page) + "/?s=" + url.QueryEscape(query)
-	case q.Filters.Genre != nil && len(q.Filters.Genre) > 0 && q.Filters.Genre[0] != "":
-		path = "/genre/" + url.PathEscape(q.Filters.Genre[0]) + "/page/" + strconv.Itoa(page) + "/"
+		path = "/page/" + strconv.Itoa(page) + "/"
+		params.Set("s", query)
 	case q.Filters.Type == source.TypeSeries:
 		path = "/series/page/" + strconv.Itoa(page) + "/"
 	default:
 		path = "/all-movie/page/" + strconv.Itoa(page) + "/"
 	}
-	if f := zarSortParam(q.Sort); f != "" {
-		sep := "?"
-		if strings.Contains(path, "?") {
-			sep = "&"
+	if g := firstNonEmpty(q.Filters.Genre); g != "" {
+		params.Set("filter_genre", g)
+	}
+	if sc := strings.TrimSpace(q.Filters.Score); sc != "" {
+		params.Set("imdb_rate", sc)
+	}
+	// The site ignores an ordering on a text search. Offering one anyway would be
+	// the "filter that silently does nothing" this driver's own facets avoid, so
+	// it is simply not sent — the sheet disables the control in that mode too.
+	if query == "" {
+		if f := zarSortParam(q.Sort); f != "" {
+			params.Set("sortby", f)
 		}
-		path += sep + "filter=" + f
+	}
+	if len(params) > 0 {
+		path += "?" + params.Encode()
 	}
 
 	items, pages, err := p.listing(ctx, c, cfg, s, path)
@@ -362,15 +377,33 @@ func (p zarfilm) Search(ctx context.Context, c *source.Client, cfg source.Config
 	return out, nil
 }
 
-// zarSortParam maps a generic sort onto the site's own archive filter values.
+// zarSortParam maps a canonical sort key onto the site's own ordering keyword —
+// the inverse of zarSortKey, which is how those keys were declared in the first
+// place. "" means "leave the site's default alone".
 func zarSortParam(sort string) string {
 	switch sort {
-	case "", "newest", "date":
-		return ""
+	case "date", "newest":
+		return "newest"
+	case "favorite", "popular":
+		return "popular"
 	case "imdb", "imdb_rate", "score":
 		return "imdb_rate"
+	case "year", "release":
+		return "release"
 	case "modified", "updated":
 		return "modified"
+	}
+	return ""
+}
+
+// firstNonEmpty returns the first usable entry of a multi-valued filter. The site
+// takes one genre, so a caller asking for several gets the first honoured rather
+// than all of them silently ignored.
+func firstNonEmpty(vals []string) string {
+	for _, v := range vals {
+		if v = strings.TrimSpace(v); v != "" {
+			return v
+		}
 	}
 	return ""
 }
@@ -379,12 +412,86 @@ func zarSortParam(sort string) string {
 // deliberately modest: the site's archive URLs express genre and type, and
 // claiming more would produce filters that silently do nothing.
 func (p zarfilm) Parameters(ctx context.Context, c *source.Client, cfg source.Config, s source.Session) (source.SearchParameters, error) {
-	return source.SearchParameters{
+	out := source.SearchParameters{
 		Types: []source.FacetOption{
 			{Value: source.TypeMovie, Slug: "movie", Name: "Movie"},
 			{Value: source.TypeSeries, Slug: "series", Name: "Series"},
 		},
-	}, nil
+	}
+	// The abilities are published on the archive pages themselves, so reading them
+	// costs one page fetch. A failure here is NOT a failure of the source: the user
+	// can still browse, they are simply offered fewer ways to narrow it (FR-011).
+	body, err := p.get(ctx, c, cfg, s, "/all-movie/")
+	if err != nil {
+		return out, nil
+	}
+	panel := parseFilterPanel(body)
+	slugs := parseGenreSlugs(body)
+
+	for _, g := range panel.Genres {
+		// Value stays the site's own (Persian) vocabulary, because that is what its
+		// query parameter accepts. Slug is the English name the same page uses in
+		// its own genre routes: it is what lets this genre join with another
+		// source's, and what the client title-cases for display.
+		out.Genres = append(out.Genres, source.FacetOption{
+			Value: g.Value, Name: g.Label, Slug: slugs[g.Label],
+		})
+	}
+	for _, sc := range panel.Scores {
+		out.Scores = append(out.Scores, source.FacetOption{
+			Value: sc.Value, Name: zarScoreName(sc.Value), Slug: zarScoreSlug(sc.Value),
+		})
+	}
+	for _, so := range panel.Sorts {
+		key, label := zarSortKey(so.Value)
+		if key == "" {
+			continue // an ordering we have no canonical name for
+		}
+		out.Sorts = append(out.Sorts, source.FacetOption{Value: key, Slug: key, Name: label})
+	}
+	return out, nil
+}
+
+// zarScoreSlug gives a score band an identity derived from its MEANING, so
+// "8 and above" from this source joins with "8 and above" from another.
+//
+// The site's lowest band is the odd one out: its value is 4 but it means "below
+// 5", not "4 and above". It gets an identity of its own so it can never be
+// mistaken for another source's 4+ band — it stays available when this source is
+// browsed alone, and drops out of any combined set.
+func zarScoreSlug(v string) string {
+	if v == "4" {
+		return "score-under-5"
+	}
+	return "score-" + v
+}
+
+func zarScoreName(v string) string {
+	if v == "4" {
+		return "Under 5.0"
+	}
+	return v + ".0+"
+}
+
+// zarSortKey maps one of the site's ordering keywords onto the canonical sort
+// vocabulary the client speaks, so choosing "IMDb rating" means the same thing
+// whichever source honours it. "modified" has no canonical equivalent — no other
+// source can order by "recently updated" — so it keeps its own key and therefore
+// appears only when this source is browsed alone.
+func zarSortKey(siteValue string) (key, label string) {
+	switch siteValue {
+	case "newest":
+		return "date", "Recently added"
+	case "popular":
+		return "favorite", "Most popular"
+	case "imdb_rate":
+		return "imdb", "IMDb rating"
+	case "release":
+		return "year", "Release year"
+	case "modified":
+		return "modified", "Recently updated"
+	}
+	return "", ""
 }
 
 // Title returns a title's downloadable options. Movies yield one option per

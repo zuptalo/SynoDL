@@ -7,6 +7,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 )
 
 // Combining several configured sources into one catalog view (spec 0007).
@@ -125,6 +126,12 @@ func SearchAll(ctx context.Context, c *Client, refs []SourceRef, q SearchQuery) 
 			results[i] = outcome{ref: ref, reason: ReasonUnreachable}
 			continue
 		}
+		// The user narrowed by something this source cannot express: report it and
+		// do not call, so its whole catalog is never poured into a filtered view.
+		if f, ok := q.PerSource[ref.ID]; ok && f == nil {
+			results[i] = outcome{ref: ref, reason: ReasonFilterUnsupported}
+			continue
+		}
 		wg.Add(1)
 		go func(i int, ref SourceRef) {
 			defer wg.Done()
@@ -132,7 +139,13 @@ func SearchAll(ctx context.Context, c *Client, refs []SourceRef, q SearchQuery) 
 			// number of sources and never multiplies per item (FR-032).
 			cctx, cancel := context.WithTimeout(ctx, PerSourceTimeout)
 			defer cancel()
-			res, err := ref.Driver.Search(cctx, c, ref.Cfg, ref.Sess, q)
+			// Each source is asked in its own vocabulary; everything else about the
+			// query (page, sort, free text) is shared.
+			sq := q
+			if f, ok := q.PerSource[ref.ID]; ok && f != nil {
+				sq.Filters = *f
+			}
+			res, err := ref.Driver.Search(cctx, c, ref.Cfg, ref.Sess, sq)
 			if err != nil {
 				reason := classify(err, cctx)
 				breakerFail(ref.ID, time.Now())
@@ -323,6 +336,7 @@ func IntersectParameters(sets []SearchParameters) SearchParameters {
 		Scores:    pick(func(p SearchParameters) []FacetOption { return p.Scores }),
 		Languages: pick(func(p SearchParameters) []FacetOption { return p.Languages }),
 		Countries: pick(func(p SearchParameters) []FacetOption { return p.Countries }),
+		Sorts:     pick(func(p SearchParameters) []FacetOption { return p.Sorts }),
 		Channels:  pick(func(p SearchParameters) []FacetOption { return p.Channels }),
 		Encoders:  pick(func(p SearchParameters) []FacetOption { return p.Encoders }),
 		Ages:      pick(func(p SearchParameters) []FacetOption { return p.Ages }),
@@ -340,11 +354,43 @@ func IntersectParameters(sets []SearchParameters) SearchParameters {
 }
 
 // facetKey is how two sources' options are judged to mean the same thing: the
-// English slug when there is one, otherwise a normalized label. Values are NOT
-// used — they are provider-internal codes and differ between sources by design.
+// English slug when there is one, otherwise the label. Values are NOT used —
+// they are provider-internal codes and differ between sources by design.
+//
+// Slug and label share ONE key space, so a source that publishes "sci-fi" and a
+// source that publishes "Sci-Fi" agree. They used to be namespaced apart, which
+// meant two sources joined only if BOTH supplied a slug — and a source that
+// labels its facets without slugging them intersected with nothing at all.
+// Different languages still fail to join, which is correct: an English label and
+// a Persian one are not evidence of the same genre, and only a slug can say so.
+// FacetKey exposes an option's cross-source identity to the API layer, which
+// needs it to rewrite one chosen value into each source's own vocabulary.
+func FacetKey(o FacetOption) string { return facetKey(o) }
+
 func facetKey(o FacetOption) string {
-	if s := strings.TrimSpace(strings.ToLower(o.Slug)); s != "" {
-		return "slug:" + s
+	if s := normalizeFacet(o.Slug); s != "" {
+		return s
 	}
-	return "name:" + strings.Join(strings.Fields(strings.ToLower(o.Name)), " ")
+	return normalizeFacet(o.Name)
+}
+
+// normalizeFacet folds a slug or a label into one comparable token: lowercased,
+// with every run of non-alphanumerics (spaces, hyphens, punctuation) collapsed to
+// a single hyphen. Unicode letters and digits are kept as they are, so a
+// non-English label normalizes rather than vanishing.
+func normalizeFacet(s string) string {
+	var b strings.Builder
+	dash := false
+	for _, r := range strings.ToLower(strings.TrimSpace(s)) {
+		if unicode.IsLetter(r) || unicode.IsDigit(r) {
+			if dash && b.Len() > 0 {
+				b.WriteByte('-')
+			}
+			dash = false
+			b.WriteRune(r)
+			continue
+		}
+		dash = true
+	}
+	return b.String()
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 
@@ -29,6 +30,9 @@ type zarFakeSite struct {
 	// reproducing today's pages: the captured full pages predate the block, so
 	// on their own they only exercise the "site publishes no synopsis" path.
 	meta string
+	// noPanel serves archives with no filter panel, the way most of the site's
+	// pages look, so the degrade path is exercised rather than assumed.
+	noPanel bool
 }
 
 func newZarFakeSite(t *testing.T) *zarFakeSite {
@@ -47,6 +51,11 @@ func newZarFakeSite(t *testing.T) *zarFakeSite {
 		case strings.Contains(r.URL.Path, "/series/the-loyalty-game"):
 			w.Write(mustFixture(t, "series_subscribed.html"))
 		case strings.Contains(r.URL.Path, "/all-movie/"), r.URL.Path == "/":
+			// A real archive page carries the filter panel above its cards; that is
+			// where the driver learns what it may filter and sort by.
+			if !site.noPanel {
+				w.Write(mustFixture(t, "archive_filters.html"))
+			}
 			w.Write(mustFixture(t, "archive_page1.html"))
 		case site.paywalled:
 			w.Write(mustFixture(t, "movie_unsubscribed.html"))
@@ -390,5 +399,135 @@ func TestZarfilmAcceptsCookiesSplitAcrossFields(t *testing.T) {
 	if !strings.Contains(site.lastCookie, "wordpress_logged_in_ab12cd=THE-VALUE") ||
 		!strings.Contains(site.lastCookie, "_lscache_vary=admin_bar%3A1") {
 		t.Fatalf("split fields not combined: %q", site.lastCookie)
+	}
+}
+
+// Spec 1024 US1: the driver must declare what it can actually filter and sort by,
+// or the filter sheet stays empty and combined browsing has nothing to intersect.
+func TestZarfilmDeclaresItsCapabilities(t *testing.T) {
+	site := newZarFakeSite(t)
+	params, err := zarfilm{}.Parameters(context.Background(), source.NewClient(), zarCfg(site), zarSession("abc"))
+	if err != nil {
+		t.Fatalf("Parameters: %v", err)
+	}
+	if len(params.Types) == 0 {
+		t.Fatal("no types")
+	}
+	// Genres carry the site's own value (what the query parameter wants) AND an
+	// English slug (what lets another source's genre join with it).
+	var comedy *source.FacetOption
+	for i, g := range params.Genres {
+		if g.Slug == "comedy" {
+			comedy = &params.Genres[i]
+		}
+	}
+	if comedy == nil {
+		t.Fatalf("no comedy genre among %d", len(params.Genres))
+	}
+	if comedy.Value == "comedy" {
+		t.Fatal("genre value must be the site's own vocabulary, not the join slug")
+	}
+	// Sorts are declared in the CANONICAL vocabulary the client speaks, so the
+	// same choice means the same thing whichever source honours it.
+	got := map[string]bool{}
+	for _, s := range params.Sorts {
+		got[s.Slug] = true
+	}
+	for _, want := range []string{"imdb", "year", "date", "favorite"} {
+		if !got[want] {
+			t.Fatalf("sort %q not declared; have %+v", want, params.Sorts)
+		}
+	}
+	// Score bands carry a slug derived from their meaning, so "8 and above" from
+	// one source joins with "8 and above" from another.
+	var eight bool
+	for _, s := range params.Scores {
+		if s.Slug == "score-8" && s.Value == "8" {
+			eight = true
+		}
+	}
+	if !eight {
+		t.Fatalf("no 8+ score band among %+v", params.Scores)
+	}
+}
+
+// A source that cannot report its abilities must still be usable: the browse goes
+// on, the sheet simply offers less (FR-011).
+func TestZarfilmCapabilitiesDegradeWhenThePanelIsMissing(t *testing.T) {
+	site := newZarFakeSite(t)
+	site.noPanel = true
+	params, err := zarfilm{}.Parameters(context.Background(), source.NewClient(), zarCfg(site), zarSession("abc"))
+	if err != nil {
+		t.Fatalf("Parameters must not fail: %v", err)
+	}
+	if len(params.Genres) != 0 || len(params.Sorts) != 0 {
+		t.Fatalf("expected nothing declared, got %+v", params)
+	}
+	if len(params.Types) == 0 {
+		t.Fatal("types are known without the panel and must survive")
+	}
+}
+
+// FR-002/003/004: the chosen genre, score and sort must all reach the site, on
+// the right route, and must survive pagination. Asserted on the REQUEST the
+// driver makes, because that is where the bug was: the sort was being written
+// with a parameter name the site does not read, so it silently did nothing.
+func TestZarfilmSendsEveryChosenFilter(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		q        source.SearchQuery
+		wantPath string
+		want     map[string]string
+		absent   []string
+	}{
+		{
+			name:     "movie browse composes genre, score and sort",
+			q:        source.SearchQuery{Page: 2, Sort: "imdb", Filters: source.SearchFilters{Genre: []string{"کمدی"}, Score: "8"}},
+			wantPath: "/all-movie/page/2/",
+			want:     map[string]string{"filter_genre": "کمدی", "imdb_rate": "8", "sortby": "imdb_rate"},
+		},
+		{
+			name:     "series browse uses the series route and the same parameters",
+			q:        source.SearchQuery{Page: 1, Sort: "year", Filters: source.SearchFilters{Type: source.TypeSeries, Genre: []string{"درام"}}},
+			wantPath: "/series/page/1/",
+			want:     map[string]string{"filter_genre": "درام", "sortby": "release"},
+		},
+		{
+			name:     "a text search still filters, but does not pretend to sort",
+			q:        source.SearchQuery{Page: 1, Query: "friends", Sort: "imdb", Filters: source.SearchFilters{Genre: []string{"کمدی"}}},
+			wantPath: "/page/1/",
+			want:     map[string]string{"s": "friends", "filter_genre": "کمدی"},
+			absent:   []string{"sortby"},
+		},
+		{
+			name:     "no filters means no stray parameters",
+			q:        source.SearchQuery{Page: 1},
+			wantPath: "/all-movie/page/1/",
+			absent:   []string{"sortby", "filter_genre", "imdb_rate"},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			site := newZarFakeSite(t)
+			if _, err := (zarfilm{}).Search(context.Background(), source.NewClient(), zarCfg(site), zarSession("abc"), tc.q); err != nil {
+				t.Fatalf("Search: %v", err)
+			}
+			u, err := url.Parse(site.lastPath)
+			if err != nil {
+				t.Fatalf("parse %q: %v", site.lastPath, err)
+			}
+			if u.Path != tc.wantPath {
+				t.Fatalf("path = %q, want %q", u.Path, tc.wantPath)
+			}
+			for k, v := range tc.want {
+				if got := u.Query().Get(k); got != v {
+					t.Fatalf("%s = %q, want %q (full: %s)", k, got, v, site.lastPath)
+				}
+			}
+			for _, k := range tc.absent {
+				if u.Query().Has(k) {
+					t.Fatalf("%s must not be sent (full: %s)", k, site.lastPath)
+				}
+			}
+		})
 	}
 }

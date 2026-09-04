@@ -20,7 +20,7 @@ import {
   type SourceSearchFilters,
   type SourceStatus,
 } from '@/services/api';
-import { COUNTRIES, GENRES, LANGUAGES, QUALITIES, SCORES, TYPES } from '@/services/source-filters';
+import { COUNTRIES, GENRES, LANGUAGES, QUALITIES, SCORES, SORTS, TYPES } from '@/services/source-filters';
 import {
   countryOptions,
   genreOptions,
@@ -28,6 +28,7 @@ import {
   passthroughOptions,
   qualityOptions,
   scoreOptions,
+  sortOptions,
   typeOptions,
   type Option,
 } from '@/services/facet-labels';
@@ -149,8 +150,23 @@ const filterOptions = computed(() => {
     channels: withAny(p ? passthroughOptions(p.channels ?? []) : [], 'Any channel'),
     encoders: withAny(p ? passthroughOptions(p.encoders ?? []) : [], 'Any encoder'),
     ages: withAny(p ? passthroughOptions(p.ages ?? []) : [], 'Any rating'),
+    // Sorts take no "Any" entry — a browse is always in some order. The built-in
+    // list stands in only until the live capabilities arrive; after that the
+    // control offers exactly what the selected source(s) can honour, so it can
+    // never present an ordering that would silently fall back to the default
+    // (spec 1024, FR-002/FR-008).
+    sorts: p?.sorts?.length ? sortOptions(p.sorts) : SORTS,
   };
 });
+
+// Keep the chosen ordering honest when the offered set changes — switching from
+// one source to another, or to combined, can take the current ordering away.
+// Leaving it selected would show a sort the results are not actually in.
+function reconcileSort(): void {
+  const offered = filterOptions.value.sorts;
+  if (!offered.length || offered.some((o) => o.value === sort.value)) return;
+  sort.value = offered.some((o) => o.value === DEFAULT_SORT) ? DEFAULT_SORT : offered[0].value;
+}
 // Year bounds for the range inputs (fall back to a sensible window).
 const yearBounds = computed(() => ({
   min: parameters.value?.minYear || 1900,
@@ -168,6 +184,7 @@ function optionLabel(list: Option[], value?: string): string {
 async function loadParameters(): Promise<void> {
   try {
     parameters.value = await api.getSourceParameters(selectedSource.value);
+    reconcileSort();
   } catch {
     /* keep whatever we have (built-in lists cover it) */
   }

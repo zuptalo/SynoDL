@@ -44,7 +44,7 @@ import { posterSrc, type CatalogTitle } from '@/services/api';
 import { logoForKind, monogram } from '@/services/source-logo';
 import { splitYear } from '@/services/title-year';
 import { useSourceCatalog } from '@/composables/useSourceCatalog';
-import { SORTS, sortLabel } from '@/services/source-filters';
+import { sortLabel } from '@/services/source-filters';
 import { useSession } from '@/composables/useSession';
 import SourceFilterSheet from '@/components/SourceFilterSheet.vue';
 import SourceTitleModal from '@/components/SourceTitleModal.vue';
@@ -163,7 +163,9 @@ const degradedMessage = computed(() => {
       ? 'needs an active subscription'
       : reason === 'needs_refresh'
         ? 'needs signing in again'
-        : "isn't responding";
+        : reason === 'filter_unsupported'
+          ? "can't narrow by that"
+          : "isn't responding";
   const verb = degraded.value.length > 1 ? 'are unavailable' : `${why}`;
   return degraded.value.length > 1
     ? `Some results are missing: ${names} ${verb}.`
@@ -171,7 +173,12 @@ const degradedMessage = computed(() => {
 });
 
 // The sort dropdown (beside the search bar) shows the current order's short label.
-const currentSortLabel = computed(() => sortLabel(sort.value));
+// Label the current ordering from the list actually on offer, so a source-only
+// ordering reads correctly; sortLabel covers the built-in names while the live
+// capabilities are still loading.
+const currentSortLabel = computed(
+  () => filterOptions.value.sorts.find((s) => s.value === sort.value)?.label ?? sortLabel(sort.value),
+);
 const sortOpen = ref(false);
 async function onSort(value: string): Promise<void> {
   if (loading.value) return;
@@ -446,7 +453,7 @@ function goSettings(): void {
             :selected-text="currentSortLabel"
             @ionChange="(e) => onSort(String(e.detail.value))"
           >
-            <ion-select-option v-for="s in SORTS" :key="s.value" :value="s.value">
+            <ion-select-option v-for="s in filterOptions.sorts" :key="s.value" :value="s.value">
               {{ s.label }}
             </ion-select-option>
           </ion-select>

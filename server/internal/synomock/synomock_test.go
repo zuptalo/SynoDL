@@ -349,3 +349,55 @@ func TestZarMockRoutesSeriesTitlesAndArchiveApart(t *testing.T) {
 		t.Fatal("archive carried a synopsis, which the real site's listings do not")
 	}
 }
+
+// The fake JSON source must HONOUR the genre it is sent. A mock that accepts a
+// filter and ignores it would let a broken cross-source translation pass — the
+// results would look filtered because the other source filtered its half.
+func TestTNMockHonoursTheGenreFilter(t *testing.T) {
+	srv := httptest.NewServer(New().Handler())
+	defer srv.Close()
+
+	// The shape the real driver sends: form-encoded, with the filters as a JSON
+	// object inside a single "parameters" field. Posting raw JSON here would test
+	// a request the driver never makes.
+	post := func(filters string) []map[string]any {
+		t.Helper()
+		resp, err := http.PostForm(srv.URL+"/mocksrc/tn/api/v1/action/advanced_search/page/1/orderby/favorite/order/desc",
+			url.Values{"parameters": {filters}})
+		if err != nil {
+			t.Fatalf("POST: %v", err)
+		}
+		defer resp.Body.Close()
+		var env struct {
+			Result struct {
+				Posts []map[string]any `json:"posts"`
+			} `json:"result"`
+		}
+		if err := json.NewDecoder(resp.Body).Decode(&env); err != nil {
+			t.Fatalf("decode: %v", err)
+		}
+		return env.Result.Posts
+	}
+
+	all := post(`{}`)
+	if len(all) == 0 {
+		t.Fatal("no posts at all")
+	}
+	comedy := post(`{"genre":["101"]}`)
+	if len(comedy) == 0 {
+		t.Fatal("genre filter returned nothing")
+	}
+	if len(comedy) >= len(all) {
+		t.Fatalf("filter changed nothing: %d of %d", len(comedy), len(all))
+	}
+	for _, p := range comedy {
+		gs, _ := p["genre"].([]any)
+		if len(gs) == 0 {
+			t.Fatalf("post has no genre: %v", p["title"])
+		}
+		g, _ := gs[0].(map[string]any)
+		if g["value"] != "101" {
+			t.Fatalf("post %v has genre %v, want 101", p["title"], g["value"])
+		}
+	}
+}

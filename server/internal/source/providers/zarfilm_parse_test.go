@@ -292,3 +292,71 @@ func TestParsersSurviveGarbage(t *testing.T) {
 		_ = parsePageCount(junk)
 	}
 }
+
+func TestParseFilterPanel(t *testing.T) {
+	p := parseFilterPanel(zarFixture(t, "archive_filters.html"))
+
+	// Groups are told apart by the SHAPE of their values, not by their Persian
+	// headings — so a relabelled panel still parses.
+	wantSorts := []string{"newest", "modified", "popular", "imdb_rate", "release"}
+	if len(p.Sorts) != len(wantSorts) {
+		t.Fatalf("sorts = %+v", p.Sorts)
+	}
+	for i, w := range wantSorts {
+		if p.Sorts[i].Value != w {
+			t.Fatalf("sort %d = %q, want %q", i, p.Sorts[i].Value, w)
+		}
+	}
+	if got := len(p.Scores); got != 6 {
+		t.Fatalf("scores = %d (%+v), want the six bands", got, p.Scores)
+	}
+	if p.Scores[0].Value != "9" {
+		t.Fatalf("scores start at %q, want the highest band first", p.Scores[0].Value)
+	}
+	// 29 entries in the panel, one of which is the empty "all" marker.
+	if got := len(p.Genres); got != 28 {
+		t.Fatalf("genres = %d, want 28", got)
+	}
+	for _, g := range p.Genres {
+		if g.Value == "" || g.Label == "" {
+			t.Fatalf("blank genre entry: %+v", g)
+		}
+	}
+	// The "all" entry is a UI affordance, not a filter value.
+	for _, g := range append(append([]zarFacet{}, p.Genres...), p.Scores...) {
+		if g.Value == "" {
+			t.Fatal(`the empty "all" option must not be offered as a value`)
+		}
+	}
+}
+
+func TestParseFilterPanelSurvivesPagesWithout(t *testing.T) {
+	for _, f := range []string{"archive_page1.html", "movie_subscribed.html", "logged_out.html"} {
+		p := parseFilterPanel(zarFixture(t, f))
+		if len(p.Sorts)+len(p.Scores)+len(p.Genres) != 0 {
+			t.Fatalf("%s: found a panel where there is none: %+v", f, p)
+		}
+	}
+}
+
+func TestParseGenreSlugs(t *testing.T) {
+	m := parseGenreSlugs(zarFixture(t, "archive_filters.html"))
+	for label, want := range map[string]string{
+		"کمدی":       "comedy",
+		"درام":       "drama",
+		"علمی تخیلی": "sci-fi",
+		"نوآر":       "film-noir",
+	} {
+		if m[label] != want {
+			t.Fatalf("%q -> %q, want %q", label, m[label], want)
+		}
+	}
+	// Some routes are just the Persian label percent-encoded — no English slug at
+	// all. Those must be dropped rather than offered as a slug, because a Persian
+	// "slug" would join with nothing and would be shown to the user title-cased.
+	for _, label := range []string{"معمایی", "فیلم نوآر", "مراسم تلویزیونی"} {
+		if s, ok := m[label]; ok {
+			t.Fatalf("%q kept a non-English slug %q", label, s)
+		}
+	}
+}
