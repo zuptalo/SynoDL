@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"synodl/server/internal/library"
+	"synodl/server/internal/source"
 	"synodl/server/internal/store"
 	"synodl/server/internal/syno"
 )
@@ -32,7 +33,26 @@ type libraryCache struct {
 	mu      sync.Mutex
 	index   *library.Index
 	builtAt time.Time
+
+	// evidence is layer two: what a SPECIFIC title folder was found to contain.
+	// Layer one (index) only says a folder with a matching name exists, which
+	// 0.3.0 mistook for proof the content was there. Populated lazily and only for
+	// folders backing a title actually being shown (FR-010b), so a page of titles
+	// that match nothing costs no NAS read at all.
+	evidence map[string]evidenceRec
 }
+
+// evidenceRec is one folder's answer, with its own expiry so a folder checked
+// long ago is re-read even while the name index is still warm.
+type evidenceRec struct {
+	hasVideo  bool
+	checkedAt time.Time
+}
+
+// maxSeasonScan bounds how many subfolders are opened looking for video. A title
+// folder has a handful of seasons; anything beyond this is a mis-configured parent
+// pointed at something enormous, and walking it would hold up a catalog response.
+const maxSeasonScan = 24
 
 // invalidateLibrary drops the snapshot so the next lookup rebuilds it.
 //
@@ -45,7 +65,10 @@ func (d Deps) invalidateLibrary() {
 		return
 	}
 	d.lib.mu.Lock()
-	d.lib.index, d.lib.builtAt = nil, time.Time{}
+	// Both layers, together. Keeping folder evidence across an invalidation would
+	// answer for a folder the new configuration may no longer include (FR-008a),
+	// and would hide the content of a title just sent (FR-008).
+	d.lib.index, d.lib.builtAt, d.lib.evidence = nil, time.Time{}, nil
 	d.lib.mu.Unlock()
 }
 
@@ -157,4 +180,110 @@ func mediaKind(catalogType string) library.MediaKind {
 	default:
 		return library.MediaMovie
 	}
+}
+
+// folderEvidence reports whether a title folder actually holds video.
+//
+// ok is false when the folder could not be read. That is deliberately distinct
+// from "holds nothing": a failed read must never be reported as "you do not have
+// this" (FR-009, FR-010c), so the caller shows no marker rather than a wrong one.
+func (d Deps) folderEvidence(ctx context.Context, relPath string) (hasVideo, ok bool) {
+	if d.lib == nil || d.NAS == nil || relPath == "" {
+		return false, false
+	}
+	d.lib.mu.Lock()
+	if rec, found := d.lib.evidence[relPath]; found && time.Since(rec.checkedAt) < libraryTTL {
+		d.lib.mu.Unlock()
+		return rec.hasVideo, true
+	}
+	d.lib.mu.Unlock()
+
+	abs := "/" + relPath
+	found := false
+	err := d.NAS.Do(ctx, func(c syno.Client, sid string) error {
+		files, e := c.ListFiles(ctx, sid, abs)
+		if e != nil {
+			return e
+		}
+		for _, name := range files {
+			if library.IsVideo(name) {
+				found = true
+				return nil
+			}
+		}
+		// Nothing at this level. A series keeps its episodes in season folders, so
+		// one level down is still this title's content (FR-015).
+		dirs, e := c.ListFolder(ctx, sid, abs)
+		if e != nil {
+			return e
+		}
+		for i, dir := range dirs {
+			if i >= maxSeasonScan {
+				break
+			}
+			sub, se := c.ListFiles(ctx, sid, abs+"/"+dir.Name)
+			if se != nil {
+				// One unreadable season must not condemn the whole title.
+				continue
+			}
+			for _, name := range sub {
+				if library.IsVideo(name) {
+					found = true
+					return nil
+				}
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		// Nothing is logged: a DSM error can carry the path, and folder and file
+		// names are NAS content (FR-026).
+		return false, false
+	}
+
+	d.lib.mu.Lock()
+	if d.lib.evidence == nil {
+		d.lib.evidence = map[string]evidenceRec{}
+	}
+	d.lib.evidence[relPath] = evidenceRec{hasVideo: found, checkedAt: time.Now()}
+	d.lib.mu.Unlock()
+	return found, true
+}
+
+// ownershipOf resolves one catalog title against the library.
+//
+// Order matters. A title being written to is reported as downloading even though a
+// partial video file is already on disk (FR-001b): "you have this" means skip it,
+// "downloading" means wait, and only the second is true while bytes are arriving.
+func (d Deps) ownershipOf(
+	ctx context.Context, ix *library.Index, title string, kind library.MediaKind,
+	activeDests map[string]bool,
+) string {
+	entry, matched := ix.Lookup(title, kind)
+	if !matched {
+		// No folder could be this title. Conclusive, and it cost no NAS read —
+		// which is what keeps a page of unowned titles free (FR-010b).
+		return source.OwnershipAbsent
+	}
+	if activeDests[entry.Path] {
+		return source.OwnershipDownloading
+	}
+	hasVideo, ok := d.folderEvidence(ctx, entry.Path)
+	if !ok {
+		return source.OwnershipUnknown
+	}
+	if hasVideo {
+		return source.OwnershipOwned
+	}
+	// The folder is there and holds no video: created ahead of a download, or left
+	// behind holding only metadata. Not owned (FR-001a).
+	return source.OwnershipAbsent
+}
+
+// activeDestinations is the watcher's view of what is being written to now.
+func (d Deps) activeDestinations() map[string]bool {
+	if d.ActiveDests == nil {
+		return nil
+	}
+	return d.ActiveDests()
 }

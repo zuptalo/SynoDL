@@ -452,6 +452,18 @@ func TestSourcePrefs(t *testing.T) {
 
 // seedMockFolders adds folders to the mock DSM's tree so a test can set up "the
 // NAS already holds these titles".
+// seedMockTree seeds FILES per directory, which is what ownership now reads.
+// Seeding a folder NAME alone no longer makes a title owned — that was the bug.
+func seedMockTree(t *testing.T, mockURL string, tree map[string][]string) {
+	t.Helper()
+	raw, _ := json.Marshal(map[string]any{"tree": tree})
+	resp, err := http.Post(mockURL+"/__mock/library", "application/json", bytes.NewReader(raw))
+	if err != nil {
+		t.Fatalf("seed mock tree: %v", err)
+	}
+	resp.Body.Close()
+}
+
 func seedMockFolders(t *testing.T, mockURL string, folders map[string][]string) {
 	t.Helper()
 	raw, _ := json.Marshal(map[string]any{"folders": folders})
@@ -466,11 +478,18 @@ func seedMockFolders(t *testing.T, mockURL string, folders map[string][]string) 
 // comes back flagged, and one that does not comes back unflagged.
 func TestSearchMarksTitlesAlreadyOnTheNAS(t *testing.T) {
 	resetFake()
-	h, _ := newStatefulRouter(t)
+	// Needs the mock rather than the fake: ownership now reads FILES, and the
+	// mock is the only thing that models a folder's contents faithfully.
+	h, _, mockURL := newStatefulRouterWithMock(t)
 	admin := adminAfterSetup(t, h)
 	configureFake(t, h, admin, "movie")
 
-	// The mock's fixture tree holds /tv-show/Friends and /movie/Kids.
+	// The fixture tree holds /tv-show/Friends and /movie/Kids, but a folder NAME
+	// is no longer evidence — the content has to actually be there (FR-001a).
+	seedMockTree(t, mockURL, map[string][]string{
+		"/tv-show/Friends": {"Friends.S01E01.mkv"},
+		"/movie/Kids":      {"Kids.1995.mkv"},
+	})
 	fakeSearch = source.SearchResult{Page: 1, Pages: 1, Items: []source.CatalogTitle{
 		{ID: "1", Type: "series", Title: "Friends 1994 - 2004"},      // on the NAS
 		{ID: "2", Type: "movie", Title: "Kids 1995"},                 // on the NAS
@@ -486,14 +505,14 @@ func TestSearchMarksTitlesAlreadyOnTheNAS(t *testing.T) {
 	}
 	// Keyed by TITLE, not id: the response re-qualifies ids as "<sourceId>:<id>",
 	// so an id-keyed assertion silently matches nothing and passes vacuously.
-	want := map[string]bool{
-		"Friends 1994 - 2004":       true,
-		"Kids 1995":                 true,
-		"Some Film Nobody Has 2020": false,
+	want := map[string]string{
+		"Friends 1994 - 2004":       source.OwnershipOwned,
+		"Kids 1995":                 source.OwnershipOwned,
+		"Some Film Nobody Has 2020": source.OwnershipAbsent,
 	}
 	for title, wantIn := range want {
 		if got[title] != wantIn {
-			t.Errorf("%q inLibrary = %v, want %v", title, got[title], wantIn)
+			t.Errorf("%q ownership = %q, want %q", title, got[title], wantIn)
 		}
 	}
 	// An absent title must omit the field entirely (omitempty), so an older
@@ -504,20 +523,20 @@ func TestSearchMarksTitlesAlreadyOnTheNAS(t *testing.T) {
 }
 
 // decodeOwnership maps each returned title to its inLibrary flag.
-func decodeOwnership(t *testing.T, body []byte) map[string]bool {
+func decodeOwnership(t *testing.T, body []byte) map[string]string {
 	t.Helper()
 	var res struct {
 		Items []struct {
 			Title     string `json:"title"`
-			InLibrary bool   `json:"inLibrary"`
+			Ownership string `json:"ownership"`
 		} `json:"items"`
 	}
 	if err := json.Unmarshal(body, &res); err != nil {
 		t.Fatalf("decode: %v (%s)", err, body)
 	}
-	out := make(map[string]bool, len(res.Items))
+	out := make(map[string]string, len(res.Items))
 	for _, it := range res.Items {
-		out[it.Title] = it.InLibrary
+		out[it.Title] = it.Ownership
 	}
 	return out
 }
@@ -530,6 +549,7 @@ func TestSearchDoesNotMarkASameNameDifferentYearTitle(t *testing.T) {
 	admin := adminAfterSetup(t, h)
 	configureFake(t, h, admin, "movie")
 	seedMockFolders(t, mockURL, map[string][]string{"/movie": {"It 2017"}})
+	seedMockTree(t, mockURL, map[string][]string{"/movie/It 2017": {"It.2017.mkv"}})
 
 	fakeSearch = source.SearchResult{Page: 1, Pages: 1, Items: []source.CatalogTitle{
 		{ID: "1", Type: "movie", Title: "It 2017"},
@@ -537,10 +557,10 @@ func TestSearchDoesNotMarkASameNameDifferentYearTitle(t *testing.T) {
 	}}
 	rec := do(t, h, "POST", "/v1/source/search", `{"page":1}`, admin)
 	got := decodeOwnership(t, rec.Body.Bytes())
-	if !got["It 2017"] {
-		t.Error("It 2017 should be marked — its folder is right there")
+	if got["It 2017"] != source.OwnershipOwned {
+		t.Errorf("It 2017 = %q, want owned — its folder holds the film", got["It 2017"])
 	}
-	if got["It 1990"] {
+	if got["It 1990"] == source.OwnershipOwned {
 		t.Error("It 1990 was wrongly marked; a false positive makes a user skip a title they wanted")
 	}
 }
