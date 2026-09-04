@@ -50,6 +50,7 @@ Specs are grouped by category band; status moves
 | [1024](specs/1024-filter-and-sort/spec.md) | Filter and sort every source the same way | 🔵 in-review |
 | [1025](specs/1025-mark-version-you/spec.md) | Mark the version you actually downloaded | 🔵 in-review |
 | [1026](specs/1026-tell-one-release/spec.md) | Tell one release from another by the file it makes | 🔵 in-review |
+| [1027](specs/1027-choosing-quality-deliberate-act/spec.md) | Choosing a quality is a deliberate act | 🔵 in-review |
 
 ## 🐛 Hotfixes & Bug Fixes (2001+)
 

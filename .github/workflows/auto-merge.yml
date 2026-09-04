@@ -67,7 +67,12 @@ jobs:
             state=$(gh api "repos/$REPO/pulls/$PR" --jq '.mergeable_state')
             case "$state" in
               clean | unstable | has_hooks)
-                if gh pr merge "$PR" --repo "$REPO" --squash; then
+                # --delete-branch explicitly: the repo's delete_branch_on_merge
+                # setting is on, but it does not fire for a merge this workflow
+                # performs with its own token, so every merged branch was living
+                # on forever. Deleting here is deterministic and does not depend
+                # on the setting.
+                if gh pr merge "$PR" --repo "$REPO" --squash --delete-branch; then
                   echo "merged=true" >> "$GITHUB_OUTPUT"
                   echo "Merged #$PR."
                   exit 0
