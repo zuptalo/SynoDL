@@ -2,6 +2,7 @@ package api
 
 import (
 	"bytes"
+	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -146,8 +147,9 @@ func TestProvidersRoutesAreAdminOnly(t *testing.T) {
 	addProvider(t, h, admin, "Alpha", 0)
 	user := makeUser(t, h, admin, "plainuser", "")
 
+	// WRITING a source stays admin-only: adding, editing or removing one changes
+	// the instance for everybody.
 	for _, tc := range []struct{ method, path, body string }{
-		{"GET", "/v1/source/providers", ""},
 		{"POST", "/v1/source/providers", `{"kind":"faketest"}`},
 		{"PUT", "/v1/source/providers/1", `{"displayName":"x"}`},
 		{"DELETE", "/v1/source/providers/1", ""},
@@ -156,6 +158,15 @@ func TestProvidersRoutesAreAdminOnly(t *testing.T) {
 		if rec.Code != http.StatusForbidden && rec.Code != http.StatusUnauthorized {
 			t.Fatalf("%s %s as non-admin = %d, want denied", tc.method, tc.path, rec.Code)
 		}
+	}
+
+	// READING is not admin-only any more. It was, and the cost was that every
+	// non-admin browsed one merged catalog with no way to narrow it — while the
+	// source's name, kind, state and parent folders already reached them through
+	// /v1/source/status. The list is trimmed instead of withheld; what it may and
+	// may not contain is asserted in TestNonAdminGetsATrimmedProviderList.
+	if rec := do(t, h, "GET", "/v1/source/providers", "", user); rec.Code != 200 {
+		t.Fatalf("GET /v1/source/providers as non-admin = %d, want 200", rec.Code)
 	}
 }
 
@@ -391,5 +402,88 @@ func TestAltBaseIsValidatedAndScoped(t *testing.T) {
 		if p.DisplayName == "Y" && strings.Contains(p.AltBase, "mirror.example") {
 			t.Fatal("a second source inherited the first source's alternate address")
 		}
+	}
+}
+
+// A non-admin must be able to choose which source to browse. The picker was
+// admin-only, so every other user saw one merged catalog with no way to narrow it
+// — while the same folder paths and source names already reached them through
+// /v1/source/status, which the upload sheet needs. The gate protected nothing and
+// cost a feature.
+func TestNonAdminGetsATrimmedProviderList(t *testing.T) {
+	resetFake()
+	h, _ := newStatefulRouter(t)
+	admin := adminAfterSetup(t, h)
+	configureFake(t, h, admin, "movie")
+	bob := makeUser(t, h, admin, "bob-picker", `"movie"`)
+
+	rec := do(t, h, "GET", "/v1/source/providers", "", bob)
+	if rec.Code != 200 {
+		t.Fatalf("non-admin list = %d %s", rec.Code, rec.Body.String())
+	}
+	var got struct {
+		Providers []map[string]any `json:"providers"`
+		Kinds     []map[string]any `json:"kinds"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(got.Providers) == 0 {
+		t.Fatal("no providers returned; the picker would stay empty")
+	}
+	p := got.Providers[0]
+
+	// Enough to render and select an entry.
+	for _, k := range []string{"id", "displayName", "kind", "enabled"} {
+		if _, ok := p[k]; !ok {
+			t.Errorf("trimmed view is missing %q, which the picker needs", k)
+		}
+	}
+	// enabled must be PRESENT and true: the client filters on it, so an absent
+	// field reads as false and silently empties the picker.
+	if p["enabled"] != true {
+		t.Errorf("enabled = %v, want true", p["enabled"])
+	}
+	// Administrative detail must not be here.
+	for _, k := range []string{"lastError", "sortOrder", "altBase", "moviesParent", "tvParent", "state", "lastVerifiedAt"} {
+		if _, leaked := p[k]; leaked {
+			t.Errorf("trimmed view leaked %q to a non-admin", k)
+		}
+	}
+	// kinds populates the add-a-source form, which is not theirs.
+	if len(got.Kinds) != 0 {
+		t.Errorf("kinds = %v, want none for a non-admin", got.Kinds)
+	}
+}
+
+// The admin view is unchanged — the trim must not cost the settings screen the
+// fields it manages sources with.
+func TestAdminProviderListKeepsTheFullView(t *testing.T) {
+	resetFake()
+	h, _ := newStatefulRouter(t)
+	admin := adminAfterSetup(t, h)
+	configureFake(t, h, admin, "movie")
+
+	rec := do(t, h, "GET", "/v1/source/providers", "", admin)
+	if rec.Code != 200 {
+		t.Fatalf("admin list = %d %s", rec.Code, rec.Body.String())
+	}
+	var got struct {
+		Providers []map[string]any `json:"providers"`
+		Kinds     []map[string]any `json:"kinds"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(got.Providers) == 0 {
+		t.Fatal("admin got no providers")
+	}
+	for _, k := range []string{"id", "displayName", "kind", "enabled", "state", "moviesParent", "tvParent"} {
+		if _, ok := got.Providers[0][k]; !ok {
+			t.Errorf("admin view lost %q", k)
+		}
+	}
+	if len(got.Kinds) == 0 {
+		t.Error("admin lost the kinds list that the add-a-source form needs")
 	}
 }
