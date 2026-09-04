@@ -25,6 +25,10 @@ type zarFakeSite struct {
 	lastPath   string
 	anonymous  bool // serve logged-out pages regardless of the cookie
 	paywalled  bool // serve a page whose rows are all upsell links
+	// meta names a metadata-block fixture to prepend to whatever page is served,
+	// reproducing today's pages: the captured full pages predate the block, so
+	// on their own they only exercise the "site publishes no synopsis" path.
+	meta string
 }
 
 func newZarFakeSite(t *testing.T) *zarFakeSite {
@@ -34,6 +38,9 @@ func newZarFakeSite(t *testing.T) *zarFakeSite {
 		site.lastCookie = r.Header.Get("Cookie")
 		site.lastPath = r.URL.RequestURI()
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		if site.meta != "" {
+			w.Write(mustFixture(t, site.meta))
+		}
 		switch {
 		case site.anonymous:
 			w.Write(mustFixture(t, "logged_out.html"))
@@ -194,6 +201,60 @@ func TestZarfilmTitleSeries(t *testing.T) {
 		if q.Season == "" || q.Episodes == 0 {
 			t.Fatalf("season option missing season/episodes: %+v", q)
 		}
+	}
+}
+
+// Spec 1023: the sheet's header metadata comes from the catalog entry, and a
+// ZarFilm catalog entry has none — so the title response has to carry it, for a
+// movie and for a series alike.
+func TestZarfilmTitleCarriesMetadata(t *testing.T) {
+	for _, tc := range []struct {
+		name, meta, id, wantIMDb string
+		wantType                 string
+	}{
+		{"movie", "movie_meta.html", "the-whisper-man-2026", "tt1756855", source.TypeMovie},
+		{"series", "series_meta.html", "series/the-loyalty-game", "tt13210838", source.TypeSeries},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			site := newZarFakeSite(t)
+			site.meta = tc.meta
+			td, err := zarfilm{}.Title(context.Background(), source.NewClient(), zarCfg(site),
+				zarSession("abc"), tc.id)
+			if err != nil {
+				t.Fatalf("Title: %v", err)
+			}
+			if td.Type != tc.wantType {
+				t.Fatalf("type = %q", td.Type)
+			}
+			if td.IMDbID != tc.wantIMDb {
+				t.Fatalf("imdbId = %q, want %q", td.IMDbID, tc.wantIMDb)
+			}
+			if td.Plot == "" {
+				t.Fatal("no plot")
+			}
+			// Metadata is an addition, not a replacement: the download options are
+			// still what the caller asked for.
+			if len(td.Qualities) == 0 {
+				t.Fatal("no qualities")
+			}
+		})
+	}
+}
+
+// A page carrying no metadata block still answers with its download options:
+// missing metadata is never an error (FR-010).
+func TestZarfilmTitleWithoutMetadataStillLists(t *testing.T) {
+	site := newZarFakeSite(t)
+	td, err := zarfilm{}.Title(context.Background(), source.NewClient(), zarCfg(site),
+		zarSession("abc"), "the-whisper-man-2026")
+	if err != nil {
+		t.Fatalf("Title: %v", err)
+	}
+	if td.Plot != "" {
+		t.Fatalf("plot = %q, want empty", td.Plot)
+	}
+	if len(td.Qualities) == 0 {
+		t.Fatal("no qualities")
 	}
 }
 

@@ -301,3 +301,51 @@ func TestMockLibrarySeeding(t *testing.T) {
 		t.Errorf("reset did not clear the seeded folders: %v", got)
 	}
 }
+
+// The fake film site has to distinguish the series ARCHIVE from a series TITLE:
+// both paths begin "/series". Getting that wrong is invisible from the outside —
+// a title page full of cards parses as a series with no seasons — so it is
+// asserted here rather than left to a driver test to notice.
+func TestZarMockRoutesSeriesTitlesAndArchiveApart(t *testing.T) {
+	srv := httptest.NewServer(New().Handler())
+	defer srv.Close()
+
+	get := func(path string) string {
+		t.Helper()
+		resp, err := http.Get(srv.URL + path)
+		if err != nil {
+			t.Fatalf("GET %s: %v", path, err)
+		}
+		defer resp.Body.Close()
+		var b bytes.Buffer
+		if _, err := b.ReadFrom(resp.Body); err != nil {
+			t.Fatalf("read %s: %v", path, err)
+		}
+		return b.String()
+	}
+
+	for _, archive := range []string{"/mocksrc/zar/series/", "/mocksrc/zar/series/page/2/"} {
+		body := get(archive)
+		if !strings.Contains(body, "inner_item_body_widget") {
+			t.Fatalf("%s: expected a page of cards", archive)
+		}
+		if strings.Contains(body, "row_season_n_dl") {
+			t.Fatalf("%s: archive served season markup", archive)
+		}
+	}
+
+	title := get("/mocksrc/zar/series/zar-title-3/")
+	if !strings.Contains(title, "row_season_n_dl") {
+		t.Fatal("series title page served no seasons")
+	}
+	if strings.Contains(title, "inner_item_body_widget") {
+		t.Fatal("series title page served a page of cards")
+	}
+	// Every title page describes the title; the listings deliberately do not.
+	if !strings.Contains(title, `class="plot"`) {
+		t.Fatal("series title page carried no synopsis")
+	}
+	if strings.Contains(get("/mocksrc/zar/series/"), `class="plot"`) {
+		t.Fatal("archive carried a synopsis, which the real site's listings do not")
+	}
+}

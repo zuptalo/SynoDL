@@ -187,6 +187,11 @@ export interface TitleDetailShape {
   type: string;
   ownership?: string;
   seasons?: Array<{ season: number; episodes: number[]; videoFiles: number }>;
+  /** Set by the driver from the title's own page, for sources whose listings
+   *  carry neither (spec 1023). */
+  imdbId?: string;
+  plot?: string;
+  qualities?: Array<Record<string, unknown>>;
 }
 
 /** Season detail rides on the title endpoint, which already resolves through the

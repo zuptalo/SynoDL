@@ -4,6 +4,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"unicode"
 
 	"golang.org/x/net/html"
 )
@@ -372,6 +373,43 @@ func parseIMDbID(body []byte) string {
 		return m[1]
 	}
 	return ""
+}
+
+// parsePlot reads the title's synopsis.
+//
+// The page prints the same text twice — once in the block beside the cover and
+// again in a separate block the stylesheet shows only on narrow screens — so the
+// two are alternatives, never pieces to be joined: taking both would show every
+// synopsis doubled. The first non-empty wins.
+//
+// ZarFilm publishes the synopsis in Persian only. It is returned as published;
+// deciding what to do with a right-to-left string is the client's job, not the
+// parser's.
+func parsePlot(body []byte) string {
+	doc, err := parseHTML(body)
+	if err != nil {
+		return ""
+	}
+	for _, class := range []string{"plot", "mobile_plot"} {
+		if n := findFirst(doc, byClass(class)); n != nil {
+			if s := strings.TrimSpace(text(n)); hasWords(s) {
+				return s
+			}
+		}
+	}
+	return ""
+}
+
+// hasWords reports whether s says anything. A synopsis the site has not written
+// yet is not always an empty element: it can be a dash or an ellipsis holding the
+// space, which would render as a synopsis consisting of punctuation.
+func hasWords(s string) bool {
+	for _, r := range s {
+		if unicode.IsLetter(r) || unicode.IsDigit(r) {
+			return true
+		}
+	}
+	return false
 }
 
 // ---------- series pages ----------

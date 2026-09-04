@@ -237,6 +237,20 @@ type TitleDetail struct {
 	Sendable  bool            `json:"sendable"`
 	Qualities []QualityOption `json:"qualities"`
 
+	// IMDbID and Plot are the source's own description of the title, so unlike
+	// the two fields below they are set by the DRIVER and the handler never
+	// touches them. They exist because the sheet's header metadata comes from the
+	// catalog entry, and not every source puts metadata in its listing pages: a
+	// site whose listing carries only a poster and a rating can still describe
+	// the title on its detail page, which the driver is fetching anyway.
+	//
+	// Both are best-effort. A driver that cannot find them leaves them empty and
+	// still returns its download options — missing metadata is not an error.
+	IMDbID string `json:"imdbId,omitempty"`
+	// Plot is plain text, in whatever language the source publishes; the client
+	// renders it with dir="auto" rather than assuming it is left-to-right.
+	Plot string `json:"plot,omitempty"`
+
 	// Ownership and Seasons are set by the handler on the way out, never by a
 	// driver — the same decoration pattern CatalogTitle.Ownership uses.
 	//
