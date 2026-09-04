@@ -227,11 +227,47 @@ type kindView struct {
 }
 
 // handleListProviders lists configured sources plus the kinds available to add.
+// providerPickerView is what a NON-admin may see: enough to choose which source
+// to browse, and nothing more.
+//
+// `enabled` is present and always true even though the list is already filtered to
+// enabled sources — the client filters on it, so omitting it would leave the field
+// undefined and quietly empty the picker.
+type providerPickerView struct {
+	ID          int64  `json:"id"`
+	Kind        string `json:"kind"`
+	DisplayName string `json:"displayName"`
+	Enabled     bool   `json:"enabled"`
+}
+
 func handleListProviders(d Deps) http.Handler {
-	return d.requireAdmin(func(w http.ResponseWriter, _ *http.Request, _ *store.User) {
+	return d.requireUser(func(w http.ResponseWriter, _ *http.Request, u *store.User) {
 		providers, err := d.Store.ListProviders()
 		if err != nil {
 			httpx.Error(w, http.StatusInternalServerError, "server")
+			return
+		}
+		// A non-admin gets a trimmed, read-only list so they can switch between
+		// sources or browse them all. Everything withheld here is administrative:
+		// lastError can carry diagnostic detail, and sortOrder, altBase and the
+		// parent folders are settings they cannot change.
+		//
+		// Deliberately NOT withheld for secrecy — the parent folders and the
+		// source's name, kind and state already reach every signed-in user through
+		// /v1/source/status, which the upload sheet needs. Pretending otherwise
+		// would be a gate that protects nothing while breaking the picker.
+		if !u.IsAdmin {
+			out := make([]providerPickerView, 0, len(providers))
+			for _, p := range providers {
+				if !p.Enabled {
+					continue // a disabled source is not theirs to browse or reason about
+				}
+				out = append(out, providerPickerView{
+					ID: p.ID, Kind: p.Kind, DisplayName: p.DisplayName, Enabled: true,
+				})
+			}
+			// No kinds: that list exists to populate the add-a-source form.
+			httpx.JSON(w, http.StatusOK, map[string]any{"providers": out, "kinds": []kindView{}})
 			return
 		}
 		views := make([]providerView, 0, len(providers))
