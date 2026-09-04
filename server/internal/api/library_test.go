@@ -346,7 +346,7 @@ func TestSeasonAndEpisodePresence(t *testing.T) {
 	d, st := libDeps(t, fake)
 	addSource(t, st, "Alpha", "movie", "tv-show")
 
-	own, seasons := d.titleDetail(context.Background(), "Friends 1994", library.MediaTV, nil)
+	own, seasons, _ := d.titleDetail(context.Background(), "Friends 1994", library.MediaTV, nil)
 	if own != source.OwnershipOwned {
 		t.Fatalf("ownership = %q, want owned", own)
 	}
@@ -384,7 +384,7 @@ func TestSeasonWithUnreadableNumberingIsStillPresent(t *testing.T) {
 	d, st := libDeps(t, fake)
 	addSource(t, st, "Alpha", "movie", "tv-show")
 
-	own, seasons := d.titleDetail(context.Background(), "Show 2020", library.MediaTV, nil)
+	own, seasons, _ := d.titleDetail(context.Background(), "Show 2020", library.MediaTV, nil)
 	if own != source.OwnershipOwned {
 		t.Fatalf("ownership = %q, want owned", own)
 	}
@@ -409,8 +409,134 @@ func TestMovieHasNoSeasonBreakdown(t *testing.T) {
 	d, st := libDeps(t, fake)
 	addSource(t, st, "Alpha", "movie", "tv-show")
 
-	own, seasons := d.titleDetail(context.Background(), "Dune 2021", library.MediaMovie, nil)
+	own, seasons, _ := d.titleDetail(context.Background(), "Dune 2021", library.MediaMovie, nil)
 	if own != source.OwnershipOwned || len(seasons) != 0 {
 		t.Errorf("movie = (%q, %+v), want owned with no seasons", own, seasons)
+	}
+}
+
+// Spec 1025 US1: a season on disk used to stamp EVERY option for that season as
+// already downloaded — the 1080p one, the x265 one and the other encoder's alike.
+// Only the release actually on disk may be marked.
+func TestOnlyTheReleaseOnDiskIsMarked(t *testing.T) {
+	fake := &fakeSyno{
+		loginSid: "sid",
+		subfolders: map[string][]syno.Folder{
+			"/tv-show":           {{Name: "Show 2020", Path: "/tv-show/Show 2020"}},
+			"/tv-show/Show 2020": {{Name: "Season 01"}},
+		},
+		files: map[string][]string{
+			"/tv-show/Show 2020/Season 01": {
+				"Show.S01E01.1080p.BluRay.x265-Silence.mkv",
+				"Show.S01E02.1080p.BluRay.x265-Silence.mkv",
+			},
+		},
+	}
+	d, st := libDeps(t, fake)
+	addSource(t, st, "Alpha", "movie", "tv-show")
+
+	_, _, releases := d.titleDetail(context.Background(), "Show 2020", library.MediaTV, nil)
+	got := markOwnedOptions([]source.QualityOption{
+		{ID: "a", Season: "Season 1", Resolution: "1080p", Encoder: "Silence"},
+		{ID: "b", Season: "Season 1", Resolution: "1080p", Encoder: "TENEIGHTY"},
+		{ID: "c", Season: "Season 1", Resolution: "720p", Encoder: "Silence"},
+		{ID: "d", Season: "Season 2", Resolution: "1080p", Encoder: "Silence"},
+	}, releases)
+
+	owned := map[string]bool{}
+	for _, q := range got {
+		owned[q.ID] = q.Owned
+	}
+	if !owned["a"] {
+		t.Error("the release actually on disk must be marked")
+	}
+	if owned["b"] {
+		t.Error("same resolution, different encoder — a resolution match alone must never mark (FR-002)")
+	}
+	if owned["c"] {
+		t.Error("same encoder, different resolution — must not mark")
+	}
+	if owned["d"] {
+		t.Error("a season that is not on disk must not be marked")
+	}
+}
+
+// FR-003/FR-004: files that do not name a release identify nothing — but the
+// season is still present, and saying otherwise would be the opposite mistake.
+func TestUnidentifiableFilesMarkNothingButStayPresent(t *testing.T) {
+	fake := &fakeSyno{
+		loginSid: "sid",
+		subfolders: map[string][]syno.Folder{
+			"/tv-show":           {{Name: "Show 2020", Path: "/tv-show/Show 2020"}},
+			"/tv-show/Show 2020": {{Name: "Season 01"}},
+		},
+		files: map[string][]string{
+			// Real episodes, but nothing about how they were encoded.
+			"/tv-show/Show 2020/Season 01": {"Show S01E01.mkv", "Show S01E02.mkv"},
+		},
+	}
+	d, st := libDeps(t, fake)
+	addSource(t, st, "Alpha", "movie", "tv-show")
+
+	own, seasons, releases := d.titleDetail(context.Background(), "Show 2020", library.MediaTV, nil)
+	if own != source.OwnershipOwned {
+		t.Fatalf("ownership = %q, want owned — an unidentifiable release is still a release", own)
+	}
+	if len(seasons) != 1 || len(seasons[0].Episodes) != 2 {
+		t.Fatalf("season presence must be unaffected: %+v", seasons)
+	}
+	for _, q := range markOwnedOptions([]source.QualityOption{
+		{ID: "a", Season: "Season 1", Resolution: "1080p", Encoder: "Silence"},
+	}, releases) {
+		if q.Owned {
+			t.Error("nothing may be marked when the files identify no release")
+		}
+	}
+}
+
+// A movie has no seasons; its releases live under season 0 and match options
+// that carry no season at all.
+func TestMovieReleaseIsMatched(t *testing.T) {
+	fake := &fakeSyno{
+		loginSid:   "sid",
+		subfolders: map[string][]syno.Folder{"/movie": {{Name: "Dune 2021", Path: "/movie/Dune 2021"}}},
+		files: map[string][]string{
+			"/movie/Dune 2021": {"Dune.2021.2160p.UHD.BluRay-FraMeSToR.mkv"},
+		},
+	}
+	d, st := libDeps(t, fake)
+	addSource(t, st, "Alpha", "movie", "tv-show")
+
+	_, _, releases := d.titleDetail(context.Background(), "Dune 2021", library.MediaMovie, nil)
+	got := markOwnedOptions([]source.QualityOption{
+		{ID: "a", Resolution: "2160p", Encoder: "FraMeSToR"},
+		{ID: "b", Resolution: "1080p", Encoder: "FraMeSToR"},
+	}, releases)
+	if !got[0].Owned {
+		t.Error("the movie release on disk must be marked")
+	}
+	if got[1].Owned {
+		t.Error("a different resolution must not be marked")
+	}
+}
+
+// A title still arriving reports as downloading and marks nothing: a half-written
+// folder must not be read as what the user has.
+func TestDownloadingTitleMarksNoRelease(t *testing.T) {
+	fake := &fakeSyno{
+		loginSid:   "sid",
+		subfolders: map[string][]syno.Folder{"/movie": {{Name: "Dune 2021", Path: "/movie/Dune 2021"}}},
+		files:      map[string][]string{"/movie/Dune 2021": {"Dune.2021.2160p.UHD.BluRay-FraMeSToR.mkv"}},
+	}
+	d, st := libDeps(t, fake)
+	addSource(t, st, "Alpha", "movie", "tv-show")
+
+	own, _, releases := d.titleDetail(context.Background(), "Dune 2021", library.MediaMovie,
+		map[string]bool{"movie/Dune 2021": true})
+	if own != source.OwnershipDownloading {
+		t.Fatalf("ownership = %q, want downloading", own)
+	}
+	if len(releases) != 0 {
+		t.Fatalf("a folder mid-write must yield no releases, got %+v", releases)
 	}
 }

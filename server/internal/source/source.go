@@ -247,6 +247,18 @@ type QualityOption struct {
 	Hardsub    bool   `json:"hardsub"`
 	Season     string `json:"season,omitempty"`
 	Episodes   int    `json:"episodes,omitempty"`
+
+	// Owned reports that THIS release is the one already on the NAS — not merely
+	// that something for this season is. Set by the handler on the way out, never
+	// by a driver, like Ownership and Seasons on TitleDetail.
+	//
+	// It is deliberately absent far more often than Ownership is: identifying a
+	// release needs the files to name both a resolution and a release group, and
+	// when they do not, no option is marked at all. Marking on the resolution
+	// alone was the bug (spec 1025) — several releases of one season share a
+	// resolution and differ only by who encoded them, so it marked three options
+	// out of four wrongly.
+	Owned bool `json:"owned,omitempty"`
 }
 
 // TitleDetail is a title with its qualities. Sendable is false for types this

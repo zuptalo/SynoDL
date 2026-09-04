@@ -456,6 +456,13 @@ export interface SourceParameters {
 }
 export interface QualityOption {
   id: string;
+  /**
+   * This exact release is the one already on the NAS — not merely that something
+   * for its season is. Set by the server, which matches the release on disk
+   * against the option; absent whenever the files cannot say which release they
+   * came from, in which case nothing is marked at all (spec 1025).
+   */
+  owned?: boolean;
   label: string;
   size: string;
   resolution: string;
