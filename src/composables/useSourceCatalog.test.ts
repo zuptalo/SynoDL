@@ -212,3 +212,54 @@ describe('viewChanged (reset affordance)', () => {
     expect(c.hasFilters.value).toBe(false);
   });
 });
+
+// Hiding covers what you HAVE and what is already on its way (spec 0008 FR-019a,
+// FR-022). Tested here rather than through the filter sheet because this is where
+// the decision is made — the toggle only flips a boolean.
+describe('useSourceCatalog.hideOwned', () => {
+  const cat = useSourceCatalog();
+
+  const mixed = () =>
+    [
+      { id: 'a', ownership: 'owned' },
+      { id: 'b', ownership: 'downloading' },
+      { id: 'c', ownership: 'absent' },
+      { id: 'd', ownership: 'unknown' },
+      { id: 'e' }, // field omitted entirely — never established
+    ].map((o) => ({ ...o, title: o.id, type: 'movie', comingSoon: false }) as unknown as CatalogTitle);
+
+  beforeEach(() => {
+    searchSource.mockReset();
+    cat.query.value = '';
+    cat.items.value = [];
+    cat.page.value = 1;
+    cat.pages.value = 2;
+    cat.loading.value = false;
+    cat.hideOwned.value = false;
+    searchSource.mockImplementation(async (_q: unknown, _f: unknown, p: number) => ({
+      page: p,
+      pages: 2,
+      items: mixed(),
+    }));
+  });
+
+  it('keeps every title when the control is off', async () => {
+    await cat.loadMore();
+    const kept = new Set(cat.items.value.map((i) => i.id));
+    expect(kept).toEqual(new Set(['a', 'b', 'c', 'd', 'e']));
+  });
+
+  it('removes owned AND downloading, and keeps everything else', async () => {
+    cat.hideOwned.value = true;
+    await cat.loadMore();
+
+    const kept = cat.items.value.map((i) => i.id);
+    // Downloading goes too: it is not something to send again, and its progress
+    // belongs in the Tasks list rather than the Discover grid.
+    expect(kept).not.toContain('a');
+    expect(kept).not.toContain('b');
+    // absent, unknown and an omitted field must all survive: hiding is for what
+    // the user HAS, never for what merely could not be established.
+    expect(new Set(kept)).toEqual(new Set(['c', 'd', 'e']));
+  });
+});

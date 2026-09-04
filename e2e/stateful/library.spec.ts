@@ -25,6 +25,7 @@ import {
   refreshLibrary,
   seedLibrary,
   seedLibraryFiles,
+  setHideOwned,
   setSourceState,
 } from './helpers';
 
@@ -224,4 +225,42 @@ test('a movie reports no seasons', async () => {
   const detail = await apiTitle(token, movie!.id);
   expect(detail.ownership).toBe('owned');
   expect(detail.seasons ?? []).toEqual([]);
+});
+
+// US3: hiding covers what you HAVE and what is already on its way — neither is
+// something to send again, and a downloading title's progress belongs in Tasks.
+//
+// The toggle is set through the API rather than the filter sheet. The sheet is an
+// Ionic modal whose Options section sits below the fold and keeps animating past
+// Playwright's stability window, and driving it proved flaky without testing
+// anything the unit tests do not already cover: the toggle only flips a boolean.
+// What matters end to end is that a STORED preference reaches the grid and
+// survives a reload (FR-022, FR-024), which is what this asserts.
+test('a stored hide-owned preference removes owned titles and survives a reload', async ({
+  page,
+}) => {
+  const id = await addSource(token, 'Only Source', 0);
+  const items = await apiSearch(token);
+  expect(items.length).toBeGreaterThan(1);
+  const owned = items[0];
+  const folder = folderNameFor(owned.title);
+
+  await seedLibrary({ [parentFor(owned.type)]: [folder] });
+  await seedLibraryFiles({ [`${parentFor(owned.type)}/${folder}`]: ['film.mkv'] });
+  await refreshLibrary(token, id, 'Only Source');
+  expect((await apiSearch(token)).find((i) => i.title === owned.title)?.ownership).toBe('owned');
+
+  await login(page);
+  await gotoDiscover(page);
+  // Visible first, so the disappearance below means something.
+  await expect(page.locator('.ribbon').first()).toBeVisible();
+
+  await setHideOwned(token, true);
+  await page.reload();
+  await gotoDiscover(page);
+
+  // The owned card is gone, and the grid still has results — hiding must not
+  // empty the view (FR-023a).
+  await expect(page.locator('.ribbon')).toHaveCount(0);
+  await expect(page.getByTestId('catalog-card').first()).toBeVisible();
 });

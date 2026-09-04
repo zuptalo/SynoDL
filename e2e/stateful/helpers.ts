@@ -197,6 +197,17 @@ export async function apiTitle(token: string, id: string): Promise<TitleDetailSh
   return (await res.json()) as TitleDetailShape;
 }
 
+/** Store the hide-owned preference the way the filter sheet does. */
+export async function setHideOwned(token: string, hideOwned: boolean): Promise<void> {
+  const view = await api(token, '/v1/source/view');
+  const cur = (await view.json()) as Record<string, unknown>;
+  const res = await api(token, '/v1/source/view', {
+    method: 'PUT',
+    body: JSON.stringify({ ...cur, hideOwned }),
+  });
+  if (!res.ok) throw new Error(`set hide-owned failed: ${res.status}`);
+}
+
 export async function apiSearch(
   token: string,
   body: Record<string, unknown> = { page: 1 },

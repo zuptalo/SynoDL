@@ -716,3 +716,85 @@ func TestSeasonPathStillHonoursFolderGrants(t *testing.T) {
 		t.Errorf("ungranted user = %d, want 403", rec.Code)
 	}
 }
+
+// FR-027: knowing a title is already on the NAS must not widen what a user may
+// SEND. Ownership is a display signal; per-user folder grants still govern.
+//
+// The risk is subtle: ownership is computed instance-wide (the parents are the
+// operator's own configuration), so it deliberately reports on folders a given
+// user cannot write to. That must never soften the permission check.
+func TestOwnershipDoesNotWidenWhatAUserMaySend(t *testing.T) {
+	resetFake()
+	h, _, mockURL := newStatefulRouterWithMock(t)
+	admin := adminAfterSetup(t, h)
+	configureFake(t, h, admin, "movie")
+	// The title is genuinely, verifiably owned — video and all.
+	seedMockFolders(t, mockURL, map[string][]string{"/movie": {"Soul (2020)"}})
+	seedMockTree(t, mockURL, map[string][]string{"/movie/Soul (2020)": {"Soul.2020.mkv"}})
+
+	// A user granted tv-show only. The destination is under movie.
+	carol := makeUser(t, h, admin, "carol-fr027", `"tv-show"`)
+	rec := do(t, h, "POST", "/v1/source/send",
+		`{"titleId":"1","qualityId":"q1","title":"Soul 2020"}`, carol)
+	if rec.Code != http.StatusForbidden || !strings.Contains(rec.Body.String(), "destination_forbidden") {
+		t.Fatalf("send of an OWNED title without a grant = %d %s; ownership must not "+
+			"grant write access", rec.Code, rec.Body.String())
+	}
+}
+
+// FR-025c: an ownership lookup must not reveal more about a title than opening
+// its details already would.
+//
+// Season detail rides on the title endpoint precisely so that holds structurally.
+// The remembered-title cache makes it stricter still: detail is answerable only
+// for a title the caller's OWN search returned, so a user cannot probe an id
+// their catalog never served them.
+func TestTitleDetailAnswersOnlyForTitlesTheCallerHasSeen(t *testing.T) {
+	resetFake()
+	h, _, mockURL := newStatefulRouterWithMock(t)
+	admin := adminAfterSetup(t, h)
+	configureFake(t, h, admin, "movie")
+	seedMockFolders(t, mockURL, map[string][]string{"/movie": {"Soul (2020)"}})
+	seedMockTree(t, mockURL, map[string][]string{"/movie/Soul (2020)": {"Soul.2020.mkv"}})
+
+	fakeTitle = source.TitleDetail{
+		ID: "217561", Type: "movie", Sendable: true,
+		Qualities: []source.QualityOption{{ID: "q1", Label: "1080p"}},
+	}
+
+	// Opened WITHOUT having searched: nothing is known about what this id is
+	// called, so ownership is "unknown" — never a real answer, and never
+	// "absent", which would itself be a fact about the NAS.
+	rec := do(t, h, "GET", "/v1/source/title/1:217561", "", admin)
+	if rec.Code != 200 {
+		t.Fatalf("title = %d %s", rec.Code, rec.Body.String())
+	}
+	var before struct {
+		Ownership string `json:"ownership"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &before); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if before.Ownership != source.OwnershipUnknown {
+		t.Errorf("ownership for an unseen id = %q, want unknown — a title the "+
+			"caller's catalog never served must not be answerable", before.Ownership)
+	}
+
+	// After the user's own search returns it, the same id answers properly.
+	fakeSearch = source.SearchResult{Page: 1, Pages: 1, Items: []source.CatalogTitle{
+		{ID: "217561", Type: "movie", Title: "Soul 2020"},
+	}}
+	if rec := do(t, h, "POST", "/v1/source/search", `{"page":1}`, admin); rec.Code != 200 {
+		t.Fatalf("search = %d %s", rec.Code, rec.Body.String())
+	}
+	rec = do(t, h, "GET", "/v1/source/title/1:217561", "", admin)
+	var after struct {
+		Ownership string `json:"ownership"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &after); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if after.Ownership != source.OwnershipOwned {
+		t.Errorf("ownership after the caller searched = %q, want owned", after.Ownership)
+	}
+}

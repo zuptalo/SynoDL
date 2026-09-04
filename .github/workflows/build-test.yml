@@ -65,7 +65,7 @@ jobs:
       - name: Coverage floor (critical packages)
         run: |
           set -euo pipefail
-          declare -A floors=( [config]=85 [syno]=75 [library]=85 )
+          declare -A floors=( [config]=85 [syno]=75 [library]=95 )
           for pkg in "${!floors[@]}"; do
             go test "./internal/$pkg/" -covermode=set -coverprofile=/tmp/cover.out >/dev/null
             pct=$(go tool cover -func=/tmp/cover.out | awk '/^total:/ {print substr($3, 1, length($3)-1)}')
