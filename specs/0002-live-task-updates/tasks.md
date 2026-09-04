@@ -117,3 +117,11 @@ These carry the new data field end-to-end and the mock fixtures every story's te
 - **Smallest valuable slice**: Phase 2 + US2 (failure reason) — directly fixes what the operator sees, tiny surface.
 - **Core feature**: add US1 (live SSE) + US4 (fallback).
 - **Complete**: add US3 (detail view). Ship all four as 0.0.3.
+
+
+## Reconciled 2026-09-04
+
+The spec is marked shipped because the feature is implemented and released —
+verified against the code, not against these boxes. The checkboxes were never
+maintained during implementation and are left as written: ticking them now would
+claim each task was completed as specified, which is more than was checked.

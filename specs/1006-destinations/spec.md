@@ -4,7 +4,7 @@
 
 **Created**: 2026-07-27
 
-**Status**: in-review
+**Status**: shipped
 <!-- SynoDL spec lifecycle: planned → in-progress → in-review → shipped. -->
 
 **Input**: Operator requests: "Create new subfolders inside folders we have access to and store downloads

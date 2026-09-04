@@ -4,7 +4,7 @@
 
 **Created**: 2026-07-28
 
-**Status**: in-review
+**Status**: shipped
 <!-- SynoDL spec lifecycle: planned → in-progress → in-review → shipped. -->
 
 **Input**: Operator report + request: "When I pick a favorite destination and then tap it to browse or

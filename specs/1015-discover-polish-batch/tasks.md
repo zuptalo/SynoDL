@@ -32,3 +32,11 @@ Batch of small Discover tweaks shipped together. Coarse tasks → one GitHub iss
 
 ## Implementation strategy
 US1 is the whole batch today; further batch items append as US2+ and ship in the same PR.
+
+
+## Reconciled 2026-09-04
+
+The spec is marked shipped because the feature is implemented and released —
+verified against the code, not against these boxes. The checkboxes were never
+maintained during implementation and are left as written: ticking them now would
+claim each task was completed as specified, which is more than was checked.

@@ -4,7 +4,7 @@
 
 **Created**: 2026-07-30
 
-**Status**: in-review
+**Status**: shipped
 <!-- SynoDL spec lifecycle: planned → in-progress → in-review → shipped. -->
 
 **Input**: Timing spec 2006 on the live instance showed its implicit year bounds make the source's

@@ -4,7 +4,7 @@
 
 **Created**: 2026-07-30
 
-**Status**: in-review
+**Status**: shipped
 <!-- SynoDL spec lifecycle: planned → in-progress → in-review → shipped. -->
 
 **Input**: Device feedback: scrolling Discover quickly keeps stopping at the loading spinner —

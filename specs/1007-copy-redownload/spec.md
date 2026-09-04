@@ -4,7 +4,7 @@
 
 **Created**: 2026-07-27
 
-**Status**: in-review
+**Status**: shipped
 <!-- SynoDL spec lifecycle: planned → in-progress → in-review → shipped. -->
 
 **Input**: Operator request: "See and copy the download link for tasks in any state, and easily

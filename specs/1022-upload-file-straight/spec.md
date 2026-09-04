@@ -4,7 +4,7 @@
 
 **Created**: 2026-09-03
 
-**Status**: in-review
+**Status**: shipped
 <!-- SynoDL spec lifecycle: planned → in-progress → in-review → shipped. -->
 
 **Input**: Operator request: "in the tasks section also give the user to upload a file directly in

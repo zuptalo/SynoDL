@@ -4,7 +4,7 @@
 
 **Created**: 2026-07-30
 
-**Status**: in-review
+**Status**: shipped
 <!-- SynoDL spec lifecycle: planned → in-progress → in-review → shipped. -->
 
 **Input**: Device feedback on spec 2004: the season ordering is right, but every row carries the same

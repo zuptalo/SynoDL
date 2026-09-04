@@ -4,7 +4,7 @@
 
 **Created**: 2026-07-30
 
-**Status**: in-review
+**Status**: shipped
 <!-- SynoDL spec lifecycle: planned → in-progress → in-review → shipped. -->
 
 **Input**: User testing feedback on spec 2002 (the search honesty fix): the hint wording and

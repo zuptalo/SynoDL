@@ -225,3 +225,11 @@ intersection usable?).
 T015a, T015b and T053a were added after `/speckit-analyze` found FR-005a, FR-010 and FR-023
 relying on behavior that nothing pinned — FR-005a in particular is satisfied by the merge *not*
 de-duplicating, which is exactly the kind of thing a later well-meaning change would break.
+
+
+## Reconciled 2026-09-04
+
+The spec is marked shipped because the feature is implemented and released —
+verified against the code, not against these boxes. The checkboxes were never
+maintained during implementation and are left as written: ticking them now would
+claim each task was completed as specified, which is more than was checked.

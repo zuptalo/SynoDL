@@ -4,7 +4,7 @@
 
 **Created**: 2026-07-27
 
-**Status**: in-review
+**Status**: shipped
 <!-- SynoDL spec lifecycle: planned → in-progress → in-review → shipped. -->
 
 **Input**: Operator request: "When I tap the update notification and the app opens, I should see an

@@ -4,7 +4,7 @@
 
 **Created**: 2026-07-28
 
-**Status**: in-review
+**Status**: shipped
 <!-- SynoDL spec lifecycle: planned → in-progress → in-review → shipped. -->
 
 **Input**: Operator report: "The default and favorite folders I choose don't survive full app closure.
