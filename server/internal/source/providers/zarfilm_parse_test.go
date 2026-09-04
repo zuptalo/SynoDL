@@ -211,6 +211,56 @@ func TestParseIMDbID(t *testing.T) {
 	if got := parseIMDbID(zarFixture(t, "movie_subscribed.html")); got != "tt11561116" {
 		t.Fatalf("imdb id = %q", got)
 	}
+	// The metadata block the site serves today: a real IMDb anchor, on both a
+	// movie page and a series page (FR-003, FR-004).
+	for _, tc := range []struct{ file, want string }{
+		{"movie_meta.html", "tt1756855"},
+		{"series_meta.html", "tt13210838"},
+	} {
+		if got := parseIMDbID(zarFixture(t, tc.file)); got != tc.want {
+			t.Fatalf("%s: imdb id = %q, want %q", tc.file, got, tc.want)
+		}
+	}
+}
+
+func TestParsePlot(t *testing.T) {
+	// Movie and series pages carry the synopsis identically (FR-002, FR-004).
+	for _, file := range []string{"movie_meta.html", "series_meta.html"} {
+		got := parsePlot(zarFixture(t, file))
+		if got == "" {
+			t.Fatalf("%s: no synopsis found", file)
+		}
+		// The page repeats the same text in a second block for its narrow layout.
+		// One copy, never two concatenated (FR-005).
+		if strings.Count(got, "خلاصه") != 1 {
+			t.Fatalf("%s: synopsis looks doubled: %q", file, got)
+		}
+	}
+	// A page with no synopsis block at all — the shape the site served when these
+	// fixtures were captured. Absent is a normal outcome, not an error (FR-010).
+	for _, file := range []string{"movie_subscribed.html", "series_subscribed.html", "archive_page1.html"} {
+		if got := parsePlot(zarFixture(t, file)); got != "" {
+			t.Fatalf("%s: synopsis = %q, want empty", file, got)
+		}
+	}
+	// Empty, blank and placeholder-only synopses all count as absent (FR-006).
+	for _, body := range []string{
+		`<div class="plot"></div>`,
+		"<div class=\"plot\">  \n\t </div>",
+		`<div class="plot">-</div>`,
+		`<div class="plot">—</div>`,
+		`<div class="plot">...</div>`,
+	} {
+		if got := parsePlot([]byte(body)); got != "" {
+			t.Fatalf("parsePlot(%q) = %q, want empty", body, got)
+		}
+	}
+	// Falls back to the narrow-layout block when only that one is present, and
+	// yields text rather than markup (FR-007).
+	got := parsePlot([]byte(`<div class="mobile_plot">A <b>bold</b> claim &amp; then some.</div>`))
+	if got != "A bold claim & then some." {
+		t.Fatalf("plot = %q", got)
+	}
 }
 
 func TestParsePageCount(t *testing.T) {
@@ -238,6 +288,7 @@ func TestParsersSurviveGarbage(t *testing.T) {
 		}
 		_ = parseLoginState(junk)
 		_ = parseIMDbID(junk)
+		_ = parsePlot(junk)
 		_ = parsePageCount(junk)
 	}
 }

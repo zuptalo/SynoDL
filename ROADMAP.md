@@ -46,6 +46,7 @@ Specs are grouped by category band; status moves
 | [1020](specs/1020-fall-back-source/spec.md) | Alternate Domain Fallback for a Download Source | 🟢 shipped |
 | [1021](specs/1021-name-new-downloads/spec.md) | Name new downloads the way Plex expects | 🟢 shipped |
 | [1022](specs/1022-upload-file-straight/spec.md) | Upload a file straight into your library | 🟢 shipped |
+| [1023](specs/1023-zarfilm-titles-carry/spec.md) | ZarFilm titles carry an IMDb link and a synopsis | 🔵 in-review |
 
 ## 🐛 Hotfixes & Bug Fixes (2001+)
 

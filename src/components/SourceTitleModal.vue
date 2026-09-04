@@ -57,7 +57,21 @@ const props = defineProps<{
 // row stored (id, title, poster, IMDb score), so `enriched` holds the full
 // catalog entry once we've looked it up — see loadMeta().
 const enriched = ref<CatalogTitle | null>(null);
-const info = computed<CatalogTitle>(() => enriched.value ?? props.title);
+// Metadata the SOURCE returned with the download options. Sources whose listing
+// pages carry no synopsis and no IMDb link (ZarFilm) describe the title only on
+// its own page, which the title request fetches anyway — see spec 1023.
+const detailMeta = ref<{ imdbId?: string; plot?: string }>({});
+// The catalog entry always wins: a source that puts a full English synopsis in
+// its search results must never have it replaced by a thinner one from a detail
+// page. Detail metadata fills gaps, nothing more (FR-008).
+const info = computed<CatalogTitle>(() => {
+  const base = enriched.value ?? props.title;
+  return {
+    ...base,
+    imdbId: base.imdbId || detailMeta.value.imdbId || '',
+    plot: base.plot || detailMeta.value.plot || '',
+  };
+});
 
 // Clean title + separate release year for the header (the raw title is still what
 // send() uses, so the created subfolder keeps the year).
@@ -183,6 +197,16 @@ async function loadMeta(): Promise<void> {
     if (hit) enriched.value = hit;
   } catch {
     /* keep the stub — the header just stays sparse */
+  }
+}
+
+/** Metadata from the title's own page, for sources that publish it nowhere else. */
+async function loadDetailMeta(): Promise<void> {
+  try {
+    const d = await api.getSourceTitle(props.title.id);
+    detailMeta.value = { imdbId: d.imdbId, plot: d.plot };
+  } catch {
+    /* the synopsis is a bonus here, never the reason the sheet was opened */
   }
 }
 
@@ -379,6 +403,11 @@ watch(
     // and then visibly re-draw with the backdrop and synopsis.
     if (props.infoOnly) {
       await loadMeta();
+      // The catalog lookup is enough for a source that publishes metadata in its
+      // search results. For one that does not, the title's own page is the only
+      // place the synopsis exists — so ask for it, but only once we know the
+      // catalog could not supply it, and never let it fail the sheet.
+      if (!info.value.plot && !info.value.imdbId) await loadDetailMeta();
       loading.value = false;
       return;
     }
@@ -388,6 +417,7 @@ watch(
       qualities.value = detail.qualities;
       presentSeasons.value = detail.seasons ?? [];
       ownership.value = detail.ownership ?? 'unknown';
+      detailMeta.value = { imdbId: detail.imdbId, plot: detail.plot };
       // Default to the highest-quality tab, selecting its first usable option
       // (largest that's within the size limit). The user's preferred quality, if
       // it lives in that top tier, wins over the plain first.
@@ -605,7 +635,11 @@ async function offerOverLimit(): Promise<void> {
           </div>
         </div>
 
-        <p v-if="info.plot" class="plot">{{ info.plot }}</p>
+        <!-- dir="auto" rather than a fixed direction: the synopsis arrives in
+             whatever language the source publishes (ZarFilm's is Persian), and the
+             browser picks per string from its first strong character. Scoped to
+             the paragraph, so the rest of the sheet keeps its own direction. -->
+        <p v-if="info.plot" class="plot" dir="auto">{{ info.plot }}</p>
 
         <!-- Everything below is about starting a download, so read-only mode
              (opened from an existing task) stops here. -->

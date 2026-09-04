@@ -399,6 +399,14 @@ func (p zarfilm) Title(ctx context.Context, c *source.Client, cfg source.Config,
 		return source.TitleDetail{}, err
 	}
 	td := source.TitleDetail{ID: id, Sendable: true}
+	// The site's listing pages carry no synopsis and no IMDb link, so a catalog
+	// entry from a search has neither — but the page we have just fetched to read
+	// the download options carries both. Take them from here rather than making a
+	// second request, and take them for movies and series alike: the two page
+	// types differ in how they present downloads, not in how they describe the
+	// title. Either being absent is normal and never fails the request.
+	td.IMDbID = parseIMDbID(body)
+	td.Plot = parsePlot(body)
 	if strings.HasPrefix(id, "series/") {
 		td.Type = source.TypeSeries
 		seasons, err := parseSeriesPage(body)

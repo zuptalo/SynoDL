@@ -474,6 +474,14 @@ export interface TitleDetail {
   title: string;
   sendable: boolean;
   qualities: QualityOption[];
+  /**
+   * The source's own description of the title, for sources whose listing pages
+   * carry neither (ZarFilm) — the sheet renders its header from the catalog
+   * entry, so without these such a title has no synopsis and no way out to IMDb.
+   * Both are best-effort and absent more often than not.
+   */
+  imdbId?: string;
+  plot?: string;
   ownership?: 'unknown' | 'absent' | 'owned' | 'downloading';
   /**
    * Seasons already on the NAS. Only seasons actually holding video appear, and

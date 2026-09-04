@@ -114,8 +114,15 @@ func (s *Server) handleZarMock(w http.ResponseWriter, r *http.Request) {
 	// reports u=0, exactly as the real site does.
 	head := zarAjaxVar(!loggedOut)
 
+	// "/series" is BOTH the series archive and the prefix every series title id
+	// carries, so the archive has to be matched exactly rather than by prefix.
+	// Matching it loosely made "/series/<slug>" serve a page of cards, which the
+	// series parser reads as a title with no seasons — a fake site that could
+	// never answer the one question a series page exists to answer.
+	seriesArchive := path == "/series" || strings.HasPrefix(path, "/series/page/")
+
 	switch {
-	case strings.HasPrefix(path, "/all-movie"), path == "/", strings.HasPrefix(path, "/series"):
+	case strings.HasPrefix(path, "/all-movie"), path == "/", seriesArchive:
 		page := pageFromPath(path)
 		if page > pages {
 			// Past the end: a real archive returns a page with no cards, which is how
@@ -123,8 +130,7 @@ func (s *Server) handleZarMock(w http.ResponseWriter, r *http.Request) {
 			fmt.Fprint(w, head+`<div class="posts_hoder_archive"></div>`)
 			return
 		}
-		series := strings.HasPrefix(path, "/series")
-		fmt.Fprint(w, head+zarListingHTML(zarMockBaseFor(r), prefix, page, perPage, pages, series))
+		fmt.Fprint(w, head+zarListingHTML(zarMockBaseFor(r), prefix, page, perPage, pages, seriesArchive))
 	default:
 		// A title page.
 		slug := strings.Trim(path, "/")
@@ -200,11 +206,25 @@ func zarMockBaseFor(r *http.Request) string {
 	return scheme + "://" + r.Host + "/mocksrc/zar"
 }
 
+// zarMetaHTML is the block a real title page carries beside its cover: the
+// synopsis, printed twice because the site repeats it for its narrow layout. The
+// listing pages carry neither, which is the whole reason the driver reads them
+// from here (spec 1023) — so a mock that only ever served the download table
+// could not tell a working parser from one that returns nothing.
+func zarMetaHTML(slug string) string {
+	plot := "Mock synopsis for " + slug + ", written right here in the fake site."
+	return `<div class="main_inner_single">` +
+		`<div class="right_side"><div class="meta_side_cover"><div class="plot">` + plot + `</div></div></div>` +
+		`<div class="left_side"><div class="mobile_plot">` + plot + `</div></div>` +
+		`</div>`
+}
+
 func zarTitleHTML(base, slug string, paywalled bool) string {
 	if strings.HasPrefix(slug, "series/") {
-		return zarSeriesHTML(base, paywalled)
+		return zarMetaHTML(slug) + zarSeriesHTML(base, paywalled)
 	}
 	var b strings.Builder
+	b.WriteString(zarMetaHTML(slug))
 	b.WriteString(`<div class="single_dlbox">`)
 	for _, variant := range []struct {
 		badge  string
