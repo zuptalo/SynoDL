@@ -110,7 +110,7 @@ const statusColorVar = computed(() => {
             <span v-if="active && job.speed > 0">{{ formatEta(job.remaining, job.speed) }}</span>
           </template>
         </div>
-        <p v-if="job.state === 'done'" class="dest">{{ job.message }}</p>
+        <p v-if="job.state === 'done'" class="dest" data-testid="upload-result">{{ job.message }}</p>
         <!-- Indeterminate once the device is done: the remaining work is real
              but its duration is unknown to us, and a bar pinned at 100% would
              read as finished while the NAS is still writing. -->

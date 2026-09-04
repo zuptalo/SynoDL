@@ -1,191 +1,124 @@
----
-description: "Task list for spec 0008 — Show which Discover titles you already have"
----
-
 # Tasks: Show which Discover titles you already have
 
-**Input**: Design documents from `/specs/0008-show-which-discover/`
+**Spec**: [spec.md](./spec.md) | **Plan**: [plan.md](./plan.md) | **Branch**: `feat/0008-season-episode-ownership`
 
-**Prerequisites**: [plan.md](./plan.md), [spec.md](./spec.md), [research.md](./research.md),
-[data-model.md](./data-model.md), [contracts/library-api.md](./contracts/library-api.md),
-[checklists/security.md](./checklists/security.md)
+US1 shipped in 0.3.0 on a rule the spec licensed and practice disproved. These tasks
+correct it and build US2/US3. TDD throughout (Principle II): the failing test comes first.
 
-**Tests**: REQUIRED, not optional. Constitution Principle II mandates that tasks order failing
-tests before implementation (Red → Green → Refactor), that new proxy/session/handler logic ships
-unit tests, and that new user-facing behaviour extends the `e2e/` suite.
+## Phase 1: Setup — make the mock able to disprove things
 
-## Format: `[ID] [P?] [Story] Description`
+Blocking. Two bugs shipped in 0.3.0 because `synomock` accepted what DSM refuses; a flat
+`uploads` map cannot express a season tree, so tests written against it would assert a
+shape the NAS never returns.
 
-- **[P]**: Can run in parallel (different files, no dependency on an incomplete task)
-- **[Story]**: `[US1]` marker · `[US2]` season detail · `[US3]` guardrails
+- [ ] T001 Replace the flat `uploads map[string][]string` with a per-directory file map mirroring `folders`, in `server/internal/synomock/synomock.go`
+- [ ] T002 Honour `filetype` (`dir` / `file` / `all`) in the FileStation `list` handler, returning files with `isdir:false`, in `server/internal/synomock/synomock.go`
+- [ ] T003 Extend `POST /__mock/library` to seed files per directory (the `tree` shape in `quickstart.md`), in `server/internal/synomock/synomock.go`
+- [ ] T004 Keep upload writing into that same file map so an uploaded file is listable afterwards, in `server/internal/synomock/synomock.go`
 
-## Path Conventions
+## Phase 2: Foundational — the pure pieces, and one client method
 
-Monorepo: Go server under `server/`, Vue PWA at the repository root under `src/`, Playwright
-under `e2e/`. Paths below are repository-relative.
+Blocks every user story. No I/O; all table-tested.
 
----
+- [ ] T005 [P] Failing tests for `IsVideo(name)` — video extensions true; `.nfo`, artwork and subtitle extensions false; case-insensitive; no extension false — in `server/internal/library/media_test.go`
+- [ ] T006 [P] Implement `IsVideo` over the extension table that already governs uploads, so one definition serves reading and writing, in `server/internal/library/media.go`
+- [ ] T007 [P] Failing tests for `EpisodeOf(name) (season, episode int, ok bool)` covering `S01E02`, `s1.e2`, `1x05`, underscore separators, and names with no match, in `server/internal/library/plexname_test.go`
+- [ ] T008 [P] Implement `EpisodeOf` by extending the existing `seasonEpisode` regex to return the episode number it already captures, in `server/internal/library/plexname.go`
+- [ ] T009 Failing test for `ListFiles(ctx, sid, path)` against `synomock`, asserting `filetype=file` reaches DSM and files come back, in `server/internal/syno/http_test.go`
+- [ ] T010 Implement `ListFiles` on `HTTPClient` and add it to the `syno.Client` interface — same allowlisted `SYNO.FileStation.List`, no discovery change — in `server/internal/syno/http.go` and `server/internal/syno/client.go`
+- [ ] T011 Add `ListFiles` to the fake client in `server/internal/api/fake_test.go`
 
-## Phase 1: Setup
+## Phase 3: User Story 1 — a marker that means something (P1)
 
-**Purpose**: Create the one new package and wire its quality gate before any logic exists.
+**Goal**: a title is marked present only when a video file is actually there, and a title
+being downloaded says so instead.
 
-- [x] T001 Run `make roadmap` to regenerate `ROADMAP.md` with this spec's row and commit it. **Do this first**: CI's `Roadmap up to date` guard is always-on and fails on every push while `ROADMAP.md` lacks a row for 0008, so leaving it to the end leaves the branch red throughout
-- [x] T002 Create the new pure package with a doc comment explaining why matching lives outside `api/` (no I/O, exhaustively table-tested, carries a coverage floor) in `server/internal/library/library.go`
+**Independent test**: seed `Dune (2021)` holding a video and `Arrival (2016)` holding only
+artwork; the first is marked, the second is not.
 
----
+- [ ] T012 [US1] Failing tests for `FolderEvidence` — video present, only sidecars, empty folder, unreadable listing — in `server/internal/api/library_test.go`
+- [ ] T013 [US1] Implement `folderEvidence(path)` returning `HasVideo`, cached per folder path with the 5-minute retention, in `server/internal/api/library.go`
+- [ ] T014 [US1] Failing test that a title matching NO folder triggers zero NAS listings (FR-010b), in `server/internal/api/library_test.go`
+- [ ] T015 [US1] Make the name index a candidate filter: verify only titles present in the current response, in `server/internal/api/library.go`
+- [ ] T016 [US1] Failing test that an unreadable folder yields `unknown`, never `absent` (FR-009, FR-010c), in `server/internal/api/library_test.go`
+- [ ] T017 [US1] Failing tests for `ownershipFor` — `downloading` outranks `owned` when an active task targets the folder (FR-001b) — in `server/internal/api/library_test.go`
+- [ ] T018 [US1] Derive `downloading` from the polled task list matched against the title folder, with no additional NAS read, in `server/internal/api/library.go`
+- [ ] T019 [US1] Replace `InLibrary bool` with `Ownership string` on `CatalogTitle` in `server/internal/source/source.go`
+- [ ] T020 [US1] Decorate search and title responses with `ownership`, keyed on title rather than id, in `server/internal/api/source_handlers.go`
+- [ ] T021 [P] [US1] Mirror `ownership` on the client `CatalogTitle` and drop `inLibrary`, in `src/services/api.ts`
+- [ ] T022 [US1] Render the owned marker only for `owned`, and nothing for `unknown`/`absent`, in `src/views/tabs/BrowserPage.vue`
+- [ ] T023 [US1] Add a distinct downloading marker, not colour-alone and announced to assistive tech (FR-011a, FR-012), in `src/views/tabs/BrowserPage.vue`
+- [ ] T024 [US1] e2e: seed a video-holding folder and a sidecar-only folder; assert exactly one card is marked (SC-001, SC-004a), in `e2e/stateful/discover-ownership.spec.ts`
 
-## Phase 2: Foundational (Blocking Prerequisites)
+## Phase 4: User Story 2 — which seasons, and which episodes (P2)
 
-**Purpose**: The matching rules and the library snapshot. Every user story reads from these.
+**Goal**: opening a series shows the seasons present and the episode numbers each holds.
 
-**⚠️ CRITICAL**: No user story work can begin until this phase is complete.
+**Independent test**: seed seasons 1–2 with a gap in season 2; both are marked and the gap
+is visible.
 
-### Tests (write first, watch them fail)
+- [ ] T025 [P] [US2] Failing tests for `SeasonPresence` extraction — nested season folders, episodes flat in the title folder, unreadable numbering, a season holding only `season.nfo` — in `server/internal/api/library_test.go`
+- [ ] T026 [US2] Extend `folderEvidence` to collect seasons and episode numbers from one listing of the title folder plus one per season present, handling both nested season folders and episodes stored flat (FR-015), in `server/internal/api/library.go`
+- [ ] T027 [US2] Failing test that a season with `videoFiles > 0` and no readable numbering is still reported present (FR-016b), in `server/internal/api/library_test.go`
+- [ ] T028 [US2] Failing contract test for `GET /v1/library/title` — 200 for the degraded unknown case, 400 on bad `type`, no `total`/`complete` field ever emitted — in `server/internal/api/library_handlers_test.go`
+- [ ] T029 [US2] Implement `GET /v1/library/title` and route it, in `server/internal/api/library_handlers.go` and `server/internal/api/router.go`
+- [ ] T030 [US2] Rate-limit the lookup per user (FR-025b) and reject client-supplied paths (FR-025a), in `server/internal/api/library_handlers.go`
+- [ ] T030a [US2] Failing test that the lookup honours the caller's content-rating narrowing — a title the user cannot see in the catalog MUST NOT be answerable for (FR-025c) — in `server/internal/api/library_handlers_test.go`
+- [ ] T030b [US2] Apply the same rating filter the catalog applies before answering a lookup, so ownership is not a way around it (FR-025c), in `server/internal/api/library_handlers.go`
+- [ ] T031 [P] [US2] Add the client lookup returning seasons and episodes, in `src/services/api.ts`
+- [ ] T032 [US2] Mark present seasons and their episode numbers beside the download options, fetched in parallel so a failure only hides markers (FR-017); a movie shows as present with no season breakdown (FR-018), in `src/components/SourceTitleModal.vue`
+- [ ] T033 [US2] e2e: seed seasons 1–2 with a gap; assert the episodes shown and that no "complete" or "n of m" wording appears, in `e2e/stateful/discover-ownership.spec.ts`
 
-- [x] T003 [P] Failing table tests for `Key()` in `server/internal/library/match_test.go` — every trailing-year form enumerated by `src/services/title-year.ts` (`Esther 1986`, `(2014)`, `2008 - 2013`, `2008–2013`, `2019 -`), leading articles, bracketed extras, punctuation and case differences, a title that is *only* a year, and **Persian titles, which must not reduce to the empty string** (an ASCII filter would collapse them all together)
-- [x] T004 [P] Failing tests for the year-agreement rule in `server/internal/library/match_test.go` — `It 1990` MUST NOT match `It 2017` (FR-005); a match still stands when either side carries no year; two folders sharing a key both come back (collisions are real per spec Edge Cases)
-- [x] T005 [P] Failing tests for the snapshot in `server/internal/api/library_test.go` against the fake `syno.Client` — parents deduplicated across enabled sources so a shared parent is listed once (FR-007); a `ListFolder` error yields an `Empty` index that matches nothing rather than an error (FR-009); a reading younger than 5 minutes is reused and an older one is rebuilt (FR-010); invalidation after a send (FR-008) and after a source's parents change or a source is added/disabled/removed (FR-008a)
+## Phase 5: User Story 3 — guardrails (P3)
 
-### Implementation
+**Goal**: confirm before re-sending, and hide what the user already has or is fetching.
 
-- [x] T006 Implement `Key(name) (key, year string)` in `server/internal/library/match.go` — split the trailing year/range, drop a leading article and bracketed extras, lowercase, then keep only `unicode.IsLetter`/`unicode.IsDigit` runes (never an ASCII range)
-- [x] T007 Implement `Entry`, `Index`, and `Lookup(catalogTitle, mediaType)` in `server/internal/library/match.go` per [data-model.md](./data-model.md) §1, including the `Empty` flag that distinguishes "nothing is there" from "we could not look"
-- [x] T008 Implement the snapshot build and its mutex-guarded 5-minute cache in `server/internal/api/library.go` — collect the distinct `MoviesParent`/`TVParent` set across enabled providers, list each once via `d.NAS.Do` + `ListFolder("/"+parent)`, and swallow every failure into an `Empty` index
-- [x] T009 Invalidate the snapshot after a successful send in `handleSourceSend` (`server/internal/api/source_handlers.go`) and from the provider create/update/delete handlers in `server/internal/api/source_multi.go` (FR-008, FR-008a)
-- [x] T010 Add `[library]=85` to the `floors` map in the "Coverage floor (critical packages)" step of `.github/workflows/build-test.yml` (floors are a ratchet — add, never remove). **Must come after T006/T007**: the floor step runs `go test ./internal/library/` and parses a coverage percentage, so adding it while the package has no test files turns CI red
-- [x] T011 [P] Add a `POST /__mock/library` control endpoint that seeds folders into the mock's tree, plus its test, in `server/internal/synomock/synomock.go` and `server/internal/synomock/synomock_test.go` — the mock's fixtures are hardcoded in `resetLocked()` today with no way to seed, so no story can be tested end-to-end without this
+**Independent test**: sending a present title prompts; enabling the hide control removes
+both owned and downloading titles.
 
-**Checkpoint**: matching and the snapshot are proven against fakes; user stories can begin.
+- [ ] T034 [US3] Failing tests that both `owned` and `downloading` trigger the confirmation (FR-019a), in `server/internal/api/source_handlers_test.go`
+- [ ] T035 [US3] Confirm before sending a title or season already present or downloading; cancelling sends nothing and consumes no allowance, accepting proceeds unchanged, and nothing absent ever prompts (FR-019, FR-020, FR-021), in `src/components/SourceTitleModal.vue`
+- [ ] T036 [US3] Add `hide_owned` to `source_prefs` as an appended migration, in `server/internal/store/`
+- [ ] T037 [US3] Persist and serve the toggle through the existing prefs endpoints so it follows the user across devices (FR-024), in `server/internal/api/source_prefs_handlers.go`
+- [ ] T038 [US3] Add the hide control to the filter sheet (FR-022), in `src/components/SourceFilterSheet.vue`
+- [ ] T039 [US3] Filter owned AND downloading where `comingSoon` is already filtered, keeping the backfill of FR-023a, in `src/composables/useSourceCatalog.ts`
+- [ ] T040 [US3] e2e: assert hiding removes both states and that the toggle survives a reload, in `e2e/stateful/discover-ownership.spec.ts`
 
----
+## Phase 6: Polish
 
-## Phase 3: User Story 1 — See what you already have while browsing (Priority: P1) 🎯 MVP
+- [ ] T041 [P] Confirm the Go coverage floor for `library` still holds and raise it if the new pure code exceeds it, in `.github/workflows/build-test.yml`
+- [ ] T042 [P] Verify no folder or file name reaches any log line, error payload or metric on either the success or failure path (FR-026, Principle III)
+- [ ] T042a Failing test that ownership never widens what a user may send — an owned title in a folder they lack permission for is still refused (FR-027) — in `server/internal/api/source_handlers_test.go`
+- [ ] T043 Measure NAS listings for a page of non-matching results and confirm it is zero (quickstart step 6)
+- [ ] T044 Run every gate: `npm run build`, `npm run test:unit:coverage`, `go build/vet/test`, `npm run test:e2e`
+- [ ] T045 Set `**Status**: shipped` in `spec.md` and run `make roadmap`
 
-**Goal**: Titles already on the NAS carry a marker in the Discover grid.
+## Requirements unchanged by this amendment
 
-**Independent Test**: Seed a title folder on the mock NAS, open Discover, and find that title
-carrying the marker while its neighbours do not.
+FR-002, FR-003, FR-004, FR-006 and FR-013 govern how a catalog title is MATCHED to a folder
+name — case, punctuation, articles, year forms, non-Latin scripts, and coexisting with the
+"Soon" marker. All shipped in 0.3.0 and none change here: this amendment alters what a match
+MEANS, not how one is found. Their existing tests must keep passing (T044) but no task
+re-implements them.
 
-### Tests for User Story 1
+## Dependencies
 
-- [x] T012 [P] [US1] Failing tests in `server/internal/api/source_handlers_test.go` — a search result for a seeded title carries `inLibrary: true`; an unseeded one omits the field; and **every** item omits it when the snapshot failed to build, with the search itself still returning `200` (FR-009)
+```
+Phase 1 (mock)  ──►  Phase 2 (pure + client)  ──►  Phase 3 (US1)  ──►  Phase 4 (US2)
+                                                          └────────►  Phase 5 (US3)
+```
 
-### Implementation for User Story 1
+US2 and US3 both depend on US1's ownership state but not on each other. Phase 1 blocks
+everything: without it the tests cannot express a season tree.
 
-- [x] T013 [US1] Add `InLibrary bool \`json:"inLibrary,omitempty"\`` to `CatalogTitle` in `server/internal/source/source.go`, documented as API-layer-set like the existing `SourceID`/`SourceName`
-- [x] T014 [US1] Decorate `res.Items` from the snapshot in `handleSourceSearch` immediately before the response is written, in `server/internal/api/source_handlers.go` (mirrors `decorateTasks` in `task_ownership.go`)
-- [x] T015 [US1] Add `inLibrary?: boolean` to the `CatalogTitle` interface in `src/services/api.ts`, documented so absence and `false` are treated identically
-- [x] T016 [US1] Render the marker inside `.poster` in `src/views/tabs/BrowserPage.vue` — an `ion-icon` checkmark plus text on a `.badge.badge-have` modifier of the existing badge CSS, positioned `right` so it cannot collide with the `Soon` badge on the left, carrying an `aria-label` so the state is not colour-only (FR-012, FR-013)
-- [x] T017 [US1] Add `e2e/stateful/library.spec.ts` — seed a folder matching a mock catalog title, assert the marker on that card and its absence on others, and assert a same-name-different-year title is NOT marked (SC-004)
+## Parallel opportunities
 
-**Checkpoint**: User Story 1 is shippable on its own — the request's core value is delivered.
+- T005–T008 are independent pure modules in separate files.
+- T021, T031 are client-side and independent of the Go work once the contract is fixed.
+- Within Phase 3, T022/T023 are one file and must be sequential.
 
----
+## MVP
 
-## Phase 4: User Story 2 — Know which seasons you already have (Priority: P2)
-
-**Goal**: Opening a series shows which seasons are already on the NAS beside its download options.
-
-**Independent Test**: Seed a series folder holding seasons 1 and 2, open that series, and see
-those two marked and later seasons unmarked — in both the nested and the flat on-disk layout.
-
-### Tests for User Story 2
-
-- [ ] T018 [P] [US2] Failing contract test for `ListEntries` in `server/internal/syno/http_test.go`, beside the existing `TestFileStationBrowse` — directories and files come back from one call, and a missing path errors
-- [ ] T019 [P] [US2] Failing tests for season detection in `server/internal/library/seasons_test.go` — nested (`Season 1`, `S01`, `Series 1`), flat (`Friends.S01E01.mkv` and the underscore-separated `X_Men_97_S01E01_1080p` form that a `\b`-bounded pattern would miss), a blank or unparseable name producing no spurious season, and `Files: 0` meaning "not counted" rather than "empty" (FR-016)
-- [ ] T020 [P] [US2] Failing handler tests in `server/internal/api/library_handlers_test.go` — the `200` shape; `seasons: []` for a movie; **`400` for every escape attempt** (`../`, `/`, `\`, a control character, `.`, `..`, empty after trimming) asserting the value is rejected and NOT sanitised into a different folder (FR-025a); `409` with no source configured; `429` over the per-user bound (FR-025b); and `200` with `{inLibrary:false, seasons:[]}` — never a `5xx` — when the NAS read fails (FR-017). Also assert FR-025c: the route applies the same access rules as `GET /v1/source/title/{id}` and is not a way for a content-rating-restricted user to learn something that route would not already tell them
-
-### Implementation for User Story 2
-
-- [ ] T021 [US2] Add `Entry` and `ListEntries` to `server/internal/syno/client.go` and implement it in `server/internal/syno/http.go` using the already-allowlisted `SYNO.FileStation.List`/`list` with **no `filetype` parameter** (DSM defaults to all), then add it to the fake in `server/internal/api/fake_test.go`. Leave `ListFolder` untouched — the picker and the parent scan still want dirs only
-- [ ] T022 [US2] Give the mock a file layer in `server/internal/synomock/synomock.go` — a `files` map alongside `folders`, honour the `filetype` parameter (`all`/`file`/`dir`) in `handleFileStation`, and extend `/__mock/library` to seed files
-- [ ] T023 [US2] Implement season detection in `server/internal/library/seasons.go` for both layouts, reusing the non-alphanumeric-bounded `S01E05` form shared by `src/services/task-title.ts` and `server/internal/tasktitle/tasktitle.go` rather than inventing a second pattern
-- [ ] T024 [US2] Implement `GET /v1/library/title` in `server/internal/api/library_handlers.go` and register it in the stateful branch of `server/internal/api/router.go` — validate-and-reject the client-supplied title (FR-025a), apply the per-user rate bound (FR-025b), resolve seasons from one `ListEntries` call with a bounded concurrent descent (stdlib `sync` only) for counts in the nested layout, and return no folder path (FR-025)
-- [ ] T025 [US2] Add `api.libraryTitle(type, title)` to `src/services/api.ts` per [contracts/library-api.md](./contracts/library-api.md) §2
-- [ ] T026 [US2] Mark present seasons in `src/components/SourceTitleModal.vue` — fetch in parallel with the existing `getSourceTitle()` call so a failure only hides the markers (FR-017), and place them using the existing `seasonNum()` from `src/services/quality-sort.ts` and the season grouping from spec 2005 rather than a second grouping mechanism
-- [ ] T027 [US2] Extend `e2e/stateful/library.spec.ts` — assert the correct seasons are marked for a nested layout and for a flat layout, and that a movie shows ownership with no season breakdown (FR-018)
-
-**Checkpoint**: User Stories 1 and 2 both work independently.
-
----
-
-## Phase 5: User Story 3 — Guardrails against downloading it twice (Priority: P3)
-
-**Goal**: Re-sending something already present asks for confirmation, and owned titles can be
-hidden from the grid.
-
-**Independent Test**: Send a title already present and confirm the prompt can be cancelled with
-nothing sent; separately, enable the toggle and confirm owned titles leave the grid and the
-setting survives a reload.
-
-### Tests for User Story 3
-
-- [ ] T028 [P] [US3] Failing round-trip test for `hide_owned` in `server/internal/store/source_repos_test.go`, and confirm `store_test.go:TestOpenRunsMigrations` still passes with the longer migration list
-- [ ] T029 [P] [US3] Failing tests for `hideOwned` through `GET`/`PUT /v1/source/prefs` in `server/internal/api/source_handlers_test.go`, including that an omitted field leaves the stored value unchanged
-- [ ] T030 [P] [US3] Failing tests in `src/composables/useSourceCatalog.test.ts` — owned titles are filtered out; the grid backfills further pages when the filter leaves it underfull (FR-023a); the backfill is bounded so an exhausted or heavily-owned catalog cannot spin
-
-### Implementation for User Story 3
-
-- [ ] T031 [US3] Append migration 0019 (`ALTER TABLE source_prefs ADD COLUMN hide_owned INTEGER NOT NULL DEFAULT 0;`) to `migrations` in `server/internal/store/schema.go` with the house `// 00NN — why` comment. Append only — never edit a shipped migration
-- [ ] T032 [US3] Carry `hide_owned` through the existing `GetSourceViewFull`/`SaveSourceViewFull` pair in `server/internal/store/source_repos.go` — one read and one upsert for the whole Discover view, no new accessor pair
-- [ ] T033 [US3] Add `hideOwned` to the prefs request/response shapes and handlers in `server/internal/api/source_handlers.go`
-- [ ] T034 [US3] Add `hideOwned` to the client prefs type in `src/services/api.ts`
-- [ ] T035 [US3] Filter owned titles in `useSourceCatalog.fetchPage()` at the same point `comingSoon` is already dropped, and add the bounded backfill to `loadMore()`, in `src/composables/useSourceCatalog.ts`
-- [ ] T036 [US3] Add the hide-owned `ion-toggle` to `src/components/SourceFilterSheet.vue`, persisting through the prefs endpoint so it follows the user across devices (FR-024)
-- [ ] T037 [US3] Add the confirmation to `send()` in `src/components/SourceTitleModal.vue` — an **`ion-alert`, never a native `confirm()`**, which would block the page — fired when a movie is present or the selected season is present, and not at all otherwise (FR-019, FR-021)
-- [ ] T038 [US3] Extend `e2e/stateful/library.spec.ts` — cancelling the confirmation sends nothing **and consumes none of the user's daily download allowance** (FR-020); accepting proceeds; the toggle removes owned cards, keeps the grid filled, and survives a reload
-
-**Checkpoint**: all three user stories are independently functional.
-
----
-
-## Phase 6: Polish & Cross-Cutting Concerns
-
-- [ ] T039 Add a regression test in `server/internal/api/source_handlers_test.go` proving FR-027: a send to a destination the user has no folder grant for is still refused with `403 destination_forbidden`, whether or not the title is marked as already present. Nothing else guards the requirement that this feature leaves the existing permission boundary untouched
-- [ ] T040 Review every new code path for FR-026 — no folder name, file name, or path from the NAS in any log line, error payload, metric, **or panic**, across `server/internal/api/library.go`, `library_handlers.go`, and `server/internal/syno/http.go`
-- [ ] T041 [P] Seed `make start` fixtures in `server/internal/synomock/synomock.go` whose folder names match mock catalog titles, so the marker is visible in development without hand-seeding
-- [ ] T042 [P] Document the ownership behaviour and the `/__mock/library` seeding endpoint in `docs/DOWNLOAD-SOURCES.md`
-- [ ] T043 Walk [quickstart.md](./quickstart.md) end to end, including the three failure paths (silent degradation with the NAS stopped, immediate recognition after a send, and the 5-minute staleness bound)
-- [ ] T044 Run all five gates: `npm run build`, `npm run test:unit:coverage`, and in `server/`: `go build ./...`, `go vet ./...`, `go test ./...`, then `npm run test:e2e`
-- [ ] T045 Set `**Status**:` to `in-review` in `specs/0008-show-which-discover/spec.md` and run `make roadmap` (CI's `Roadmap up to date` guard fails if it is stale)
-
----
-
-## Dependencies & Execution Order
-
-### Phase Dependencies
-
-- **Setup (Phase 1)**: no dependencies
-- **Foundational (Phase 2)**: needs Setup — **blocks all three user stories**
-- **User Stories (Phases 3–5)**: all need Phase 2. Then P1 → P2 → P3, or in parallel if staffed
-- **Polish (Phase 6)**: needs the stories that are being shipped
-
-### User Story Dependencies
-
-- **US1 (P1)**: needs only Phase 2. Ships alone as the MVP
-- **US2 (P2)**: needs only Phase 2. Adds the `ListEntries` capability, which nothing else uses
-- **US3 (P3)**: needs Phase 2 for the ownership signal the confirmation and filter both read. Its store/prefs work (T028–T036) is independent of US1 and US2 and could land first if preferred
-
-### Within Each Story
-
-Failing tests → server model/logic → server endpoint → client type → client UI → e2e.
-
-### Parallel Opportunities
-
-- T003, T004, T005 are three different concerns and can be written together
-- T011 (mock seeding) is independent of all matching work in Phase 2
-- Within US2, T018/T019/T020 are three separate test files
-- Within US3, T028/T029/T030 span store, handler, and client
-- The three client type changes all touch `src/services/api.ts`, so none carries `[P]` — they are sequential by file, not by logic
-
----
-
-## Implementation Strategy
-
-**MVP is Phase 1 + Phase 2 + Phase 3 (US1).** That delivers exactly what was asked — a marker in
-Discover showing what you already have — and is independently releasable. Phases 4 and 5 refine
-it: US2 makes the signal actionable for series, US3 turns it from information into a guardrail.
-
-Each phase ends at a checkpoint where the app builds, all gates pass, and the feature is coherent
-for a user. Nothing half-wired ships.
+**Phase 1 + Phase 2 + Phase 3.** That alone corrects the shipped defect: no title is marked
+present without a video file, and a downloading title says so. US2 and US3 add precision
+and convenience on top.

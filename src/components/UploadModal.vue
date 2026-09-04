@@ -21,13 +21,12 @@ import {
   IonListHeader,
   IonModal,
   IonNote,
-  IonProgressBar,
   IonSegment,
   IonSegmentButton,
   IonTitle,
   IonToolbar,
 } from '@ionic/vue';
-import { checkmarkCircle, cloudUploadOutline, folderOutline, warningOutline } from 'ionicons/icons';
+import { cloudUploadOutline, folderOutline } from 'ionicons/icons';
 import { api } from '@/services/api';
 import { useUploads } from '@/composables/useUploads';
 import { isPlexReady, plexName } from '@/services/title-year';
@@ -39,15 +38,14 @@ type Kind = 'movie' | 'tv';
 
 // The queue lives in the composable, not here, so dismissing this sheet leaves a
 // running transfer visible in the Tasks list instead of hiding it.
-const { jobs, enqueue, retry, cancel: cancelJob } = useUploads();
+const { enqueue } = useUploads();
 
 const kind = ref<Kind>('movie');
 const title = ref('');
 const season = ref('');
-// Files chosen but not yet sent. Once Upload is pressed they become jobs, and
-// `batch` remembers which ones so this sheet reports on its own upload only.
+// Files chosen but not yet sent. Pressing Upload hands them to the queue and
+// closes this sheet, so nothing about a running job is tracked here.
 const picked = ref<File[]>([]);
-const batch = ref<number[]>([]);
 const loadError = ref('');
 // Titles already on the NAS under the chosen parent. Picking one is what stops
 // a near-duplicate folder being created for a show that is already there.
@@ -66,15 +64,11 @@ const maxLabel = computed(() => {
   const gb = mb / 1024;
   return `${Number.isInteger(gb) ? gb : gb.toFixed(1)} GB`;
 });
-const rows = computed(() => jobs.value.filter((j) => batch.value.includes(j.id)));
-const started = computed(() => batch.value.length > 0);
-const busy = computed(() => rows.value.some((r) => r.state === 'sending' || r.state === 'waiting'));
 const anyFiles = computed(() => picked.value.length > 0);
 // Refused before a byte leaves the device, and named so it is obvious which one.
 const oversized = computed(() => picked.value.filter(tooBig).map((f) => f.name));
 const canSend = computed(
   () =>
-    !busy.value &&
     anyFiles.value &&
     isPlexReady(title.value) &&
     parentPath.value !== '',
@@ -147,7 +141,6 @@ watch(() => props.isOpen, (open) => {
   title.value = '';
   season.value = '';
   picked.value = [];
-  batch.value = [];
   void loadContext();
 });
 watch(kind, () => {
@@ -159,23 +152,19 @@ function onPick(e: Event): void {
   const chosen = (e.target as HTMLInputElement).files;
   if (!chosen) return;
   picked.value = Array.from(chosen);
-  // A fresh selection starts a fresh upload; the previous batch stays in the
-  // Tasks list rather than being overwritten here.
-  batch.value = [];
 }
 
 const tooBig = (f: File) => f.size > maxMB.value * 1024 * 1024;
 
 function send(): void {
-  // Hand the files to the shared queue and remember which ones are ours, so this
-  // sheet reports on its own upload while the queue outlives it.
-  batch.value = enqueue(picked.value.filter((f) => !tooBig(f)), {
+  // Hand the files to the shared queue and close, exactly as adding by URL does.
+  // Progress, retry and replace all live in the Tasks list, so keeping this sheet
+  // open would only duplicate them and leave the user choosing which to watch.
+  enqueue(picked.value.filter((f) => !tooBig(f)), {
     kind: kind.value,
     title: title.value.trim(),
     season: season.value,
-  }).map((j) => j.id);
-  // The Tasks list refreshes on the first success; a failure stays visible here
-  // and there, so nothing needs to be reported back immediately.
+  });
   emit('uploaded');
 }
 </script>
@@ -187,7 +176,7 @@ function send(): void {
         <ion-title>Upload to library</ion-title>
         <ion-buttons slot="end">
           <ion-button data-testid="upload-cancel" @click="emit('dismiss')">
-            {{ started ? 'Dismiss' : 'Close' }}
+            Close
           </ion-button>
         </ion-buttons>
       </ion-toolbar>
@@ -266,66 +255,8 @@ function send(): void {
 
       <ion-list v-if="anyFiles">
         <ion-list-header><ion-label>Files</ion-label></ion-list-header>
-
-        <!-- Before sending, just the chosen names. Once sending, the shared
-             queue's rows, which keep reporting after this sheet is dismissed. -->
-        <template v-if="!started">
-          <ion-item v-for="f in picked" :key="f.name">
-            <ion-label><h3>{{ f.name }}</h3></ion-label>
-          </ion-item>
-        </template>
-
-        <ion-item v-for="row in rows" :key="row.id">
-          <ion-label>
-            <h3>{{ row.name }}</h3>
-            <p
-              v-if="row.message"
-              :class="{ bad: row.state === 'failed' }"
-              data-testid="upload-result"
-            >
-              {{ row.message }}
-            </p>
-            <ion-progress-bar
-              v-if="row.state === 'sending'"
-              :value="row.progress"
-              data-testid="upload-progress"
-            />
-          </ion-label>
-          <ion-icon
-            v-if="row.state === 'done'"
-            slot="end"
-            :icon="checkmarkCircle"
-            color="success"
-          />
-          <ion-icon
-            v-else-if="row.state === 'failed' || row.state === 'cancelled'"
-            slot="end"
-            :icon="warningOutline"
-            color="danger"
-          />
-          <ion-button
-            v-if="row.state === 'failed' || row.state === 'cancelled'"
-            slot="end"
-            size="small"
-            fill="clear"
-            data-testid="upload-retry"
-            @click="retry(row.id)"
-          >
-            Retry
-          </ion-button>
-          <!-- Replacing DESTROYS what is on the NAS, so it is only ever offered
-               for a real name collision, and never chosen automatically. -->
-          <ion-button
-            v-if="row.replaceable"
-            slot="end"
-            size="small"
-            fill="clear"
-            color="danger"
-            data-testid="upload-replace"
-            @click="retry(row.id, true)"
-          >
-            Replace
-          </ion-button>
+        <ion-item v-for="f in picked" :key="f.name">
+          <ion-label><h3>{{ f.name }}</h3></ion-label>
         </ion-item>
       </ion-list>
 
@@ -338,21 +269,6 @@ function send(): void {
       >
         Upload
       </ion-button>
-      <ion-button
-        v-if="busy"
-        expand="block"
-        fill="clear"
-        color="medium"
-        data-testid="upload-stop"
-        @click="rows.filter((r) => r.state === 'sending').forEach((r) => cancelJob(r.id))"
-      >
-        Stop
-      </ion-button>
-      <!-- The transfer runs in the page, so leaving the app can kill it. Said
-           plainly rather than trapping the user in the sheet. -->
-      <ion-note v-if="busy" class="hint" color="medium">
-        Keep the app open until this finishes — leaving it may interrupt the upload.
-      </ion-note>
     </ion-content>
   </ion-modal>
 </template>

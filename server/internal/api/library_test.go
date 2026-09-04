@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"path/filepath"
+	"synodl/server/internal/source"
 	"testing"
 	"time"
 
@@ -192,5 +193,136 @@ func TestLibrarySnapshotSkipsUnsetParents(t *testing.T) {
 	}
 	if fake.folderListCalls != 0 {
 		t.Errorf("unset parents caused %d NAS listings", fake.folderListCalls)
+	}
+}
+
+// The defect this whole amendment exists to fix: a folder is not evidence.
+//
+// The operator's NAS had "Attack on Titan (2013)/Season 00" holding nothing but
+// season.nfo, and 0.3.0 reported the title as owned. Artwork, subtitles and .nfo
+// legitimately sit beside content without being it (FR-001a).
+func TestOwnershipRequiresAVideoFileNotJustAFolder(t *testing.T) {
+	fake := &fakeSyno{
+		loginSid: "sid",
+		subfolders: map[string][]syno.Folder{
+			"/movie": {
+				{Name: "Dune 2021", Path: "/movie/Dune 2021"},
+				{Name: "Arrival 2016", Path: "/movie/Arrival 2016"},
+				{Name: "Empty 2020", Path: "/movie/Empty 2020"},
+			},
+		},
+		files: map[string][]string{
+			"/movie/Dune 2021":    {"poster.jpg", "Dune.2021.mkv"},
+			"/movie/Arrival 2016": {"poster.jpg", "Arrival.srt", "movie.nfo"},
+			"/movie/Empty 2020":   {},
+		},
+	}
+	d, st := libDeps(t, fake)
+	addSource(t, st, "Alpha", "movie", "tv-show")
+	ix := d.libraryIndex(context.Background())
+
+	for _, c := range []struct{ title, want string }{
+		{"Dune 2021", source.OwnershipOwned},
+		{"Arrival 2016", source.OwnershipAbsent}, // sidecars only
+		{"Empty 2020", source.OwnershipAbsent},   // folder made ahead of a download
+		{"Nothing Here 1999", source.OwnershipAbsent},
+	} {
+		got := d.ownershipOf(context.Background(), ix, c.title, library.MediaMovie, nil)
+		if got != c.want {
+			t.Errorf("ownershipOf(%q) = %q, want %q", c.title, got, c.want)
+		}
+	}
+}
+
+// A series keeps its episodes one level down, and that is still this title's
+// content (FR-015).
+func TestOwnershipFindsVideoInSeasonSubfolders(t *testing.T) {
+	fake := &fakeSyno{
+		loginSid: "sid",
+		subfolders: map[string][]syno.Folder{
+			"/tv-show":              {{Name: "Friends 1994", Path: "/tv-show/Friends 1994"}},
+			"/tv-show/Friends 1994": {{Name: "Season 01", Path: "/tv-show/Friends 1994/Season 01"}},
+		},
+		files: map[string][]string{
+			"/tv-show/Friends 1994":           {"poster.jpg"},
+			"/tv-show/Friends 1994/Season 01": {"Friends.S01E01.mkv"},
+		},
+	}
+	d, st := libDeps(t, fake)
+	addSource(t, st, "Alpha", "movie", "tv-show")
+	ix := d.libraryIndex(context.Background())
+	if got := d.ownershipOf(context.Background(), ix, "Friends 1994", library.MediaTV, nil); got != source.OwnershipOwned {
+		t.Errorf("ownershipOf(Friends) = %q, want owned — the episodes are in Season 01", got)
+	}
+}
+
+// FR-010b: the cost model. Most titles on a page match no folder, and those must
+// cost nothing — this is the difference between the lazy design and the eager scan
+// the plan rejected, and nothing in the UI would reveal a regression in it.
+func TestTitlesThatMatchNoFolderCostNoNASRead(t *testing.T) {
+	fake := &fakeSyno{
+		loginSid:   "sid",
+		subfolders: map[string][]syno.Folder{"/movie": {{Name: "Dune 2021", Path: "/movie/Dune 2021"}}},
+		files:      map[string][]string{"/movie/Dune 2021": {"Dune.2021.mkv"}},
+	}
+	d, st := libDeps(t, fake)
+	addSource(t, st, "Alpha", "movie", "tv-show")
+	ix := d.libraryIndex(context.Background())
+
+	before := fake.fileListCalls
+	for _, title := range []string{"Nope 1999", "Also Nope 2001", "Still Nothing 2015"} {
+		d.ownershipOf(context.Background(), ix, title, library.MediaMovie, nil)
+	}
+	if fake.fileListCalls != before {
+		t.Errorf("%d folder listings for titles that match nothing, want 0", fake.fileListCalls-before)
+	}
+
+	// And a match is verified once, then answered from the cache.
+	d.ownershipOf(context.Background(), ix, "Dune 2021", library.MediaMovie, nil)
+	afterFirst := fake.fileListCalls
+	d.ownershipOf(context.Background(), ix, "Dune 2021", library.MediaMovie, nil)
+	if fake.fileListCalls != afterFirst {
+		t.Error("a second lookup of the same title re-read the NAS instead of using the cache")
+	}
+}
+
+// FR-009/FR-010c: a failed read is NOT "you do not have this". Reporting absent on
+// an error would tell a user to download something they already own.
+func TestUnreadableFolderIsUnknownNotAbsent(t *testing.T) {
+	fake := &fakeSyno{
+		loginSid:   "sid",
+		subfolders: map[string][]syno.Folder{"/movie": {{Name: "Dune 2021", Path: "/movie/Dune 2021"}}},
+	}
+	d, st := libDeps(t, fake)
+	addSource(t, st, "Alpha", "movie", "tv-show")
+	ix := d.libraryIndex(context.Background())
+
+	// Fail only the per-folder read, after the index is already built.
+	fake.err = errors.New("nas unreachable")
+	if got := d.ownershipOf(context.Background(), ix, "Dune 2021", library.MediaMovie, nil); got != source.OwnershipUnknown {
+		t.Errorf("ownershipOf with an unreadable folder = %q, want unknown", got)
+	}
+}
+
+// FR-001b: Download Station writes the video into the destination as it goes, so a
+// part-fetched title HAS a video file and would otherwise read as owned. The advice
+// differs — skip it, versus wait for it.
+func TestDownloadingOutranksOwned(t *testing.T) {
+	fake := &fakeSyno{
+		loginSid:   "sid",
+		subfolders: map[string][]syno.Folder{"/movie": {{Name: "Dune 2021", Path: "/movie/Dune 2021"}}},
+		files:      map[string][]string{"/movie/Dune 2021": {"Dune.2021.mkv"}},
+	}
+	d, st := libDeps(t, fake)
+	addSource(t, st, "Alpha", "movie", "tv-show")
+	ix := d.libraryIndex(context.Background())
+
+	active := map[string]bool{"movie/Dune 2021": true}
+	if got := d.ownershipOf(context.Background(), ix, "Dune 2021", library.MediaMovie, active); got != source.OwnershipDownloading {
+		t.Errorf("ownershipOf while downloading = %q, want downloading", got)
+	}
+	// With nothing in flight the same title is simply owned.
+	if got := d.ownershipOf(context.Background(), ix, "Dune 2021", library.MediaMovie, nil); got != source.OwnershipOwned {
+		t.Errorf("ownershipOf with no active task = %q, want owned", got)
 	}
 }

@@ -362,11 +362,15 @@ export interface CatalogTitle {
    * parent on the NAS (spec 0008) — so the grid can mark it and the user
    * doesn't download it a second time.
    *
-   * Omitted by the server when false, so treat absence and `false` as the same
-   * answer: "not present, or we couldn't look". The server never distinguishes
-   * the two, because both mean the same thing here — show no marker.
+   * Omitted by the server when nothing has been established, so treat absence as
+   * `unknown` — and show NO marker for it. A missing badge costs a duplicate
+   * download; a false one costs a film the user believed they had.
+   *
+   * Not a boolean, deliberately. `downloading` is different advice from `owned`
+   * (wait, rather than skip), and `unknown` is different from `absent` (we could
+   * not look, rather than it is not there).
    */
-  inLibrary?: boolean;
+  ownership?: 'unknown' | 'absent' | 'owned' | 'downloading';
 }
 /** A source that could not answer this query. Never fails the whole request. */
 export interface DegradedSource {

@@ -120,6 +120,10 @@ func main() {
 			// past its readiness probe and actually serving before clients are told
 			// to reload — otherwise tapping the notice hit a not-yet-ready backend.
 			watcher.SetUpdateNotifyDelay(25 * time.Second)
+			// Discover reads the watcher's view of what is still downloading, so a
+			// part-fetched title is not reported as one the user already has. It is
+			// the same poll that drives notifications — no extra NAS traffic.
+			deps.ActiveDests = watcher.ActiveDestinations
 			go watcher.Run(context.Background())
 		}
 		// Keep the download-source session warm: a single gentle probe every 15

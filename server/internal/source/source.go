@@ -177,7 +177,14 @@ type CatalogTitle struct {
 	Genres        []string `json:"genres"`
 	ComingSoon    bool     `json:"comingSoon"`
 	FreeDownload  bool     `json:"freeDownload"`
-	// InLibrary reports that a folder for this title already exists under the
+	// Ownership reports what is actually on the NAS for this title — see the
+	// Ownership* constants. Set by the handler on the way out, never by a driver.
+	//
+	// It replaced a boolean deliberately: a folder EXISTING was taken as proof of
+	// ownership in 0.3.0, and a folder holding only season.nfo was marked owned.
+	// (formerly reported as "InLibrary")
+	//
+	// The original note read: reports that a folder for this title already exists under the
 	// configured parent on the NAS (spec 0008), so Discover can mark it and the
 	// user does not download it twice.
 	//
@@ -185,7 +192,7 @@ type CatalogTitle struct {
 	// exactly like SourceID/SourceName above. Omitted when false, which keeps the
 	// payload byte-identical for the majority of titles and means an absent field
 	// and `false` are the same answer: "not present, or not known".
-	InLibrary bool `json:"inLibrary,omitempty"`
+	Ownership string `json:"ownership,omitempty"`
 }
 
 // SearchResult is a page of results.
@@ -295,3 +302,17 @@ func Kinds() []string {
 	sort.Strings(out)
 	return out
 }
+
+// What a catalog title's Ownership field may say (spec 0008).
+//
+// Deliberately not a bool. A boolean can only say "have it / do not", and three
+// of these are distinct advice: OwnershipDownloading means wait rather than send
+// again, and OwnershipUnknown means nothing has been established yet and NO marker
+// may be shown — a false "you have this" costs the user a film they thought was
+// there, so silence is the safe answer.
+const (
+	OwnershipUnknown     = "unknown"
+	OwnershipAbsent      = "absent"
+	OwnershipOwned       = "owned"
+	OwnershipDownloading = "downloading"
+)

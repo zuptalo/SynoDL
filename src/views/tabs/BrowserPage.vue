@@ -635,11 +635,28 @@ function goSettings(): void {
                    cannot collide with the "Soon" badge on the left; a title can
                    legitimately be both. The word is spelled out rather than
                    left as a tick, which reads as "selected" or "verified" just
-                   as easily; "OWNED" rather than "DOWNLOADED" because the mark
-                   means a folder for this title EXISTS — it may have arrived by
-                   any route, which is why detection is a folder scan. -->
-              <span v-if="t.inLibrary" class="ribbon" aria-label="Already in your library">
+                   as easily. "OWNED" rather than "DOWNLOADED" because it may have
+                   arrived by any route — the mark means the VIDEO is on the NAS,
+                   not merely that a folder of that name exists. A folder holding
+                   only artwork and metadata is not owned (FR-001a). -->
+              <span
+                v-if="t.ownership === 'owned'"
+                class="ribbon"
+                aria-label="Already in your library"
+              >
                 <span class="ribbon-band">OWNED</span>
+              </span>
+              <!-- Still arriving. Download Station writes the video into the
+                   destination as it goes, so this title HAS a video file and
+                   would otherwise read as owned — but the advice differs: wait
+                   for it rather than skip it (FR-001b). Anything not yet checked
+                   carries no mark at all (FR-010c). -->
+              <span
+                v-else-if="t.ownership === 'downloading'"
+                class="ribbon"
+                aria-label="Downloading now"
+              >
+                <span class="ribbon-band getting">DOWNLOADING</span>
               </span>
               <!-- Only in combined mode: a title carried by two sources appears
                    twice, and without a mark that reads as a duplicate rather
@@ -909,6 +926,14 @@ function goSettings(): void {
   /* Match the poster's rounded corner so the ribbon is clipped by the same
      curve rather than poking past it. */
   border-top-right-radius: inherit;
+}
+.ribbon-band.getting {
+  /* A distinct hue AND a distinct word: colour alone must not carry the
+     difference (FR-012). Blue-700 takes white at roughly 8:1, and the longer
+     word needs the smaller size to sit inside the band. */
+  background: #1d4ed8;
+  font-size: 0.5rem;
+  letter-spacing: 0.02em;
 }
 .ribbon-band {
   position: absolute;

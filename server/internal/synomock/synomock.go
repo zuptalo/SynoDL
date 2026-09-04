@@ -65,7 +65,12 @@ type Server struct {
 	folders  map[string][]string
 	// Files placed by SYNO.FileStation.Upload, keyed by folder (spec 1022), so a
 	// test can assert what actually landed and where.
-	uploads map[string][]string
+	// files holds the FILE names in each directory, mirroring `folders` which holds
+	// the directory names. It was previously a flat record of what had been
+	// uploaded, which could not express "Show/Season 01/ep.mkv" — so a test could
+	// not describe a real library, and any ownership rule read from it would be
+	// asserting a shape DSM never returns.
+	files map[string][]string
 	// Fake download sources (spec 0007), so dev and e2e can exercise the catalog
 	// without pasting real credentials for a real site. See sources.go.
 	zarSrc *SourceState
@@ -95,7 +100,7 @@ func (s *Server) resetLocked() {
 	s.nextSID = 0
 	s.offset = 0
 	s.resetFoldersLocked()
-	s.uploads = map[string][]string{}
+	s.files = map[string][]string{}
 	s.tasks = nil
 	s.seedLocked([]Task{
 		{Name: "ubuntu-24.04-desktop-amd64.iso", Type: "bt", Status: "downloading",
@@ -440,11 +445,25 @@ func (s *Server) handleFileStation(w http.ResponseWriter, r *http.Request) {
 				fail(w, 408) // FileStation: no such file or directory
 				return
 			}
-			files := make([]map[string]any, 0)
-			for _, name := range children {
-				files = append(files, map[string]any{"isdir": true, "name": name, "path": path.Join(dir, name)})
+			// Real DSM returns only what filetype asks for. Returning directories
+			// regardless — as this did — meant a caller asking for files got
+			// directories labelled isdir:true and could not tell the difference.
+			ft := strings.ToLower(strings.TrimSpace(r.FormValue("filetype")))
+			if ft == "" {
+				ft = "all"
 			}
-			ok(w, map[string]any{"files": files, "total": len(files)})
+			entries := make([]map[string]any, 0)
+			if ft == "dir" || ft == "all" {
+				for _, name := range children {
+					entries = append(entries, map[string]any{"isdir": true, "name": name, "path": path.Join(dir, name)})
+				}
+			}
+			if ft == "file" || ft == "all" {
+				for _, name := range s.files[dir] {
+					entries = append(entries, map[string]any{"isdir": false, "name": name, "path": path.Join(dir, name)})
+				}
+			}
+			ok(w, map[string]any{"files": entries, "total": len(entries)})
 		default:
 			fail(w, 101)
 		}
@@ -467,7 +486,7 @@ func (s *Server) handleFileStation(w http.ResponseWriter, r *http.Request) {
 		// overwrite is an OPERAND, so it rides in the body like path and the file
 		// itself — unlike api/method/_sid, which DSM reads from the query.
 		overwrite := strings.EqualFold(strings.TrimSpace(r.FormValue("overwrite")), "true")
-		for _, existing := range s.uploads[dir] {
+		for _, existing := range s.files[dir] {
 			if existing == hdr.Filename {
 				if overwrite {
 					// Replacing is how a PARTIAL file from an interrupted upload
@@ -481,7 +500,7 @@ func (s *Server) handleFileStation(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		}
-		s.uploads[dir] = append(s.uploads[dir], hdr.Filename)
+		s.files[dir] = append(s.files[dir], hdr.Filename)
 		ok(w, map[string]any{"blSkip": false})
 		return
 	case "SYNO.FileStation.CreateFolder":
@@ -557,6 +576,9 @@ func (s *Server) handleLibrary(w http.ResponseWriter, r *http.Request) {
 		// way POST /__mock/reset does.
 		Reset   bool                `json:"reset"`
 		Folders map[string][]string `json:"folders"`
+		// Tree seeds FILE names per directory, creating the directory (and its
+		// parents) first, so a fixture can describe a real season layout.
+		Tree map[string][]string `json:"tree"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		fail(w, 101)
@@ -573,6 +595,13 @@ func (s *Server) handleLibrary(w http.ResponseWriter, r *http.Request) {
 			s.addChildLocked(dir, name)
 		}
 	}
+	for dir, names := range body.Tree {
+		dir = strings.TrimRight(dir, "/")
+		s.ensureDirLocked(dir)
+		for _, name := range names {
+			s.addFileLocked(dir, name)
+		}
+	}
 	ok(w, nil)
 }
 
@@ -580,6 +609,27 @@ func (s *Server) handleLibrary(w http.ResponseWriter, r *http.Request) {
 // reference screenshots' shares. Split out of resetLocked so a test can clear
 // seeded library folders without also dropping its session (spec 0008).
 func (s *Server) resetFoldersLocked() {
+	s.files = map[string][]string{}
+	s.resetFolderTreeLocked()
+	// Every directory named as a child must also be listable in its own right.
+	// The literal below names "4K" under /movie without giving /movie/4K an entry
+	// of its own, so listing it answered "no such folder" — where a real NAS
+	// answers with an empty listing. An EMPTY folder and a MISSING one are
+	// different facts, and ownership depends on telling them apart.
+	for dir, children := range s.folders {
+		for _, name := range children {
+			full := path.Join(dir, name)
+			if dir == "" {
+				full = "/" + name
+			}
+			if _, exists := s.folders[full]; !exists {
+				s.folders[full] = []string{}
+			}
+		}
+	}
+}
+
+func (s *Server) resetFolderTreeLocked() {
 	s.folders = map[string][]string{
 		"":         {"home", "movie", "music", "music-video", "rated-video", "tv-show"},
 		"/tv-show": {"Friends", "The Wire"},
@@ -591,6 +641,20 @@ func (s *Server) resetFoldersLocked() {
 
 // ensureDirLocked makes dir (and every ancestor) exist in the tree, so a caller
 // can seed "/tv-show/Friends 1994/Season 1" without first creating each level.
+// addFileLocked records a file in a directory, ignoring a repeat so seeding is
+// idempotent — the same rule addChildLocked applies to directories.
+func (s *Server) addFileLocked(dir, name string) {
+	if name == "" {
+		return
+	}
+	for _, existing := range s.files[dir] {
+		if existing == name {
+			return
+		}
+	}
+	s.files[dir] = append(s.files[dir], name)
+}
+
 func (s *Server) ensureDirLocked(dir string) {
 	dir = strings.TrimRight(dir, "/")
 	if dir == "" {

@@ -1,7 +1,9 @@
 package syno
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -576,5 +578,69 @@ func TestUploadOverwriteOnlyWhenAsked(t *testing.T) {
 	if err := c.UploadFile(context.Background(), sid, "/movie", "Dune (2021).mkv",
 		int64(len(second)), true, strings.NewReader(second)); err != nil {
 		t.Fatalf("re-upload with overwrite: %v", err)
+	}
+}
+
+// Ownership needs the FILES in a folder, not its subfolders — the same allowlisted
+// SYNO.FileStation.List, asked with filetype=file. Exercised against synomock so
+// the request shape is checked against something that answers like DSM.
+func TestFileStationListFiles(t *testing.T) {
+	c := newTestClient(t)
+	sid := login(t, c)
+	ctx := context.Background()
+
+	seedTree(t, c, map[string][]string{
+		"/movie/Dune (2021)":    {"Dune.2021.mkv", "poster.jpg"},
+		"/movie/Arrival (2016)": {"poster.jpg", "Arrival.srt"},
+	})
+
+	files, err := c.ListFiles(ctx, sid, "/movie/Dune (2021)")
+	if err != nil {
+		t.Fatalf("ListFiles: %v", err)
+	}
+	if len(files) != 2 {
+		t.Fatalf("ListFiles = %v, want 2 entries", files)
+	}
+
+	// Directories must NOT come back: a season subfolder is not a file, and
+	// counting one as content is the bug this whole change exists to fix.
+	dirs, err := c.ListFolder(ctx, sid, "/movie")
+	if err != nil {
+		t.Fatalf("ListFolder: %v", err)
+	}
+	for _, f := range dirs {
+		for _, name := range files {
+			if f.Name == name {
+				t.Errorf("%q came back from both ListFolder and ListFiles", name)
+			}
+		}
+	}
+
+	// A folder with no files answers empty, not an error — "nothing here" is a
+	// valid answer and must be distinguishable from a failed read (FR-010c).
+	empty, err := c.ListFiles(ctx, sid, "/movie/4K")
+	if err != nil {
+		t.Fatalf("ListFiles(empty): %v", err)
+	}
+	if len(empty) != 0 {
+		t.Errorf("ListFiles(empty) = %v, want none", empty)
+	}
+
+	if _, err := c.ListFiles(ctx, sid, "/movie/Nope"); AsError(err) == nil {
+		t.Error("ListFiles on a missing folder should surface a NAS error")
+	}
+}
+
+// seedTree loads files into the mock through its control endpoint.
+func seedTree(t *testing.T, c *HTTPClient, tree map[string][]string) {
+	t.Helper()
+	body, _ := json.Marshal(map[string]any{"tree": tree})
+	resp, err := http.Post(c.base+"/__mock/library", "application/json", bytes.NewReader(body))
+	if err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		t.Fatalf("seed returned %d", resp.StatusCode)
 	}
 }

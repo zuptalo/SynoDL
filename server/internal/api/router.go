@@ -35,6 +35,13 @@ type Deps struct {
 	// cache. Built by NewRouter; nil in tests that do not need it, which
 	// libraryIndex treats as "know nothing".
 	lib *libraryCache
+
+	// ActiveDests reports the destinations currently being written to, so Discover
+	// can tell "you already have this" from "this is still arriving" (FR-001b).
+	// Supplied by the push watcher, which is already polling the task list — the
+	// distinction therefore costs no additional read of the NAS. nil means the
+	// watcher is not running, and nothing is reported as downloading.
+	ActiveDests func() map[string]bool
 }
 
 // NewRouter builds the full handler tree with the recover → log → CORS

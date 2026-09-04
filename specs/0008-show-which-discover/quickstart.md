@@ -1,100 +1,71 @@
-# Quickstart — Seeing the library markers locally
+# Quickstart: exercising ownership, seasons and episodes
 
-**Feature**: 0008 — Show which Discover titles you already have
+Phase 1 for [plan.md](./plan.md). No real NAS is needed — `synomock` stands in for DSM.
 
-No real NAS and no real download-source credentials are needed. `make start` runs the stateful
-server against the mock DSM, and the dev build carries the `sourcemock` tag so Discover browses
-the in-repo fake sites.
-
-## 1. Boot the stack
+## Boot the stack
 
 ```sh
-make start      # mock DSM :8291 (TLS) + synodl :8280 + Vite :5273
+make start                # mock DSM :8291 (TLS), synodl :8280, Vite :5273
 ```
 
-Open http://localhost:5273 and sign in. On a fresh `.devdata/` the setup wizard runs first;
-otherwise use the account you created. The mock NAS account is `admin` / `secret`.
+Sign in with the mock account `admin` / `secret`. The dev build carries the `sourcemock`
+tag, so Discover browses the in-repo fake sites with no credentials.
 
-Confirm a download source is configured (Settings → Download sources) and note its **movies** and
-**TV** parent folders — the mock's fixture tree offers `movie` and `tv-show`.
+## Seed a library worth testing
 
-## 2. Seed a fake library on the mock NAS
-
-The mock ships a directory-only fixture tree
-(`""` → `home, movie, music, music-video, rated-video, tv-show`; `/tv-show` → `Friends, The Wire`;
-`/movie` → `4K, Kids`) and, before this feature, had no way to add files. `POST /__mock/library`
-seeds folders and files together:
+`POST /__mock/library` seeds folders **and files** (the file support is a precondition of
+this plan — see plan.md Complexity Tracking). Reset only the folder tree, never
+`/__mock/reset`, which also clears sessions and tasks.
 
 ```sh
 curl -sk -X POST https://localhost:8291/__mock/library -d '{
-  "folders": {
-    "/movie":            ["Dune 2021", "It 2017"],
-    "/tv-show":          ["Friends 1994 - 2004"],
-    "/tv-show/Friends 1994 - 2004": ["Season 1", "Season 2"]
-  },
-  "files": {
-    "/tv-show/Friends 1994 - 2004/Season 1": ["Friends.S01E01.1080p.mkv", "Friends.S01E02.1080p.mkv"],
-    "/tv-show/Friends 1994 - 2004/Season 2": ["Friends.S02E01.1080p.mkv"]
+  "reset": true,
+  "tree": {
+    "/tv-show/Attack on Titan (2013)/Season 01": ["s01e01.mkv","s01e02.mkv","s01e03.mkv"],
+    "/tv-show/Attack on Titan (2013)/Season 02": ["s02e01.mkv"],
+    "/tv-show/Attack on Titan (2013)/Season 00": ["season.nfo"],
+    "/movie/Dune (2021)":                        ["Dune.2021.mkv"],
+    "/movie/Arrival (2016)":                     ["poster.jpg","Arrival.srt"]
   }
 }'
 ```
 
-Use folder names that match titles the mock catalog actually returns — browse Discover first and
-copy a title verbatim. `POST /__mock/reset` restores the plain fixture tree.
+Those five entries are the whole feature in miniature:
 
-## 3. Walk the three surfaces
+| Fixture | Expected | Requirement |
+|---|---|---|
+| `Dune (2021)` holding a video | **owned** | FR-001 |
+| `Arrival (2016)` holding only artwork and a subtitle | **absent** — the folder exists and is non-empty, and still is not evidence | FR-001a |
+| `Attack on Titan` seasons 1–2 | present, episodes `[1,2,3]` and `[1]` | FR-014, FR-016 |
+| `Season 00` holding only `season.nfo` | **not** present | FR-001a, US2 scenario 1c |
+| Any season | never described as complete or as "n of m" | FR-016a |
 
-**The marker (User Story 1)**
+`Season 00` is the real case this amendment came from: it existed on the operator's NAS
+holding nothing but `season.nfo`, and 0.3.0 marked the title owned.
 
-1. Open Discover. The seeded titles carry an "already have it" marker on the poster; their
-   neighbours do not.
-2. Check the near-miss cases: a folder named `Dune (2021)` must still match `Dune 2021`, and
-   `It 2017` must **not** mark a 1990 `It` in the catalog.
+## Check each behaviour
 
-**Season detail (User Story 2)**
+1. **Grid marker** — open Discover. `Dune (2021)` is marked; `Arrival (2016)` is not.
+2. **Season and episode detail** — open Attack on Titan. Seasons 1 and 2 show as present
+   with their episode numbers; season 0 and seasons 3+ show nothing.
+3. **Downloading beats owned** — send any title, then return to Discover before it
+   finishes. It reads *downloading*, not owned (FR-001b), and is hidden by the hide-owned
+   control (FR-019a).
+4. **Nothing claimed before it is checked** — a title never verified carries no marker
+   rather than an "absent" one (FR-010c).
+5. **Degrades silently** — stop the mock (`make stop`, leave Vite running) and reload
+   Discover. No markers, no error, browsing and sending unchanged (FR-009).
+6. **Cost** — with the server log open, load a page of results and count
+   `SYNO.FileStation.List` calls. Only titles matching a folder name should produce one;
+   a page of non-matches must produce none (FR-010b).
 
-3. Open the seeded series. Its download options mark seasons 1 and 2 as already present and leave
-   later seasons unmarked.
-4. Re-seed the same series in the **flat** layout — episode files directly in the title folder,
-   no `Season N` subfolders — and confirm the seasons are still detected.
+Step 6 is the one worth actually measuring. It is the difference between this design and
+the eager scan rejected in the plan, and nothing in the UI will reveal a regression in it.
 
-**Guardrails (User Story 3)**
-
-5. Choose a season you already have and send it: an Ionic alert asks you to confirm. Cancel — the
-   task list is unchanged and no allowance is consumed.
-6. Send it again and accept: the download proceeds exactly as before.
-7. In the filter sheet, enable **hide what I have**: the seeded titles leave the grid, and the
-   grid stays full rather than sparse as you scroll.
-8. Reload the page — the toggle is still on (it is stored per user, server-side).
-
-## 4. Walk the failure paths — these are requirements, not edge cases
-
-**A send is recognised immediately (FR-008)**
-
-9. Send a title you do **not** have, then return to Discover. It is marked on the next catalog
-   request, without waiting out the 5-minute cache.
-
-**Silent degradation (FR-009)**
-
-10. Stop the mock DSM (`make stop`, or kill the `synomock` process) and reload Discover.
-    Browsing, searching, and the filter sheet all still work; nothing is marked; **no error is
-    shown**. Opening a title still lists its download options, with no season markers.
-
-**Staleness bound (FR-010a)**
-
-11. With the stack running, seed a new folder and refresh Discover: it may not appear at once —
-    the snapshot is reused for up to 5 minutes. It must appear within that window with no user
-    action. Sending anything invalidates the snapshot and makes it appear at once.
-
-## 5. Gates before calling it done
+## Gates before calling it done
 
 ```sh
-npm run build                 # typecheck + build
-npm run test:unit:coverage    # vitest + coverage floors
+npm run build && npm run test:unit:coverage
 cd server && go build ./... && go vet ./... && go test ./...
-npm run test:e2e              # Playwright; on macOS 12 set CHROMIUM_PATH to system Chrome
+CHROMIUM_PATH="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" npm run test:e2e
 ```
-
-The e2e work for this feature lives in `e2e/stateful/library.spec.ts` and runs against the
-stateful stack (Vite :5275, synodl :8283, mock DSM :8294), which is booted by
-`e2e/global-setup.ts` independently of `make start`.

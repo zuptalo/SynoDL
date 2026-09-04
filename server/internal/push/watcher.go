@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"log/slog"
 	"strings"
+	"sync"
 	"time"
 
 	"synodl/server/internal/store"
@@ -47,6 +48,40 @@ type Watcher struct {
 	notifyDelay time.Duration // grace before announcing a version change (see Run)
 	primed      bool          // baseline poll done — new tasks now count as "added"
 	now         func() time.Time
+
+	// activeDests is the set of destinations currently being written to, refreshed
+	// on every poll. Discover reads it to tell "you already have this" from "this
+	// is still arriving" (spec 0008 FR-001b) — a distinction that matters because
+	// the advice differs: skip it, versus wait for it.
+	//
+	// Published from here rather than fetched separately precisely so that
+	// distinction costs no additional read of the NAS: this watcher is already
+	// polling the task list for notifications.
+	destMu      sync.RWMutex
+	activeDests map[string]bool
+}
+
+// ActiveDestinations returns the destinations of tasks currently downloading.
+// Safe for concurrent use; the returned map is a copy and may be read freely.
+func (w *Watcher) ActiveDestinations() map[string]bool {
+	w.destMu.RLock()
+	defer w.destMu.RUnlock()
+	out := make(map[string]bool, len(w.activeDests))
+	for d := range w.activeDests {
+		out[d] = true
+	}
+	return out
+}
+
+// isActive reports whether a task is still putting bytes on disk. A finished,
+// errored or paused task is NOT active: its folder either holds the content
+// already or never will, and in both cases "downloading" would be a lie.
+func isActive(status string) bool {
+	switch strings.ToLower(status) {
+	case "downloading", "waiting", "extracting", "filehosting_waiting":
+		return true
+	}
+	return false
 }
 
 // NewWatcher wires the watcher. tasks returns the current NAS task list; a
@@ -100,6 +135,17 @@ func (w *Watcher) poll(ctx context.Context) {
 	if err != nil {
 		return // NAS unreachable or needs re-auth — try again next tick
 	}
+	// Refresh the destinations Discover reads. Rebuilt wholesale so a task that
+	// finished or was removed stops being reported as in progress.
+	dests := make(map[string]bool)
+	for _, t := range tasks {
+		if d := strings.Trim(strings.TrimSpace(t.Destination), "/"); d != "" && isActive(t.Status) {
+			dests[d] = true
+		}
+	}
+	w.destMu.Lock()
+	w.activeDests = dests
+	w.destMu.Unlock()
 	for _, t := range tasks {
 		last, notified, found, err := w.store.GetWatched(t.ID)
 		if err != nil {

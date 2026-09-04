@@ -464,10 +464,12 @@ func handleSourceSearch(d Deps) http.Handler {
 		// search untouched (FR-009). Same shape as decorateTasks in
 		// task_ownership.go: decorate on the way out, never in a driver.
 		if ix := d.libraryIndex(r.Context()); !ix.IsEmpty() {
+			// Read once for the whole response rather than per title: it is a
+			// snapshot copy, and a page can carry forty items.
+			active := d.activeDestinations()
 			for i := range res.Items {
-				if _, ok := ix.Lookup(res.Items[i].Title, mediaKind(res.Items[i].Type)); ok {
-					res.Items[i].InLibrary = true
-				}
+				res.Items[i].Ownership = d.ownershipOf(
+					r.Context(), ix, res.Items[i].Title, mediaKind(res.Items[i].Type), active)
 			}
 		}
 

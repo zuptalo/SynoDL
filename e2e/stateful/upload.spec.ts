@@ -109,10 +109,14 @@ test('the upload flow works from the Tasks tab', async ({ page }) => {
 
   await page.getByTestId('upload-send').click();
 
-  // The row reports where the file actually landed, which is the outcome that
-  // matters — and it now matches what the preview promised.
-  // Scoped to the row rather than the page: the preview now says the same thing,
-  // which is the point, so a bare text match would find both.
+  // Sending hands the files to the queue and CLOSES the sheet, exactly as adding
+  // by URL does. Keeping it open would duplicate rows the Tasks list already
+  // shows and leave the user choosing which one to watch.
+  await expect(page.getByTestId('upload-title')).toBeHidden();
+
+  // The Tasks list is now the one place reporting the transfer, and it reports
+  // where the file actually landed — matching what the preview promised.
+  await expect(page.getByTestId('upload-item')).toBeVisible({ timeout: 30_000 });
   await expect(page.getByTestId('upload-result')).toContainText('movie/Arrival (2016)', {
     timeout: 30_000,
   });
