@@ -127,6 +127,24 @@ export async function gotoDiscover(page: Page): Promise<void> {
  * already downloaded" (spec 0008). Parents are created implicitly, and seeding
  * is additive — the fixture folders stay.
  */
+/**
+ * Seed FILES per directory. Ownership reads what a folder CONTAINS, so seeding a
+ * folder name alone no longer marks a title — that was the bug (FR-001a).
+ * Defaults to reset:false so it composes with a seedLibrary() call that made the
+ * folders.
+ */
+export async function seedLibraryFiles(
+  tree: Record<string, string[]>,
+  reset = false,
+): Promise<void> {
+  const res = await mockFetch('/__mock/library', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ reset, tree }),
+  });
+  if (!res.ok) throw new Error(`seed library files failed: ${res.status}`);
+}
+
 export async function seedLibrary(
   folders: Record<string, string[]>,
   reset = true,
@@ -166,10 +184,10 @@ export async function refreshLibrary(token: string, sourceId: number, displayNam
 export async function apiSearch(
   token: string,
   body: Record<string, unknown> = { page: 1 },
-): Promise<Array<{ id: string; title: string; type: string; inLibrary?: boolean }>> {
+): Promise<Array<{ id: string; title: string; type: string; ownership?: string }>> {
   const res = await api(token, '/v1/source/search', { method: 'POST', body: JSON.stringify(body) });
   if (!res.ok) throw new Error(`search failed: ${res.status} ${await res.text()}`);
-  return ((await res.json()) as { items: Array<{ id: string; title: string; type: string; inLibrary?: boolean }> })
+  return ((await res.json()) as { items: Array<{ id: string; title: string; type: string; ownership?: string }> })
     .items;
 }
 

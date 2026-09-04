@@ -23,6 +23,7 @@ import {
   login,
   refreshLibrary,
   seedLibrary,
+  seedLibraryFiles,
   setSourceState,
 } from './helpers';
 
@@ -43,13 +44,16 @@ test('a title already on the NAS is marked, and its neighbours are not', async (
   const items = await apiSearch(token);
   expect(items.length).toBeGreaterThan(1);
   const owned = items[0];
-  await seedLibrary({ [parentFor(owned.type)]: [folderNameFor(owned.title)] });
+  const folder = folderNameFor(owned.title);
+  await seedLibrary({ [parentFor(owned.type)]: [folder] });
+  // The folder alone is not evidence — the video has to actually be there.
+  await seedLibraryFiles({ [`${parentFor(owned.type)}/${folder}`]: ['episode.mkv'] });
   await refreshLibrary(token, id, 'Only Source');
 
   // FR-001: the API now reports exactly that one title as present.
   const after = await apiSearch(token);
-  expect(after.find((i) => i.title === owned.title)?.inLibrary).toBe(true);
-  expect(after.filter((i) => i.inLibrary).length).toBe(1);
+  expect(after.find((i) => i.title === owned.title)?.ownership).toBe('owned');
+  expect(after.filter((i) => i.ownership === 'owned').length).toBe(1);
 
   await login(page);
   await gotoDiscover(page);
@@ -85,7 +89,7 @@ test('a near-miss folder name does not mark a title', async ({ page }) => {
   await refreshLibrary(token, id, 'Only Source');
 
   const after = await apiSearch(token);
-  expect(after.find((i) => i.title === subject.title)?.inLibrary ?? false).toBe(false);
+  expect(after.find((i) => i.title === subject.title)?.ownership ?? 'absent').not.toBe('owned');
 
   await login(page);
   await gotoDiscover(page);
@@ -118,4 +122,44 @@ test('Discover still works when the parent folders cannot be read', async ({ pag
   await expect(page.locator('.ribbon')).toHaveCount(0);
   // The failed scan is invisible: no empty/error state took over the grid.
   await expect(page.locator('.state')).toHaveCount(0);
+});
+
+
+// The defect this amendment corrects. A folder full of artwork and metadata is
+// not content, and 0.3.0 marked exactly that as owned — the operator's NAS had
+// "Attack on Titan (2013)/Season 00" holding nothing but season.nfo.
+test('a folder holding only metadata is not owned', async () => {
+  const id = await addSource(token, 'Only Source', 0);
+  const items = await apiSearch(token);
+  const subject = items[0];
+  const folder = folderNameFor(subject.title);
+
+  await seedLibrary({ [parentFor(subject.type)]: [folder] });
+  await seedLibraryFiles({
+    [`${parentFor(subject.type)}/${folder}`]: ['season.nfo', 'poster.jpg', 'subs.srt'],
+  });
+  await refreshLibrary(token, id, 'Only Source');
+
+  const after = await apiSearch(token);
+  expect(after.find((i) => i.title === subject.title)?.ownership).toBe('absent');
+  expect(after.filter((i) => i.ownership === 'owned').length).toBe(0);
+});
+
+// FR-015: a series keeps its episodes one level down, and that is still content.
+test('video in a season subfolder counts as owned', async () => {
+  const id = await addSource(token, 'Only Source', 0);
+  const items = await apiSearch(token);
+  const series = items.find((i) => i.type === 'series' || i.type === 'anime') ?? items[0];
+  const folder = folderNameFor(series.title);
+  const base = `${parentFor(series.type)}/${folder}`;
+
+  await seedLibrary({ [parentFor(series.type)]: [folder], [base]: ['Season 01'] });
+  await seedLibraryFiles({
+    [base]: ['poster.jpg'],
+    [`${base}/Season 01`]: ['Show.S01E01.mkv'],
+  });
+  await refreshLibrary(token, id, 'Only Source');
+
+  const after = await apiSearch(token);
+  expect(after.find((i) => i.title === series.title)?.ownership).toBe('owned');
 });
