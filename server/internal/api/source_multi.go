@@ -505,6 +505,9 @@ func handleDeleteProvider(d Deps) http.Handler {
 	})
 }
 
+// errCapabilities: no selected source could say what it can filter by.
+var errCapabilities = errors.New("source capabilities unavailable")
+
 // gatherParameters returns the filter facets the UI should offer.
 //
 // For a single source that is simply its own facet set. For combined mode the
@@ -516,29 +519,27 @@ func (d Deps) gatherParameters(r *http.Request, refs []source.SourceRef, single 
 	if len(refs) == 0 {
 		return source.SearchParameters{}, nil
 	}
+	// Read through the capability cache: opening the filter sheet must not cost an
+	// upstream fetch per source every time, and the same snapshot is what the
+	// search path translates filter values against — so the sheet can never offer
+	// a value the translation then fails to resolve.
 	if single || len(refs) == 1 {
-		p, err := refs[0].Driver.Parameters(r.Context(), sourceHTTP, refs[0].Cfg, refs[0].Sess)
-		if err != nil {
-			return source.SearchParameters{}, err
+		p, ok := d.sourceCaps(r.Context(), refs[0])
+		if !ok {
+			return source.SearchParameters{}, errCapabilities
 		}
 		return p, nil
 	}
 	var sets []source.SearchParameters
-	var firstErr error
 	for _, ref := range refs {
-		p, err := ref.Driver.Parameters(r.Context(), sourceHTTP, ref.Cfg, ref.Sess)
-		if err != nil {
-			// A source that can't report its facets is skipped rather than failing
-			// the sheet — the intersection just gets narrower.
-			if firstErr == nil {
-				firstErr = err
-			}
-			continue
+		// A source that can't report its facets is skipped rather than failing the
+		// sheet — the intersection just gets narrower.
+		if p, ok := d.sourceCaps(r.Context(), ref); ok {
+			sets = append(sets, p)
 		}
-		sets = append(sets, p)
 	}
 	if len(sets) == 0 {
-		return source.SearchParameters{}, firstErr
+		return source.SearchParameters{}, errCapabilities
 	}
 	return source.IntersectParameters(sets), nil
 }

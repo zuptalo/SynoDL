@@ -36,6 +36,10 @@ type Deps struct {
 	// libraryIndex treats as "know nothing".
 	lib *libraryCache
 
+	// caps remembers what each source says it can filter and sort by, so browsing
+	// does not re-ask on every request. A POINTER for the same reason lib is.
+	caps *capsCache
+
 	// ActiveDests reports the destinations currently being written to, so Discover
 	// can tell "you already have this" from "this is still arriving" (FR-001b).
 	// Supplied by the push watcher, which is already polling the task list — the
@@ -53,6 +57,7 @@ func NewRouter(d Deps) http.Handler {
 	// One library cache shared by every handler closure built below.
 	if d.lib == nil {
 		d.lib = &libraryCache{}
+		d.caps = &capsCache{}
 	}
 
 	mux.HandleFunc("GET /healthz", handleHealth)

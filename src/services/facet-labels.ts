@@ -138,6 +138,22 @@ export function countryOptions(facets: SourceFacet[]): Option[] {
 }
 // Channel, encoder and age are already display-ready (network name, release
 // group, content rating) — the value is the label.
+/**
+ * Sort orders, in the order the server listed them. NOT alphabetised: unlike a
+ * country or channel list, the orderings are a deliberate sequence (most-used
+ * first) and re-sorting them would shuffle the control for no benefit.
+ *
+ * The server sends a canonical key and an English label, so there is nothing to
+ * localize — but fall back through slug and value anyway, so a source that adds
+ * an ordering we have never seen still shows something.
+ */
+export function sortOptions(facets: SourceFacet[]): Option[] {
+  return facets.map((f) => ({
+    value: f.value,
+    label: f.name || (f.slug ? titleCase(f.slug) : '') || f.value,
+  }));
+}
+
 export function passthroughOptions(facets: SourceFacet[]): Option[] {
   return sorted(facets.map((f) => ({ value: f.value, label: f.name || f.value })));
 }

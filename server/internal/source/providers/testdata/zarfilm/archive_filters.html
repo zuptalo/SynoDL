@@ -1,0 +1,103 @@
+<!--
+  The filter panel and genre routes of a live ZarFilm archive page, captured
+  2026-09-04 from /all-movie/. Structure, class names, data-filter values and
+  genre slugs are exactly as the site serves them; the result cards are omitted
+  because this fixture exists to exercise the capability parsers, and
+  archive_page1.html beside it already covers card parsing.
+
+  The panel is the same on /all-movie/ and /series/. Note that the panel's genre
+  VALUES are Persian (that is what the query parameter accepts) while the archive
+  ROUTES carry an English slug for the same label — which is the only reason the
+  two vocabularies can be joined at all.
+-->
+<html><body>
+<div class="filter_holder">
+	<div class="filter_orderby">
+		<div class="label_orderby">مرتب سازی</div>
+		<div class="filter_orderby_selecr">
+			<div class="item_filter_orderby" data-filter="newest">جدیدترین</div>
+			<div class="item_filter_orderby" data-filter="modified">بروزترین</div>
+			<div class="item_filter_orderby" data-filter="popular">محبوب ترین</div>
+			<div class="item_filter_orderby" data-filter="imdb_rate">امتیاز IMDB</div>
+			<div class="item_filter_orderby" data-filter="release">سال انتشار</div>
+		</div>
+	</div>
+	<div class="filter_orderby">
+		<div class="label_orderby">امتیاز IMDB</div>
+		<div class="filter_orderby_selecr">
+			<div class="item_filter_orderby active" data-filter="">همه</div>
+			<div class="item_filter_orderby" data-filter="9">بالای 9</div>
+			<div class="item_filter_orderby" data-filter="8">بالای 8</div>
+			<div class="item_filter_orderby" data-filter="7">بالای 7</div>
+			<div class="item_filter_orderby" data-filter="6">بالای 6</div>
+			<div class="item_filter_orderby" data-filter="5">بالای 5</div>
+			<div class="item_filter_orderby" data-filter="4">کمتر از 5</div>
+		</div>
+	</div>
+	<div class="filter_orderby">
+		<div class="label_orderby">ژانر</div>
+		<div class="filter_orderby_selecr">
+			<div class="item_filter_orderby active" data-filter="">همه</div>
+			<div class="item_filter_orderby" data-filter="درام">درام</div>
+			<div class="item_filter_orderby" data-filter="کمدی">کمدی</div>
+			<div class="item_filter_orderby" data-filter="اکشن">اکشن</div>
+			<div class="item_filter_orderby" data-filter="هیجان انگیز">هیجان انگیز</div>
+			<div class="item_filter_orderby" data-filter="جنایی">جنایی</div>
+			<div class="item_filter_orderby" data-filter="عاشقانه">عاشقانه</div>
+			<div class="item_filter_orderby" data-filter="ماجراجویی">ماجراجویی</div>
+			<div class="item_filter_orderby" data-filter="ترسناک">ترسناک</div>
+			<div class="item_filter_orderby" data-filter="رازآلود">رازآلود</div>
+			<div class="item_filter_orderby" data-filter="انیمیشن">انیمیشن</div>
+			<div class="item_filter_orderby" data-filter="فانتزی">فانتزی</div>
+			<div class="item_filter_orderby" data-filter="علمی تخیلی">علمی تخیلی</div>
+			<div class="item_filter_orderby" data-filter="خانوادگی">خانوادگی</div>
+			<div class="item_filter_orderby" data-filter="بیوگرافی">بیوگرافی</div>
+			<div class="item_filter_orderby" data-filter="تاریخی">تاریخی</div>
+			<div class="item_filter_orderby" data-filter="مستند">مستند</div>
+			<div class="item_filter_orderby" data-filter="جنگی">جنگی</div>
+			<div class="item_filter_orderby" data-filter="آهنگ">آهنگ</div>
+			<div class="item_filter_orderby" data-filter="ورزشی">ورزشی</div>
+			<div class="item_filter_orderby" data-filter="وسترن">وسترن</div>
+			<div class="item_filter_orderby" data-filter="موزیکال">موزیکال</div>
+			<div class="item_filter_orderby" data-filter="کوتاه">کوتاه</div>
+			<div class="item_filter_orderby" data-filter="نوآر">نوآر</div>
+			<div class="item_filter_orderby" data-filter="معمایی">معمایی</div>
+			<div class="item_filter_orderby" data-filter="فیلم نوآر">فیلم نوآر</div>
+			<div class="item_filter_orderby" data-filter="خبری">خبری</div>
+			<div class="item_filter_orderby" data-filter="مراسم تلویزیونی">مراسم تلویزیونی</div>
+			<div class="item_filter_orderby" data-filter="مسابقه تلویزیونی">مسابقه تلویزیونی</div>
+		</div>
+	</div>
+</div>
+
+<div class="genres_widget">
+	<a href="https://zarfilm.com/genre/animation/">انیمیشن(123)</a>
+	<a href="https://zarfilm.com/genre/documentary/">مستند(123)</a>
+	<a href="https://zarfilm.com/genre/drama/">درام(123)</a>
+	<a href="https://zarfilm.com/genre/comedy/">کمدی(123)</a>
+	<a href="https://zarfilm.com/genre/action/">اکشن(123)</a>
+	<a href="https://zarfilm.com/genre/thriller/">هیجان انگیز(123)</a>
+	<a href="https://zarfilm.com/genre/crime/">جنایی(123)</a>
+	<a href="https://zarfilm.com/genre/romance/">عاشقانه(123)</a>
+	<a href="https://zarfilm.com/genre/adventure/">ماجراجویی(123)</a>
+	<a href="https://zarfilm.com/genre/horror/">ترسناک(123)</a>
+	<a href="https://zarfilm.com/genre/mystery/">رازآلود(123)</a>
+	<a href="https://zarfilm.com/genre/fantasy/">فانتزی(123)</a>
+	<a href="https://zarfilm.com/genre/sci-fi/">علمی تخیلی(123)</a>
+	<a href="https://zarfilm.com/genre/family/">خانوادگی(123)</a>
+	<a href="https://zarfilm.com/genre/biography/">بیوگرافی(123)</a>
+	<a href="https://zarfilm.com/genre/history/">تاریخی(123)</a>
+	<a href="https://zarfilm.com/genre/war/">جنگی(123)</a>
+	<a href="https://zarfilm.com/genre/music/">آهنگ(123)</a>
+	<a href="https://zarfilm.com/genre/sport/">ورزشی(123)</a>
+	<a href="https://zarfilm.com/genre/western/">وسترن(123)</a>
+	<a href="https://zarfilm.com/genre/musical/">موزیکال(123)</a>
+	<a href="https://zarfilm.com/genre/short/">کوتاه(123)</a>
+	<a href="https://zarfilm.com/genre/film-noir/">نوآر(123)</a>
+	<a href="https://zarfilm.com/genre/معمایی/">معمایی(123)</a>
+	<a href="https://zarfilm.com/genre/فیلم-نوآر/">فیلم نوآر(123)</a>
+	<a href="https://zarfilm.com/genre/news/">خبری(123)</a>
+	<a href="https://zarfilm.com/genre/مراسم-تلویزیونی/">مراسم تلویزیونی(123)</a>
+	<a href="https://zarfilm.com/genre/reality-show/">مسابقه تلویزیونی(123)</a>
+</div>
+</body></html>

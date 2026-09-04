@@ -234,7 +234,8 @@ func (p nama30) Parameters(ctx context.Context, c *source.Client, cfg source.Con
 		Genres:    facetOptions(r.Genre),
 		Types:     facetOptions(r.Type),
 		Qualities: facetOptions(r.Quality),
-		Scores:    facetOptions(r.Score),
+		Scores:    scoreFacets(r.Score),
+		Sorts:     nama30Sorts(),
 		Languages: facetOptions(r.Language),
 		Countries: facetOptions(r.Country),
 		Channels:  facetOptions(r.Channel),
@@ -243,6 +244,62 @@ func (p nama30) Parameters(ctx context.Context, c *source.Client, cfg source.Con
 		MinYear:   int(r.MinYear),
 		MaxYear:   int(r.MaxYear),
 	}, nil
+}
+
+// nama30Sorts declares the orderings this provider honours, in the canonical
+// vocabulary shared across sources. It is generated from the same allowlist the
+// request builder clamps to, so the sheet can never offer an ordering that would
+// quietly fall back to the default (spec 1024).
+func nama30Sorts() []source.FacetOption {
+	// Fixed order: the sheet reads best from most-used to least, and a map's
+	// iteration order would reshuffle the control on every request.
+	ordered := []struct{ key, label string }{
+		{"favorite", "Most popular"}, {"imdb", "IMDb rating"},
+		{"year", "Release year"}, {"date", "Recently added"},
+	}
+	out := make([]source.FacetOption, 0, len(ordered))
+	for _, s := range ordered {
+		if !allowedOrderby[s.key] {
+			continue
+		}
+		out = append(out, source.FacetOption{Value: s.key, Slug: s.key, Name: s.label})
+	}
+	return out
+}
+
+// scoreFacets is facetOptions plus an identity derived from the band's MEANING,
+// so "8 and above" here and "8 and above" on another source are recognised as the
+// same choice. Without it the two would be compared by their Persian labels,
+// which are worded differently per site and would never join.
+func scoreFacets(in []tnFacet) []source.FacetOption {
+	out := facetOptions(in)
+	for i := range out {
+		if out[i].Slug == "" && isScoreBand(out[i].Value) {
+			out[i].Slug = "score-" + out[i].Value
+		}
+	}
+	return out
+}
+
+// isScoreBand accepts the numeric forms a score band takes ("8", "8.5").
+func isScoreBand(v string) bool {
+	if v == "" {
+		return false
+	}
+	dots := 0
+	for _, r := range v {
+		switch {
+		case r >= '0' && r <= '9':
+		case r == '.':
+			dots++
+			if dots > 1 {
+				return false
+			}
+		default:
+			return false
+		}
+	}
+	return true
 }
 
 // stringFacets turns a plain string list (encoder, age) into options, dropping

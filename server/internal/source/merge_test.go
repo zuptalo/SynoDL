@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
 	"testing"
 	"time"
 )
@@ -16,6 +17,9 @@ type fakeProvider struct {
 	pages int
 	err   error
 	delay time.Duration
+	// search, when set, answers instead of the canned data — for tests that care
+	// about the QUERY each source was handed rather than what came back.
+	search func(SearchQuery) (SearchResult, error)
 }
 
 func (f fakeProvider) Kind() string                  { return f.kind }
@@ -34,7 +38,10 @@ func (f fakeProvider) Title(context.Context, *Client, Config, Session, string) (
 func (f fakeProvider) ResolveDownload(context.Context, *Client, Config, Session, string, string) ([]string, string, error) {
 	return nil, "", nil
 }
-func (f fakeProvider) Search(ctx context.Context, _ *Client, _ Config, _ Session, _ SearchQuery) (SearchResult, error) {
+func (f fakeProvider) Search(ctx context.Context, _ *Client, _ Config, _ Session, q SearchQuery) (SearchResult, error) {
+	if f.search != nil {
+		return f.search(q)
+	}
 	if f.delay > 0 {
 		select {
 		case <-time.After(f.delay):
@@ -266,4 +273,127 @@ func (t tallyProvider) DisplayName() string { return "tally" }
 func (t tallyProvider) Search(context.Context, *Client, Config, Session, SearchQuery) (SearchResult, error) {
 	*t.n++
 	return SearchResult{Page: 1, Pages: 1, Items: t.items}, nil
+}
+
+// Spec 1024: a slug and an equivalent label must be judged the same option.
+// They used to live in separate key spaces ("slug:comedy" could never equal
+// "name:Comedy"), so two sources joined only when BOTH supplied a slug — and a
+// source that supplies only labels silently failed to intersect with anything.
+func TestFacetKeyJoinsSlugsAndLabels(t *testing.T) {
+	same := [][2]FacetOption{
+		{{Slug: "comedy"}, {Slug: "Comedy"}},
+		{{Slug: "comedy"}, {Name: "Comedy"}},
+		{{Name: "Sci-Fi"}, {Slug: "sci-fi"}},
+		{{Name: "Sci Fi"}, {Slug: "sci-fi"}},
+		{{Name: "  Film   Noir "}, {Slug: "film-noir"}},
+		// The value is provider-internal and must never enter the key.
+		{{Value: "3359", Slug: "comedy"}, {Value: "کمدی", Slug: "comedy"}},
+	}
+	for _, p := range same {
+		if facetKey(p[0]) != facetKey(p[1]) {
+			t.Fatalf("%+v and %+v should key alike: %q vs %q", p[0], p[1], facetKey(p[0]), facetKey(p[1]))
+		}
+	}
+	differ := [][2]FacetOption{
+		{{Slug: "comedy"}, {Slug: "crime"}},
+		{{Name: "Comedy"}, {Name: "کمدی"}}, // different languages do not join
+		{{Slug: "comedy"}, {}},
+	}
+	for _, p := range differ {
+		if facetKey(p[0]) == facetKey(p[1]) {
+			t.Fatalf("%+v and %+v must not key alike (%q)", p[0], p[1], facetKey(p[0]))
+		}
+	}
+}
+
+// A sort only one source can honour must drop from the combined set, exactly as
+// a genre does — otherwise picking it would order one source's results and leave
+// the other's in whatever order it pleased.
+func TestIntersectParametersFoldsInSorts(t *testing.T) {
+	a := SearchParameters{
+		Types: []FacetOption{{Slug: "movie", Name: "Movie"}},
+		Sorts: []FacetOption{{Slug: "imdb", Name: "IMDb rating"}, {Slug: "year", Name: "Release year"}},
+	}
+	b := SearchParameters{
+		Types: []FacetOption{{Slug: "movie", Name: "Movie"}},
+		Sorts: []FacetOption{{Slug: "imdb", Name: "IMDb rating"}, {Slug: "modified", Name: "Recently updated"}},
+	}
+	got := IntersectParameters([]SearchParameters{a, b})
+	if len(got.Sorts) != 1 || got.Sorts[0].Slug != "imdb" {
+		t.Fatalf("sorts = %+v, want only imdb", got.Sorts)
+	}
+	// A single source keeps everything it offers.
+	if solo := IntersectParameters([]SearchParameters{b}); len(solo.Sorts) != 2 {
+		t.Fatalf("single source sorts = %+v, want both", solo.Sorts)
+	}
+}
+
+// Spec 1024 FR-006/FR-007: two sources spell the same genre differently, so the
+// API layer hands each one its OWN value. A source with no equivalent for the
+// chosen value must be skipped and reported — never queried unfiltered, which
+// would present unfiltered results as filtered.
+func TestSearchAllUsesPerSourceFilters(t *testing.T) {
+	seen := map[int64]string{}
+	var mu sync.Mutex
+	mk := func(id int64) SourceRef {
+		return SourceRef{ID: id, Name: fmt.Sprintf("src%d", id), Driver: &fakeProvider{
+			search: func(q SearchQuery) (SearchResult, error) {
+				mu.Lock()
+				seen[id] = firstOr(q.Filters.Genre, "")
+				mu.Unlock()
+				return SearchResult{Items: []CatalogTitle{{ID: "x", Title: "T"}}}, nil
+			},
+		}}
+	}
+	refs := []SourceRef{mk(1), mk(2), mk(3)}
+	res := SearchAll(context.Background(), NewClient(), refs, SearchQuery{
+		Filters: SearchFilters{Genre: []string{"comedy"}},
+		PerSource: map[int64]*SearchFilters{
+			1: {Genre: []string{"3359"}}, // this source's numeric code
+			2: {Genre: []string{"کمدی"}}, // this source's own wording
+			3: nil,                       // no equivalent at all
+		},
+	})
+	if seen[1] != "3359" || seen[2] != "کمدی" {
+		t.Fatalf("each source must get its own value; got %+v", seen)
+	}
+	if _, queried := seen[3]; queried {
+		t.Fatal("a source with no equivalent must not be queried at all")
+	}
+	var reported bool
+	for _, d := range res.Degraded {
+		if d.SourceID == 3 && d.Reason == ReasonFilterUnsupported {
+			reported = true
+		}
+	}
+	if !reported {
+		t.Fatalf("source 3 must be reported, got %+v", res.Degraded)
+	}
+	// The two that could answer still did.
+	if len(res.Items) != 2 {
+		t.Fatalf("items = %d, want 2", len(res.Items))
+	}
+}
+
+// A ref absent from the override map falls back to the shared filters, so the
+// single-source path needs no special casing.
+func TestSearchAllWithoutOverridesUsesSharedFilters(t *testing.T) {
+	var got string
+	refs := []SourceRef{{ID: 1, Name: "only", Driver: &fakeProvider{
+		search: func(q SearchQuery) (SearchResult, error) {
+			got = firstOr(q.Filters.Genre, "")
+			return SearchResult{}, nil
+		},
+	}}}
+	SearchAll(context.Background(), NewClient(), refs, SearchQuery{Filters: SearchFilters{Genre: []string{"drama"}}})
+	if got != "drama" {
+		t.Fatalf("genre = %q, want drama", got)
+	}
+}
+
+func firstOr(v []string, def string) string {
+	if len(v) > 0 {
+		return v[0]
+	}
+	return def
 }

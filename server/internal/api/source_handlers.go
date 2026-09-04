@@ -418,8 +418,12 @@ func handleSourceSearch(d Deps) http.Handler {
 		}
 		// "" (or an unknown/removed source) means every enabled source, combined.
 		selected, _ := selectRefs(refs, body.Source)
+		// One chosen value, several vocabularies: hand each source its own spelling
+		// before the fan-out, and skip any source that has no word for it at all
+		// (spec 1024, FR-006/FR-007).
 		res := source.SearchAll(r.Context(), sourceHTTP, selected, source.SearchQuery{
 			Query: body.Query, Page: body.Page, Sort: body.Sort, Order: body.Order, Filters: filters,
+			PerSource: d.perSourceFilters(r.Context(), selected, filters),
 		})
 		// Sources that couldn't even be built (unknown driver, unreadable session)
 		// are degraded too — the user is told, rather than quietly shown less.
@@ -443,6 +447,14 @@ func handleSourceSearch(d Deps) http.Handler {
 			if !bad {
 				clearSourceFailures(ref.ID)
 				_ = d.Store.SetProviderStateErr(ref.ID, store.SourceActive, "", now, now)
+				continue
+			}
+			// Being unable to express one filter says nothing about the source's
+			// health: its session is fine and re-pasting it would change nothing.
+			// Counting it would condemn a working source for a filter it simply
+			// does not have.
+			if reason == source.ReasonFilterUnsupported {
+				clearSourceFailures(ref.ID)
 				continue
 			}
 			// An entitlement problem is immediate and definite — no streak needed,

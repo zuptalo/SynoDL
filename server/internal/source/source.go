@@ -24,6 +24,11 @@ const (
 	ReasonUnsubscribed = "unsubscribed"
 	ReasonUnreachable  = "unreachable"
 	ReasonTimeout      = "timeout"
+	// ReasonFilterUnsupported: the user narrowed by something this source has no
+	// equivalent for. It is skipped rather than queried without the narrowing,
+	// because unfiltered results shown alongside filtered ones read as the filter
+	// being broken (spec 1024, FR-007).
+	ReasonFilterUnsupported = "filter_unsupported"
 )
 
 // TitleType values.
@@ -139,17 +144,33 @@ type SearchParameters struct {
 	Channels  []FacetOption `json:"channels"`
 	Encoders  []FacetOption `json:"encoders"`
 	Ages      []FacetOption `json:"ages"`
-	MinYear   int           `json:"minYear"`
-	MaxYear   int           `json:"maxYear"`
+	// Sorts are the orderings this source can actually honour, declared like any
+	// other facet so combined browsing can intersect them (spec 1024). Their
+	// values are the CANONICAL sort keys the client speaks ("imdb", "year",
+	// "date", "favorite"); each driver maps those onto whatever its own site
+	// calls them. A source that cannot order at all leaves this empty, and the
+	// sort control offers nothing rather than something that quietly does nothing.
+	Sorts   []FacetOption `json:"sorts"`
+	MinYear int           `json:"minYear"`
+	MaxYear int           `json:"maxYear"`
 }
 
 // SearchQuery is one catalog query.
 type SearchQuery struct {
 	Query   string
 	Page    int
-	Sort    string // provider orderby field for browse (e.g. "year"); "" = default
+	Sort    string // canonical sort key for browse (e.g. "year"); "" = default
 	Order   string // "asc" / "desc"; "" = provider default (descending)
 	Filters SearchFilters
+	// PerSource carries each source's OWN spelling of the filters above, resolved
+	// by the API layer from that source's declared facets (spec 1024).
+	//
+	// Two sources name the same genre differently — a numeric code on one, a
+	// Persian word on the other — so one shared value cannot be sent to both. A
+	// ref absent from this map is queried with Filters as-is, which is what the
+	// single-source path does. A ref mapped to nil has NO equivalent for what the
+	// user chose and is skipped entirely rather than queried unfiltered.
+	PerSource map[int64]*SearchFilters
 }
 
 // CatalogTitle is one search result (no download links).

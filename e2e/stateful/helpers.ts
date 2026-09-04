@@ -213,14 +213,42 @@ export async function setHideOwned(token: string, hideOwned: boolean): Promise<v
   if (!res.ok) throw new Error(`set hide-owned failed: ${res.status}`);
 }
 
+export interface SearchItem {
+  id: string;
+  title: string;
+  type: string;
+  ownership?: string;
+  genres?: string[];
+  imdbScore?: number;
+  sourceName?: string;
+}
+
 export async function apiSearch(
   token: string,
   body: Record<string, unknown> = { page: 1 },
-): Promise<Array<{ id: string; title: string; type: string; ownership?: string }>> {
+): Promise<SearchItem[]> {
   const res = await api(token, '/v1/source/search', { method: 'POST', body: JSON.stringify(body) });
   if (!res.ok) throw new Error(`search failed: ${res.status} ${await res.text()}`);
-  return ((await res.json()) as { items: Array<{ id: string; title: string; type: string; ownership?: string }> })
-    .items;
+  return ((await res.json()) as { items: SearchItem[] }).items;
+}
+
+export interface Facet {
+  value: string;
+  name?: string;
+  slug?: string;
+}
+
+/** The filter facets the sheet would offer — for every source, or just one. */
+export async function apiParameters(token: string, source = ''): Promise<Record<string, Facet[]>> {
+  const q = source ? `?source=${encodeURIComponent(source)}` : '';
+  const res = await api(token, `/v1/source/parameters${q}`);
+  if (!res.ok) throw new Error(`parameters failed: ${res.status} ${await res.text()}`);
+  return (await res.json()) as Record<string, Facet[]>;
+}
+
+/** The slugs of one facet group, which is how two sources' options are compared. */
+export function slugs(facets: Facet[] = []): string[] {
+  return facets.map((f) => f.slug || '').filter(Boolean);
 }
 
 /**

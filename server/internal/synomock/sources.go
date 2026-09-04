@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -104,6 +105,44 @@ func (s *Server) handleSourceControl(w http.ResponseWriter, r *http.Request) {
 
 // ---------- the HTML-shaped fake site ----------
 
+// zarMockGenres is the fake site's genre taxonomy. The VALUE is deliberately not
+// the slug: the real site's filter parameter takes its own (Persian) wording
+// while its archive routes carry an English slug, and that gap is the whole
+// reason cross-source translation exists. A mock whose value equalled its slug
+// would let a broken translator pass.
+var zarMockGenres = []struct{ Value, Slug, Label string }{
+	{"g-comedy", "comedy", "Comedy"},
+	{"g-drama", "drama", "Drama"},
+	{"g-action", "action", "Action"},
+}
+
+// zarMockPanelHTML is the capability panel a real archive page carries. Groups
+// are told apart by the shape of their values, so the headings are only labels.
+func zarMockPanelHTML(base string) string {
+	var b strings.Builder
+	b.WriteString(`<div class="filter_orderby"><div class="label_orderby">sort</div><div class="filter_orderby_selecr">`)
+	for _, v := range []string{"newest", "modified", "popular", "imdb_rate", "release"} {
+		fmt.Fprintf(&b, `<div class="item_filter_orderby" data-filter="%s">%s</div>`, v, v)
+	}
+	b.WriteString(`</div></div><div class="filter_orderby"><div class="label_orderby">score</div><div class="filter_orderby_selecr">`)
+	b.WriteString(`<div class="item_filter_orderby" data-filter="">all</div>`)
+	for _, v := range []string{"9", "8", "7", "6", "5"} {
+		fmt.Fprintf(&b, `<div class="item_filter_orderby" data-filter="%s">over %s</div>`, v, v)
+	}
+	b.WriteString(`</div></div><div class="filter_orderby"><div class="label_orderby">genre</div><div class="filter_orderby_selecr">`)
+	b.WriteString(`<div class="item_filter_orderby" data-filter="">all</div>`)
+	for _, g := range zarMockGenres {
+		fmt.Fprintf(&b, `<div class="item_filter_orderby" data-filter="%s">%s</div>`, g.Value, g.Label)
+	}
+	b.WriteString(`</div></div>`)
+	// The archive's own genre routes, which is where the English slug for each
+	// label comes from.
+	for _, g := range zarMockGenres {
+		fmt.Fprintf(&b, `<a href="%s/genre/%s/">%s(42)</a>`, base, g.Slug, g.Label)
+	}
+	return b.String()
+}
+
 func (s *Server) handleZarMock(w http.ResponseWriter, r *http.Request) {
 	loggedOut, paywalled, pages, perPage, prefix := s.zarSrc.snapshot()
 	path := strings.TrimPrefix(r.URL.Path, "/mocksrc/zar")
@@ -130,7 +169,10 @@ func (s *Server) handleZarMock(w http.ResponseWriter, r *http.Request) {
 			fmt.Fprint(w, head+`<div class="posts_hoder_archive"></div>`)
 			return
 		}
-		fmt.Fprint(w, head+zarListingHTML(zarMockBaseFor(r), prefix, page, perPage, pages, seriesArchive))
+		q := r.URL.Query()
+		fmt.Fprint(w, head+zarMockPanelHTML(zarMockBaseFor(r))+
+			zarListingHTML(zarMockBaseFor(r), prefix, page, perPage, pages, seriesArchive,
+				q.Get("filter_genre"), q.Get("imdb_rate"), q.Get("sortby")))
 	default:
 		// A title page.
 		slug := strings.Trim(path, "/")
@@ -157,11 +199,54 @@ func pageFromPath(path string) int {
 	return 1
 }
 
-func zarListingHTML(base, prefix string, page, perPage, pages int, series bool) string {
+func zarListingHTML(base, prefix string, page, perPage, pages int, series bool, genre, minScore, sortBy string) string {
 	var b strings.Builder
 	b.WriteString(`<div class="posts_hoder_archive">`)
+	// The cards this page would carry, before the user's narrowing.
+	type card struct {
+		n     int
+		genre int
+		score float64
+	}
+	cards := make([]card, 0, perPage)
 	for i := 1; i <= perPage; i++ {
 		n := (page-1)*perPage + i
+		cards = append(cards, card{n: n, genre: n % len(zarMockGenres), score: float64(5+n%5) + float64(n%10)/10})
+	}
+	// Honour what was asked for. A mock that accepted a filter and ignored it
+	// would let a driver sending the wrong parameter name pass — which is exactly
+	// the bug this spec fixes.
+	if genre != "" {
+		want := -1
+		for i, g := range zarMockGenres {
+			if g.Value == genre {
+				want = i
+			}
+		}
+		kept := cards[:0]
+		for _, c := range cards {
+			if c.genre == want {
+				kept = append(kept, c)
+			}
+		}
+		cards = kept
+	}
+	if minScore != "" {
+		if min, err := strconv.ParseFloat(minScore, 64); err == nil {
+			kept := cards[:0]
+			for _, c := range cards {
+				if c.score >= min {
+					kept = append(kept, c)
+				}
+			}
+			cards = kept
+		}
+	}
+	if sortBy == "imdb_rate" {
+		sort.SliceStable(cards, func(i, j int) bool { return cards[i].score > cards[j].score })
+	}
+	for _, c := range cards {
+		n := c.n
 		slug := fmt.Sprintf("%s-title-%d", prefix, n)
 		// /series is all series; the DEFAULT browse mixes them in, every third
 		// item. A catalog of nothing but movies cannot exercise anything
@@ -175,14 +260,14 @@ func zarListingHTML(base, prefix string, page, perPage, pages int, series bool) 
 		fmt.Fprintf(&b, `
 <div class="inner_item_body_widget">
   <a class="bgbackitem" href="%s/%s/" title="Mock %s %d 20%02d">
-    <div class="genres_links"><h3><span>Drama</span></h3><h3><span>Action</span></h3></div>
+    <div class="genres_links"><h3><span>%s</span></h3></div>
     <img src="%s/poster-%d.jpg">
   </a>
   <div class="item-foot-title">
     <h3 class="movie-title">%s Title %d</h3>
     <div class="score"><span class="year">20%02d</span><span class="rate">%d.%d<span class="ten">/10</span></span></div>
   </div>
-</div>`, base, slug, prefix, n, 10+n%15, base, n,
+</div>`, base, slug, prefix, n, 10+n%15, zarMockGenres[c.genre].Label, base, n,
 			strings.ToUpper(prefix[:1])+prefix[1:], n, 10+n%15, 5+n%5, n%10)
 	}
 	b.WriteString(`</div>`)
@@ -289,10 +374,53 @@ func (s *Server) handleTNMock(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewEncoder(w).Encode(map[string]any{"success": false, "message": "unauthenticated"})
 		return
 	}
+	// The facet endpoint: what this source says it can be narrowed by. Its genre
+	// VALUES are opaque codes and its slugs are English — the opposite shape to
+	// the HTML-shaped source beside it, which is what makes the two a real test
+	// of cross-source translation rather than a pair of look-alikes.
+	if strings.Contains(r.URL.Path, "advanced_search_parametres") {
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"success": true,
+			"result": map[string]any{
+				"genre": tnMockGenreFacets(),
+				"type": []map[string]any{
+					{"name": "Movie", "value": "movie", "slug": "movie"},
+					{"name": "Series", "value": "series", "slug": "series"},
+				},
+				"score":    []map[string]any{{"name": "8+", "value": "8"}, {"name": "7+", "value": "7"}},
+				"quality":  []map[string]any{{"name": "BluRay", "value": "bluray", "slug": "bluray"}},
+				"country":  []map[string]any{},
+				"language": []map[string]any{},
+				"channel":  []map[string]any{},
+				"encoder":  []string{"MockEnc"},
+				"age":      []string{"G"},
+				"min_year": 1990,
+				"max_year": 2026,
+			},
+		})
+		return
+	}
 	page := 1
 	if i := strings.Index(r.URL.Path, "/page/"); i >= 0 {
 		if n, err := strconv.Atoi(strings.Trim(r.URL.Path[i+len("/page/"):], "/")); err == nil && n > 0 {
 			page = n
+		}
+	}
+	// The genre the caller narrowed by, in THIS source's vocabulary.
+	//
+	// The real API takes its filters FORM-encoded, as a single "parameters" field
+	// holding a JSON object — not as a JSON request body. Reading it the easy way
+	// (decoding the body as JSON) parses nothing, and a mock that quietly filters
+	// by nothing reports every filter as working.
+	wantGenre := ""
+	if err := r.ParseForm(); err == nil {
+		var params struct {
+			Genre []string `json:"genre"`
+		}
+		if raw := r.PostForm.Get("parameters"); raw != "" {
+			if err := json.Unmarshal([]byte(raw), &params); err == nil && len(params.Genre) > 0 {
+				wantGenre = params.Genre[0]
+			}
 		}
 	}
 	scheme := "http"
@@ -317,6 +445,7 @@ func (s *Server) handleTNMock(w http.ResponseWriter, r *http.Request) {
 				"english_plot":  "A mock title served by the in-repo fake source.",
 				"coming_soon":   false,
 				"free_download": true,
+				"genre":         []map[string]any{tnMockGenreFor(n)},
 				"image": map[string]any{
 					"cover": fmt.Sprintf("%s/cover-%d.jpg", base, n),
 					"poster": map[string]any{
@@ -329,8 +458,45 @@ func (s *Server) handleTNMock(w http.ResponseWriter, r *http.Request) {
 			})
 		}
 	}
+	if wantGenre != "" {
+		kept := posts[:0]
+		for _, p := range posts {
+			for _, g := range p["genre"].([]map[string]any) {
+				if g["value"] == wantGenre {
+					kept = append(kept, p)
+					break
+				}
+			}
+		}
+		posts = kept
+	}
 	_ = json.NewEncoder(w).Encode(map[string]any{
 		"success": true,
 		"result":  map[string]any{"page": page, "pages": pages, "posts": posts},
 	})
+}
+
+// tnMockGenres pairs this source's own opaque code with the English slug that
+// lets it join with another source's genre. "period-drama" is deliberately
+// unshared: it proves a facet only one source offers drops out of a combined
+// view instead of being offered and then half-honoured.
+var tnMockGenres = []struct{ Value, Slug, Name string }{
+	{"101", "comedy", "Comedy"},
+	{"102", "drama", "Drama"},
+	{"103", "period-drama", "Period drama"},
+}
+
+func tnMockGenreFacets() []map[string]any {
+	out := make([]map[string]any, 0, len(tnMockGenres))
+	for _, g := range tnMockGenres {
+		out = append(out, map[string]any{"name": g.Name, "value": g.Value, "slug": g.Slug})
+	}
+	return out
+}
+
+// tnMockGenreFor assigns a genre to a generated post, rotating through the list
+// so any page carries a mix.
+func tnMockGenreFor(n int) map[string]any {
+	g := tnMockGenres[n%len(tnMockGenres)]
+	return map[string]any{"name": g.Name, "value": g.Value, "slug": g.Slug}
 }

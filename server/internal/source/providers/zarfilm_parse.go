@@ -412,6 +412,138 @@ func hasWords(s string) bool {
 	return false
 }
 
+// ---------- capability panel ----------
+//
+// The archive pages carry a filter panel the driver can drive directly:
+//
+//	.filter_orderby
+//	  .label_orderby          the group's Persian heading
+//	  .filter_orderby_selecr
+//	    .item_filter_orderby[data-filter]   one option
+//
+// Three groups are published — a sort order, an IMDb-score band and a genre —
+// and they compose with each other and with pagination.
+
+// zarFacet is one option of one panel group.
+type zarFacet struct {
+	Value string // what the query parameter wants
+	Label string // the site's own (Persian) wording
+}
+
+// zarPanel is the archive's declared filtering ability.
+type zarPanel struct {
+	Sorts  []zarFacet
+	Scores []zarFacet
+	Genres []zarFacet
+}
+
+// zarSortValues are the site's own ordering keywords. They identify the sort
+// group by the SHAPE of its values rather than by its heading: the headings are
+// Persian prose and a redesign could reword them, but these values are what the
+// query parameter accepts and cannot change without the filter breaking anyway.
+var zarSortValues = map[string]bool{
+	"newest": true, "modified": true, "popular": true, "imdb_rate": true, "release": true,
+}
+
+// parseFilterPanel reads what an archive page says it can filter and sort by.
+// A page with no panel yields an empty result, never an error — most pages on the
+// site have none, and a source that cannot report its abilities must degrade to
+// offering nothing rather than failing the browse (FR-011).
+func parseFilterPanel(body []byte) zarPanel {
+	doc, err := parseHTML(body)
+	if err != nil {
+		return zarPanel{}
+	}
+	var out zarPanel
+	for _, box := range findAll(doc, byClass("filter_orderby_selecr")) {
+		var opts []zarFacet
+		digits := true
+		sortish := false
+		for _, item := range findAll(box, byClass("item_filter_orderby")) {
+			v := strings.TrimSpace(attr(item, "data-filter"))
+			// The empty entry is the panel's "all" affordance — a way to CLEAR the
+			// filter, not a value to offer.
+			if v == "" {
+				continue
+			}
+			if zarSortValues[v] {
+				sortish = true
+			}
+			if !isASCIIDigits(v) {
+				digits = false
+			}
+			label := strings.TrimSpace(text(item))
+			if label == "" {
+				label = v
+			}
+			opts = append(opts, zarFacet{Value: v, Label: label})
+		}
+		if len(opts) == 0 {
+			continue
+		}
+		switch {
+		case sortish:
+			out.Sorts = append(out.Sorts, opts...)
+		case digits:
+			out.Scores = append(out.Scores, opts...)
+		default:
+			out.Genres = append(out.Genres, opts...)
+		}
+	}
+	return out
+}
+
+func isASCIIDigits(s string) bool {
+	for _, r := range s {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return s != ""
+}
+
+// reZarGenreRoute matches the archive's own genre links. Only an ASCII slug is
+// accepted: several routes are nothing but the Persian label percent-encoded, and
+// treating one of those as a slug would both fail to join with another source and
+// be shown to the user title-cased as gibberish.
+var reZarGenreRoute = regexp.MustCompile(`^/genre/([a-z0-9-]+)/?$`)
+
+// parseGenreSlugs pairs each Persian genre label with the English slug the site
+// uses in its own archive routes.
+//
+// This is why the two vocabularies can be joined at all. The panel's genre values
+// are Persian, because that is what the query parameter accepts; the routes carry
+// an English slug for the same label. Reading the pairing off the page keeps it
+// correct as the site's taxonomy changes, which a hand-written table would not.
+func parseGenreSlugs(body []byte) map[string]string {
+	doc, err := parseHTML(body)
+	if err != nil {
+		return nil
+	}
+	out := map[string]string{}
+	for _, a := range findAll(doc, byTag("a")) {
+		href := attr(a, "href")
+		if i := strings.Index(href, "/genre/"); i >= 0 {
+			href = href[i:]
+		}
+		m := reZarGenreRoute.FindStringSubmatch(href)
+		if m == nil {
+			continue
+		}
+		// The link text is the label with the site's own count appended.
+		label := strings.TrimSpace(reZarGenreCount.ReplaceAllString(text(a), ""))
+		if label == "" {
+			continue
+		}
+		if _, seen := out[label]; !seen {
+			out[label] = m[1]
+		}
+	}
+	return out
+}
+
+var reZarGenreCount = regexp.MustCompile(`\s*\([\d,]+\)\s*$`)
+
 // ---------- series pages ----------
 
 // Series pages are shaped differently from movie pages, not merely nested one
