@@ -157,7 +157,13 @@ func zarListingHTML(base, prefix string, page, perPage, pages int, series bool) 
 	for i := 1; i <= perPage; i++ {
 		n := (page-1)*perPage + i
 		slug := fmt.Sprintf("%s-title-%d", prefix, n)
-		if series {
+		// /series is all series; the DEFAULT browse mixes them in, every third
+		// item. A catalog of nothing but movies cannot exercise anything
+		// series-shaped — season packs, the episode picker, or which seasons are
+		// already on the NAS — and a test that cannot find a series does not fail,
+		// it skips. That is the worst outcome: coverage that reports success while
+		// asserting nothing.
+		if series || n%3 == 0 {
 			slug = "series/" + slug
 		}
 		fmt.Fprintf(&b, `
