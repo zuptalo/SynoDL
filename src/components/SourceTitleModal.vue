@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onUnmounted, ref, watch } from 'vue';
+import { computed, nextTick, onUnmounted, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import {
   alertController,
@@ -35,7 +35,6 @@ import {
   type SeasonPresence,
 } from '@/services/api';
 import { bySeasonThenSize, seasonNum, sizeMB } from '@/services/quality-sort';
-import { appToast } from '@/services/toast';
 import { useSourceCatalog } from '@/composables/useSourceCatalog';
 import { splitYear } from '@/services/title-year';
 import { imdbUrl } from '@/services/imdb-link';
@@ -325,6 +324,18 @@ const groupedBySeason = computed(
   () => visibleQualities.value.some((q) => !!q.season) && seasonGroups.value.length > 0,
 );
 
+// Where "what do I do next" lives: the episode picker for a season pack, or the
+// send button for a movie. Choosing a quality scrolls here, so the next step is
+// on screen instead of below the fold of a long option list.
+const downloadAnchor = ref<HTMLElement | null>(null);
+
+watch(selected, (id, was) => {
+  if (!id || id === was) return;
+  void nextTick(() => {
+    downloadAnchor.value?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  });
+});
+
 /** Which group is open. Presentation only — it never touches `selected`. */
 const openSeason = ref<string | null>(null);
 
@@ -340,6 +351,9 @@ function defaultOpenSeason(): string | null {
 
 function onSeasonToggle(value: string | null | undefined): void {
   openSeason.value = value ?? null;
+  // Same rule as the tier tabs: the selection must always be something on screen.
+  const cur = qualities.value.find((q) => q.id === selected.value);
+  if (cur && String(seasonNum(cur)) !== openSeason.value) selected.value = '';
 }
 
 /** What a collapsed header says, so the season can be judged without opening it. */
@@ -360,20 +374,13 @@ watch(
   { immediate: true },
 );
 
-// The default sendable option in a tier (first usable in the display order — the
-// earliest season's largest usable), else its first option.
-function firstUsableIn(tierKey: string): string {
-  const list = qualities.value
-    .filter((q) => tierOf(q).key === tierKey)
-    .slice()
-    .sort(bySeasonThenSize);
-  return (list.find((q) => !tooLarge(q)) ?? list[0])?.id ?? '';
-}
 function onTier(key: string): void {
   activeTier.value = key;
-  // Keep the current pick if it's in this tier; else select its first usable.
+  // Keep the current pick if it is in this tier; otherwise drop it. Carrying a
+  // selection the user can no longer see is how the send button ended up armed
+  // with something off-screen.
   const cur = qualities.value.find((q) => q.id === selected.value);
-  if (!cur || tierOf(cur).key !== key) selected.value = firstUsableIn(key);
+  if (!cur || tierOf(cur).key !== key) selected.value = '';
 }
 
 // ---- post-send live state -------------------------------------------------
@@ -497,19 +504,16 @@ watch(
       presentSeasons.value = detail.seasons ?? [];
       ownership.value = detail.ownership ?? 'unknown';
       detailMeta.value = { imdbId: detail.imdbId, plot: detail.plot };
-      // Default to the highest-quality tab, selecting its first usable option
-      // (largest that's within the size limit). The user's preferred quality, if
-      // it lives in that top tier, wins over the plain first.
-      const topTier = tiers.value[0]?.key ?? '';
-      activeTier.value = topTier;
-      const inTop = detail.qualities
-        .filter((q) => tierOf(q).key === topTier && !tooLarge(q))
-        .slice()
-        .sort(bySeasonThenSize);
-      const preferred = inTop.find((q) =>
-        preferredQuality.value ? q.label.toLowerCase().includes(preferredQuality.value.toLowerCase()) : false,
-      );
-      selected.value = preferred?.id ?? firstUsableIn(topTier);
+      // Open on the user's preferred quality tab where the title has one, else the
+      // highest. NOTHING is selected: a pre-selected option reads as a choice the
+      // user made, and on a part-owned series the pre-selection sat inside a
+      // COLLAPSED season, arming the send button with a season they already had.
+      // Picking is now always a deliberate act.
+      const preferredTier = preferredQuality.value
+        ? tiers.value.find((t) => t.label.toLowerCase().includes(preferredQuality.value.toLowerCase()))
+        : undefined;
+      activeTier.value = preferredTier?.key ?? tiers.value[0]?.key ?? '';
+      selected.value = '';
       void loadQuota(); // show the daily allowance alongside the qualities
     } catch (e) {
       if (e instanceof ApiError && e.code === 'source_needs_refresh') {
@@ -529,12 +533,6 @@ watch(
   { immediate: true },
 );
 
-async function toast(message: string): Promise<void> {
-  // A plain confirmation — the send button itself becomes the live "view the
-  // download" affordance, so the toast no longer needs its own action.
-  await appToast({ message, duration: 3000 });
-}
-
 /**
  * Ask before fetching something that is already here, or already on its way.
  *
@@ -544,15 +542,22 @@ async function toast(message: string): Promise<void> {
  * genuinely absent never prompts at all (FR-021).
  */
 async function confirmDuplicate(): Promise<boolean> {
-  const season = seasonHave.value.get(seasonNum(selectedQuality.value ?? ({} as QualityOption)));
-  const already = ownership.value === 'owned' || ownership.value === 'downloading' || !!season;
+  const picked = selectedQuality.value;
+  const season = picked ? seasonHave.value.get(seasonNum(picked)) : undefined;
+  // A season pack is judged by ITS season, never by the title. A series counts as
+  // owned when any season is on the NAS, so testing the title asked "download it
+  // again?" for season 3 of a show the user had seasons 1 and 2 of — the one case
+  // where they are certainly not downloading it again.
+  const perSeason = !!picked?.season;
+  const already =
+    ownership.value === 'downloading' || (perSeason ? !!season : ownership.value === 'owned');
   if (!already) return true;
 
   const what =
     ownership.value === 'downloading'
       ? 'This is downloading right now.'
       : season
-        ? `You already have season ${season.season} — ${haveLabel(selectedQuality.value!).replace('On your NAS · ', '')}.`
+        ? `You already have season ${season.season} — ${haveLabel(picked!).replace('On your NAS · ', '')}.`
         : 'You already have this.';
   const alert = await alertController.create({
     header: 'Download it again?',
@@ -590,7 +595,9 @@ async function send(episodesOverride?: number[]): Promise<void> {
     sentDest.value = res.destination;
     startPolling();
     void loadQuota(); // reflect the allowance we just used
-    await toast(res.count > 1 ? `Sent ${res.count} episodes to your NAS` : 'Sent to your NAS');
+    // No toast: the button under the user's finger has just become a live status
+    // control for the very download they created, which says the same thing for
+    // longer and in the place they are already looking.
   } catch (e) {
     if (e instanceof ApiError) {
       if (e.code === 'source_needs_refresh') {
@@ -802,6 +809,8 @@ async function offerOverLimit(): Promise<void> {
                 </ion-accordion>
               </ion-accordion-group>
             </ion-radio-group>
+
+            <div ref="downloadAnchor"></div>
 
             <!-- Series: pick which episodes to download (all by default). -->
             <template v-if="!sent && isSeriesPack">
