@@ -397,6 +397,7 @@ function goSettings(): void {
             v-if="!unavailable && !needsRefresh"
             :aria-label="'Filters'"
             :disabled="loading"
+            data-testid="filter-open"
             @click="filterOpen = true"
           >
             <ion-icon slot="icon-only" :icon="funnelOutline" :color="viewChanged ? 'success' : undefined" />
@@ -615,6 +616,7 @@ function goSettings(): void {
             :key="t.id"
             type="button"
             class="card"
+            data-testid="catalog-card"
             @click="openTitle(t)"
           >
             <div class="poster">
