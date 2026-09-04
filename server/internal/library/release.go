@@ -29,9 +29,18 @@ import (
 type Release struct {
 	Resolution string
 	Group      string
+	// Key identifies the release by the FILE it is, rather than by tokens read out
+	// of it — see ReleaseKey. Filled even when Resolution and Group are not, which
+	// is the common case for a source that renames what it serves.
+	Key string
 }
 
 var (
+	// Episode notation, removed from a release key so every episode of one release
+	// identifies it. The SEASON is kept — two seasons of the same encode are
+	// different things and must not collapse onto each other.
+	reEpisodeToken = regexp.MustCompile(`(?i)\bs(\d{1,2})[\. _-]?e\d{1,3}\b`)
+	reXEpisode     = regexp.MustCompile(`(?i)\b(\d{1,2})x\d{1,3}\b`)
 	// The resolution tokens release names actually use.
 	reResolution = regexp.MustCompile(`(?i)\b(2160p|1080p|720p|480p|360p)\b`)
 	// 4K and UHD mean 2160p; an option will say 2160p, so normalize on the way in.
@@ -70,8 +79,11 @@ func ReleaseOf(name string) (Release, bool) {
 		r.Group = foldToken(m[1])
 	}
 
+	r.Key = ReleaseKey(name)
 	if r.Resolution == "" || r.Group == "" {
-		return Release{}, false
+		// The token path refuses it — but the key still identifies the file, which
+		// is what a source that rewrites its release names leaves us.
+		return Release{Key: r.Key}, false
 	}
 	return r, true
 }
@@ -112,6 +124,46 @@ func foldToken(s string) string {
 		if unicode.IsLetter(r) || unicode.IsDigit(r) {
 			b.WriteRune(r)
 		}
+	}
+	return b.String()
+}
+
+// ReleaseKey reduces a file name to what makes it THIS release.
+//
+// It exists because the tokens ReleaseOf reads can be overwritten by the source.
+// One real source renames everything it serves with its own suffix, so files
+// encoded by four different groups all report the same group, and labels every
+// movie option with its own name — leaving nothing for a token comparison to tell
+// apart. What it does not overwrite is that a given download link yields a given
+// file, so comparing the files compares the releases.
+//
+// The reduction drops the extension and any directory, folds case and every run
+// of punctuation away, and removes the episode number so a season downloaded in
+// part still identifies itself. "" means the name says nothing at all.
+func ReleaseKey(name string) string {
+	base := strings.TrimSpace(path.Base(strings.TrimSpace(name)))
+	if e := ext(base); e != "" {
+		base = strings.TrimSuffix(base, "."+e)
+	} else if strings.HasPrefix(base, ".") {
+		// A name that is ALL extension (".mkv") is a dotfile with no stem — the
+		// same rule ext() applies. There is no release here to identify.
+		return ""
+	}
+	base = reEpisodeToken.ReplaceAllString(base, " s$1 ")
+	base = reXEpisode.ReplaceAllString(base, " s$1 ")
+
+	var b strings.Builder
+	space := false
+	for _, r := range strings.ToLower(base) {
+		if unicode.IsLetter(r) || unicode.IsDigit(r) {
+			if space && b.Len() > 0 {
+				b.WriteByte('-')
+			}
+			space = false
+			b.WriteRune(r)
+			continue
+		}
+		space = true
 	}
 	return b.String()
 }

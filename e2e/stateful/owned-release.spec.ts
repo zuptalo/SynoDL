@@ -41,8 +41,10 @@ test('only the release actually on the NAS is marked', async () => {
   const folder = folderNameFor(movie!.title);
   const base = `${parentFor(movie!.type)}/${folder}`;
   await seedLibrary({ [parentFor(movie!.type)]: [folder] });
-  // A real release name: the 1080p encode by this source's encoder.
-  await seedLibraryFiles({ [base]: ['Mock.2024.1080p.BluRay-MockEnc.mkv'] });
+  // The file ONE option produces. The source names its files after the title's
+  // own slug, which is the second half of the qualified catalog id.
+  const slug = movie!.id.split(':').pop();
+  await seedLibraryFiles({ [base]: [`${slug}.1080p.WEBRip.x264.MockSite.mkv`] });
   await refreshLibrary(token, id, 'Only Source');
 
   const detail = await apiTitle(token, movie!.id);
@@ -50,18 +52,18 @@ test('only the release actually on the NAS is marked', async () => {
   expect(opts.length).toBeGreaterThan(1);
 
   const marked = opts.filter((q) => q.owned);
-  expect(marked.length, 'the release on disk is marked').toBeGreaterThan(0);
-  // Every marked option is the release that is actually there. Two options that
-  // agree on BOTH resolution and encoder are indistinguishable from a file name,
-  // so both may be marked — what must never happen is marking an option the file
-  // contradicts.
-  for (const q of marked) {
-    expect(q.resolution).toBe('1080p');
-    expect((q.encoder ?? '').toLowerCase()).toContain('mockenc');
+  expect(marked.length, 'exactly the option that made the file').toBe(1);
+  expect(marked[0].resolution).toBe('1080p');
+
+  // This source offers a dubbed encode at the SAME resolution and with the same
+  // encoder. It must not be marked — no token can separate the two, only the
+  // file each produces.
+  const otherAt1080 = opts.filter((q) => q.resolution === '1080p' && q.id !== marked[0].id);
+  expect(otherAt1080.length, 'there is a same-resolution sibling to confuse').toBeGreaterThan(0);
+  for (const q of otherAt1080) {
+    expect(q.owned, `${q.label} is a different encode and must not be marked`).toBeFalsy();
   }
-  // The other resolutions this source offers must not be marked — that was the
-  // bug: anything on disk stamped every option for the title.
-  expect(opts.some((o) => o.resolution !== '1080p')).toBe(true);
+  // Other resolutions are untouched too.
   for (const q of opts.filter((o) => o.resolution !== '1080p')) {
     expect(q.owned, `${q.label} should not be marked`).toBeFalsy();
   }
@@ -122,6 +124,71 @@ test('a series opens on the first season you do not have, and one at a time', as
 
   // FR-010: a collapsed header still says whether that season is here.
   await expect(groups.nth(1)).toContainText('On your NAS');
+});
+
+// Spec 1026: the fake source names two qualities per season at the SAME
+// resolution, both carrying its own name as the release group — exactly how the
+// real one is shaped. Nothing but the file each produces can tell them apart.
+test('two options at one resolution are told apart by the file each makes', async () => {
+  const id = await addSource(token, 'Only Source', 0);
+  const items = await apiSearch(token);
+  const series = items.find((i) => i.type === 'series' || i.type === 'anime');
+  test.skip(!series, 'catalog served no series');
+
+  const folder = folderNameFor(series!.title);
+  const base = `${parentFor(series!.type)}/${folder}`;
+  await seedLibrary({ [parentFor(series!.type)]: [folder], [base]: ['Season 01'] });
+  // The file one specific option produces — note the episode number differs from
+  // the one the option links to, which must not matter.
+  await seedLibraryFiles({
+    [`${base}/Season 01`]: ['Mock.S01E03.1080p.WEB-DL.x264.Alpha.MockSite.mkv'],
+  });
+  await refreshLibrary(token, id, 'Only Source');
+
+  const detail = await apiTitle(token, series!.id);
+  const s1 = (detail.qualities ?? []).filter((q) => (q.season ?? '').includes('1'));
+  expect(s1.length, 'the season offers more than one option').toBeGreaterThan(1);
+
+  // Both are 1080p, so a resolution comparison could never separate them.
+  expect(new Set(s1.map((q) => q.resolution))).toEqual(new Set(['1080p']));
+
+  const marked = s1.filter((q) => q.owned);
+  expect(marked.length, 'exactly the option that made the file').toBe(1);
+  expect(marked[0].encoder).toBe('Alpha');
+
+  // The other seasons hold nothing, so nothing there is marked.
+  for (const q of (detail.qualities ?? []).filter((o) => !(o.season ?? '').includes('1'))) {
+    expect(q.owned, `${q.label} is not on the NAS`).toBeFalsy();
+  }
+});
+
+// FR-002: the file an option would produce is server-internal and must not be
+// serialised — a wire tag enforces it, and this proves the tag is doing its job.
+test('the response never carries a release file name', async () => {
+  await addSource(token, 'Only Source', 0);
+  const items = await apiSearch(token);
+  const series = items.find((i) => i.type === 'series' || i.type === 'anime');
+  test.skip(!series, 'catalog served no series');
+
+  const detail = await apiTitle(token, series!.id);
+  const raw = JSON.stringify(detail);
+  expect(raw).not.toContain('releaseName');
+  expect(raw).not.toContain('.mkv');
+});
+
+// A season option now says who encoded it, as a movie's option already did.
+test('a season option names its encoder', async () => {
+  await addSource(token, 'Only Source', 0);
+  const items = await apiSearch(token);
+  const series = items.find((i) => i.type === 'series' || i.type === 'anime');
+  test.skip(!series, 'catalog served no series');
+
+  const detail = await apiTitle(token, series!.id);
+  for (const q of detail.qualities ?? []) {
+    expect(q.encoder, `${q.label} should name its encoder`).toBeTruthy();
+    // Shown once, not twice: it is lifted out of the quality into its own field.
+    expect(q.label).not.toContain(` - ${q.encoder}`);
+  }
 });
 
 // FR-008, the other half: with nothing left to fetch there is nothing to open on.

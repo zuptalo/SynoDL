@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -79,7 +80,11 @@ type evidenceRec struct {
 	// title folder itself, so a movie is carried by the same field. It never
 	// leaves the server: options are matched here and the client is told only
 	// which option it already has (spec 1025, FR-006).
-	releases  map[int][]library.Release
+	releases map[int][]library.Release
+	// keys is the identity of each file found, by season — the same shape as
+	// releases, but the whole-file identity rather than tokens read out of it.
+	// It is what a source that rewrites its release names leaves us to match on.
+	keys      map[int][]string
 	checkedAt time.Time
 }
 
@@ -256,6 +261,7 @@ func (d Deps) folderEvidence(ctx context.Context, relPath string) (evidenceRec, 
 	counts := map[int]int{}
 
 	rec.releases = map[int][]library.Release{}
+	rec.keys = map[int][]string{}
 
 	note := func(season, episode int, ok bool) {
 		if !ok {
@@ -272,6 +278,13 @@ func (d Deps) folderEvidence(ctx context.Context, relPath string) (evidenceRec, 
 	// the two tokens that identify the release are kept.
 	noteRelease := func(season int, name string) {
 		rel, ok := library.ReleaseOf(name)
+		// The whole-file identity is recorded whether or not the tokens could be
+		// read: a source that renames what it serves leaves nothing else to go on.
+		if rel.Key != "" {
+			if !slices.Contains(rec.keys[season], rel.Key) {
+				rec.keys[season] = append(rec.keys[season], rel.Key)
+			}
+		}
 		if !ok {
 			return
 		}
@@ -423,32 +436,32 @@ func (d Deps) activeDestinations() map[string]bool {
 // (FR-017).
 func (d Deps) titleDetail(
 	ctx context.Context, title string, kind library.MediaKind, activeDests map[string]bool,
-) (string, []source.SeasonPresence, map[int][]library.Release) {
+) (string, []source.SeasonPresence, evidenceRec) {
 	ix := d.libraryIndex(ctx)
 	if ix.IsEmpty() {
-		return source.OwnershipUnknown, nil, nil
+		return source.OwnershipUnknown, nil, evidenceRec{}
 	}
 	entry, matched := ix.Lookup(title, kind)
 	if !matched {
-		return source.OwnershipAbsent, nil, nil
+		return source.OwnershipAbsent, nil, evidenceRec{}
 	}
 	if activeDests[entry.Path] {
 		// Still arriving. Season detail from a half-written folder would be read
 		// as what the user HAS, so it is withheld rather than shown mid-flight —
 		// and so are the releases, for the same reason.
-		return source.OwnershipDownloading, nil, nil
+		return source.OwnershipDownloading, nil, evidenceRec{}
 	}
 	rec, ok := d.folderEvidence(ctx, entry.Path)
 	if !ok {
-		return source.OwnershipUnknown, nil, nil
+		return source.OwnershipUnknown, nil, evidenceRec{}
 	}
 	if !rec.hasVideo {
-		return source.OwnershipAbsent, nil, nil
+		return source.OwnershipAbsent, nil, evidenceRec{}
 	}
 	if kind == library.MediaMovie {
-		return source.OwnershipOwned, nil, rec.releases
+		return source.OwnershipOwned, nil, rec
 	}
-	return source.OwnershipOwned, rec.seasons, rec.releases
+	return source.OwnershipOwned, rec.seasons, rec
 }
 
 // markOwnedOptions flags the options whose release is the one already on the NAS.
@@ -461,16 +474,28 @@ func (d Deps) titleDetail(
 // An option nothing matches is simply left unmarked. That is not a claim the
 // user lacks it: the season's own presence is reported separately and is
 // untouched by whether any release could be identified (FR-004).
-func markOwnedOptions(qualities []source.QualityOption, releases map[int][]library.Release) []source.QualityOption {
-	if len(releases) == 0 {
+func markOwnedOptions(qualities []source.QualityOption, ev evidenceRec) []source.QualityOption {
+	if len(ev.releases) == 0 && len(ev.keys) == 0 {
 		return qualities
 	}
 	for i := range qualities {
 		q := qualities[i]
+		season := seasonNumOf(q.Season)
+
+		// Where the option knows the file it produces, that decides it — and a
+		// mismatch is final. Falling through to tokens here would undo the whole
+		// point: on a source that rewrites its release names EVERY token
+		// comparison succeeds, so the fallback would mark every option again
+		// (FR-004).
+		if key := library.ReleaseKey(q.ReleaseName); key != "" {
+			qualities[i].Owned = slices.Contains(ev.keys[season], key)
+			continue
+		}
+
 		if q.Encoder == "" || q.Resolution == "" {
 			continue // an option that does not say what it is cannot be identified
 		}
-		for _, rel := range releases[seasonNumOf(q.Season)] {
+		for _, rel := range ev.releases[season] {
 			if rel.Matches(q.Resolution, q.Encoder) {
 				qualities[i].Owned = true
 				break

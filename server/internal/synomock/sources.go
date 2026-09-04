@@ -311,14 +311,21 @@ func zarTitleHTML(base, slug string, paywalled bool) string {
 	var b strings.Builder
 	b.WriteString(zarMetaHTML(slug))
 	b.WriteString(`<div class="single_dlbox">`)
+	// The two variants deliberately share a resolution AND an encoder, differing
+	// only in the file each produces — the real site is shaped exactly this way
+	// (a dubbed encode and a subtitled one, both labelled with the site's own
+	// name), and it is the pair a token comparison cannot separate.
 	for _, variant := range []struct {
 		badge  string
 		dubbed bool
-	}{{"subtitle_row", false}, {"double_row", true}} {
+		tag    string
+	}{{"subtitle_row", false, "x264"}, {"double_row", true, "Dubbed"}} {
 		fmt.Fprintf(&b, `<div class="inner_dl_box_n_single">
   <div class="title_rows_dls"><h3>Mock variant</h3><span class="label_dl_row %s">x</span></div>`, variant.badge)
 		for _, res := range []string{"1080p", "720p", "480p"} {
-			link := fmt.Sprintf(`https://dl9.mockdl.invalid/Movies/%s.%s.mkv?md5=MOCKSIG&u=424242&expires=99999999999`, slug, res)
+			link := fmt.Sprintf(
+				`https://dl9.mockdl.invalid/Movies/%s.%s.WEBRip.%s.MockSite.mkv?md5=MOCKSIG&u=424242&expires=99999999999`,
+				slug, res, variant.tag)
 			cls := "dllink subtitle_link"
 			if paywalled {
 				// No entitlement: the row becomes an upsell, which is exactly how the
@@ -351,23 +358,37 @@ const zarMockSeasons = 3
 func zarSeriesHTML(base string, paywalled bool) string {
 	var b strings.Builder
 	b.WriteString(`<div class="single_dlbox">`)
+	// Two qualities per season at the SAME resolution, named for who encoded them
+	// the way the real site names them. They are indistinguishable by resolution
+	// and, once the site's own suffix is applied, by release group too — only the
+	// files tell them apart, which is what spec 1026 matches on.
+	qualities := []struct{ encoder, tag, size string }{
+		{"Alpha", "x264.Alpha", "900 MB"},
+		{"MockSite", "Dubbed", "700 MB"},
+	}
 	for season := 1; season <= zarMockSeasons; season++ {
 		fmt.Fprintf(&b, `<div class="row_season_n_dl">
   <div class="season_name"><span>فصل %d</span></div>
-  <div class="body_row_season_n_dl"><div class="item_quality_n_row">
-    <div class="item_meta_qu_r_n"><div class="label_meta_qu">کیفیت : </div><div class="value_meta_qu">WEB-DL 1080p</div></div>
-    <div class="item_meta_qu_r_n"><div class="label_meta_qu">حجم : </div><div class="value_meta_qu">900 MB</div></div>
+  <div class="body_row_season_n_dl">`, season)
+		for _, q := range qualities {
+			fmt.Fprintf(&b, `<div class="item_quality_n_row">
+    <div class="item_meta_qu_r_n"><div class="label_meta_qu">کیفیت : </div><div class="value_meta_qu">WEB-DL 1080p - %s</div></div>
+    <div class="item_meta_qu_r_n"><div class="label_meta_qu">حجم : </div><div class="value_meta_qu">%s</div></div>
     <div class="item_meta_qu_r_n sub_type_item_meta"><div class="value_meta_qu">Soft</div></div>
-    <div class="inner_parts_holder">`, season)
-		for ep := 1; ep <= 4; ep++ {
-			link := fmt.Sprintf(`https://dl9.mockdl.invalid/Series/Mock.S%02dE%02d.1080p.mkv?md5=MOCKSIG&u=424242&expires=99999999999`, season, ep)
-			cls := "dllinkhref"
-			if paywalled {
-				link, cls = base+"/pricing/", "dllinkhref vip_link"
+    <div class="inner_parts_holder">`, q.encoder, q.size)
+			for ep := 1; ep <= 4; ep++ {
+				link := fmt.Sprintf(
+					`https://dl9.mockdl.invalid/Series/Mock.S%02dE%02d.1080p.WEB-DL.%s.MockSite.mkv?md5=MOCKSIG&u=424242&expires=99999999999`,
+					season, ep, q.tag)
+				cls := "dllinkhref"
+				if paywalled {
+					link, cls = base+"/pricing/", "dllinkhref vip_link"
+				}
+				fmt.Fprintf(&b, `<div class="item_part"><a href="%s" class="%s">ep %d</a></div>`, link, cls, ep)
 			}
-			fmt.Fprintf(&b, `<div class="item_part"><a href="%s" class="%s">ep %d</a></div>`, link, cls, ep)
+			b.WriteString(`</div></div>`)
 		}
-		b.WriteString(`</div></div></div></div>`)
+		b.WriteString(`</div></div>`)
 	}
 	b.WriteString(`</div>`)
 	return b.String()
