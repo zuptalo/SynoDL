@@ -108,6 +108,8 @@ const qualities = ref<QualityOption[]>([]);
 // when the title is a movie, is still downloading, or its folder could not be
 // read — in every one of those cases no marker is shown rather than a wrong one.
 const presentSeasons = ref<SeasonPresence[]>([]);
+// Whether the NAS already has this title at all (FR-019a).
+const ownership = ref<string>('unknown');
 const selected = ref('');
 const errorMsg = ref('');
 
@@ -366,6 +368,7 @@ watch(
     errorMsg.value = '';
     qualities.value = [];
     presentSeasons.value = [];
+    ownership.value = 'unknown';
     selected.value = '';
     posterFailed.value = false;
     posterFellBack.value = false;
@@ -384,6 +387,7 @@ watch(
       sendable.value = detail.sendable;
       qualities.value = detail.qualities;
       presentSeasons.value = detail.seasons ?? [];
+      ownership.value = detail.ownership ?? 'unknown';
       // Default to the highest-quality tab, selecting its first usable option
       // (largest that's within the size limit). The user's preferred quality, if
       // it lives in that top tier, wins over the plain first.
@@ -422,10 +426,43 @@ async function toast(message: string): Promise<void> {
   await appToast({ message, duration: 3000 });
 }
 
+/**
+ * Ask before fetching something that is already here, or already on its way.
+ *
+ * Both cases get the prompt (FR-019a): neither is something the user needs to
+ * send again, and the daily allowance and the NAS's bandwidth are real costs.
+ * Cancelling sends nothing and consumes no allowance (FR-020); a title that is
+ * genuinely absent never prompts at all (FR-021).
+ */
+async function confirmDuplicate(): Promise<boolean> {
+  const season = seasonHave.value.get(seasonNum(selectedQuality.value ?? ({} as QualityOption)));
+  const already = ownership.value === 'owned' || ownership.value === 'downloading' || !!season;
+  if (!already) return true;
+
+  const what =
+    ownership.value === 'downloading'
+      ? 'This is downloading right now.'
+      : season
+        ? `You already have season ${season.season} — ${haveLabel(selectedQuality.value!).replace('On your NAS · ', '')}.`
+        : 'You already have this.';
+  const alert = await alertController.create({
+    header: 'Download it again?',
+    message: `${what} Downloading it again will use your allowance.`,
+    buttons: [
+      { text: 'Cancel', role: 'cancel' },
+      { text: 'Download anyway', role: 'confirm' },
+    ],
+  });
+  await alert.present();
+  const { role } = await alert.onDidDismiss();
+  return role === 'confirm';
+}
+
 async function send(episodesOverride?: number[]): Promise<void> {
   if (!selected.value || sending.value) return;
   // A series with nothing ticked has nothing to send.
   if (isSeriesPack.value && !episodesOverride && selectedEpisodes.value.length === 0) return;
+  if (!(await confirmDuplicate())) return;
   sending.value = true;
   errorMsg.value = '';
   try {

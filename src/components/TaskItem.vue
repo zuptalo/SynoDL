@@ -222,6 +222,27 @@ const errorReason = computed(() =>
   font-size: 0.78rem;
   color: var(--app-text-dim);
   margin: 0.2rem 0 0.35rem;
+  /* One line, always. The speed and ETA change width on every poll, and letting
+     the row reflow made it flip between one and two lines several times a
+     minute — the row visibly jumping while nothing meaningful had changed.
+     Nothing wraps; the least important item gives way instead. */
+  flex-wrap: nowrap;
+  white-space: nowrap;
+  overflow: hidden;
+}
+.meta > * {
+  /* Hold their natural width so a number changing digits cannot resize them. */
+  flex: 0 0 auto;
+}
+.added-by {
+  font-style: italic;
+  opacity: 0.85;
+  /* The one thing allowed to shrink: who added it is worth less than how far
+     along it is, so it ellipses rather than pushing the numbers off the row. */
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .status {
   text-transform: capitalize;
@@ -230,10 +251,7 @@ const errorReason = computed(() =>
 .reason {
   color: var(--app-status-error);
 }
-.added-by {
-  font-style: italic;
-  opacity: 0.85;
-}
+
 ion-progress-bar {
   height: 3px;
   border-radius: 2px;

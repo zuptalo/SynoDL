@@ -4,7 +4,7 @@
 
 **Created**: 2026-09-03
 
-**Status**: in-progress
+**Status**: shipped
 <!-- SynoDL spec lifecycle: planned → in-progress → in-review → shipped. -->
 
 **Input**: User description: "I would like SynoDL to be more aware of the contents already existing in the movie and tv-show parent folders and detect what is already downloaded there, and when the same title shows up in the Discover tab, add a badge or something which indicates the item already exists so the user doesn't by mistake download it again."

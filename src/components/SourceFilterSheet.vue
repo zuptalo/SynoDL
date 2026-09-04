@@ -26,7 +26,7 @@ import { useSourceCatalog } from '@/composables/useSourceCatalog';
 // filter (server-side, via each result's title_type) — genre/quality/year/etc.
 // can't be applied to text search, so those controls are disabled here and a hint
 // explains why (spec 2002). Type stays enabled.
-const { filterOptions, yearBounds, searchActive } = useSourceCatalog();
+const { filterOptions, yearBounds, searchActive, hideOwned, setHideOwned } = useSourceCatalog();
 
 const props = defineProps<{ isOpen: boolean; filters: SourceSearchFilters }>();
 const emit = defineEmits<{
@@ -336,6 +336,19 @@ function clear(): void {
         </ion-item>
         <ion-item>
           <ion-toggle v-model="threeD" :disabled="searchActive">3D only</ion-toggle>
+        </ion-item>
+        <!-- A view preference rather than a facet filter: it is applied to what
+             the catalog returns, not sent to the source. Downloading titles are
+             hidden too — they are not something to send again, and their progress
+             is in the Tasks list (FR-019a, FR-022). -->
+        <ion-item>
+          <ion-toggle
+            :checked="hideOwned"
+            data-testid="filter-hide-owned"
+            @ion-change="setHideOwned($event.detail.checked)"
+          >
+            Hide what I already have
+          </ion-toggle>
         </ion-item>
       </ion-list>
     </ion-content>

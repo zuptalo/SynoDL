@@ -629,11 +629,26 @@ export const api = {
     request<{ preferredQuality: string }>('/v1/source/prefs', jsonMethod('PUT', { preferredQuality })),
   // Per-user Discover view (facet filters + sort field + direction), synced across devices.
   getSourceView: () =>
-    request<{ filters: SourceSearchFilters; sort: string; order: string; selectedSource: string }>(
+    request<{
+      filters: SourceSearchFilters;
+      sort: string;
+      order: string;
+      selectedSource: string;
+      hideOwned: boolean;
+    }>(
       '/v1/source/view',
     ),
-  setSourceView: (filters: SourceSearchFilters, sort: string, order: string, selectedSource = '') =>
-    request<void>('/v1/source/view', jsonMethod('PUT', { filters, sort, order, selectedSource })),
+  setSourceView: (
+    filters: SourceSearchFilters,
+    sort: string,
+    order: string,
+    selectedSource = '',
+    hideOwned = false,
+  ) =>
+    request<void>(
+      '/v1/source/view',
+      jsonMethod('PUT', { filters, sort, order, selectedSource, hideOwned }),
+    ),
 
   // Admin: the configured sources, and the provider kinds available to add. No
   // response ever carries session material — those fields are write-only.

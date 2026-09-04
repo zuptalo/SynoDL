@@ -94,6 +94,14 @@ function requestOpen(title: CatalogTitle | null, searchQuery?: string): void {
 // sources" — the default, and what an install with a single source always uses.
 const sources = ref<SourceProvider[]>([]);
 const selectedSource = ref('');
+/**
+ * Hide titles the user already has, or is already fetching.
+ *
+ * Downloading counts as hidden too (FR-019a): it is not something they need to
+ * send again, and its progress is reported in the Tasks list. Remembered per user
+ * so the choice follows them across devices.
+ */
+const hideOwned = ref(false);
 // Shown only once there is a real choice to make: with one source a selector
 // would be a control with nothing to select (FR-013).
 const showSourcePicker = computed(() => sources.value.length > 1);
@@ -290,7 +298,11 @@ async function fetchPage(reset: boolean): Promise<void> {
   unavailable.value = false;
   pages.value = res.pages;
   degraded.value = res.degraded ?? [];
-  const incoming = res.items.filter((i) => !i.comingSoon);
+  // Filtered in the same place comingSoon is, so pagination and the backfill
+  // below behave identically whichever reason a card was removed for.
+  const incoming = res.items.filter(
+    (i) => !i.comingSoon && !(hideOwned.value && (i.ownership === 'owned' || i.ownership === 'downloading')),
+  );
   items.value = reset ? incoming : [...items.value, ...incoming];
 }
 
@@ -391,6 +403,19 @@ async function loadMore(): Promise<void> {
   }
 }
 
+/**
+ * Turn hiding on or off, persist it, and reload the grid.
+ *
+ * A full reload rather than filtering what is already loaded: the hidden cards
+ * would otherwise leave gaps, and the backfill that keeps the grid full only
+ * runs on a fetch.
+ */
+async function setHideOwned(on: boolean): Promise<void> {
+  hideOwned.value = on;
+  void saveView();
+  await runSearch(true);
+}
+
 async function setQuery(q: string): Promise<void> {
   query.value = q;
   await runSearch(true);
@@ -400,7 +425,7 @@ async function setQuery(q: string): Promise<void> {
 // user across devices. Fire-and-forget — a failure never blocks browsing.
 async function saveView(): Promise<void> {
   try {
-    await api.setSourceView(filters.value, sort.value, order.value, selectedSource.value);
+    await api.setSourceView(filters.value, sort.value, order.value, selectedSource.value, hideOwned.value);
   } catch {
     /* non-fatal */
   }
@@ -418,6 +443,7 @@ async function loadView(): Promise<void> {
     // The server normalizes a removed or disabled source back to "all", so a
     // stale selection lands the user somewhere sensible rather than on a dead view.
     selectedSource.value = v.selectedSource ?? '';
+    hideOwned.value = v.hideOwned ?? false;
   } catch {
     /* non-fatal — keep whatever we have */
   }
@@ -554,6 +580,8 @@ export function useSourceCatalog() {
     sources,
     selectedSource,
     selectedSourceName,
+    hideOwned,
+    setHideOwned,
     showSourcePicker,
     degraded,
     loadSources,
