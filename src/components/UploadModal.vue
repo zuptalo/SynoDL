@@ -191,10 +191,16 @@ function send(): void {
 
       <ion-list>
         <ion-item>
+          <!-- Capitalise each word as it is typed, the way a title is normally
+               written. This is the KEYBOARD's default rather than a transform on
+               the value: rewriting what was typed would fight anyone entering an
+               acronym or a title that is genuinely lower-case, and the folder
+               name is the user's to decide. -->
           <ion-input
             v-model="title"
             label="Title"
             label-placement="stacked"
+            autocapitalize="words"
             data-testid="upload-title"
             :placeholder="kind === 'tv' ? 'Friends 1994' : 'Dune 2021'"
           />
