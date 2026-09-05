@@ -230,3 +230,46 @@ func TestAFolderStopsBeingProtectedOnceItsTaskIsGone(t *testing.T) {
 		t.Error("with no task left, an empty folder should be marked gone")
 	}
 }
+
+// An operator may configure a nested parent ("media/movie" rather than "movie"),
+// which makes every destination one segment longer. The reconciliation counts
+// segments to find the title folder, so this is where an off-by-one would hide —
+// and the failure mode is marking real content as gone.
+func TestNestedParentsResolveToTheRightTitleFolder(t *testing.T) {
+	fake := &fakeSyno{
+		loginSid: "sid",
+		subfolders: map[string][]syno.Folder{
+			"/media/movie":        {{Name: "Season of the Witch", Path: "/media/movie/Season of the Witch"}},
+			"/media/tv":           {{Name: "Dark 2017", Path: "/media/tv/Dark 2017"}},
+			"/media/tv/Dark 2017": {{Name: "Season 01", Path: "/media/tv/Dark 2017/Season 01"}},
+		},
+		files: map[string][]string{
+			// A film whose TITLE looks like a season folder. It must not be mistaken
+			// for one and stripped away.
+			"/media/movie/Season of the Witch": {"Season.of.the.Witch.2011.1080p.BluRay.x264-Silence.mkv"},
+			"/media/tv/Dark 2017/Season 01":    {"Dark.S01E01.1080p.WEB-DL.x265-Silence.mkv"},
+		},
+	}
+	d, st := libDeps(t, fake)
+	if _, err := st.CreateProvider(store.SourceProvider{
+		Kind: "faketest", DisplayName: "Alpha", Enabled: true,
+		MoviesParent: "media/movie", TVParent: "media/tv", State: store.SourceActive,
+	}, time.Now().Unix()); err != nil {
+		t.Fatalf("CreateProvider: %v", err)
+	}
+	for _, dest := range []string{"media/movie/Season of the Witch", "media/tv/Dark 2017/Season 01"} {
+		if err := st.SaveSourceDownload(store.SourceDownload{
+			Destination: dest, Title: dest, QualityResolution: "1080p", QualityEncoder: "Silence",
+		}, 1); err != nil {
+			t.Fatalf("seed %s: %v", dest, err)
+		}
+	}
+
+	d.scanOnce(context.Background())
+
+	for _, dest := range []string{"media/movie/Season of the Witch", "media/tv/Dark 2017/Season 01"} {
+		if got := missingSince(t, st, dest); !got.IsZero() {
+			t.Errorf("%q is present on the NAS but was marked gone at %v", dest, got)
+		}
+	}
+}
