@@ -341,4 +341,16 @@ var migrations = []string{
 	);
 	CREATE INDEX IF NOT EXISTS idx_library_evidence_checked ON library_evidence(checked_at);
 	`,
+
+	// Spec 1029: when a title folder was first seen to be gone from the NAS —
+	// absent from every configured parent, or present but holding no video.
+	//
+	// A timestamp rather than a flag, because removal is deliberately slow. This
+	// row is the ONLY record of which version was downloaded (a renamed library
+	// carries none in its file names, see spec 0010), so deleting it is
+	// irreversible — and a folder mid-download, mid-extract, or being reorganised
+	// by a media server all read as empty. The row is deleted only after it has
+	// been seen gone continuously for a grace period; seeing the folder again
+	// clears this back to 0.
+	`ALTER TABLE source_downloads ADD COLUMN missing_since INTEGER NOT NULL DEFAULT 0;`,
 }

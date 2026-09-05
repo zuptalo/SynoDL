@@ -351,3 +351,40 @@ func TestTheFinishCallbackFiresOnceWithTheDestination(t *testing.T) {
 		t.Fatalf("a finish must be reported once, got %v", got)
 	}
 }
+
+// Spec 1029: deciding whether content has been REMOVED from the NAS asks a
+// different question from Discover's "is this arriving" badge. A paused task's
+// folder is empty right now and will not be when it resumes, so it must not read
+// as a removal — and a paused task is deliberately NOT "active".
+func TestUnfinishedDestinationsIncludePausedAndErrored(t *testing.T) {
+	st, _ := newWatcherStore(t)
+	tasks := []Task{
+		{ID: "a", Name: "a.mkv", Status: "downloading", Destination: "movie/Downloading"},
+		{ID: "b", Name: "b.mkv", Status: "paused", Destination: "movie/Paused"},
+		{ID: "c", Name: "c.mkv", Status: "error", Destination: "movie/Errored"},
+		{ID: "d", Name: "d.mkv", Status: "waiting", Destination: "movie/Waiting"},
+		{ID: "e", Name: "e.mkv", Status: "finished", Destination: "movie/Finished"},
+	}
+	w := NewWatcher(st, func(context.Context) ([]Task, error) { return tasks, nil },
+		&fakeSender{}, "1.0.0", time.Minute)
+	w.poll(context.Background())
+
+	pending := w.UnfinishedDestinations()
+	for _, want := range []string{"movie/Downloading", "movie/Paused", "movie/Errored", "movie/Waiting"} {
+		if !pending[want] {
+			t.Errorf("%s is unfinished; its folder may legitimately be empty", want)
+		}
+	}
+	if pending["movie/Finished"] {
+		t.Error("a finished task's folder should hold its content; it must not be protected from cleanup")
+	}
+
+	// The narrower set is unchanged: a paused download is not "arriving".
+	active := w.ActiveDestinations()
+	if active["movie/Paused"] || active["movie/Errored"] {
+		t.Error("paused/errored must stay out of the Discover downloading badge")
+	}
+	if !active["movie/Downloading"] {
+		t.Error("a downloading task should still read as active")
+	}
+}

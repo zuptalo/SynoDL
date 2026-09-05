@@ -55,6 +55,7 @@ Specs are grouped by category band; status moves
 | [1026](specs/1026-tell-one-release/spec.md) | Tell one release from another by the file it makes | 🔵 in-review |
 | [1027](specs/1027-choosing-quality-deliberate-act/spec.md) | Choosing a quality is a deliberate act | 🔵 in-review |
 | [1028](specs/1028-recover-past-versions/spec.md) | Recover the version of downloads made before we recorded it | 🔵 in-review |
+| [1029](specs/1029-forget-content-left-nas/spec.md) | Forget content that has left the NAS | 🔵 in-review |
 
 ## 🐛 Hotfixes & Bug Fixes (2001+)
 

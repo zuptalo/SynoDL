@@ -128,6 +128,10 @@ func main() {
 			// part-fetched title is not reported as one the user already has. It is
 			// the same poll that drives notifications — no extra NAS traffic.
 			deps.ActiveDests = watcher.ActiveDestinations
+			// The wider set — paused and errored included — so removing content
+			// from the NAS is never confused with a download that has not finished
+			// arriving (spec 1029).
+			deps.PendingDests = watcher.UnfinishedDestinations
 			// A finished download makes its folder's reading stale. The watcher is
 			// already the thing that sees the finish, so it says so — no second poll
 			// of the task list, and the user does not have to browse to the title
