@@ -40,9 +40,15 @@ type SourceProvider struct {
 	State          string
 	LastVerifiedAt int64
 	SortOrder      int64
-	// AltBase is an operator-set mirror to fall back to when the main domain is
-	// unavailable (spec 1020). Empty = none.
-	AltBase string
+	// MainBase and AltBase are the two addresses this source may be reached at,
+	// both operator-set and both optional (spec 0009). Empty MainBase keeps the
+	// driver's own built-in address, which is what every source configured before
+	// this change has.
+	//
+	// Neither is "the" address: whichever is answering is the one that matters, and
+	// the driver prefers whichever last did.
+	MainBase string
+	AltBase  string
 	// LastError is the last failure CATEGORY only (needs_refresh / unsubscribed /
 	// unreachable). Never an upstream body, URL, or anything secret-derived.
 	LastError string
@@ -58,6 +64,24 @@ type SourceProvider struct {
 type SourceSession struct {
 	Fields    map[string]string `json:"fields"`
 	UserAgent string            `json:"user_agent"`
+	// Alt is the material belonging to the source's ALTERNATE address, when the
+	// operator has given it its own (spec 0009). nil means there is one set,
+	// used for whichever address answers — which is what every source configured
+	// before this change has, and why nothing needs re-pasting.
+	//
+	// It rides inside the same sealed payload rather than a second row: the blob
+	// is already versioned by being JSON, an older one simply unmarshals with this
+	// nil, and one fewer place stores secrets is one fewer place to get wrong.
+	Alt *SourceSession `json:"alt,omitempty"`
+}
+
+// ForAlt returns the material to use for the alternate address: its own when it
+// has been given some, and otherwise the source's single set (FR-006).
+func (s SourceSession) ForAlt() SourceSession {
+	if s.Alt == nil {
+		return s
+	}
+	return *s.Alt
 }
 
 // Get returns one field ("" when absent).
@@ -90,6 +114,19 @@ func decodeSession(plain []byte) (*SourceSession, error) {
 		if out.Fields == nil {
 			out.Fields = map[string]string{}
 		}
+		// The alternate address's own material, when it has some (spec 0009). It
+		// is the same shape one level down, so it decodes the same way — which
+		// also means it gets the legacy handling for free. This is read here
+		// rather than by unmarshalling the whole struct because that is exactly
+		// what this function cannot do: the payload may still be the pre-0007
+		// shape, which is why it is picked apart key by key.
+		if a, ok := raw["alt"]; ok {
+			if alt, err := decodeSession(a); err == nil && alt != nil {
+				if len(alt.Fields) > 0 || alt.UserAgent != "" {
+					out.Alt = alt
+				}
+			}
+		}
 		return &out, nil
 	}
 	// Legacy shape: lift the known keys into the bag by the same name.
@@ -105,7 +142,8 @@ func decodeSession(plain []byte) (*SourceSession, error) {
 }
 
 const providerCols = `id, kind, display_name, api_hosts, download_hosts,
-	movies_parent, tv_parent, enabled, state, last_verified_at, sort_order, last_error, alt_base`
+	movies_parent, tv_parent, enabled, state, last_verified_at, sort_order, last_error, alt_base,
+	main_base`
 
 func scanProvider(sc interface{ Scan(...any) error }) (*SourceProvider, error) {
 	var (
@@ -115,7 +153,7 @@ func scanProvider(sc interface{ Scan(...any) error }) (*SourceProvider, error) {
 	)
 	err := sc.Scan(&p.ID, &p.Kind, &p.DisplayName, &apiHosts, &dlHosts,
 		&p.MoviesParent, &p.TVParent, &enabled, &p.State, &p.LastVerifiedAt,
-		&p.SortOrder, &p.LastError, &p.AltBase)
+		&p.SortOrder, &p.LastError, &p.AltBase, &p.MainBase)
 	if err != nil {
 		return nil, err
 	}
@@ -174,12 +212,12 @@ func (s *Store) CreateProvider(p SourceProvider, now int64) (int64, error) {
 		INSERT INTO source_providers
 		  (kind, display_name, api_hosts, download_hosts, movies_parent,
 		   tv_parent, enabled, state, last_verified_at, sort_order, last_error,
-		   alt_base, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		   alt_base, main_base, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		p.Kind, p.DisplayName, strings.Join(p.APIHosts, "\n"),
 		strings.Join(p.DownloadHosts, "\n"), p.MoviesParent, p.TVParent,
 		boolInt(p.Enabled), orDefault(p.State, SourceNotConfigured),
-		p.LastVerifiedAt, p.SortOrder, p.LastError, p.AltBase, now, now)
+		p.LastVerifiedAt, p.SortOrder, p.LastError, p.AltBase, p.MainBase, now, now)
 	if err != nil {
 		return 0, err
 	}
@@ -192,11 +230,11 @@ func (s *Store) UpdateProvider(p SourceProvider, now int64) error {
 	_, err := s.db.Exec(`
 		UPDATE source_providers SET
 		  kind=?, display_name=?, api_hosts=?, download_hosts=?, movies_parent=?,
-		  tv_parent=?, enabled=?, sort_order=?, alt_base=?, updated_at=?
+		  tv_parent=?, enabled=?, sort_order=?, alt_base=?, main_base=?, updated_at=?
 		WHERE id=?`,
 		p.Kind, p.DisplayName, strings.Join(p.APIHosts, "\n"),
 		strings.Join(p.DownloadHosts, "\n"), p.MoviesParent, p.TVParent,
-		boolInt(p.Enabled), p.SortOrder, p.AltBase, now, p.ID)
+		boolInt(p.Enabled), p.SortOrder, p.AltBase, p.MainBase, now, p.ID)
 	return err
 }
 

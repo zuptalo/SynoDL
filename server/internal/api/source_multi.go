@@ -88,9 +88,17 @@ func (d Deps) sourceRefs() (refs []source.SourceRef, skipped []source.DegradedSo
 			})
 			continue
 		}
+		// Both configured addresses widen THIS source's outbound allowlist, and only
+		// this source's (FR-008).
+		hosts := withAltHost(withAltHost(p.APIHosts, p.AltBase), p.MainBase)
 		cfg := source.Config{
-			APIHosts: withAltHost(p.APIHosts, p.AltBase), DownloadHosts: p.DownloadHosts,
-			AltBase: p.AltBase,
+			APIHosts: hosts, DownloadHosts: p.DownloadHosts,
+			AltBase: p.AltBase, MainBase: p.MainBase,
+		}
+		// Material belonging to the alternate address, when it was given its own.
+		if sess.Alt != nil {
+			alt := toSession(sess.Alt)
+			cfg.AltSession = &alt
 		}
 		refs = append(refs, source.SourceRef{
 			ID: p.ID, Name: p.DisplayName, Driver: drv, Cfg: cfg, Sess: toSession(sess),
@@ -202,18 +210,28 @@ type providerView struct {
 	SortOrder      int64  `json:"sortOrder"`
 	MoviesParent   string `json:"moviesParent"`
 	TVParent       string `json:"tvParent"`
-	// The mirror this source falls back to when its main domain is unavailable.
-	// Not a secret — it is an address, and the admin typed it.
-	AltBase string `json:"altBase,omitempty"`
+	// The two addresses this source may be reached at. Not secrets — they are
+	// addresses, and the admin typed them.
+	AltBase  string `json:"altBase,omitempty"`
+	MainBase string `json:"mainBase,omitempty"`
+	// Whether each address has sign-in material of its own. Presence ONLY: the
+	// material itself is never returned to any client (FR-007).
+	HasSession    bool `json:"hasSession"`
+	HasAltSession bool `json:"hasAltSession"`
 }
 
-func toProviderView(p store.SourceProvider) providerView {
-	return providerView{
+func toProviderView(p store.SourceProvider, sess *store.SourceSession) providerView {
+	v := providerView{
 		ID: p.ID, Kind: p.Kind, DisplayName: p.DisplayName, Enabled: p.Enabled,
 		State: p.State, LastVerifiedAt: p.LastVerifiedAt, LastError: p.LastError,
 		SortOrder: p.SortOrder, MoviesParent: p.MoviesParent, TVParent: p.TVParent,
-		AltBase: p.AltBase,
+		AltBase: p.AltBase, MainBase: p.MainBase,
 	}
+	if sess != nil {
+		v.HasSession = len(sess.Fields) > 0
+		v.HasAltSession = sess.Alt != nil && len(sess.Alt.Fields) > 0
+	}
+	return v
 }
 
 // kindView advertises a driver an admin can add, including the fields it needs.
@@ -272,7 +290,9 @@ func handleListProviders(d Deps) http.Handler {
 		}
 		views := make([]providerView, 0, len(providers))
 		for _, p := range providers {
-			views = append(views, toProviderView(p))
+			// Presence of stored material, never the material itself.
+			sess, _ := d.Store.LoadProviderSession(p.ID)
+			views = append(views, toProviderView(p, sess))
 		}
 		kinds := make([]kindView, 0)
 		for _, k := range source.Kinds() {
@@ -288,6 +308,54 @@ func handleListProviders(d Deps) http.Handler {
 	})
 }
 
+// sessionFromBody turns a posted field bag into stored material.
+func sessionFromBody(body map[string]string) store.SourceSession {
+	out := store.SourceSession{Fields: map[string]string{}, UserAgent: body["user_agent"]}
+	for k, v := range body {
+		if k != "user_agent" {
+			out.Fields[k] = v
+		}
+	}
+	return out
+}
+
+// altSessionFrom decides what the alternate address's material should become.
+// Omitted keeps whatever is stored; an empty object clears it, so the source goes
+// back to one set used for both addresses.
+func altSessionFrom(posted map[string]string, existing *store.SourceSession) *store.SourceSession {
+	if posted == nil {
+		if existing != nil {
+			return existing.Alt
+		}
+		return nil
+	}
+	if len(posted) == 0 {
+		return nil
+	}
+	alt := sessionFromBody(posted)
+	return &alt
+}
+
+// resolveBases settles the two addresses. The same address given twice is one
+// address, and an unparseable one is refused here rather than at browse time.
+func resolveBases(drv source.Provider, rawAlt *string, curAlt string, rawMain *string, curMain string) (alt, main string, err error) {
+	alt, main = curAlt, curMain
+	if rawAlt != nil {
+		if alt, err = altBaseFor(drv, *rawAlt); err != nil {
+			return "", "", err
+		}
+	}
+	if rawMain != nil {
+		if main, err = altBaseFor(drv, *rawMain); err != nil {
+			return "", "", err
+		}
+	}
+	if main != "" && main == alt {
+		alt = ""
+	}
+	return alt, main, nil
+}
+
 type providerWriteReq struct {
 	Kind         string            `json:"kind"`
 	DisplayName  string            `json:"displayName"`
@@ -295,8 +363,13 @@ type providerWriteReq struct {
 	TVParent     string            `json:"tvParent"`
 	SortOrder    int64             `json:"sortOrder"`
 	AltBase      *string           `json:"altBase"`
+	MainBase     *string           `json:"mainBase"`
 	Enabled      *bool             `json:"enabled"`
 	Session      map[string]string `json:"session"`
+	// Material for the ALTERNATE address, when the operator gives it its own.
+	// Omitted leaves whatever is stored; an empty object clears it, so one set is
+	// used for both addresses again.
+	AltSession map[string]string `json:"altSession"`
 }
 
 // verifyAndMap runs the driver's verification and maps the outcome onto a stored
@@ -341,18 +414,18 @@ func handleCreateProvider(d Deps) http.Handler {
 			}
 		}
 		hosts := drv.Hosts()
-		raw := ""
-		if body.AltBase != nil {
-			raw = *body.AltBase
-		}
-		alt, err := altBaseFor(drv, raw)
+		alt, main, err := resolveBases(drv, body.AltBase, "", body.MainBase, "")
 		if err != nil {
 			httpx.JSON(w, http.StatusUnprocessableEntity,
-				map[string]any{"error": "bad_alt_base", "reason": err.Error()})
+				map[string]any{"error": "bad_base", "reason": err.Error()})
 			return
 		}
-		hosts.AltBase = alt
-		hosts.APIHosts = withAltHost(hosts.APIHosts, alt)
+		hosts.AltBase, hosts.MainBase = alt, main
+		hosts.APIHosts = withAltHost(withAltHost(hosts.APIHosts, alt), main)
+		if a := altSessionFrom(body.AltSession, nil); a != nil {
+			as := toSession(a)
+			hosts.AltSession = &as
+		}
 		state, reason, ok := verifyAndMap(r, drv, hosts, sess)
 		if !ok {
 			httpx.JSON(w, http.StatusUnprocessableEntity,
@@ -365,7 +438,7 @@ func handleCreateProvider(d Deps) http.Handler {
 			APIHosts: hosts.APIHosts, DownloadHosts: hosts.DownloadHosts,
 			MoviesParent: body.MoviesParent, TVParent: body.TVParent,
 			Enabled: true, State: state, SortOrder: body.SortOrder, LastError: reason,
-			AltBase: alt,
+			AltBase: alt, MainBase: main,
 		}, now)
 		if err != nil {
 			httpx.Error(w, http.StatusInternalServerError, "server")
@@ -373,6 +446,7 @@ func handleCreateProvider(d Deps) http.Handler {
 		}
 		if err := d.Store.SaveProviderSession(id, store.SourceSession{
 			Fields: sess.Fields, UserAgent: sess.UserAgent,
+			Alt: altSessionFrom(body.AltSession, nil),
 		}, now); err != nil {
 			httpx.Error(w, http.StatusInternalServerError, "server")
 			return
@@ -387,7 +461,8 @@ func handleCreateProvider(d Deps) http.Handler {
 			httpx.Error(w, http.StatusInternalServerError, "server")
 			return
 		}
-		httpx.JSON(w, http.StatusCreated, toProviderView(*p))
+		newSess, _ := d.Store.LoadProviderSession(id)
+		httpx.JSON(w, http.StatusCreated, toProviderView(*p, newSess))
 	})
 }
 
@@ -436,17 +511,19 @@ func handleUpdateProvider(d Deps) http.Handler {
 			}
 		}
 		hosts := drv.Hosts()
-		alt := p.AltBase
-		if body.AltBase != nil {
-			alt, err = altBaseFor(drv, *body.AltBase)
-			if err != nil {
-				httpx.JSON(w, http.StatusUnprocessableEntity,
-					map[string]any{"error": "bad_alt_base", "reason": err.Error()})
-				return
-			}
+		alt, main, err := resolveBases(drv, body.AltBase, p.AltBase, body.MainBase, p.MainBase)
+		if err != nil {
+			httpx.JSON(w, http.StatusUnprocessableEntity,
+				map[string]any{"error": "bad_base", "reason": err.Error()})
+			return
 		}
-		hosts.AltBase = alt
-		hosts.APIHosts = withAltHost(hosts.APIHosts, alt)
+		hosts.AltBase, hosts.MainBase = alt, main
+		hosts.APIHosts = withAltHost(withAltHost(hosts.APIHosts, alt), main)
+		// Verify against the alternate address's OWN material where it has some.
+		if a := altSessionFrom(body.AltSession, stored); a != nil {
+			as := toSession(a)
+			hosts.AltSession = &as
+		}
 		state, reason, ok := verifyAndMap(r, drv, hosts, sess)
 		if !ok {
 			httpx.JSON(w, http.StatusUnprocessableEntity,
@@ -454,7 +531,7 @@ func handleUpdateProvider(d Deps) http.Handler {
 			return
 		}
 		now := time.Now().Unix()
-		p.AltBase = alt
+		p.AltBase, p.MainBase = alt, main
 		p.DisplayName = orElse(body.DisplayName, p.DisplayName)
 		p.MoviesParent = orElse(body.MoviesParent, p.MoviesParent)
 		p.TVParent = orElse(body.TVParent, p.TVParent)
@@ -469,6 +546,7 @@ func handleUpdateProvider(d Deps) http.Handler {
 		}
 		if err := d.Store.SaveProviderSession(id, store.SourceSession{
 			Fields: sess.Fields, UserAgent: sess.UserAgent,
+			Alt: altSessionFrom(body.AltSession, stored),
 		}, now); err != nil {
 			httpx.Error(w, http.StatusInternalServerError, "server")
 			return
@@ -481,7 +559,8 @@ func handleUpdateProvider(d Deps) http.Handler {
 		// keep answering for the old ones (FR-008a, spec 0008).
 		d.invalidateLibrary()
 		updated, _ := d.Store.GetProviderByID(id)
-		httpx.JSON(w, http.StatusOK, toProviderView(*updated))
+		updatedSess, _ := d.Store.LoadProviderSession(id)
+		httpx.JSON(w, http.StatusOK, toProviderView(*updated, updatedSess))
 	})
 }
 

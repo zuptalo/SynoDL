@@ -392,8 +392,12 @@ export interface SourceProvider {
   sortOrder: number;
   moviesParent: string;
   tvParent: string;
-  /** Mirror to fall back to when the main domain is unavailable ('' = none). */
+  /** The two addresses this source may be reached at ('' = the driver's own). */
   altBase?: string;
+  mainBase?: string;
+  /** Whether each address has sign-in material stored. Presence only — never the values. */
+  hasSession?: boolean;
+  hasAltSession?: boolean;
 }
 /** One field a provider kind needs pasted. Drives the admin form. */
 export interface SourceSessionField {
@@ -417,10 +421,19 @@ export interface SourceProviderInput {
   moviesParent?: string;
   tvParent?: string;
   sortOrder?: number;
+  /** The two addresses this source may be reached at; both optional. */
   altBase?: string;
+  mainBase?: string;
   enabled?: boolean;
   /** Write-only. Blank values mean "keep what is stored". */
   session?: Record<string, string>;
+  /**
+   * Write-only material for the ALTERNATE address, when it needs its own —
+   * a challenge cookie is issued per domain and a login cookie is tied to the
+   * address that issued it. Omitted keeps what is stored; `{}` clears it, so one
+   * set is used for both addresses again.
+   */
+  altSession?: Record<string, string>;
 }
 export interface SourceSearchResult {
   page: number;

@@ -487,3 +487,62 @@ func TestAdminProviderListKeepsTheFullView(t *testing.T) {
 		t.Error("admin lost the kinds list that the add-a-source form needs")
 	}
 }
+
+// Spec 0009 FR-007: an admin may see WHETHER each address has sign-in material,
+// and never the material. The values below are distinctive so a leak anywhere in
+// the response is unmissable.
+func TestProviderViewReportsPresenceAndNeverTheMaterial(t *testing.T) {
+	resetFake()
+	h, _ := newStatefulRouter(t)
+	admin := adminAfterSetup(t, h)
+
+	const mainSecret = "MAIN-SECRET-VALUE"
+	const altSecret = "ALT-SECRET-VALUE"
+	body := `{"kind":"faketest","displayName":"Two addresses","moviesParent":"movie","tvParent":"tv-show",` +
+		`"altBase":"https://mirror.example",` +
+		`"session":{"c_token":"` + mainSecret + `","user_agent":"UA"},` +
+		`"altSession":{"c_token":"` + altSecret + `","user_agent":"ALT-UA"}}`
+	rec := do(t, h, "POST", "/v1/source/providers", body, admin)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create = %d %s", rec.Code, rec.Body.String())
+	}
+	created := rec.Body.String()
+	for _, secret := range []string{mainSecret, altSecret, "ALT-UA"} {
+		if strings.Contains(created, secret) {
+			t.Fatalf("the create response leaked stored material (%q)", secret)
+		}
+	}
+	if !strings.Contains(created, `"hasAltSession":true`) {
+		t.Errorf("expected the alternate address to report material stored: %s", created)
+	}
+
+	listed := do(t, h, "GET", "/v1/source/providers", "", admin).Body.String()
+	for _, secret := range []string{mainSecret, altSecret, "ALT-UA"} {
+		if strings.Contains(listed, secret) {
+			t.Fatalf("the provider list leaked stored material (%q)", secret)
+		}
+	}
+	if !strings.Contains(listed, `"hasSession":true`) || !strings.Contains(listed, `"hasAltSession":true`) {
+		t.Errorf("expected both addresses to report material stored: %s", listed)
+	}
+}
+
+// Both addresses round-trip as plain configuration, and the same address given
+// twice is one address rather than two.
+func TestProviderAcceptsBothAddresses(t *testing.T) {
+	resetFake()
+	h, _ := newStatefulRouter(t)
+	admin := adminAfterSetup(t, h)
+
+	body := `{"kind":"faketest","displayName":"Both","moviesParent":"movie","tvParent":"tv-show",` +
+		`"mainBase":"https://main.example","altBase":"https://mirror.example",` +
+		`"session":{"c_token":"TOK","user_agent":"UA"}}`
+	rec := do(t, h, "POST", "/v1/source/providers", body, admin)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create = %d %s", rec.Code, rec.Body.String())
+	}
+	if got := rec.Body.String(); !strings.Contains(got, "https://main.example") ||
+		!strings.Contains(got, "https://mirror.example") {
+		t.Fatalf("addresses did not round-trip: %s", got)
+	}
+}

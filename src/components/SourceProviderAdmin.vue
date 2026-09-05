@@ -32,7 +32,7 @@ import {
   IonToggle,
   IonToolbar,
 } from '@ionic/vue';
-import { addOutline, trashOutline } from 'ionicons/icons';
+import { addOutline, chevronDownOutline, chevronUpOutline, trashOutline } from 'ionicons/icons';
 import {
   api,
   ApiError,
@@ -63,8 +63,14 @@ const moviesParent = ref('');
 const tvParent = ref('');
 const enabled = ref(true);
 const altBase = ref('');
+const mainBase = ref('');
 const sessionValues = ref<Record<string, string>>({});
 const userAgent = ref('');
+// Sign-in for the ALTERNATE address, when it needs its own. Blank throughout
+// means "one set for both addresses", which is what most sources want.
+const altSessionValues = ref<Record<string, string>>({});
+const altUserAgent = ref('');
+const altSignInOpen = ref(false);
 
 const editingProvider = computed(() =>
   typeof editing.value === 'number' ? providers.value.find((p) => p.id === editing.value) : undefined,
@@ -136,8 +142,12 @@ function openNew(): void {
   // Start from the mirror SynoDL knows about, so the common case needs no
   // research — the operator only edits it when the site changes address.
   altBase.value = currentKind.value?.defaultAltBase ?? '';
+  mainBase.value = '';
   sessionValues.value = {};
   userAgent.value = '';
+  altSessionValues.value = {};
+  altUserAgent.value = '';
+  altSignInOpen.value = false;
 }
 
 function openEdit(p: SourceProvider): void {
@@ -149,9 +159,14 @@ function openEdit(p: SourceProvider): void {
   tvParent.value = p.tvParent;
   enabled.value = p.enabled;
   altBase.value = p.altBase ?? '';
-  // Never prefilled — the server does not return stored session material.
+  mainBase.value = p.mainBase ?? '';
+  // Never prefilled — the server does not return stored session material, only
+  // whether there is any.
   sessionValues.value = {};
   userAgent.value = '';
+  altSessionValues.value = {};
+  altUserAgent.value = '';
+  altSignInOpen.value = !!p.hasAltSession;
 }
 
 // Picking a different kind while adding swaps the whole form, since the fields
@@ -161,6 +176,7 @@ watch(formKind, () => {
   displayName.value = currentKind.value?.name ?? '';
   altBase.value = currentKind.value?.defaultAltBase ?? '';
   sessionValues.value = {};
+  altSessionValues.value = {};
 });
 
 async function toast(message: string): Promise<void> {
@@ -200,14 +216,29 @@ async function save(): Promise<void> {
     for (const f of sessionFields.value) {
       session[f.key] = (sessionValues.value[f.key] ?? '').trim();
     }
+    // Only send alternate material when something was actually typed: an empty
+    // object CLEARS it, and silently clearing what an operator pasted earlier
+    // would be worse than sending nothing.
+    const altTyped =
+      altUserAgent.value.trim() !== '' ||
+      sessionFields.value.some((f) => (altSessionValues.value[f.key] ?? '').trim() !== '');
+    let altSession: Record<string, string> | undefined;
+    if (altTyped) {
+      altSession = { user_agent: altUserAgent.value.trim() };
+      for (const f of sessionFields.value) {
+        altSession[f.key] = (altSessionValues.value[f.key] ?? '').trim();
+      }
+    }
     const input = {
       kind: formKind.value,
       displayName: displayName.value.trim(),
       moviesParent: moviesParent.value.trim(),
       tvParent: tvParent.value.trim(),
       altBase: altBase.value.trim(),
+      mainBase: mainBase.value.trim(),
       enabled: enabled.value,
       session,
+      ...(altSession ? { altSession } : {}),
     };
     if (isNew.value) await api.createSourceProvider(input);
     else await api.updateSourceProvider(editing.value as number, input);
@@ -215,13 +246,15 @@ async function save(): Promise<void> {
     // Drop the pasted secrets from memory as soon as they are accepted.
     sessionValues.value = {};
     userAgent.value = '';
+    altSessionValues.value = {};
+    altUserAgent.value = '';
     editing.value = null;
     await refresh();
   } catch (e) {
     if (e instanceof ApiError && e.code === 'verify_failed') {
       errorMsg.value = verifyMessage(e.reason);
-    } else if (e instanceof ApiError && e.code === 'bad_alt_base') {
-      errorMsg.value = e.reason ?? 'That alternate address is not usable.';
+    } else if (e instanceof ApiError && (e.code === 'bad_base' || e.code === 'bad_alt_base')) {
+      errorMsg.value = e.reason ?? 'That address is not usable.';
     } else if (e instanceof ApiError && e.code === 'unknown_provider') {
       errorMsg.value = 'That source type is not supported.';
     } else {
@@ -356,6 +389,14 @@ async function saveMaxSize(): Promise<void> {
           </ion-item>
           <ion-item>
             <ion-input
+              v-model="mainBase"
+              label="Main address (optional)"
+              label-placement="stacked"
+              placeholder="leave blank to use the built-in address"
+            />
+          </ion-item>
+          <ion-item>
+            <ion-input
               v-model="altBase"
               label="Alternate address (optional)"
               label-placement="stacked"
@@ -363,10 +404,48 @@ async function saveMaxSize(): Promise<void> {
             />
           </ion-item>
           <ion-note class="hint">
-            Used only when the main site is unreachable — these sites are blocked
-            periodically and publish a mirror. Your saved sign-in for this source will be
-            sent to this address too, so only enter one the site itself published.
+            Give either address, or both — whichever is answering is used, and SynoDL
+            switches on its own when one stops. These sites are blocked periodically and
+            publish a mirror, so only enter one the site itself published.
           </ion-note>
+
+          <!-- Sign-in for the alternate address. Optional, and off by default: a
+               single set works for both addresses unless the site says otherwise. -->
+          <ion-item v-if="altBase.trim() && sessionFields.length" button @click="altSignInOpen = !altSignInOpen">
+            <ion-label>
+              <h3>Separate sign-in for the alternate address</h3>
+              <p v-if="editingProvider?.hasAltSession">Stored — paste again only to replace it</p>
+              <p v-else>Optional — leave off to use the same sign-in for both</p>
+            </ion-label>
+            <ion-icon slot="end" :icon="altSignInOpen ? chevronUpOutline : chevronDownOutline" />
+          </ion-item>
+          <template v-if="altSignInOpen && altBase.trim()">
+            <ion-note class="hint">
+              Only needed when the alternate address rejects the sign-in above. A
+              challenge cookie is issued per domain, and a site's login cookie is tied to
+              the address that issued it, so material captured on one address is not
+              always valid on the other.
+            </ion-note>
+            <ion-item v-for="f in sessionFields" :key="'alt-' + f.key">
+              <ion-input
+                v-model="altSessionValues[f.key]"
+                :label="f.label"
+                label-placement="stacked"
+                :type="f.secret ? 'password' : 'text'"
+                autocomplete="off"
+                placeholder="leave blank to reuse the main sign-in"
+              />
+            </ion-item>
+            <ion-item>
+              <ion-input
+                v-model="altUserAgent"
+                label="User agent"
+                label-placement="stacked"
+                autocomplete="off"
+                placeholder="leave blank to reuse the main sign-in"
+              />
+            </ion-item>
+          </template>
           <ion-item v-if="!isNew">
             <ion-toggle v-model="enabled">Enabled</ion-toggle>
           </ion-item>

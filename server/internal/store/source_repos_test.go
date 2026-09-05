@@ -300,3 +300,77 @@ func TestMigrationRewritesLegacy30namaKind(t *testing.T) {
 		t.Errorf("the migration disturbed the row: %+v", providers[0])
 	}
 }
+
+// Spec 0009: the alternate address's material rides inside the same sealed
+// payload. An older payload has none, which must read back as "one set for both"
+// so nothing an operator pasted before needs pasting again (FR-011).
+func TestProviderSessionCarriesAlternateMaterial(t *testing.T) {
+	st := openTestStore(t)
+
+	id, err := st.CreateProvider(SourceProvider{Kind: "k", DisplayName: "S", Enabled: true}, 1)
+	if err != nil {
+		t.Fatalf("CreateProvider: %v", err)
+	}
+	alt := SourceSession{Fields: map[string]string{"cf_clearance": "alt-value"}, UserAgent: "alt-ua"}
+	if err := st.SaveProviderSession(id, SourceSession{
+		Fields: map[string]string{"cf_clearance": "main-value"}, UserAgent: "main-ua", Alt: &alt,
+	}, 1); err != nil {
+		t.Fatalf("SaveProviderSession: %v", err)
+	}
+
+	got, err := st.LoadProviderSession(id)
+	if err != nil || got == nil {
+		t.Fatalf("LoadProviderSession: %v", err)
+	}
+	if got.Get("cf_clearance") != "main-value" {
+		t.Errorf("main material = %q", got.Get("cf_clearance"))
+	}
+	if got.Alt == nil || got.Alt.Get("cf_clearance") != "alt-value" {
+		t.Fatalf("alternate material did not round-trip: %+v", got.Alt)
+	}
+	if got.ForAlt().Get("cf_clearance") != "alt-value" {
+		t.Error("ForAlt must return the alternate's own material")
+	}
+}
+
+// A source stored before this change has one set, used for both addresses.
+func TestProviderSessionWithoutAlternateFallsBackToTheOneSet(t *testing.T) {
+	st := openTestStore(t)
+
+	id, err := st.CreateProvider(SourceProvider{Kind: "k", DisplayName: "S", Enabled: true}, 1)
+	if err != nil {
+		t.Fatalf("CreateProvider: %v", err)
+	}
+	if err := st.SaveProviderSession(id, SourceSession{
+		Fields: map[string]string{"cf_clearance": "the-only-one"},
+	}, 1); err != nil {
+		t.Fatalf("SaveProviderSession: %v", err)
+	}
+	got, _ := st.LoadProviderSession(id)
+	if got.Alt != nil {
+		t.Fatal("no alternate material was stored")
+	}
+	if got.ForAlt().Get("cf_clearance") != "the-only-one" {
+		t.Error("the single set must serve the alternate address too")
+	}
+}
+
+// Both addresses are plain configuration and must round-trip.
+func TestProviderStoresBothAddresses(t *testing.T) {
+	st := openTestStore(t)
+
+	id, err := st.CreateProvider(SourceProvider{
+		Kind: "k", DisplayName: "S", Enabled: true,
+		MainBase: "https://main.example", AltBase: "https://mirror.example",
+	}, 1)
+	if err != nil {
+		t.Fatalf("CreateProvider: %v", err)
+	}
+	p, err := st.GetProviderByID(id)
+	if err != nil || p == nil {
+		t.Fatalf("GetProviderByID: %v", err)
+	}
+	if p.MainBase != "https://main.example" || p.AltBase != "https://mirror.example" {
+		t.Fatalf("addresses did not round-trip: %+v", p)
+	}
+}

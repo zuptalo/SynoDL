@@ -175,11 +175,15 @@ func (d Deps) imageHostAllowed(host string) bool {
 			return false // say nothing rather than widen the proxy on a bad read
 		}
 		for _, p := range providers {
-			if p.AltBase == "" {
-				continue
-			}
-			if mu, err := url.Parse(p.AltBase); err == nil && mu.Hostname() != "" {
-				fresh[strings.ToLower(mu.Hostname())] = true
+			// Either configured address may be the one serving the pages, and a
+			// page names its images on whichever host served it.
+			for _, base := range []string{p.AltBase, p.MainBase} {
+				if base == "" {
+					continue
+				}
+				if mu, err := url.Parse(base); err == nil && mu.Hostname() != "" {
+					fresh[strings.ToLower(mu.Hostname())] = true
+				}
 			}
 		}
 		mirrorHosts.hosts, mirrorHosts.at = fresh, time.Now()

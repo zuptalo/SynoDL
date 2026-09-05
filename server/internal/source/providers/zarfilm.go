@@ -193,7 +193,10 @@ func (p zarfilm) get(ctx context.Context, c *source.Client, cfg source.Config, s
 // bases lists the addresses to try, preferred first. The main domain leads
 // unless a recent success says the mirror is the one currently answering.
 func (p zarfilm) bases(cfg source.Config) []string {
-	primary := p.base()
+	primary := strings.TrimRight(strings.TrimSpace(cfg.MainBase), "/")
+	if primary == "" {
+		primary = p.base()
+	}
 	alt := strings.TrimRight(strings.TrimSpace(cfg.AltBase), "/")
 	// In a dev/e2e build the driver is pointed at a fake site; there is no mirror
 	// of a fake, and adding one would only make those runs slower and stranger.
@@ -207,6 +210,11 @@ func (p zarfilm) bases(cfg source.Config) []string {
 }
 
 func (p zarfilm) getFrom(ctx context.Context, c *source.Client, cfg source.Config, s source.Session, base, path string) ([]byte, error) {
+	// Material belongs to an ADDRESS, not to the source: a challenge cookie is
+	// issued per domain and a login cookie is tied to the address that issued it.
+	// Sending the main address's material to the mirror is how an outage turned
+	// into a catalog that answered every request with a login page (spec 0009).
+	s = cfg.SessionFor(base, s)
 	headers, cookies := p.auth(s)
 	resp, err := c.Do(ctx, s, cfg.APIHosts, source.Req{
 		Method:  "GET",
