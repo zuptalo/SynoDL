@@ -50,7 +50,13 @@ func connString(dsn string) string {
 	q.Add("_pragma", "foreign_keys(1)")
 	q.Add("_pragma", "busy_timeout(5000)")
 	q.Set("_txlock", "immediate")
-	return "file:" + dsn + "?" + q.Encode()
+	// Built through url.URL rather than concatenated, because the driver hands a
+	// "file:" DSN to SQLite's own URI parser: an operator whose DATA_DIR contains
+	// '?' or '#' would otherwise have the rest of their path read as a query or a
+	// fragment, and a literal '%' would be decoded into something else entirely —
+	// opening the wrong file, or none. String() percent-encodes all three.
+	u := url.URL{Scheme: "file", Path: dsn, RawQuery: q.Encode()}
+	return u.String()
 }
 
 // Open opens (creating if absent) the SQLite database at dsn and runs pending
