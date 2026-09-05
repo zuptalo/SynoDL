@@ -168,3 +168,57 @@ func TestReleaseOfCarriesAKeyEvenWhenUnidentifiable(t *testing.T) {
 		t.Fatal("but it must still carry a key")
 	}
 }
+
+// Spec 0010: a library renamed for a media server keeps no release information,
+// so the version has to come from the name recorded when the download was made.
+// Those names put the SITE's brand last and the encoder immediately before it,
+// which is not the shape ReleaseOf expects.
+func TestRecordedReleaseTakesTheEncoderBeforeTheSiteTag(t *testing.T) {
+	for _, tc := range []struct{ name, res, group string }{
+		{"Show.S01E01.1080p.WEB-DL.x265.Silence-30nama.mkv", "1080p", "silence"},
+		{"Show.S01E02.720p.BluRay.x264.PSA-30nama.mkv", "720p", "psa"},
+		{"Movie.2024.2160p.WEB-DL.YIFY-30nama.mkv", "2160p", "yify"},
+		{"Show S02E03 1080p BluRay Flux 30nama.mkv", "1080p", "flux"},
+	} {
+		got, ok := RecordedRelease(tc.name)
+		if !ok {
+			t.Fatalf("%s: not recovered", tc.name)
+		}
+		if got.Resolution != tc.res || got.Group != tc.group {
+			t.Fatalf("%s: got %+v, want %s/%s", tc.name, got, tc.res, tc.group)
+		}
+	}
+}
+
+// Both halves are required, so a token picked out of the wrong place simply
+// matches no option rather than marking a version the user does not have. That
+// is what makes taking the encoder by position safe.
+func TestRecordedReleaseNeedsBothHalves(t *testing.T) {
+	for _, name := range []string{
+		"Show.S01E01.mkv",         // no resolution
+		"1080p.mkv",               // no token before the last
+		"",                        //
+		"Show - S01E01 - Uno.mkv", // renamed for a media server: nothing to find
+	} {
+		if got, ok := RecordedRelease(name); ok {
+			t.Fatalf("%q should not be recovered, got %+v", name, got)
+		}
+	}
+}
+
+// A recovered release only marks an option when BOTH halves agree.
+func TestRecoveredReleaseOnlyMatchesOnBothHalves(t *testing.T) {
+	rel, ok := RecordedRelease("Show.S01E01.1080p.WEB-DL.x265.Silence-30nama.mkv")
+	if !ok {
+		t.Fatal("not recovered")
+	}
+	if !rel.Matches("1080p", "Silence") {
+		t.Error("the option it came from must match")
+	}
+	if rel.Matches("1080p", "TENEIGHTY") {
+		t.Error("same resolution, different encoder must not match")
+	}
+	if rel.Matches("720p", "Silence") {
+		t.Error("same encoder, different resolution must not match")
+	}
+}

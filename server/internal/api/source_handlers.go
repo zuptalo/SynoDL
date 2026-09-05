@@ -978,9 +978,23 @@ func (d Deps) versionsSentFor(catalogID string) []store.SourceDownload {
 	}
 	var out []store.SourceDownload
 	for _, rec := range all {
-		if rec.CatalogID == catalogID {
-			out = append(out, rec)
+		if rec.CatalogID != catalogID {
+			continue
 		}
+		// Downloads created before the version was recorded still know which file
+		// was asked for. Recovering the release from THAT name answers for a
+		// library that has since been renamed, where the files themselves cannot.
+		if rec.QualityLabel == "" && rec.QualityResolution == "" {
+			if names, err := d.Store.RecordedNamesFor(rec.Destination); err == nil {
+				for _, n := range names {
+					if rel, ok := library.RecordedRelease(n); ok {
+						rec.QualityResolution, rec.QualityEncoder = rel.Resolution, rel.Group
+						break
+					}
+				}
+			}
+		}
+		out = append(out, rec)
 	}
 	return out
 }

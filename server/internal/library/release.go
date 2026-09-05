@@ -167,3 +167,47 @@ func ReleaseKey(name string) string {
 	}
 	return b.String()
 }
+
+// RecordedRelease reads a release out of a name SynoDL itself recorded when the
+// download was created — before anything renamed the library.
+//
+// It exists because the on-disk names cannot answer: a library renamed for a
+// media server keeps no release information at all. The names we recorded do,
+// but not in the shape ReleaseOf expects. Measured over 303 real ones, the last
+// token is the SITE's brand (its tag on everything it serves) and the encoder
+// sits immediately before it — "…x265.Silence-30nama.mkv".
+//
+// So the encoder is taken from that position rather than from the end. It is a
+// heuristic, and it is safe to be one: the caller marks an option only when this
+// release matches BOTH the option's resolution and its encoder, so a token picked
+// out of the wrong place simply matches nothing.
+func RecordedRelease(name string) (Release, bool) {
+	base := strings.TrimSpace(path.Base(strings.TrimSpace(name)))
+	if e := ext(base); e != "" {
+		base = strings.TrimSuffix(base, "."+e)
+	}
+	var r Release
+	if m := reResolution.FindStringSubmatch(base); m != nil {
+		r.Resolution = strings.ToLower(m[1])
+	} else if reUHD.MatchString(base) {
+		r.Resolution = "2160p"
+	}
+	parts := reNameSeparators.Split(base, -1)
+	// Drop empties so trailing separators do not shift the position.
+	kept := parts[:0]
+	for _, p := range parts {
+		if strings.TrimSpace(p) != "" {
+			kept = append(kept, p)
+		}
+	}
+	if len(kept) >= 2 {
+		r.Group = foldToken(kept[len(kept)-2])
+	}
+	r.Key = ReleaseKey(name)
+	if r.Resolution == "" || r.Group == "" {
+		return Release{Key: r.Key}, false
+	}
+	return r, true
+}
+
+var reNameSeparators = regexp.MustCompile(`[.\-_ ]+`)
