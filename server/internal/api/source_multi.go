@@ -422,8 +422,15 @@ func handleCreateProvider(d Deps) http.Handler {
 		}
 		hosts.AltBase, hosts.MainBase = alt, main
 		hosts.APIHosts = withAltHost(withAltHost(hosts.APIHosts, alt), main)
-		if a := altSessionFrom(body.AltSession, nil); a != nil {
-			as := toSession(a)
+		altSess := altSessionFrom(body.AltSession, nil)
+		if alt == "" {
+			// With no alternate address, material for one can never be sent
+			// anywhere. Keeping it stores a credential nothing can use, and
+			// reporting it as present tells the admin something untrue.
+			altSess = nil
+		}
+		if altSess != nil {
+			as := toSession(altSess)
 			hosts.AltSession = &as
 		}
 		state, reason, ok := verifyAndMap(r, drv, hosts, sess)
@@ -446,7 +453,7 @@ func handleCreateProvider(d Deps) http.Handler {
 		}
 		if err := d.Store.SaveProviderSession(id, store.SourceSession{
 			Fields: sess.Fields, UserAgent: sess.UserAgent,
-			Alt: altSessionFrom(body.AltSession, nil),
+			Alt: altSess,
 		}, now); err != nil {
 			httpx.Error(w, http.StatusInternalServerError, "server")
 			return
@@ -520,8 +527,13 @@ func handleUpdateProvider(d Deps) http.Handler {
 		hosts.AltBase, hosts.MainBase = alt, main
 		hosts.APIHosts = withAltHost(withAltHost(hosts.APIHosts, alt), main)
 		// Verify against the alternate address's OWN material where it has some.
-		if a := altSessionFrom(body.AltSession, stored); a != nil {
-			as := toSession(a)
+		altSess := altSessionFrom(body.AltSession, stored)
+		if alt == "" {
+			// The alternate address has been removed, so its material goes with it.
+			altSess = nil
+		}
+		if altSess != nil {
+			as := toSession(altSess)
 			hosts.AltSession = &as
 		}
 		state, reason, ok := verifyAndMap(r, drv, hosts, sess)
@@ -546,7 +558,7 @@ func handleUpdateProvider(d Deps) http.Handler {
 		}
 		if err := d.Store.SaveProviderSession(id, store.SourceSession{
 			Fields: sess.Fields, UserAgent: sess.UserAgent,
-			Alt: altSessionFrom(body.AltSession, stored),
+			Alt: altSess,
 		}, now); err != nil {
 			httpx.Error(w, http.StatusInternalServerError, "server")
 			return
