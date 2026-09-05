@@ -763,6 +763,10 @@ func handleSourceSend(d Deps) http.Handler {
 		// a user who just sent something and scrolls back expects to see it
 		// marked (FR-008, spec 0008).
 		d.invalidateLibrary()
+		// And ask the background scan to look at THIS folder first, so what was
+		// just sent is read back ahead of the rest of the library rather than
+		// waiting its turn behind it (spec 0011 FR-008).
+		d.RefreshFolder(dest)
 		httpx.JSON(w, http.StatusOK,
 			map[string]any{"destination": dest, "created": true, "taskAdded": true, "count": len(selected)})
 	})

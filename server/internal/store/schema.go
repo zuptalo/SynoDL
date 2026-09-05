@@ -292,4 +292,53 @@ var migrations = []string{
 	`ALTER TABLE source_downloads ADD COLUMN quality_label      TEXT NOT NULL DEFAULT '';`,
 	`ALTER TABLE source_downloads ADD COLUMN quality_resolution TEXT NOT NULL DEFAULT '';`,
 	`ALTER TABLE source_downloads ADD COLUMN quality_encoder    TEXT NOT NULL DEFAULT '';`,
+
+	// Spec 0011: keep the reading of what is on the NAS across a restart and a
+	// blip. Until now it lived only in memory, so every deploy threw it away and
+	// any moment the NAS was unreachable replaced it with an empty one — which
+	// reads to a user as "you own nothing" and blanked every ownership marker.
+	//
+	// APPENDED, as every migration must be — see TestMigrationsAreAppendOnly.
+	//
+	// IF NOT EXISTS on both, deliberately. schema_migrations is the authority for
+	// what has run, but migrate() already tolerates an ALTER that turns out to have
+	// been applied, and the reason is spec 2012: the counter and this list can be
+	// made to disagree, and when they do the whole store must not fail to open. A
+	// CREATE that cannot be re-run would be the one statement here that breaks
+	// under exactly the condition the tolerance exists for.
+	//
+	// library_folders stores the two inputs library.Build() takes, and nothing
+	// derived from them: the configured parent, the folder names read under it,
+	// and which kind of content that parent serves. Rebuilding the index from
+	// these is cheap and keeps the matching rules in exactly one place.
+	`
+	CREATE TABLE IF NOT EXISTS library_folders (
+		parent     TEXT    NOT NULL,          -- configured parent path, no leading '/'
+		name       TEXT    NOT NULL,          -- folder name as read from the NAS
+		movies     INTEGER NOT NULL DEFAULT 0,
+		tv         INTEGER NOT NULL DEFAULT 0,
+		scanned_at INTEGER NOT NULL,
+		PRIMARY KEY (parent, name)
+	);
+	`,
+	// library_evidence is what a specific title folder was found to CONTAIN, which
+	// is the layer that distinguishes "a folder with this name exists" from "the
+	// content is actually there".
+	//
+	// What is stored is exactly the shape already held in memory, and no more: a
+	// presence flag, season and episode numbers, the release tokens read out of a
+	// file name, and a file-identity key. No file name, no size, no path outside
+	// the configured parents. The name a token came from is discarded here exactly
+	// as it is discarded in memory today.
+	`
+	CREATE TABLE IF NOT EXISTS library_evidence (
+		path       TEXT    PRIMARY KEY,              -- 'parent/folder'
+		has_video  INTEGER NOT NULL DEFAULT 0,
+		seasons    TEXT    NOT NULL DEFAULT '[]',    -- JSON [{season,episodes,videoFiles}]
+		releases   TEXT    NOT NULL DEFAULT '{}',    -- JSON {season:[{resolution,group,key}]}
+		file_keys  TEXT    NOT NULL DEFAULT '{}',    -- JSON {season:[key]}
+		checked_at INTEGER NOT NULL
+	);
+	CREATE INDEX IF NOT EXISTS idx_library_evidence_checked ON library_evidence(checked_at);
+	`,
 }

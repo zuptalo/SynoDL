@@ -3,6 +3,7 @@ package store
 import (
 	"database/sql"
 	"fmt"
+	"net/url"
 	"strings"
 
 	_ "modernc.org/sqlite" // pure-Go SQLite driver (cgo-free; keeps the static alpine build)
@@ -15,17 +16,48 @@ type Store struct {
 	cipher *Cipher
 }
 
+// connString turns a file path into a DSN carrying the pragmas every connection
+// needs, plus the locking mode write transactions need.
+//
+// The pragmas used to be applied with a single db.Exec after opening. That is
+// wrong in a way that hides well: *sql.DB is a POOL, and busy_timeout and
+// foreign_keys are per-CONNECTION settings, so only whichever connection served
+// that one Exec ever had them. Every connection the pool opened afterwards ran
+// with busy_timeout=0 — meaning it did not wait on a held write lock at all, it
+// failed immediately — and with foreign keys OFF, so ON DELETE CASCADE quietly
+// did not cascade. (journal_mode=WAL was the exception: it is a property of the
+// database file, so it stuck.)
+//
+// This surfaced when a background writer was added: a scan writing at boot while
+// a request wrote too, on two different pooled connections, failed at once
+// instead of waiting — and only on a machine whose timing lined up, which is the
+// worst kind of bug to own.
+//
+// _txlock=immediate makes a transaction take the write lock when it BEGINs
+// rather than when it first writes. Two deferred transactions that both later
+// try to upgrade deadlock, and SQLite returns SQLITE_BUSY for that case
+// immediately no matter what busy_timeout says, because waiting cannot resolve
+// it. Taking the lock up front turns that unrecoverable case into an ordinary
+// wait that busy_timeout does handle.
+func connString(dsn string) string {
+	// An in-memory database is per-connection by definition; leave its DSN alone
+	// rather than imply the pragmas mean anything across the pool.
+	if dsn == ":memory:" || strings.HasPrefix(dsn, "file:") {
+		return dsn
+	}
+	q := url.Values{}
+	q.Add("_pragma", "journal_mode(WAL)")
+	q.Add("_pragma", "foreign_keys(1)")
+	q.Add("_pragma", "busy_timeout(5000)")
+	q.Set("_txlock", "immediate")
+	return "file:" + dsn + "?" + q.Encode()
+}
+
 // Open opens (creating if absent) the SQLite database at dsn and runs pending
 // migrations. dsn is a file path (e.g. /data/synodl.db) or ":memory:" in tests.
 func Open(dsn string, cipher *Cipher) (*Store, error) {
-	db, err := sql.Open("sqlite", dsn)
+	db, err := sql.Open("sqlite", connString(dsn))
 	if err != nil {
-		return nil, err
-	}
-	// WAL for concurrent readers alongside the single writer; enforce foreign
-	// keys (ON DELETE CASCADE); wait rather than fail on a brief write lock.
-	if _, err := db.Exec(`PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000;`); err != nil {
-		_ = db.Close()
 		return nil, err
 	}
 	s := &Store{db: db, cipher: cipher}

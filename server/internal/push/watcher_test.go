@@ -321,3 +321,33 @@ func indexOf(s, sub string) int {
 	}
 	return -1
 }
+
+// Spec 0011: a download that finishes must cause its folder to be re-read, so
+// the title reflects it without the user having to browse to it. The watcher is
+// already the thing that sees the finish, so it is the thing that says so.
+func TestTheFinishCallbackFiresOnceWithTheDestination(t *testing.T) {
+	st, _ := newWatcherStore(t)
+	var got []string
+	tasks := []Task{{ID: "t1", Name: "Dune.2021.mkv", Status: "downloading", Destination: "movie/Dune 2021"}}
+	w := NewWatcher(st, func(context.Context) ([]Task, error) { return tasks, nil },
+		&fakeSender{}, "1.0.0", time.Minute)
+	w.OnFinished = func(dest string) { got = append(got, dest) }
+
+	w.poll(context.Background()) // baseline: still downloading
+	if len(got) != 0 {
+		t.Fatalf("a task in flight must not report as finished: %v", got)
+	}
+
+	tasks[0].Status = "finished"
+	w.poll(context.Background())
+	if len(got) != 1 || got[0] != "movie/Dune 2021" {
+		t.Fatalf("the finish must report its destination once, got %v", got)
+	}
+
+	// Polling again must not report it a second time — a re-read per poll for the
+	// life of a finished task would be a NAS call every 30 seconds, forever.
+	w.poll(context.Background())
+	if len(got) != 1 {
+		t.Fatalf("a finish must be reported once, got %v", got)
+	}
+}

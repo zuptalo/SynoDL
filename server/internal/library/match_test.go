@@ -1,6 +1,7 @@
 package library
 
 import (
+	"reflect"
 	"testing"
 	"time"
 )
@@ -242,5 +243,60 @@ func TestLookupSurvivesTheTidyToPlexNaming(t *testing.T) {
 	// And the year rule still holds after tidying.
 	if _, ok := ix.Lookup("Dune 1984", MediaMovie); ok {
 		t.Error("the 1984 Dune matched the 2021 folder")
+	}
+}
+
+// Folders backs the background scan (spec 0011), which needs to know what there
+// is to read and — just as importantly — what has gone away.
+func TestFoldersListsEveryTitleFolderOnce(t *testing.T) {
+	ix := Build(
+		[]Parent{{Path: "movie", Movies: true}, {Path: "tv-show", TV: true}},
+		map[string][]string{
+			"movie":   {"Dune 2021", "Arrival"},
+			"tv-show": {"Friends"},
+		},
+		time.Now(),
+	)
+	got := ix.Folders()
+	want := []string{"movie/Arrival", "movie/Dune 2021", "tv-show/Friends"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("Folders() = %v, want %v (sorted, so a scan cycle is reproducible)", got, want)
+	}
+}
+
+// Two folders that reduce to the same key share an index slot. Both are real
+// folders on the NAS and both must be listed, or the scan would silently never
+// read one of them.
+func TestFoldersKeepsFoldersThatShareAKey(t *testing.T) {
+	ix := Build(
+		[]Parent{{Path: "movie", Movies: true}},
+		map[string][]string{"movie": {"Dune 2021", "Dune (2021)", "The Dune"}},
+		time.Now(),
+	)
+	got := ix.Folders()
+	if len(got) != 3 {
+		t.Fatalf("Folders() = %v, want all three folders listed", got)
+	}
+	seen := map[string]bool{}
+	for _, f := range got {
+		if seen[f] {
+			t.Fatalf("Folders() repeated %q", f)
+		}
+		seen[f] = true
+	}
+}
+
+// An empty index has nothing to scan, and must say so rather than panic — it is
+// what every failure path in the API layer produces.
+func TestFoldersOfAnEmptyIndexIsNothing(t *testing.T) {
+	if got := Empty(time.Now()).Folders(); got != nil {
+		t.Errorf("Empty().Folders() = %v, want nil", got)
+	}
+	var nilIndex *Index
+	if got := nilIndex.Folders(); got != nil {
+		t.Errorf("(*Index)(nil).Folders() = %v, want nil", got)
+	}
+	if got := Build(nil, nil, time.Now()).Folders(); got != nil {
+		t.Errorf("a build over no parents = %v, want nil", got)
 	}
 }

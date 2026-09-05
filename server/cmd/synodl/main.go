@@ -98,6 +98,10 @@ func main() {
 				os.Exit(1)
 			}
 		}
+		// Allocate the shared caches BEFORE anything captures deps. Deps is a
+		// value, so a goroutine started with a copy whose caches are nil does
+		// nothing and says nothing about it.
+		deps = api.InitCaches(deps)
 		if v, err := st.GetVAPID(); err == nil {
 			watcher := push.NewWatcher(st, func(ctx context.Context) ([]push.Task, error) {
 				var out []push.Task
@@ -124,6 +128,11 @@ func main() {
 			// part-fetched title is not reported as one the user already has. It is
 			// the same poll that drives notifications — no extra NAS traffic.
 			deps.ActiveDests = watcher.ActiveDestinations
+			// A finished download makes its folder's reading stale. The watcher is
+			// already the thing that sees the finish, so it says so — no second poll
+			// of the task list, and the user does not have to browse to the title
+			// for it to catch up (spec 0011 FR-007).
+			watcher.OnFinished = deps.RefreshFolder
 			go watcher.Run(context.Background())
 		}
 		// Keep the download-source session warm: a single gentle probe every 15
@@ -131,6 +140,10 @@ func main() {
 		// needs_refresh after a transient blip, and flags a genuine expiry early so
 		// an admin is prompted to re-paste before a user hits it cold.
 		go deps.RunSourceKeepAlive(context.Background(), 15*time.Minute)
+		// Keep the reading of what is already on the NAS current in the background,
+		// so it survives a restart, survives the NAS being briefly unreachable, and
+		// is never built on the request path (spec 0011).
+		go deps.RunLibraryScan(context.Background(), api.LibraryScanInterval)
 		slog.Info("synodl stateful mode", "dataDir", cfg.DataDir)
 	} else {
 		deps.Syno = syno.NewHTTPClient(cfg.SynoURL, cfg.SynoTLSInsecure)

@@ -4,7 +4,7 @@
 
 **Created**: 2026-09-05
 
-**Status**: planned
+**Status**: shipped
 <!-- SynoDL spec lifecycle: planned → in-progress → in-review → shipped. -->
 
 **Input**: User description: "browse the titles and see if the downloaded titles and the downloaded version are marked correctly"

@@ -23,6 +23,7 @@ Specs are grouped by category band; status moves
 | [0008](specs/0008-show-which-discover/spec.md) | Show which Discover titles you already have | 🟢 shipped |
 | [0009](specs/0009-two-addresses-per/spec.md) | Two addresses per source, each with its own sign-in | 🔵 in-review |
 | [0010](specs/0010-mark-version-you/spec.md) | Mark the version you downloaded, from what we sent | 🔵 in-review |
+| [0011](specs/0011-keep-knowing-what-nas/spec.md) | Keep knowing what is on the NAS | 🔵 in-review |
 
 ## ⚡ Ad-hoc (1001–1999)
 
@@ -72,4 +73,4 @@ Specs are grouped by category band; status moves
 | [2011](specs/2011-source-omits-resolution/spec.md) | A source that omits the resolution can still be matched | 🔵 in-review |
 | [2012](specs/2012-migration-never-ran/spec.md) | A migration added in the middle never runs | 🔵 in-review |
 | [2013](specs/2013-orphaned-alt-credentials/spec.md) | Removing an address removes its credentials | 🔵 in-review |
-| [2015](specs/2015-recovered-version-reads/spec.md) | The version you downloaded is not the one marked | ⚪ planned |
+| [2015](specs/2015-recovered-version-reads/spec.md) | The version you downloaded is not the one marked | 🟢 shipped |

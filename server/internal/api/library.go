@@ -58,6 +58,21 @@ type libraryCache struct {
 	// that match nothing costs no NAS read at all.
 	evidence map[string]evidenceRec
 
+	// invalidatedAt is when the reading was last declared out of date — a send, a
+	// source's folders changing. A STORED reading older than this must not be
+	// served as current, or keeping readings across restarts would quietly undo
+	// every invalidation: the memory layer is dropped and the store answers with
+	// exactly the reading that was just invalidated.
+	//
+	// It does not stop a stored reading being used as the NAS-is-down fallback.
+	// Stale is a poor answer; "we cannot say" is a worse one.
+	invalidatedAt time.Time
+
+	// scanQueue is the folders asked for out of turn — a download landed there, or
+	// one was just sent — so the background scan reads them at the front of its
+	// next cycle instead of behind the rest of the library (spec 0011).
+	scanQueue map[string]bool
+
 	// titleNames remembers the catalog title behind a qualified title id, learned
 	// when a search passed through this server.
 	//
@@ -135,6 +150,7 @@ func (d Deps) invalidateLibrary() {
 	// Remembered titles are NOT dropped here: they record what the user saw, not
 	// what the NAS holds, and a configuration change does not unsee them.
 	d.lib.index, d.lib.builtAt, d.lib.evidence = nil, time.Time{}, nil
+	d.lib.invalidatedAt = time.Now()
 	d.lib.mu.Unlock()
 }
 
@@ -173,8 +189,57 @@ func (d Deps) libraryIndex(ctx context.Context) *library.Index {
 	bctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), libraryBuildTimeout)
 	defer cancel()
 	ix, ok := d.buildLibraryIndex(bctx)
+	if !ok {
+		// We could not ask the NAS. Falling back to an EMPTY reading is what used
+		// to happen, and it is indistinguishable to a user from "you own nothing":
+		// one blip blanked every ownership marker at once. The last good reading is
+		// stale, but it is a far better answer than a wrong one (spec 0011 FR-004).
+		if stored, found := d.storedLibraryIndex(); found {
+			ix = stored
+		}
+	}
 	d.lib.index, d.lib.builtAt, d.lib.builtOK = ix, time.Now(), ok
 	return ix
+}
+
+// storedLibraryIndex rebuilds the index from the last reading written to the
+// store. found is false when nothing has ever been stored, which is a real
+// answer: the caller then behaves exactly as it did before this existed.
+//
+// The index is rebuilt from the reading's INPUTS rather than deserialised, so
+// the matching rules stay in library.Build and a change to them needs no
+// migration.
+func (d Deps) storedLibraryIndex() (*library.Index, bool) {
+	if d.Store == nil {
+		return nil, false
+	}
+	f, err := d.Store.GetLibraryFolders()
+	if err != nil || len(f.Parents) == 0 {
+		return nil, false
+	}
+	parents := make([]library.Parent, 0, len(f.Parents))
+	for _, p := range f.Parents {
+		parents = append(parents, library.Parent{Path: p.Path, Movies: p.Movies, TV: p.TV})
+	}
+	return library.Build(parents, f.Names, f.ScannedAt), true
+}
+
+// persistLibraryFolders writes a successful reading through to the store, so the
+// next start-up and the next blip have something to fall back on.
+//
+// Wholesale, and only on success: a partial or failed reading would delete rows
+// for parents it simply could not see, which is the opposite of the point.
+// A failure to write is ignored — the in-memory reading is still good, and
+// nothing about the folders may be logged (FR-012).
+func (d Deps) persistLibraryFolders(parents []library.Parent, names map[string][]string, at time.Time) {
+	if d.Store == nil {
+		return
+	}
+	sp := make([]store.LibraryParent, 0, len(parents))
+	for _, p := range parents {
+		sp = append(sp, store.LibraryParent{Path: p.Path, Movies: p.Movies, TV: p.TV})
+	}
+	_ = d.Store.SaveLibraryFolders(store.LibraryFolders{Parents: sp, Names: names, ScannedAt: at})
 }
 
 // libraryParents collects the DISTINCT parent folders across enabled sources.
@@ -229,10 +294,25 @@ func (d Deps) buildLibraryIndex(ctx context.Context) (*library.Index, bool) {
 	}
 	parents := libraryParents(providers)
 	if len(parents) == 0 {
-		return library.Empty(time.Now()), true // nothing configured: a real answer
+		// Nothing configured is a real answer, and it must reach the store too:
+		// a stored reading that outlived the source it describes would keep
+		// answering for folders the operator has disconnected (FR-009).
+		//
+		// Only when there IS something to clear, though. An instance with no
+		// sources — every one before the operator adds the first — would otherwise
+		// run a write transaction on every build, for nothing.
+		if stored, err := d.Store.GetLibraryFolders(); err == nil && len(stored.Parents) > 0 {
+			d.persistLibraryFolders(nil, nil, time.Now())
+		}
+		return library.Empty(time.Now()), true
 	}
 
 	names := make(map[string][]string, len(parents))
+	// listed counts parents we actually got an answer for — including an answer of
+	// "this folder is empty", which is a real reading. It is NOT the same as
+	// len(names): a configured parent that genuinely holds nothing contributes no
+	// names but is still a successful read.
+	listed := 0
 	err = d.NAS.Do(ctx, func(c syno.Client, sid string) error {
 		for _, p := range parents {
 			folders, e := c.ListFolder(ctx, sid, "/"+p.Path)
@@ -245,6 +325,7 @@ func (d Deps) buildLibraryIndex(ctx context.Context) (*library.Index, bool) {
 				// path, and folder names are NAS content (FR-026).
 				continue
 			}
+			listed++
 			for _, f := range folders {
 				names[p.Path] = append(names[p.Path], f.Name)
 			}
@@ -255,7 +336,19 @@ func (d Deps) buildLibraryIndex(ctx context.Context) (*library.Index, bool) {
 		// The NAS is unreachable or the session cannot be established at all.
 		return library.Empty(time.Now()), false
 	}
-	return library.Build(parents, names, time.Now()), true
+	if listed == 0 {
+		// Every configured parent failed to list. The session was established, so
+		// nothing above reported an error — but this is emphatically not a reading
+		// of an empty NAS, and treating it as one had two costs: it was held for
+		// the full success TTL rather than retried in seconds, and now that a good
+		// reading is kept, it would overwrite that too.
+		return library.Empty(time.Now()), false
+	}
+	at := time.Now()
+	// Kept, so a restart and a blip both have a last good reading to fall back on
+	// (spec 0011 FR-001/FR-003/FR-004).
+	d.persistLibraryFolders(parents, names, at)
+	return library.Build(parents, names, at), true
 }
 
 // mediaKind maps the catalog's own type strings onto the library's two parents.
@@ -291,6 +384,16 @@ func (d Deps) folderEvidence(ctx context.Context, relPath string) (evidenceRec, 
 		return rec, true
 	}
 	d.lib.mu.Unlock()
+
+	// Nothing in memory. Before paying for a NAS read, see whether a previous run
+	// already answered for this folder (spec 0011 FR-003). A fresh-enough stored
+	// reading is returned as-is, so the first person to open a title after a
+	// deploy waits on nothing.
+	if rec, found := d.storedFolderEvidence(relPath); found &&
+		time.Since(rec.checkedAt) < libraryTTL && d.storedReadingIsCurrent(rec) {
+		d.rememberEvidence(relPath, rec)
+		return rec, true
+	}
 
 	abs := "/" + relPath
 	rec := evidenceRec{}
@@ -406,6 +509,16 @@ func (d Deps) folderEvidence(ctx context.Context, relPath string) (evidenceRec, 
 	if err != nil {
 		// Nothing is logged: a DSM error can carry the path, and folder and file
 		// names are NAS content (FR-026).
+		//
+		// A stored reading is a far better answer than "we cannot say", which is
+		// what blanks a title's season detail the moment the NAS hiccups. Age is
+		// bounded so a folder nobody has looked at in a week is not asserted on
+		// the strength of a week-old reading (FR-004).
+		if rec, found := d.storedFolderEvidence(relPath); found &&
+			time.Since(rec.checkedAt) < storedEvidenceMaxAge {
+			d.rememberEvidence(relPath, rec)
+			return rec, true
+		}
 		return evidenceRec{}, false
 	}
 
@@ -420,13 +533,101 @@ func (d Deps) folderEvidence(ctx context.Context, relPath string) (evidenceRec, 
 	sort.Slice(rec.seasons, func(i, j int) bool { return rec.seasons[i].Season < rec.seasons[j].Season })
 	rec.checkedAt = time.Now()
 
+	d.rememberEvidence(relPath, rec)
+	d.persistFolderEvidence(relPath, rec)
+	return rec, true
+}
+
+// storedReadingIsCurrent reports whether a stored reading predates the last
+// invalidation. One that does describes the NAS as it was BEFORE whatever made
+// us drop the reading — most often a download this user just sent, which is
+// exactly the case they are watching.
+func (d Deps) storedReadingIsCurrent(rec evidenceRec) bool {
+	d.lib.mu.Lock()
+	defer d.lib.mu.Unlock()
+	return rec.checkedAt.After(d.lib.invalidatedAt)
+}
+
+// rememberEvidence puts one folder's reading in the in-memory layer.
+func (d Deps) rememberEvidence(relPath string, rec evidenceRec) {
 	d.lib.mu.Lock()
 	if d.lib.evidence == nil {
 		d.lib.evidence = map[string]evidenceRec{}
 	}
 	d.lib.evidence[relPath] = rec
 	d.lib.mu.Unlock()
+}
+
+// storedEvidenceMaxAge bounds how old a STORED folder reading may be and still
+// be offered as a fallback when the NAS cannot be reached. A week is long enough
+// to cover any outage worth surviving, and short enough that a folder nobody has
+// looked at since is re-read before it is trusted.
+const storedEvidenceMaxAge = 7 * 24 * time.Hour
+
+// storedFolderEvidence reads one folder's last recorded answer back out of the
+// store. found is false when there is none, which is a real answer: the caller
+// then reads the NAS exactly as it did before any of this existed.
+func (d Deps) storedFolderEvidence(relPath string) (evidenceRec, bool) {
+	if d.Store == nil || relPath == "" {
+		return evidenceRec{}, false
+	}
+	e, found, err := d.Store.GetLibraryEvidence(relPath)
+	if err != nil || !found {
+		return evidenceRec{}, false
+	}
+	rec := evidenceRec{
+		hasVideo:  e.HasVideo,
+		folder:    relPath,
+		checkedAt: e.CheckedAt,
+		releases:  map[int][]library.Release{},
+		keys:      map[int][]string{},
+	}
+	for _, s := range e.Seasons {
+		rec.seasons = append(rec.seasons, source.SeasonPresence{
+			Season: s.Season, Episodes: s.Episodes, VideoFiles: s.VideoFiles,
+		})
+	}
+	for season, rels := range e.Releases {
+		for _, r := range rels {
+			rec.releases[season] = append(rec.releases[season],
+				library.Release{Resolution: r.Resolution, Group: r.Group, Key: r.Key})
+		}
+	}
+	for season, ks := range e.FileKeys {
+		rec.keys[season] = append(rec.keys[season], ks...)
+	}
 	return rec, true
+}
+
+// persistFolderEvidence keeps a successful reading, so the next start-up and the
+// next blip have it. A write failure is ignored: the in-memory reading is still
+// good, and nothing about the folder may be logged (FR-012).
+func (d Deps) persistFolderEvidence(relPath string, rec evidenceRec) {
+	if d.Store == nil || relPath == "" {
+		return
+	}
+	e := store.LibraryEvidence{
+		Path:      relPath,
+		HasVideo:  rec.hasVideo,
+		Releases:  map[int][]store.ReleaseToken{},
+		FileKeys:  map[int][]string{},
+		CheckedAt: rec.checkedAt,
+	}
+	for _, s := range rec.seasons {
+		e.Seasons = append(e.Seasons, store.SeasonPresence{
+			Season: s.Season, Episodes: s.Episodes, VideoFiles: s.VideoFiles,
+		})
+	}
+	for season, rels := range rec.releases {
+		for _, r := range rels {
+			e.Releases[season] = append(e.Releases[season],
+				store.ReleaseToken{Resolution: r.Resolution, Group: r.Group, Key: r.Key})
+		}
+	}
+	for season, ks := range rec.keys {
+		e.FileKeys[season] = append(e.FileKeys[season], ks...)
+	}
+	_ = d.Store.SaveLibraryEvidence(e)
 }
 
 // ownershipOf resolves one catalog title against the library.

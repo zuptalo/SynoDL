@@ -1,10 +1,15 @@
 package store
 
 import (
+	"context"
 	"crypto/sha256"
+	"database/sql"
 	"encoding/hex"
+	"fmt"
 	"path/filepath"
+	"sync"
 	"testing"
+	"time"
 )
 
 // openTestStore opens a fresh file-backed store in a temp dir (WAL needs a real
@@ -114,5 +119,80 @@ func TestMigrationsAreAppendOnly(t *testing.T) {
 			t.Logf("\t%q, // version %d", want[i], i+1)
 		}
 		t.Fatal("append the checksums above to migrationGolden")
+	}
+}
+
+// The pragmas used to be set with one db.Exec after opening. *sql.DB is a POOL
+// and busy_timeout / foreign_keys are per-CONNECTION, so only the connection
+// that happened to serve that Exec ever had them: every later connection ran
+// with no busy timeout (failing instantly on a held write lock instead of
+// waiting) and with foreign keys OFF, so ON DELETE CASCADE did not cascade.
+//
+// This checks several connections at once, because checking one proves nothing —
+// that is exactly how the original held up.
+func TestEveryPooledConnectionGetsThePragmas(t *testing.T) {
+	s := openTestStore(t)
+
+	const conns = 5
+	// Hold several connections open simultaneously, forcing the pool to make new
+	// ones rather than hand back the single primed connection.
+	txs := make([]*sql.Tx, 0, conns)
+	for i := 0; i < conns; i++ {
+		tx, err := s.db.BeginTx(context.Background(), &sql.TxOptions{ReadOnly: true})
+		if err != nil {
+			t.Fatalf("BeginTx %d: %v", i, err)
+		}
+		txs = append(txs, tx)
+	}
+	for i, tx := range txs {
+		var busy int
+		if err := tx.QueryRow(`PRAGMA busy_timeout`).Scan(&busy); err != nil {
+			t.Fatalf("conn %d busy_timeout: %v", i, err)
+		}
+		if busy == 0 {
+			t.Errorf("conn %d has busy_timeout=0: it will fail instantly on a write lock instead of waiting", i)
+		}
+		var fk int
+		if err := tx.QueryRow(`PRAGMA foreign_keys`).Scan(&fk); err != nil {
+			t.Fatalf("conn %d foreign_keys: %v", i, err)
+		}
+		if fk != 1 {
+			t.Errorf("conn %d has foreign_keys off: ON DELETE CASCADE will not cascade", i)
+		}
+	}
+	for _, tx := range txs {
+		_ = tx.Rollback()
+	}
+}
+
+// Concurrent writers must serialise rather than fail. This is the shape the
+// background library scan introduced: something writing on its own schedule
+// while requests write too.
+func TestConcurrentWritersDoNotFailEachOther(t *testing.T) {
+	s := openTestStore(t)
+	const writers = 8
+
+	var wg sync.WaitGroup
+	errs := make(chan error, writers)
+	for i := 0; i < writers; i++ {
+		wg.Add(1)
+		go func(n int) {
+			defer wg.Done()
+			for j := 0; j < 10; j++ {
+				if err := s.SaveLibraryEvidence(LibraryEvidence{
+					Path:      fmt.Sprintf("movie/W%d-%d", n, j),
+					HasVideo:  true,
+					CheckedAt: time.Unix(1_700_000_000, 0),
+				}); err != nil {
+					errs <- err
+					return
+				}
+			}
+		}(i)
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		t.Fatalf("a concurrent writer failed instead of waiting: %v", err)
 	}
 }

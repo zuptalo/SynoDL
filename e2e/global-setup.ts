@@ -22,7 +22,7 @@
  * global-teardown.ts. Requires Go on PATH.
  */
 import { spawn, execSync } from 'node:child_process';
-import { mkdirSync, openSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, openSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -165,7 +165,18 @@ export default async function globalSetup(): Promise<void> {
     }),
   });
   if (!setup.ok) {
-    throw new Error(`stateful setup failed: ${setup.status} ${await setup.text()}`);
+    // Include the server's own log. Without it a setup failure that only happens
+    // in CI is undiagnosable from the outside: the status is a generic 500 and
+    // the reason — which store call failed, and why — is only ever in this file.
+    let log = '';
+    try {
+      log = readFileSync(path.join(TMP, 'synodl-e2e-sf.log'), 'utf8').split('\n').slice(-40).join('\n');
+    } catch {
+      log = '(no server log)';
+    }
+    throw new Error(
+      `stateful setup failed: ${setup.status} ${await setup.text()}\n--- synodl-e2e-sf.log (tail) ---\n${log}`,
+    );
   }
 
   writeFileSync(
