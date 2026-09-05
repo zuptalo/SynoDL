@@ -34,6 +34,18 @@ export async function setSourceState(action: string): Promise<void> {
   if (!res.ok) throw new Error(`source control ${action} failed: ${res.status}`);
 }
 
+/**
+ * Take FileStation down and bring it back.
+ *
+ * Everything else on the NAS keeps working, which is what the real failure
+ * looked like: logins fine, tasks fine, folder reads failing. That is the shape
+ * that used to blank every ownership marker at once (spec 0011).
+ */
+export async function setFileStation(state: 'down' | 'up'): Promise<void> {
+  const res = await mockFetch(`/__mock/filestation/${state}`, { method: 'POST' });
+  if (!res.ok) throw new Error(`filestation ${state} failed: ${res.status}`);
+}
+
 /** Sign in through the API and return the session token. */
 export async function apiToken(): Promise<string> {
   const res = await fetch(`${API}/v1/session`, {

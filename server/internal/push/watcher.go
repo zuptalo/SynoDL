@@ -59,6 +59,27 @@ type Watcher struct {
 	// polling the task list for notifications.
 	destMu      sync.RWMutex
 	activeDests map[string]bool
+
+	// OnFinished, when set, is told the destination of a download that has just
+	// finished, so the reading of what is on the NAS can be refreshed for that
+	// folder without waiting for a scan or for someone to browse to it
+	// (spec 0011 FR-007).
+	//
+	// It hangs off the watcher because the watcher is already the thing that sees
+	// the finish — the alternative was a second poll of the task list for the
+	// same information. It is called once per task, on the transition, from the
+	// poll goroutine; an implementation that might block should hand off.
+	OnFinished func(destination string)
+}
+
+// noteFinished tells the reading layer that a download landed in this folder.
+func (w *Watcher) noteFinished(dest string) {
+	if w.OnFinished == nil {
+		return
+	}
+	if d := strings.Trim(strings.TrimSpace(dest), "/"); d != "" {
+		w.OnFinished(d)
+	}
 }
 
 // ActiveDestinations returns the destinations of tasks currently downloading.
@@ -176,6 +197,7 @@ func (w *Watcher) poll(ctx context.Context) {
 			owner := w.ownerOf(t)
 			w.notifyEvent(ctx, "completed", owner, t.ID, "Download complete", body)
 			w.backfillSize(t)
+			w.noteFinished(t.Destination)
 			_ = w.store.UpsertWatched(t.ID, t.Status, true)
 		case t.Status == "error" && last != "error":
 			owner := w.ownerOf(t)

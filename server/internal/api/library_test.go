@@ -1018,3 +1018,111 @@ func TestTheStoredReadingIsClearedWhenNoParentIsConfigured(t *testing.T) {
 		t.Fatal("with nothing configured the reading must be empty, stored or not")
 	}
 }
+
+// --- spec 0011: a title folder's reading is kept too ------------------------
+
+// Opening a title used to cost a NAS read per folder on the first look, and the
+// answer was thrown away on restart. Keeping it means the reading is there
+// immediately, and a NAS that has gone away does not turn "you have season 1"
+// into "we cannot say".
+func TestFolderEvidenceIsServedFromTheStoreOnAColdCache(t *testing.T) {
+	fake := &fakeSyno{
+		loginSid: "sid",
+		subfolders: map[string][]syno.Folder{
+			"/movie": {{Name: "Dune 2021", Path: "/movie/Dune 2021"}},
+		},
+		files: map[string][]string{
+			"/movie/Dune 2021": {"Dune.2021.1080p.BluRay.x264-Silence.mkv"},
+		},
+	}
+	d, st := libDeps(t, fake)
+	addSource(t, st, "Alpha", "movie", "tv-show")
+
+	rec, ok := d.folderEvidence(context.Background(), "movie/Dune 2021")
+	if !ok || !rec.hasVideo {
+		t.Fatalf("precondition: the first reading should find video (ok=%v)", ok)
+	}
+	before := fake.fileListCalls
+
+	// Restart: a fresh cache over the same store, and a NAS that answers nothing.
+	restarted := d
+	restarted.lib = &libraryCache{}
+	fake.err = errors.New("nas unreachable")
+
+	rec2, ok2 := restarted.folderEvidence(context.Background(), "movie/Dune 2021")
+	if !ok2 {
+		t.Fatal("a restart must not lose a folder's reading: it is stored")
+	}
+	if !rec2.hasVideo {
+		t.Error("the stored reading should still say the folder holds video")
+	}
+	if fake.fileListCalls != before {
+		t.Errorf("the stored reading must not cost a NAS read: %d extra", fake.fileListCalls-before)
+	}
+}
+
+// The release tokens are what mark WHICH version the user has, so they have to
+// survive the round-trip or the marker degrades to nothing after a restart.
+func TestStoredFolderEvidenceKeepsSeasonsAndReleases(t *testing.T) {
+	fake := &fakeSyno{
+		loginSid: "sid",
+		subfolders: map[string][]syno.Folder{
+			"/tv-show":           {{Name: "Dark 2017", Path: "/tv-show/Dark 2017"}},
+			"/tv-show/Dark 2017": {{Name: "Season 01", Path: "/tv-show/Dark 2017/Season 01"}},
+		},
+		files: map[string][]string{
+			"/tv-show/Dark 2017/Season 01": {
+				"Dark.S01E01.1080p.WEB-DL.x265-Silence.mkv",
+				"Dark.S01E02.1080p.WEB-DL.x265-Silence.mkv",
+			},
+		},
+	}
+	d, st := libDeps(t, fake)
+	addSource(t, st, "Alpha", "movie", "tv-show")
+
+	want, ok := d.folderEvidence(context.Background(), "tv-show/Dark 2017")
+	if !ok || len(want.seasons) == 0 {
+		t.Fatalf("precondition: seasons should be read (ok=%v, %d)", ok, len(want.seasons))
+	}
+
+	restarted := d
+	restarted.lib = &libraryCache{}
+	fake.err = errors.New("nas unreachable")
+
+	got, ok := restarted.folderEvidence(context.Background(), "tv-show/Dark 2017")
+	if !ok {
+		t.Fatal("the stored reading should answer")
+	}
+	if len(got.seasons) != len(want.seasons) {
+		t.Fatalf("seasons = %d, want %d", len(got.seasons), len(want.seasons))
+	}
+	if got.seasons[0].Season != want.seasons[0].Season ||
+		len(got.seasons[0].Episodes) != len(want.seasons[0].Episodes) {
+		t.Errorf("season detail did not survive: %+v want %+v", got.seasons[0], want.seasons[0])
+	}
+	if len(got.releases[1]) != len(want.releases[1]) {
+		t.Errorf("releases = %v, want %v", got.releases[1], want.releases[1])
+	}
+	if len(got.keys[1]) != len(want.keys[1]) {
+		t.Errorf("file keys = %v, want %v", got.keys[1], want.keys[1])
+	}
+}
+
+// A folder that has never been read must still reach the NAS — the store is a
+// fallback and a head start, not a substitute for ever looking.
+func TestAnUnknownFolderIsStillReadFromTheNAS(t *testing.T) {
+	fake := &fakeSyno{
+		loginSid: "sid",
+		files:    map[string][]string{"/movie/Arrival": {"Arrival.2016.1080p.BluRay.x264-Silence.mkv"}},
+	}
+	d, st := libDeps(t, fake)
+	addSource(t, st, "Alpha", "movie", "tv-show")
+
+	rec, ok := d.folderEvidence(context.Background(), "movie/Arrival")
+	if !ok || !rec.hasVideo {
+		t.Fatalf("a folder nobody has read must be read (ok=%v)", ok)
+	}
+	if fake.fileListCalls == 0 {
+		t.Error("it should have cost a NAS read")
+	}
+}

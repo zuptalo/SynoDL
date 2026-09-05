@@ -48,17 +48,33 @@ type Deps struct {
 	ActiveDests func() map[string]bool
 }
 
+// InitCaches allocates the shared in-memory caches on d and returns it.
+//
+// Deps is a VALUE, and NewRouter allocates these on its own copy. Anything
+// started OUTSIDE the router — the background library scan, the watcher's
+// finished-download hook — therefore held a Deps whose caches were nil and
+// silently did nothing at all: no error, no log line, just a feature that never
+// ran. Call this before handing Deps to a goroutine, and pass the same value to
+// NewRouter so the router and the background work share one cache.
+func InitCaches(d Deps) Deps {
+	if d.lib == nil {
+		d.lib = &libraryCache{}
+	}
+	if d.caps == nil {
+		d.caps = &capsCache{}
+	}
+	return d
+}
+
 // NewRouter builds the full handler tree with the recover → log → CORS
 // middleware chain, mirroring the order used across the codebase: recovery
 // outermost so even logging panics turn into a 500 line.
 func NewRouter(d Deps) http.Handler {
 	mux := http.NewServeMux()
 
-	// One library cache shared by every handler closure built below.
-	if d.lib == nil {
-		d.lib = &libraryCache{}
-		d.caps = &capsCache{}
-	}
+	// One library cache shared by every handler closure built below — and, when
+	// the caller used InitCaches, shared with the background work too.
+	d = InitCaches(d)
 
 	mux.HandleFunc("GET /healthz", handleHealth)
 	mux.Handle("GET /v1/config", handleConfig(d))

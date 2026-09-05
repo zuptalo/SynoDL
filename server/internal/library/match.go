@@ -2,6 +2,7 @@ package library
 
 import (
 	"regexp"
+	"sort"
 	"strings"
 	"time"
 	"unicode"
@@ -192,4 +193,28 @@ func (ix *Index) Lookup(catalogTitle string, kind MediaKind) (Entry, bool) {
 		return e, true
 	}
 	return Entry{}, false
+}
+
+// Folders returns every title folder in the index, as "parent/name".
+//
+// It exists for the background scan (spec 0011), which needs to know what there
+// is to read and what has gone away, rather than to answer a lookup. Sorted, so
+// a cycle is reproducible.
+func (ix *Index) Folders() []string {
+	if ix == nil || ix.empty {
+		return nil
+	}
+	seen := map[string]bool{}
+	var out []string
+	for _, entries := range ix.byKey {
+		for _, e := range entries {
+			if e.Path == "" || seen[e.Path] {
+				continue
+			}
+			seen[e.Path] = true
+			out = append(out, e.Path)
+		}
+	}
+	sort.Strings(out)
+	return out
 }

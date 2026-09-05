@@ -71,6 +71,10 @@ type Server struct {
 	// not describe a real library, and any ownership rule read from it would be
 	// asserting a shape DSM never returns.
 	files map[string][]string
+	// fsDown makes every FileStation call fail, so a test can drive the exact
+	// failure that used to blank Discover's ownership markers: the NAS briefly
+	// unreachable while everything else keeps working (spec 0011).
+	fsDown bool
 	// Fake download sources (spec 0007), so dev and e2e can exercise the catalog
 	// without pasting real credentials for a real site. See sources.go.
 	zarSrc *SourceState
@@ -167,6 +171,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /__mock/seed", s.handleSeed)
 	mux.HandleFunc("POST /__mock/tick", s.handleTick)
 	mux.HandleFunc("POST /__mock/library", s.handleLibrary)
+	mux.HandleFunc("POST /__mock/filestation/{state}", s.handleFileStationState)
 	return mux
 }
 
@@ -427,6 +432,13 @@ func (s *Server) handleFileStation(w http.ResponseWriter, r *http.Request) {
 	defer s.mu.Unlock()
 	if _, live := s.sessions[param("_sid")]; !live {
 		fail(w, 106)
+		return
+	}
+	if s.fsDown {
+		// 407 is DSM's "operation not permitted" — a plausible read failure that
+		// is NOT a session error, so the client does not try to re-authenticate
+		// its way out of it (spec 0011).
+		fail(w, 407)
 		return
 	}
 	switch param("api") {
@@ -734,4 +746,15 @@ func taskNameFromURI(uri string) string {
 		return trimmed[i+1:]
 	}
 	return uri
+}
+
+// handleFileStationState takes FileStation down and brings it back, so e2e can
+// exercise what happens to ownership when the NAS cannot be read. Everything
+// else — login, tasks — keeps working, because that is what the real failure
+// looked like.
+func (s *Server) handleFileStationState(w http.ResponseWriter, r *http.Request) {
+	s.mu.Lock()
+	s.fsDown = r.PathValue("state") == "down"
+	s.mu.Unlock()
+	ok(w, nil)
 }
