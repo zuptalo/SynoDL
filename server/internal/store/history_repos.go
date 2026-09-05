@@ -227,3 +227,28 @@ func (s *Store) StatsDaily(userIDs []int64, source string) ([]DayCount, error) {
 	}
 	return out, rows.Err()
 }
+
+// RecordedNamesFor returns the file names recorded when downloads were created
+// for this destination — the release names, before anything renamed them.
+//
+// This is how "which version do I already have" is answerable for a library that
+// has since been renamed: the NAS no longer carries the answer, but our own
+// record of what we asked for does (spec 0010).
+func (s *Store) RecordedNamesFor(destination string) ([]string, error) {
+	rows, err := s.db.Query(
+		`SELECT DISTINCT task_name FROM download_history
+		 WHERE destination = ? AND task_name <> ''`, strings.Trim(strings.TrimSpace(destination), "/"))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var n string
+		if err := rows.Scan(&n); err != nil {
+			return nil, err
+		}
+		out = append(out, n)
+	}
+	return out, rows.Err()
+}

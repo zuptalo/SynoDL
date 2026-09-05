@@ -565,11 +565,12 @@ func versionWasSent(q source.QualityOption, sent []store.SourceDownload) bool {
 		if seasonOfDestination(d.Destination) != season {
 			continue
 		}
-		// How the option describes itself decides it. Ids are positional on at
-		// least one source, so a listing that reorders makes the id point at a
-		// different row entirely — matching on it would mark the wrong version
-		// with full confidence, which is worse than marking nothing.
-		if d.QualityLabel != "" || d.QualityResolution != "" || d.QualityEncoder != "" {
+		// A record written by a send carries the option's own wording, so it is
+		// compared whole. Ids are positional on at least one source, so a listing
+		// that reorders makes an id point at a different option entirely —
+		// matching on it would mark the wrong version with full confidence, which
+		// is worse than marking nothing.
+		if d.QualityLabel != "" {
 			if d.QualityLabel == q.Label &&
 				d.QualityResolution == q.Resolution &&
 				d.QualityEncoder == q.Encoder {
@@ -577,8 +578,16 @@ func versionWasSent(q source.QualityOption, sent []store.SourceDownload) bool {
 			}
 			continue // described, and this is not it
 		}
-		// Only a record with no description at all falls back to the id, because
-		// there is nothing else to go on.
+		// A record RECOVERED from the name we downloaded carries only the two
+		// tokens, and its encoder is already folded for comparison.
+		if d.QualityResolution != "" && d.QualityEncoder != "" {
+			rel := library.Release{Resolution: d.QualityResolution, Group: d.QualityEncoder}
+			if rel.Matches(q.Resolution, q.Encoder) {
+				return true
+			}
+			continue
+		}
+		// Only a record with nothing but an id falls back to it.
 		if d.QualityID != "" && d.QualityID == q.ID {
 			return true
 		}
