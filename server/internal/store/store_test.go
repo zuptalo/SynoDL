@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -194,5 +195,76 @@ func TestConcurrentWritersDoNotFailEachOther(t *testing.T) {
 	close(errs)
 	for err := range errs {
 		t.Fatalf("a concurrent writer failed instead of waiting: %v", err)
+	}
+}
+
+// A migration inserted into the MIDDLE of the list never runs on an installation
+// that is already past that position — the counter records how many have been
+// applied, so the inserted one sits below the mark and is skipped forever. Spec
+// 2012 was written about one instance of this; `hide_owned` (version 22) is
+// another, and it went unnoticed because the append-only guard was added
+// afterwards and pins the list as it already was.
+//
+// The symptom was quiet: saving the Discover view answered 500 while appearing
+// to work, because the view itself saved and only the hide-owned write failed.
+//
+// This reproduces the shape — a database whose counter is ahead of a column it
+// never got — and asserts reopening repairs it.
+func TestAColumnSkippedByAMisplacedMigrationIsRepaired(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "synodl.db")
+	c, err := NewCipher("kdf-input-for-tests")
+	if err != nil {
+		t.Fatalf("NewCipher: %v", err)
+	}
+	s, err := Open(path, c)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	uid, err := s.CreateUser("u", "h", true)
+	if err != nil {
+		t.Fatalf("CreateUser: %v", err)
+	}
+	// Put the database in the state the real one was in: missing the column a
+	// mid-list migration should have added, with the counter sitting ABOVE that
+	// migration's position — so nothing will ever re-run it — but below the
+	// reconciliation appended at the end, which is what repairs it.
+	if _, err := s.db.Exec(`ALTER TABLE source_prefs DROP COLUMN hide_owned`); err != nil {
+		t.Fatalf("drop column: %v", err)
+	}
+	repair := -1
+	for i, m := range migrations {
+		if strings.Contains(m, "hide_owned") {
+			repair = i // the LAST such entry is the reconciliation
+		}
+	}
+	if repair < 0 {
+		t.Fatal("the hide_owned migration is gone; this test no longer tests anything")
+	}
+	if _, err := s.db.Exec(`DELETE FROM schema_migrations WHERE version > ?`, repair); err != nil {
+		t.Fatalf("rewind to just before the reconciliation: %v", err)
+	}
+	if err := s.SaveSourceHideOwned(uid, true, 1); err == nil {
+		t.Fatal("precondition: the write should fail while the column is missing")
+	}
+	if err := s.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	// Reopening must repair it, without rewinding the counter.
+	s2, err := Open(path, c)
+	if err != nil {
+		t.Fatalf("reopen: %v", err)
+	}
+	t.Cleanup(func() { _ = s2.Close() })
+
+	if err := s2.SaveSourceHideOwned(uid, true, 2); err != nil {
+		t.Fatalf("hide-owned still cannot be saved after reopening: %v", err)
+	}
+	hide, err := s2.GetSourceHideOwned(uid)
+	if err != nil {
+		t.Fatalf("SourceHideOwned: %v", err)
+	}
+	if !hide {
+		t.Error("the repaired column did not round-trip")
 	}
 }

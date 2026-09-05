@@ -353,4 +353,22 @@ var migrations = []string{
 	// been seen gone continuously for a grace period; seeing the folder again
 	// clears this back to 0.
 	`ALTER TABLE source_downloads ADD COLUMN missing_since INTEGER NOT NULL DEFAULT 0;`,
+
+	// Reconciliation, not a new column: this repeats version 22 verbatim.
+	//
+	// That migration was inserted into the MIDDLE of this list, so every
+	// installation already past position 22 recorded it as applied without ever
+	// running it — the same mistake spec 2012 was written about, made a second
+	// time and missed because the append-only guard was added afterwards and
+	// pinned the list as it already stood.
+	//
+	// The consequence was quiet enough to survive: saving the Discover view
+	// answered 500 while appearing to work, because the view itself saved and
+	// only the hide-owned write failed, and the client does not wait on that
+	// response. So "hide what I have" silently never persisted.
+	//
+	// Re-running it is safe on a database that DOES have the column: migrate()
+	// tolerates "duplicate column name" precisely so a reconciliation like this
+	// one can be appended.
+	`ALTER TABLE source_prefs ADD COLUMN hide_owned INTEGER NOT NULL DEFAULT 0;`,
 }
