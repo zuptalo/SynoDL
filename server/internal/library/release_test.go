@@ -222,3 +222,55 @@ func TestRecoveredReleaseOnlyMatchesOnBothHalves(t *testing.T) {
 		t.Error("same encoder, different resolution must not match")
 	}
 }
+
+// Spec 2015: the encoder used to be taken by POSITION — "the token before the
+// last" — which is a subtitle or dubbing marker on the names these sites
+// actually publish. Every recorded download on the reporting instance recovered
+// the wrong token, so the version match failed on exactly the downloads SynoDL
+// had sent itself.
+func TestRecordedReleaseSkipsSubtitleAndDubbingMarkers(t *testing.T) {
+	for _, tc := range []struct{ name, res, group string }{
+		// The token before the brand is the subtitle marker; the encoder is before it.
+		{"The.Sheep.Detectives.2026.1080p.BluRay.x264.DD5.1.Pahe.SoftSub.ZarFilm.mkv", "1080p", "pahe"},
+		{"Movie.2024.1080p.WEB-DL.x265.Joy.HardSub.ZarFilm.mkv", "1080p", "joy"},
+		{"Show.S01E01.720p.WEB-DL.Silence.Dubbed.30nama.mkv", "720p", "silence"},
+	} {
+		got, ok := RecordedRelease(tc.name)
+		if !ok {
+			t.Errorf("%s: not recovered", tc.name)
+			continue
+		}
+		if got.Resolution != tc.res || got.Group != tc.group {
+			t.Errorf("%s: got %s/%s, want %s/%s", tc.name, got.Resolution, got.Group, tc.res, tc.group)
+		}
+	}
+}
+
+// A name that carries no encoder at all must recover none. Inventing one from a
+// dubbing marker is how "Mutiny" reported an encoder its file never had.
+func TestRecordedReleaseRecoversNothingWhenTheNameNamesNoEncoder(t *testing.T) {
+	for _, name := range []string{
+		"Mutiny.2026.1080p.FHD.WEB-DL.Dubbed.ZarFilm.mkv",
+		"Batman.Knightfall.Part.1.Knightfall.2026.1080p.WEB-DL.Dubbed.mkv",
+		"Movie.2024.1080p.BluRay.x264.DD5.1.mkv",
+	} {
+		if got, ok := RecordedRelease(name); ok {
+			t.Errorf("%q recovered %s/%s; it names no encoder", name, got.Resolution, got.Group)
+		}
+	}
+}
+
+// One candidate after the resolution is ambiguous: on these sites it is the
+// site's own brand. A hyphen is what distinguishes a scene group from a brand.
+func TestRecordedReleaseTreatsALoneDottedTokenAsTheSiteBrand(t *testing.T) {
+	if got, ok := RecordedRelease("Movie.2024.1080p.BluRay.x264.ZarFilm.mkv"); ok {
+		t.Errorf("a lone dotted token is the site brand, not an encoder; recovered %s", got.Group)
+	}
+	got, ok := RecordedRelease("Movie.2024.1080p.BluRay.x264-RARBG.mkv")
+	if !ok {
+		t.Fatal("a scene-style -GROUP is a group, and must be recovered")
+	}
+	if got.Group != "rarbg" {
+		t.Errorf("group = %q, want rarbg", got.Group)
+	}
+}
