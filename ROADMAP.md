@@ -65,3 +65,4 @@ Specs are grouped by category band; status moves
 | [2007](specs/2007-release-year-sort/spec.md) | Release-year sort is fast again, and Discover opens on Most popular | 🟢 shipped |
 | [2008](specs/2008-posters-and-owned/spec.md) | Posters and owned markers survive a source outage | 🔵 in-review |
 | [2009](specs/2009-say-when-source/spec.md) | Say when a source session is not valid where it is being asked | 🔵 in-review |
+| [2010](specs/2010-never-strand-app/spec.md) | Never strand the app on a source that is down | 🔵 in-review |

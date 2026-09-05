@@ -275,6 +275,38 @@ async function loadStatus(): Promise<void> {
   }
 }
 
+/**
+ * Leave a dead end when the source the user last looked at is the one that is down.
+ *
+ * The saved selection is restored on open, so a source that stopped answering
+ * since last time puts Discover straight into the full-screen "needs refreshing"
+ * state — which replaces the toolbar, and with it the source picker. There is
+ * then no way to reach the healthy source at all: the app is stuck on the one
+ * thing that cannot work.
+ *
+ * So a failing single-source view falls back to all sources and searches again.
+ * Whatever is healthy appears, and the banner names what is missing. It cannot
+ * loop: the retry runs with no source selected, so this returns false for it.
+ *
+ * The stored preference is deliberately NOT overwritten — when the source comes
+ * back, the user is where they left off rather than having been quietly moved.
+ */
+async function fallBackToEverySource(e: unknown): Promise<boolean> {
+  if (!(e instanceof ApiError)) return false;
+  if (e.code !== 'source_needs_refresh' && e.code !== 'source_unavailable') return false;
+  if (!selectedSource.value) return false; // already showing everything
+
+  selectedSource.value = '';
+  items.value = [];
+  itemsSource.value = '';
+  needsRefresh.value = false;
+  unavailable.value = false;
+  errorMsg.value = '';
+  await loadParameters();
+  await runSearch();
+  return true;
+}
+
 function handleErr(e: unknown): void {
   if (e instanceof ApiError) {
     if (e.code === 'source_needs_refresh') {
@@ -387,6 +419,7 @@ async function runSearch(reset = true): Promise<void> {
         items.value = [];
         itemsSource.value = selectedSource.value;
       }
+      if (await fallBackToEverySource(e)) return;
       handleErr(e); // ignore errors from a superseded search
     }
   } finally {
