@@ -212,6 +212,24 @@ export async function apiTitle(token: string, id: string): Promise<TitleDetailSh
   return (await res.json()) as TitleDetailShape;
 }
 
+/** Store which source the user was last looking at, the way the picker does. */
+export async function setSelectedSource(token: string, selectedSource: string): Promise<void> {
+  const view = await api(token, '/v1/source/view');
+  const cur = (await view.json()) as Record<string, unknown>;
+  const res = await api(token, '/v1/source/view', {
+    method: 'PUT',
+    body: JSON.stringify({ ...cur, selectedSource }),
+  });
+  if (!res.ok) throw new Error(`set selected source failed: ${res.status}`);
+}
+
+/** What the server has stored as the user's last-viewed source. */
+export async function getSelectedSource(token: string): Promise<string> {
+  const res = await api(token, '/v1/source/view');
+  if (!res.ok) throw new Error(`get view failed: ${res.status}`);
+  return ((await res.json()) as { selectedSource?: string }).selectedSource ?? '';
+}
+
 /** Store the hide-owned preference the way the filter sheet does. */
 export async function setHideOwned(token: string, hideOwned: boolean): Promise<void> {
   const view = await api(token, '/v1/source/view');
