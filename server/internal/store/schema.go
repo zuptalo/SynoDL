@@ -283,4 +283,13 @@ var migrations = []string{
 	//
 	// APPENDED, as every migration must be — see TestMigrationsAreAppendOnly.
 	`ALTER TABLE source_providers ADD COLUMN main_base TEXT NOT NULL DEFAULT '';`,
+
+	// Spec 0010: remember WHICH version was sent, not merely that something was.
+	// A library whose files have been renamed for a media server carries no
+	// release information at all — the resolution and the group are simply gone —
+	// so nothing can be recovered by reading the names. What we sent, we know.
+	`ALTER TABLE source_downloads ADD COLUMN quality_id         TEXT NOT NULL DEFAULT '';`,
+	`ALTER TABLE source_downloads ADD COLUMN quality_label      TEXT NOT NULL DEFAULT '';`,
+	`ALTER TABLE source_downloads ADD COLUMN quality_resolution TEXT NOT NULL DEFAULT '';`,
+	`ALTER TABLE source_downloads ADD COLUMN quality_encoder    TEXT NOT NULL DEFAULT '';`,
 }

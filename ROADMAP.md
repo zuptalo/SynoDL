@@ -22,6 +22,7 @@ Specs are grouped by category band; status moves
 | [0007](specs/0007-multiple-download-sources/spec.md) | Multiple Download Sources | 🟢 shipped |
 | [0008](specs/0008-show-which-discover/spec.md) | Show which Discover titles you already have | 🟢 shipped |
 | [0009](specs/0009-two-addresses-per/spec.md) | Two addresses per source, each with its own sign-in | 🔵 in-review |
+| [0010](specs/0010-mark-version-you/spec.md) | Mark the version you downloaded, from what we sent | 🔵 in-review |
 
 ## ⚡ Ad-hoc (1001–1999)
 
