@@ -3,6 +3,7 @@ package store
 import (
 	"database/sql"
 	"fmt"
+	"strings"
 
 	_ "modernc.org/sqlite" // pure-Go SQLite driver (cgo-free; keeps the static alpine build)
 )
@@ -62,8 +63,19 @@ func (s *Store) migrate() error {
 			return err
 		}
 		if _, err := tx.Exec(migrations[i]); err != nil {
-			_ = tx.Rollback()
-			return fmt.Errorf("migration %d: %w", i+1, err)
+			// A column this migration adds may already be there. That is not a
+			// conflict to fail on — it means this installation already has what the
+			// migration is for, and refusing to start would strand it.
+			//
+			// It happens when a migration is added in the wrong place and then
+			// corrected: an installation created from the mistaken list has the
+			// column at one version, while one upgraded through it does not, and the
+			// corrected list has to land on both. Adding a column is idempotent in
+			// intent, so it is treated that way.
+			if !isDuplicateColumn(err) {
+				_ = tx.Rollback()
+				return fmt.Errorf("migration %d: %w", i+1, err)
+			}
 		}
 		if _, err := tx.Exec(`INSERT INTO schema_migrations(version) VALUES(?)`, i+1); err != nil {
 			_ = tx.Rollback()
@@ -74,4 +86,10 @@ func (s *Store) migrate() error {
 		}
 	}
 	return nil
+}
+
+// isDuplicateColumn reports whether err is SQLite objecting that a column being
+// added is already present.
+func isDuplicateColumn(err error) bool {
+	return err != nil && strings.Contains(strings.ToLower(err.Error()), "duplicate column name")
 }

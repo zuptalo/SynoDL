@@ -3,6 +3,7 @@ package store
 import (
 	"bytes"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -271,9 +272,22 @@ func TestMigrationRewritesLegacy30namaKind(t *testing.T) {
 		 VALUES ('thirtynama', 'Legacy Source', 1, 'active', 0, 0)`); err != nil {
 		t.Fatalf("seed legacy row: %v", err)
 	}
-	// Pretend the last migration has not run yet, then reopen so it does.
-	if _, err := s.db.Exec(
-		`DELETE FROM schema_migrations WHERE version = (SELECT MAX(version) FROM schema_migrations)`); err != nil {
+	// Rewind to just before the rename itself, then reopen so it runs.
+	//
+	// Found by searching for the statement rather than by counting from the end:
+	// this used to rewind "the last migration", which quietly stopped exercising
+	// the rename the moment anything was appended after it.
+	rename := -1
+	for i, m := range migrations {
+		if strings.Contains(m, "thirtynama") {
+			rename = i
+			break
+		}
+	}
+	if rename < 0 {
+		t.Fatal("the rename migration is gone; this test no longer tests anything")
+	}
+	if _, err := s.db.Exec(`DELETE FROM schema_migrations WHERE version > ?`, rename); err != nil {
 		t.Fatalf("rewind schema version: %v", err)
 	}
 	if err := s.Close(); err != nil {

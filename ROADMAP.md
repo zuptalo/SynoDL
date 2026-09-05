@@ -68,3 +68,4 @@ Specs are grouped by category band; status moves
 | [2009](specs/2009-say-when-source/spec.md) | Say when a source session is not valid where it is being asked | 🔵 in-review |
 | [2010](specs/2010-never-strand-app/spec.md) | Never strand the app on a source that is down | 🔵 in-review |
 | [2011](specs/2011-source-omits-resolution/spec.md) | A source that omits the resolution can still be matched | 🔵 in-review |
+| [2012](specs/2012-migration-never-ran/spec.md) | A migration added in the middle never runs | 🔵 in-review |

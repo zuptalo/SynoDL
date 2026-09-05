@@ -1,6 +1,8 @@
 package store
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"path/filepath"
 	"testing"
 )
@@ -72,5 +74,45 @@ func TestForeignKeysEnforced(t *testing.T) {
 		`INSERT INTO sessions(token_hash, user_id, created_at, expires_at) VALUES('h', 999, 0, 0)`)
 	if err == nil {
 		t.Fatal("expected FK violation inserting a session for a missing user")
+	}
+}
+
+// Migrations are append-only, and this is the test that says so.
+//
+// One was once added in the MIDDLE of the list. An installation records how many
+// it has applied, so the inserted one sat below that mark and was skipped
+// forever — while the code that selected its column shipped anyway, and every
+// request for the source list answered 500 on a live instance. The insertion also
+// shifted its neighbour down, so installations already past it ran that a second
+// time; it happened to be an idempotent UPDATE, which is the only reason nothing
+// was corrupted.
+//
+// The checksums below pin the statements that have already been applied out in
+// the world. Adding a migration means appending one line here. Changing this test
+// any other way means changing history someone has already run.
+func TestMigrationsAreAppendOnly(t *testing.T) {
+	want := []string{}
+	for _, m := range migrations {
+		sum := sha256.Sum256([]byte(m))
+		want = append(want, hex.EncodeToString(sum[:8]))
+	}
+	// Golden: the migrations as they have shipped, in order.
+	golden := migrationGolden
+	if len(want) < len(golden) {
+		t.Fatalf("migrations were REMOVED: %d now, %d before. An installation cannot un-apply one.", len(want), len(golden))
+	}
+	for i := range golden {
+		if want[i] != golden[i] {
+			t.Fatalf("migration %d (version %d) changed.\n"+
+				"Migrations are append-only: an installation past this version will never run the new text, "+
+				"and everything after it shifts. Add a NEW migration at the end instead.", i, i+1)
+		}
+	}
+	if len(want) > len(golden) {
+		t.Logf("%d new migration(s) appended — add their checksums to migrationGolden:", len(want)-len(golden))
+		for i := len(golden); i < len(want); i++ {
+			t.Logf("\t%q, // version %d", want[i], i+1)
+		}
+		t.Fatal("append the checksums above to migrationGolden")
 	}
 }

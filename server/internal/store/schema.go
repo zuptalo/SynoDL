@@ -251,10 +251,6 @@ var migrations = []string{
 	// across devices, like the rest of their Discover view.
 	`ALTER TABLE source_prefs ADD COLUMN hide_owned INTEGER NOT NULL DEFAULT 0;`,
 
-	// Spec 0009: the address a source is reached at becomes configuration rather
-	// than something fixed in the driver. Empty keeps the driver's own address, so
-	// every source configured before this keeps working untouched.
-	`ALTER TABLE source_providers ADD COLUMN main_base TEXT NOT NULL DEFAULT '';`,
 	// 0019 — the 30nama driver's registry key was "thirtynama", which leaked into
 	// the admin list as the source's name. The key is now "30nama", matching what
 	// the site is actually called.
@@ -264,4 +260,27 @@ var migrations = []string{
 	// configured source would go dark — with its sealed session intact but
 	// unusable. The UPDATE is a no-op on an install that never had one.
 	`UPDATE source_providers SET kind = '30nama' WHERE kind = 'thirtynama';`,
+
+	// This slot exists to reconcile a mistake, and repeats the statement above
+	// because that statement is a no-op on every database.
+	//
+	// The migration below was first added in the MIDDLE of this list instead of at
+	// the end. An installation records how many migrations it has applied, so the
+	// inserted one sat below that mark and was skipped forever — while the code
+	// that selected its column shipped anyway, and every request for the source
+	// list answered 500. The insertion also shifted the statement above down by
+	// one, so installations already past it applied it a second time; it is an
+	// idempotent UPDATE, which is the only reason that did no harm.
+	//
+	// Those installations recorded a version for that re-run. This slot is that
+	// version, so their counter and this list agree again and the migration below
+	// lands on a fresh install and an upgraded one alike.
+	`UPDATE source_providers SET kind = '30nama' WHERE kind = 'thirtynama';`,
+
+	// Spec 0009: the address a source is reached at becomes configuration rather
+	// than something fixed in the driver. Empty keeps the driver's own address, so
+	// every source configured before this keeps working untouched.
+	//
+	// APPENDED, as every migration must be — see TestMigrationsAreAppendOnly.
+	`ALTER TABLE source_providers ADD COLUMN main_base TEXT NOT NULL DEFAULT '';`,
 }
