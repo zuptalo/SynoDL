@@ -76,3 +76,4 @@ Specs are grouped by category band; status moves
 | [2013](specs/2013-orphaned-alt-credentials/spec.md) | Removing an address removes its credentials | 🔵 in-review |
 | [2015](specs/2015-recovered-version-reads/spec.md) | The version you downloaded is not the one marked | 🟢 shipped |
 | [2016](specs/2016-data-dir-special-chars/spec.md) | A DATA_DIR with punctuation in it opens the wrong database | 🟢 shipped |
+| [2017](specs/2017-hide-owned-migration-skipped/spec.md) | "Hide what I have" never saved, and every view save answered 500 | 🟢 shipped |
