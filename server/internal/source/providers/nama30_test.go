@@ -647,3 +647,36 @@ func asVerify(err error, target **source.ErrProviderVerify) bool {
 	}
 	return false
 }
+
+// Spec 2011: this provider returns an empty `resolution` on every download while
+// naming it plainly in the quality label. An option with no resolution cannot be
+// compared against what is on the NAS, so after ownership became per-release
+// NOTHING was ever marked for this source — the season header said "on your NAS"
+// and not one of its options said which.
+func TestNama30FillsInAResolutionFromItsLabel(t *testing.T) {
+	for _, tc := range []struct{ quality, want string }{
+		{"BluRay 1080p", "1080p"},
+		{"x265 BluRay 1080p", "1080p"},
+		{"BluRay 720p", "720p"},
+		{"WEB-DL 2160p", "2160p"},
+		{"4K BluRay", "2160p"},
+		// Nothing to go on: better empty than guessed, which is what keeps a
+		// wrong option from being marked as one the user already has.
+		{"DVDRip", ""},
+		{"", ""},
+	} {
+		if got := source.ResolutionOf(tc.quality); got != tc.want {
+			t.Errorf("ResolutionOf(%q) = %q, want %q", tc.quality, got, tc.want)
+		}
+	}
+}
+
+// An explicit resolution from the provider still wins over the label.
+func TestExplicitResolutionWins(t *testing.T) {
+	if got := firstNonEmptyStr("1080p", source.ResolutionOf("BluRay 720p")); got != "1080p" {
+		t.Fatalf("got %q, want the provider's own value", got)
+	}
+	if got := firstNonEmptyStr("", source.ResolutionOf("BluRay 720p")); got != "720p" {
+		t.Fatalf("got %q, want the label fallback", got)
+	}
+}
