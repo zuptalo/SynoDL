@@ -444,6 +444,15 @@ type SourceDownload struct {
 	CatalogID   string // catalog title id for "Open in Discover" (spec 1016); "" when unknown
 	OwnerID     int64  // who sent it (0 = unknown)
 	OwnerName   string // their username (joined; "" when unknown)
+
+	// Which version was sent (spec 0010). Recorded because it cannot be recovered
+	// later: a library renamed for a media server keeps no release information in
+	// its file names, so "which of these six do I already have" is answerable only
+	// from what we ourselves sent.
+	QualityID         string
+	QualityLabel      string
+	QualityResolution string
+	QualityEncoder    string
 }
 
 // normDest strips leading/trailing slashes so a stored destination matches the
@@ -458,18 +467,24 @@ func (s *Store) SaveSourceDownload(d SourceDownload, now int64) error {
 		owner = d.OwnerID
 	}
 	_, err := s.db.Exec(`
-		INSERT INTO source_downloads (destination, media_type, title, year, imdb_score, poster_url, catalog_id, owner_user_id, created_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+		INSERT INTO source_downloads (destination, media_type, title, year, imdb_score, poster_url, catalog_id, owner_user_id, created_at,
+		                              quality_id, quality_label, quality_resolution, quality_encoder)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(destination) DO UPDATE SET
-			media_type    = excluded.media_type,
-			title         = excluded.title,
-			year          = excluded.year,
-			imdb_score    = excluded.imdb_score,
-			poster_url    = excluded.poster_url,
-			catalog_id    = excluded.catalog_id,
-			owner_user_id = excluded.owner_user_id,
-			created_at    = excluded.created_at`,
-		normDest(d.Destination), d.MediaType, d.Title, d.Year, d.IMDbScore, d.PosterURL, d.CatalogID, owner, now)
+			media_type         = excluded.media_type,
+			title              = excluded.title,
+			year               = excluded.year,
+			imdb_score         = excluded.imdb_score,
+			poster_url         = excluded.poster_url,
+			catalog_id         = excluded.catalog_id,
+			owner_user_id      = excluded.owner_user_id,
+			created_at         = excluded.created_at,
+			quality_id         = excluded.quality_id,
+			quality_label      = excluded.quality_label,
+			quality_resolution = excluded.quality_resolution,
+			quality_encoder    = excluded.quality_encoder`,
+		normDest(d.Destination), d.MediaType, d.Title, d.Year, d.IMDbScore, d.PosterURL, d.CatalogID, owner, now,
+		d.QualityID, d.QualityLabel, d.QualityResolution, d.QualityEncoder)
 	return err
 }
 
@@ -479,7 +494,8 @@ func (s *Store) SourceDownloads() (map[string]SourceDownload, error) {
 	rows, err := s.db.Query(`
 		SELECT sd.destination, sd.media_type, sd.title, sd.year, sd.imdb_score,
 		       sd.poster_url, sd.catalog_id,
-		       COALESCE(sd.owner_user_id, 0), COALESCE(u.username, '')
+		       COALESCE(sd.owner_user_id, 0), COALESCE(u.username, ''),
+		       sd.quality_id, sd.quality_label, sd.quality_resolution, sd.quality_encoder
 		FROM source_downloads sd
 		LEFT JOIN users u ON u.id = sd.owner_user_id`)
 	if err != nil {
@@ -489,7 +505,8 @@ func (s *Store) SourceDownloads() (map[string]SourceDownload, error) {
 	out := map[string]SourceDownload{}
 	for rows.Next() {
 		var d SourceDownload
-		if err := rows.Scan(&d.Destination, &d.MediaType, &d.Title, &d.Year, &d.IMDbScore, &d.PosterURL, &d.CatalogID, &d.OwnerID, &d.OwnerName); err != nil {
+		if err := rows.Scan(&d.Destination, &d.MediaType, &d.Title, &d.Year, &d.IMDbScore, &d.PosterURL, &d.CatalogID, &d.OwnerID, &d.OwnerName,
+			&d.QualityID, &d.QualityLabel, &d.QualityResolution, &d.QualityEncoder); err != nil {
 			return nil, err
 		}
 		out[d.Destination] = d

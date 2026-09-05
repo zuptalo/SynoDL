@@ -114,6 +114,16 @@ type sourceSendReq struct {
 	Year      string  `json:"year,omitempty"`
 	IMDbScore float64 `json:"imdbScore,omitempty"`
 	PosterURL string  `json:"posterUrl,omitempty"`
+	// How the chosen option describes itself. Recorded so the sheet can later say
+	// WHICH version is already on the NAS (spec 0010).
+	//
+	// Descriptive only — the download itself is resolved from QualityID against
+	// the source, so nothing here decides what is fetched. That is why taking it
+	// from the client costs nothing: the worst a wrong value can do is mislabel a
+	// row the same client drew.
+	QualityLabel      string `json:"qualityLabel,omitempty"`
+	QualityResolution string `json:"qualityResolution,omitempty"`
+	QualityEncoder    string `json:"qualityEncoder,omitempty"`
 }
 
 // activeSource loads the enabled provider, its driver, outbound config, and the
@@ -565,7 +575,7 @@ func handleSourceTitle(d Deps) http.Handler {
 			// Mark the ONE option the user already has, rather than every option
 			// for a season they have some of (spec 1025). Matching happens here so
 			// the release tokens never cross to the client.
-			td.Qualities = markOwnedOptions(td.Qualities, ev)
+			td.Qualities = markOwnedOptions(td.Qualities, ev, d.versionsSentFor(td.ID))
 		} else {
 			td.Ownership = source.OwnershipUnknown
 		}
@@ -727,6 +737,12 @@ func handleSourceSend(d Deps) http.Handler {
 			Year: strings.TrimSpace(body.Year), IMDbScore: body.IMDbScore,
 			PosterURL: strings.TrimSpace(body.PosterURL), CatalogID: strings.TrimSpace(body.TitleID),
 			OwnerID: u.ID,
+			// The version, remembered here because it cannot be read back off the
+			// NAS later: a library renamed for a media server keeps none of it.
+			QualityID:         strings.TrimSpace(body.QualityID),
+			QualityLabel:      strings.TrimSpace(body.QualityLabel),
+			QualityResolution: strings.TrimSpace(body.QualityResolution),
+			QualityEncoder:    strings.TrimSpace(body.QualityEncoder),
 		}, now)
 		// Record durable per-file history for the Statistics section: one row per
 		// selected file (size unknown until the watcher sees it finish). The
@@ -947,4 +963,24 @@ func asProviderVerify(err error, target **source.ErrProviderVerify) bool {
 		return true
 	}
 	return false
+}
+
+// versionsSentFor returns what this instance has sent for a catalog title, which
+// is how the sheet can say which version is already on the NAS even for a library
+// whose file names carry nothing to identify (spec 0010).
+func (d Deps) versionsSentFor(catalogID string) []store.SourceDownload {
+	if d.Store == nil || strings.TrimSpace(catalogID) == "" {
+		return nil
+	}
+	all, err := d.Store.SourceDownloads()
+	if err != nil {
+		return nil
+	}
+	var out []store.SourceDownload
+	for _, rec := range all {
+		if rec.CatalogID == catalogID {
+			out = append(out, rec)
+		}
+	}
+	return out
 }

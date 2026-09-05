@@ -509,11 +509,23 @@ func (d Deps) titleDetail(
 // An option nothing matches is simply left unmarked. That is not a claim the
 // user lacks it: the season's own presence is reported separately and is
 // untouched by whether any release could be identified (FR-004).
-func markOwnedOptions(qualities []source.QualityOption, ev evidenceRec) []source.QualityOption {
+func markOwnedOptions(qualities []source.QualityOption, ev evidenceRec, sent []store.SourceDownload) []source.QualityOption {
+	// What WE sent is the most reliable answer there is, and often the only one.
+	// A library renamed for a media server keeps no release information in its
+	// file names — no resolution, no group — so reading them back can identify
+	// nothing. Our own record survives any renaming (spec 0010).
+	for i := range qualities {
+		if versionWasSent(qualities[i], sent) {
+			qualities[i].Owned = true
+		}
+	}
 	if len(ev.releases) == 0 && len(ev.keys) == 0 {
 		return qualities
 	}
 	for i := range qualities {
+		if qualities[i].Owned {
+			continue // already answered, and answered better
+		}
 		q := qualities[i]
 		season := seasonNumOf(q.Season)
 
@@ -538,6 +550,55 @@ func markOwnedOptions(qualities []source.QualityOption, ev evidenceRec) []source
 		}
 	}
 	return qualities
+}
+
+// versionWasSent reports whether this exact option is one we sent to this title.
+//
+// Matched on the option's identity where the source gives a stable one, and
+// otherwise on how it describes itself. Both sides come from the same source, so
+// a description that matched when it was sent matches when it is read back.
+func versionWasSent(q source.QualityOption, sent []store.SourceDownload) bool {
+	season := seasonNumOf(q.Season)
+	for _, d := range sent {
+		// A series records one row per season folder, so the season has to agree;
+		// a movie records the title folder and both sides are season 0.
+		if seasonOfDestination(d.Destination) != season {
+			continue
+		}
+		// How the option describes itself decides it. Ids are positional on at
+		// least one source, so a listing that reorders makes the id point at a
+		// different row entirely — matching on it would mark the wrong version
+		// with full confidence, which is worse than marking nothing.
+		if d.QualityLabel != "" || d.QualityResolution != "" || d.QualityEncoder != "" {
+			if d.QualityLabel == q.Label &&
+				d.QualityResolution == q.Resolution &&
+				d.QualityEncoder == q.Encoder {
+				return true
+			}
+			continue // described, and this is not it
+		}
+		// Only a record with no description at all falls back to the id, because
+		// there is nothing else to go on.
+		if d.QualityID != "" && d.QualityID == q.ID {
+			return true
+		}
+	}
+	return false
+}
+
+// seasonOfDestination reads the season out of a recorded destination folder.
+// A movie has none, which is season 0 — the same number an option with no season
+// carries, so the two line up without a special case.
+func seasonOfDestination(dest string) int {
+	dest = strings.Trim(strings.TrimSpace(dest), "/")
+	if dest == "" {
+		return 0
+	}
+	parts := strings.Split(dest, "/")
+	if n, ok := library.SeasonOfFolder(parts[len(parts)-1]); ok {
+		return n
+	}
+	return 0
 }
 
 // reSeasonNum pulls the season number out of a source's own season label, which

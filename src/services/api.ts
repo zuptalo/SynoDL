@@ -643,7 +643,21 @@ export const api = {
     title: string,
     type: string,
     episodes?: number[],
-    meta?: { year?: string; imdbScore?: number; posterUrl?: string },
+    meta?: {
+      year?: string;
+      imdbScore?: number;
+      posterUrl?: string;
+      /**
+       * How the chosen option describes itself, remembered so the sheet can later
+       * say WHICH version is on the NAS. It cannot be read back off the NAS: a
+       * library renamed for a media server keeps no release information in its
+       * file names (spec 0010). Descriptive only — what gets fetched is resolved
+       * from qualityId against the source.
+       */
+      qualityLabel?: string;
+      qualityResolution?: string;
+      qualityEncoder?: string;
+    },
   ) =>
     request<{ destination: string; count: number }>(
       '/v1/source/send',

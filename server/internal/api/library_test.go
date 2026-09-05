@@ -441,7 +441,7 @@ func TestOnlyTheReleaseOnDiskIsMarked(t *testing.T) {
 		{ID: "b", Season: "Season 1", Resolution: "1080p", Encoder: "TENEIGHTY"},
 		{ID: "c", Season: "Season 1", Resolution: "720p", Encoder: "Silence"},
 		{ID: "d", Season: "Season 2", Resolution: "1080p", Encoder: "Silence"},
-	}, ev)
+	}, ev, nil)
 
 	owned := map[string]bool{}
 	for _, q := range got {
@@ -487,7 +487,7 @@ func TestUnidentifiableFilesMarkNothingButStayPresent(t *testing.T) {
 	}
 	for _, q := range markOwnedOptions([]source.QualityOption{
 		{ID: "a", Season: "Season 1", Resolution: "1080p", Encoder: "Silence"},
-	}, ev) {
+	}, ev, nil) {
 		if q.Owned {
 			t.Error("nothing may be marked when the files identify no release")
 		}
@@ -511,7 +511,7 @@ func TestMovieReleaseIsMatched(t *testing.T) {
 	got := markOwnedOptions([]source.QualityOption{
 		{ID: "a", Resolution: "2160p", Encoder: "FraMeSToR"},
 		{ID: "b", Resolution: "1080p", Encoder: "FraMeSToR"},
-	}, ev)
+	}, ev, nil)
 	if !got[0].Owned {
 		t.Error("the movie release on disk must be marked")
 	}
@@ -579,7 +579,7 @@ func TestOptionIsMarkedByTheFileItProduces(t *testing.T) {
 			ReleaseName: "The.Gentlemen.S01E01.720p.WEB-DL.x264.Pahe-ZarFilm.mkv"},
 		{ID: "rmt", Season: "Season 1", Resolution: "480p", Encoder: "ZarFilm",
 			ReleaseName: "The.Gentlemen.S01E01.480p.WEB.x264.RMT-ZarFilm.mkv"},
-	}, ev)
+	}, ev, nil)
 
 	owned := map[string]bool{}
 	for _, q := range got {
@@ -607,7 +607,7 @@ func TestAKnownFileMismatchNeverFallsBackToTokens(t *testing.T) {
 	got := markOwnedOptions([]source.QualityOption{
 		{ID: "other", Season: "Season 1", Resolution: "720p", Encoder: "ZarFilm",
 			ReleaseName: "The.Gentlemen.S01E01.720p.WEB-DL.x265.Someone-ZarFilm.mkv"},
-	}, ev)
+	}, ev, nil)
 	if got[0].Owned {
 		t.Fatal("a file mismatch must be final; falling back to tokens re-marks everything")
 	}
@@ -624,7 +624,7 @@ func TestAPartlyDownloadedSeasonStillIdentifiesItsRelease(t *testing.T) {
 
 	got := markOwnedOptions([]source.QualityOption{
 		{ID: "pahe", Season: "Season 1", ReleaseName: "The.Gentlemen.S01E01.720p.WEB-DL.x264.Pahe-ZarFilm.mkv"},
-	}, ev)
+	}, ev, nil)
 	if !got[0].Owned {
 		t.Fatal("a partial season identifies its release just as well as a full one")
 	}
@@ -639,7 +639,7 @@ func TestAFileNoOptionProducedMarksNothing(t *testing.T) {
 	}
 	got := markOwnedOptions([]source.QualityOption{
 		{ID: "pahe", Season: "Season 1", ReleaseName: "The.Gentlemen.S01E01.720p.WEB-DL.x264.Pahe-ZarFilm.mkv"},
-	}, ev)
+	}, ev, nil)
 	if got[0].Owned {
 		t.Fatal("nothing here was produced by this option")
 	}
@@ -654,7 +654,7 @@ func TestSourcesThatNameNoFileStillUseTokens(t *testing.T) {
 	got := markOwnedOptions([]source.QualityOption{
 		{ID: "match", Season: "Season 1", Resolution: "1080p", Encoder: "Silence"},
 		{ID: "miss", Season: "Season 1", Resolution: "1080p", Encoder: "TENEIGHTY"},
-	}, ev)
+	}, ev, nil)
 	if !got[0].Owned {
 		t.Error("the token path must still mark a genuine match")
 	}
@@ -733,5 +733,78 @@ func TestASuccessfulLibraryReadingKeepsTheFullTTL(t *testing.T) {
 	d.libraryIndex(context.Background())
 	if fake.fileListCalls != before {
 		t.Fatal("a good snapshot must be reused for the full TTL, not rebuilt every minute")
+	}
+}
+
+// Spec 0010: a library renamed for a media server keeps NO release information in
+// its file names — no resolution, no group — so reading them back identifies
+// nothing, and the sheet could say a season was on the NAS without saying which
+// version. What we sent, we know, and that survives any renaming.
+func TestTheVersionWeSentIsMarked(t *testing.T) {
+	sent := []store.SourceDownload{{
+		Destination: "tv-show/Show 2020/Season 01", CatalogID: "1:show",
+		QualityID: "s1-0", QualityLabel: "WEB-DL 1080p", QualityResolution: "1080p", QualityEncoder: "Alpha",
+	}}
+	got := markOwnedOptions([]source.QualityOption{
+		{ID: "s1-0", Season: "Season 1", Label: "WEB-DL 1080p", Resolution: "1080p", Encoder: "Alpha"},
+		{ID: "s1-1", Season: "Season 1", Label: "WEB-DL 1080p", Resolution: "1080p", Encoder: "Beta"},
+		{ID: "s2-0", Season: "Season 2", Label: "WEB-DL 1080p", Resolution: "1080p", Encoder: "Alpha"},
+	}, evidenceRec{}, sent)
+
+	if !got[0].Owned {
+		t.Error("the version we sent must be marked")
+	}
+	if got[1].Owned {
+		t.Error("a different version of the same season must not be marked")
+	}
+	if got[2].Owned {
+		t.Error("the same version of a DIFFERENT season must not be marked")
+	}
+}
+
+// Ids are positional on some sources, so a listing that reorders would point at
+// the wrong row. Agreeing on every describing field survives that.
+func TestASentVersionIsFoundEvenIfItsIdMoved(t *testing.T) {
+	sent := []store.SourceDownload{{
+		Destination: "movie/Dune 2021", CatalogID: "1:dune",
+		QualityID: "3", QualityLabel: "2160p · SoftSub", QualityResolution: "2160p", QualityEncoder: "FraMeSToR",
+	}}
+	got := markOwnedOptions([]source.QualityOption{
+		{ID: "0", Label: "2160p · SoftSub", Resolution: "2160p", Encoder: "FraMeSToR"},
+		{ID: "3", Label: "1080p · Dubbed", Resolution: "1080p", Encoder: "Someone"},
+	}, evidenceRec{}, sent)
+
+	if !got[0].Owned {
+		t.Error("the option that describes itself the same way must be marked")
+	}
+	if got[1].Owned {
+		t.Error("a different option must not be marked just because it reused the id")
+	}
+}
+
+// A movie: the record names the title folder, and an option with no season is
+// season 0 on both sides, so they line up without a special case.
+func TestASentMovieVersionIsMarked(t *testing.T) {
+	sent := []store.SourceDownload{{
+		Destination: "movie/Dune 2021", CatalogID: "1:dune",
+		QualityID: "a", QualityLabel: "2160p", QualityResolution: "2160p", QualityEncoder: "FraMeSToR",
+	}}
+	got := markOwnedOptions([]source.QualityOption{
+		{ID: "a", Label: "2160p", Resolution: "2160p", Encoder: "FraMeSToR"},
+		{ID: "b", Label: "1080p", Resolution: "1080p", Encoder: "FraMeSToR"},
+	}, evidenceRec{}, sent)
+	if !got[0].Owned || got[1].Owned {
+		t.Fatalf("wrong option marked: %+v", got)
+	}
+}
+
+// Nothing sent, nothing readable from the files: nothing is claimed. That is the
+// state a renamed library is in, and saying nothing is the honest answer.
+func TestWithNoHistoryAndNoReadableNamesNothingIsMarked(t *testing.T) {
+	got := markOwnedOptions([]source.QualityOption{
+		{ID: "a", Season: "Season 1", Label: "WEB-DL 1080p", Resolution: "1080p", Encoder: "Alpha"},
+	}, evidenceRec{}, nil)
+	if got[0].Owned {
+		t.Fatal("nothing identifies this option; it must not be marked")
 	}
 }

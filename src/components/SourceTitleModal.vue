@@ -587,7 +587,16 @@ async function send(episodesOverride?: number[]): Promise<void> {
       props.title.title,
       props.title.type,
       episodes,
-      { year: titleParts.value.year, imdbScore: props.title.imdbScore, posterUrl: props.title.posterUrl },
+      {
+        year: titleParts.value.year,
+        imdbScore: props.title.imdbScore,
+        posterUrl: props.title.posterUrl,
+        // Remember which version this is, so opening the title later can say it
+        // is the one already on the NAS.
+        qualityLabel: selectedQuality.value?.label,
+        qualityResolution: selectedQuality.value?.resolution,
+        qualityEncoder: selectedQuality.value?.encoder,
+      },
     );
     // Stay open and flip the button into a live status control; poll the task
     // list for the download(s) we just created so the button tracks their state.
