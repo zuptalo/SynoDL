@@ -86,6 +86,33 @@ type Config struct {
 	// own next mirror and have us adopt it, because that would let it redirect
 	// our credentials at will.
 	AltBase string
+	// MainBase is an operator-set primary address, overriding the driver's own
+	// built-in one. Empty keeps the built-in address (spec 0009).
+	//
+	// Neither address is privileged: whichever is answering is the one that
+	// matters. This exists because a site of this kind changes address on its own
+	// schedule, and waiting for a release to follow it is not a plan.
+	MainBase string
+	// AltSession is the material belonging to AltBase, when the operator gave that
+	// address its own. nil means the source has one set for both, which is what
+	// every source configured before this has.
+	//
+	// It exists because credentials do not travel between addresses: a challenge
+	// cookie is issued per domain, and a login cookie is tied to the address that
+	// issued it. Sending one address's material to the other is how an outage
+	// turned into a catalog that answered every request with a login page.
+	AltSession *Session
+}
+
+// SessionFor returns the material to use when calling base.
+func (c Config) SessionFor(base string, s Session) Session {
+	if c.AltSession == nil || c.AltBase == "" {
+		return s
+	}
+	if strings.TrimRight(strings.TrimSpace(base), "/") == strings.TrimRight(strings.TrimSpace(c.AltBase), "/") {
+		return *c.AltSession
+	}
+	return s
 }
 
 // ImageHostAllowed reports whether host is a poster/cover host for ANY registered

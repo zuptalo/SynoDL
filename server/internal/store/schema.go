@@ -250,6 +250,11 @@ var migrations = []string{
 	// (spec 0008 FR-022/FR-024). On the per-user prefs row so it follows them
 	// across devices, like the rest of their Discover view.
 	`ALTER TABLE source_prefs ADD COLUMN hide_owned INTEGER NOT NULL DEFAULT 0;`,
+
+	// Spec 0009: the address a source is reached at becomes configuration rather
+	// than something fixed in the driver. Empty keeps the driver's own address, so
+	// every source configured before this keeps working untouched.
+	`ALTER TABLE source_providers ADD COLUMN main_base TEXT NOT NULL DEFAULT '';`,
 	// 0019 — the 30nama driver's registry key was "thirtynama", which leaked into
 	// the admin list as the source's name. The key is now "30nama", matching what
 	// the site is actually called.
