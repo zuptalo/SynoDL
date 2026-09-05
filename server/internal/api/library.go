@@ -173,8 +173,57 @@ func (d Deps) libraryIndex(ctx context.Context) *library.Index {
 	bctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), libraryBuildTimeout)
 	defer cancel()
 	ix, ok := d.buildLibraryIndex(bctx)
+	if !ok {
+		// We could not ask the NAS. Falling back to an EMPTY reading is what used
+		// to happen, and it is indistinguishable to a user from "you own nothing":
+		// one blip blanked every ownership marker at once. The last good reading is
+		// stale, but it is a far better answer than a wrong one (spec 0011 FR-004).
+		if stored, found := d.storedLibraryIndex(); found {
+			ix = stored
+		}
+	}
 	d.lib.index, d.lib.builtAt, d.lib.builtOK = ix, time.Now(), ok
 	return ix
+}
+
+// storedLibraryIndex rebuilds the index from the last reading written to the
+// store. found is false when nothing has ever been stored, which is a real
+// answer: the caller then behaves exactly as it did before this existed.
+//
+// The index is rebuilt from the reading's INPUTS rather than deserialised, so
+// the matching rules stay in library.Build and a change to them needs no
+// migration.
+func (d Deps) storedLibraryIndex() (*library.Index, bool) {
+	if d.Store == nil {
+		return nil, false
+	}
+	f, err := d.Store.GetLibraryFolders()
+	if err != nil || len(f.Parents) == 0 {
+		return nil, false
+	}
+	parents := make([]library.Parent, 0, len(f.Parents))
+	for _, p := range f.Parents {
+		parents = append(parents, library.Parent{Path: p.Path, Movies: p.Movies, TV: p.TV})
+	}
+	return library.Build(parents, f.Names, f.ScannedAt), true
+}
+
+// persistLibraryFolders writes a successful reading through to the store, so the
+// next start-up and the next blip have something to fall back on.
+//
+// Wholesale, and only on success: a partial or failed reading would delete rows
+// for parents it simply could not see, which is the opposite of the point.
+// A failure to write is ignored — the in-memory reading is still good, and
+// nothing about the folders may be logged (FR-012).
+func (d Deps) persistLibraryFolders(parents []library.Parent, names map[string][]string, at time.Time) {
+	if d.Store == nil {
+		return
+	}
+	sp := make([]store.LibraryParent, 0, len(parents))
+	for _, p := range parents {
+		sp = append(sp, store.LibraryParent{Path: p.Path, Movies: p.Movies, TV: p.TV})
+	}
+	_ = d.Store.SaveLibraryFolders(store.LibraryFolders{Parents: sp, Names: names, ScannedAt: at})
 }
 
 // libraryParents collects the DISTINCT parent folders across enabled sources.
@@ -229,10 +278,19 @@ func (d Deps) buildLibraryIndex(ctx context.Context) (*library.Index, bool) {
 	}
 	parents := libraryParents(providers)
 	if len(parents) == 0 {
-		return library.Empty(time.Now()), true // nothing configured: a real answer
+		// Nothing configured is a real answer, and it must reach the store too:
+		// a stored reading that outlived the source it describes would keep
+		// answering for folders the operator has disconnected (FR-009).
+		d.persistLibraryFolders(nil, nil, time.Now())
+		return library.Empty(time.Now()), true
 	}
 
 	names := make(map[string][]string, len(parents))
+	// listed counts parents we actually got an answer for — including an answer of
+	// "this folder is empty", which is a real reading. It is NOT the same as
+	// len(names): a configured parent that genuinely holds nothing contributes no
+	// names but is still a successful read.
+	listed := 0
 	err = d.NAS.Do(ctx, func(c syno.Client, sid string) error {
 		for _, p := range parents {
 			folders, e := c.ListFolder(ctx, sid, "/"+p.Path)
@@ -245,6 +303,7 @@ func (d Deps) buildLibraryIndex(ctx context.Context) (*library.Index, bool) {
 				// path, and folder names are NAS content (FR-026).
 				continue
 			}
+			listed++
 			for _, f := range folders {
 				names[p.Path] = append(names[p.Path], f.Name)
 			}
@@ -255,7 +314,19 @@ func (d Deps) buildLibraryIndex(ctx context.Context) (*library.Index, bool) {
 		// The NAS is unreachable or the session cannot be established at all.
 		return library.Empty(time.Now()), false
 	}
-	return library.Build(parents, names, time.Now()), true
+	if listed == 0 {
+		// Every configured parent failed to list. The session was established, so
+		// nothing above reported an error — but this is emphatically not a reading
+		// of an empty NAS, and treating it as one had two costs: it was held for
+		// the full success TTL rather than retried in seconds, and now that a good
+		// reading is kept, it would overwrite that too.
+		return library.Empty(time.Now()), false
+	}
+	at := time.Now()
+	// Kept, so a restart and a blip both have a last good reading to fall back on
+	// (spec 0011 FR-001/FR-003/FR-004).
+	d.persistLibraryFolders(parents, names, at)
+	return library.Build(parents, names, at), true
 }
 
 // mediaKind maps the catalog's own type strings onto the library's two parents.

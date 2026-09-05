@@ -924,3 +924,97 @@ func TestASentDownloadIsNotFoundUnderAnotherParent(t *testing.T) {
 		t.Fatalf("the film's send must not answer for the series, got %d", len(got))
 	}
 }
+
+// --- spec 0011: the reading survives a restart and a blip -------------------
+
+// A restart used to throw the whole reading away, so the markers were gone until
+// somebody browsed and paid for a fresh NAS read. Deploys are frequent; this was
+// the failure the user actually noticed.
+func TestLibraryIndexIsServedFromTheStoreOnAColdCache(t *testing.T) {
+	fake := &fakeSyno{
+		loginSid: "sid",
+		subfolders: map[string][]syno.Folder{
+			"/movie": {{Name: "Dune 2021", Path: "/movie/Dune 2021"}},
+		},
+	}
+	d, st := libDeps(t, fake)
+	addSource(t, st, "Alpha", "movie", "tv-show")
+
+	// Warm it once, which is what persists the reading.
+	if d.libraryIndex(context.Background()).IsEmpty() {
+		t.Fatal("precondition: the first reading should succeed")
+	}
+
+	// Restart: a brand-new cache over the SAME store, and a NAS that now answers
+	// nothing at all, so anything found can only have come from the store.
+	restarted := d
+	restarted.lib = &libraryCache{}
+	fake.err = errors.New("nas unreachable")
+
+	ix := restarted.libraryIndex(context.Background())
+	if ix.IsEmpty() {
+		t.Fatal("a restart must not lose the reading: it is stored")
+	}
+	if _, ok := ix.Lookup("Dune 2021", library.MediaMovie); !ok {
+		t.Fatal("the stored reading should hold what the last good scan found")
+	}
+}
+
+// A blip used to cache an EMPTY reading, which reads to a user as "you own
+// nothing" and blanked every marker at once.
+func TestAFailedLibraryReadingFallsBackToTheStoredOne(t *testing.T) {
+	fake := &fakeSyno{
+		loginSid: "sid",
+		subfolders: map[string][]syno.Folder{
+			"/movie": {{Name: "Dune 2021", Path: "/movie/Dune 2021"}},
+		},
+	}
+	d, st := libDeps(t, fake)
+	addSource(t, st, "Alpha", "movie", "tv-show")
+	if d.libraryIndex(context.Background()).IsEmpty() {
+		t.Fatal("precondition: the first reading should succeed")
+	}
+
+	// The NAS goes away, and the cache ages past the retry window.
+	fake.err = errors.New("nas unreachable")
+	d.lib.mu.Lock()
+	d.lib.builtAt = time.Now().Add(-time.Hour)
+	d.lib.mu.Unlock()
+
+	ix := d.libraryIndex(context.Background())
+	if ix.IsEmpty() {
+		t.Fatal("an unreachable NAS must fall back to the last good reading, not blank ownership")
+	}
+	if _, ok := ix.Lookup("Dune 2021", library.MediaMovie); !ok {
+		t.Fatal("the fallback should still match what the last good scan found")
+	}
+}
+
+// The fallback must not outlive the configuration it describes: a source removed
+// while the NAS is down must not keep answering out of the store.
+func TestTheStoredReadingIsClearedWhenNoParentIsConfigured(t *testing.T) {
+	fake := &fakeSyno{
+		loginSid: "sid",
+		subfolders: map[string][]syno.Folder{
+			"/movie": {{Name: "Dune 2021", Path: "/movie/Dune 2021"}},
+		},
+	}
+	d, st := libDeps(t, fake)
+	addSource(t, st, "Alpha", "movie", "tv-show")
+	if d.libraryIndex(context.Background()).IsEmpty() {
+		t.Fatal("precondition: the first reading should succeed")
+	}
+
+	providers, err := st.ListProviders()
+	if err != nil || len(providers) != 1 {
+		t.Fatalf("ListProviders: %v (%d)", err, len(providers))
+	}
+	if err := st.DeleteProvider(providers[0].ID); err != nil {
+		t.Fatalf("DeleteProvider: %v", err)
+	}
+	d.invalidateLibrary()
+
+	if !d.libraryIndex(context.Background()).IsEmpty() {
+		t.Fatal("with nothing configured the reading must be empty, stored or not")
+	}
+}
