@@ -33,6 +33,7 @@ import {
 import {
   arrowDownOutline,
   arrowUpOutline,
+  alertCircleOutline,
   closeCircleOutline,
   closeOutline,
   funnelOutline,
@@ -590,8 +591,9 @@ function goSettings(): void {
              results branch below and never blocking: the healthy sources' results
              render underneath it, which is the whole point of degrading rather
              than failing. -->
-        <div v-if="degraded.length" class="degraded">
-          <ion-note>{{ degradedMessage }}</ion-note>
+        <div v-if="degraded.length" class="degraded" role="status">
+          <ion-icon :icon="alertCircleOutline" aria-hidden="true" />
+          <span>{{ degradedMessage }}</span>
         </div>
 
         <div v-if="errorMsg" class="state">
@@ -771,11 +773,25 @@ function goSettings(): void {
    it disambiguates a repeated title, it is not a headline. */
 /* A source dropped out. Sits above the results it could not contribute to and
    never replaces them. */
+/* Loud enough to notice. It used to be grey note text the same size and colour
+   as everything around it, so "this source isn't responding" — the one line that
+   explains why half the catalog is missing — read as decoration and was missed. */
 .degraded {
-  padding: 0.35rem 1rem 0;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0.5rem 1rem;
+  padding: 0.55rem 0.7rem;
+  border: 1px solid var(--ion-color-warning, #ffc409);
+  border-radius: 8px;
+  background: rgba(255, 196, 9, 0.12);
+  color: var(--ion-color-warning, #ffc409);
+  font-size: 0.82rem;
+  line-height: 1.35;
 }
-.degraded ion-note {
-  font-size: 0.8rem;
+.degraded ion-icon {
+  flex: 0 0 auto;
+  font-size: 1.1rem;
 }
 /* While searching, sort can't be applied — dim the control and strike its label so
    it reads as inactive (it is also disabled). */
