@@ -124,18 +124,27 @@ func (f *fakeSyno) ListShares(_ context.Context, _ string) ([]syno.Folder, error
 	return f.shares, f.err
 }
 
-func (f *fakeSyno) ListFolder(_ context.Context, _ string, path string) ([]syno.Folder, error) {
+func (f *fakeSyno) ListFolder(ctx context.Context, _ string, path string) ([]syno.Folder, error) {
 	f.gotFolderPath = path
 	f.folderListCalls++
+	// A real client fails on a dead context, and the library snapshot's whole
+	// problem was being built on one. A fake that ignored cancellation let that
+	// bug pass a test written specifically to catch it.
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	if f.err != nil {
 		return nil, f.err
 	}
 	return f.subfolders[path], nil
 }
 
-func (f *fakeSyno) ListFiles(_ context.Context, _ string, path string) ([]string, error) {
+func (f *fakeSyno) ListFiles(ctx context.Context, _ string, path string) ([]string, error) {
 	f.fileListCalls++
 	f.gotFilePaths = append(f.gotFilePaths, path)
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	if f.err != nil {
 		return nil, f.err
 	}
