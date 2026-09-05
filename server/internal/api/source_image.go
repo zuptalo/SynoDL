@@ -5,6 +5,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strings"
 	"sync"
 	"time"
 
@@ -90,7 +91,7 @@ func handleSourceImage(d Deps) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		raw := r.URL.Query().Get("u")
 		u, err := url.Parse(raw)
-		if err != nil || (u.Scheme != "https" && u.Scheme != "http") || !source.ImageHostAllowed(u.Hostname()) {
+		if err != nil || (u.Scheme != "https" && u.Scheme != "http") || !d.imageHostAllowed(u.Hostname()) {
 			http.Error(w, "bad image", http.StatusBadRequest)
 			return
 		}
@@ -131,4 +132,71 @@ func handleSourceImage(d Deps) http.Handler {
 		w.Header().Set("X-Cache", "MISS")
 		_, _ = w.Write(body)
 	})
+}
+
+// Mirror hosts, and why the proxy has to know about them.
+//
+// A source that gets blocked publishes an alternate address, and the operator
+// sets it as that source's AltBase (spec 1020). withAltHost then lets the DRIVER
+// fetch pages from the mirror — but the pages it gets back name their images on
+// the mirror's own host, and nothing taught the image proxy about it. So the
+// moment the main domain went down, every poster from that source turned into a
+// placeholder: the proxy rejected each URL outright, before any fetch.
+//
+// The mirror is exactly as trusted as the main host — the operator typed it in —
+// so it is allowed for images too. Only configured sources' mirrors, never a host
+// a site could nominate for itself.
+const mirrorHostTTL = time.Minute
+
+var mirrorHosts = struct {
+	mu    sync.Mutex
+	hosts map[string]bool
+	at    time.Time
+}{}
+
+// imageHostAllowed is ImageHostAllowed plus the operator's configured mirrors.
+func (d Deps) imageHostAllowed(host string) bool {
+	if source.ImageHostAllowed(host) {
+		return true // the common path: a driver's own declared image hosts
+	}
+	if d.Store == nil {
+		return false
+	}
+	host = strings.ToLower(strings.TrimSpace(host))
+
+	mirrorHosts.mu.Lock()
+	defer mirrorHosts.mu.Unlock()
+	// Cached: a page asks for forty posters at once, and mirrors change about as
+	// often as an operator edits a source.
+	if mirrorHosts.hosts == nil || time.Since(mirrorHosts.at) > mirrorHostTTL {
+		fresh := map[string]bool{}
+		providers, err := d.Store.ListProviders()
+		if err != nil {
+			return false // say nothing rather than widen the proxy on a bad read
+		}
+		for _, p := range providers {
+			if p.AltBase == "" {
+				continue
+			}
+			if mu, err := url.Parse(p.AltBase); err == nil && mu.Hostname() != "" {
+				fresh[strings.ToLower(mu.Hostname())] = true
+			}
+		}
+		mirrorHosts.hosts, mirrorHosts.at = fresh, time.Now()
+	}
+	for a := range mirrorHosts.hosts {
+		if host == a || strings.HasSuffix(host, "."+a) {
+			return true
+		}
+	}
+	return false
+}
+
+// resetMirrorHostCache drops the memoised mirror hosts. Tests configure a source
+// and then ask immediately, which would otherwise read a cache another test just
+// filled.
+func resetMirrorHostCache() {
+	mirrorHosts.mu.Lock()
+	defer mirrorHosts.mu.Unlock()
+	mirrorHosts.hosts, mirrorHosts.at = nil, time.Time{}
 }

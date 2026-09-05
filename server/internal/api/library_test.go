@@ -662,3 +662,76 @@ func TestSourcesThatNameNoFileStillUseTokens(t *testing.T) {
 		t.Error("the token path must still reject a different encoder")
 	}
 }
+
+// Spec 1028: the snapshot used to be built on the REQUEST context. A client that
+// hung up mid-response cancelled the NAS listing, and the empty result was then
+// cached for the full TTL — so one phone giving up blanked every ownership marker
+// for every user for five minutes. A slow source makes clients hang up, so the
+// day a source went down, the markers went with it.
+func TestLibraryIndexSurvivesTheCallerHangingUp(t *testing.T) {
+	fake := &fakeSyno{
+		loginSid: "sid",
+		subfolders: map[string][]syno.Folder{
+			"/movie": {{Name: "Dune 2021", Path: "/movie/Dune 2021"}},
+		},
+	}
+	d, st := libDeps(t, fake)
+	addSource(t, st, "Alpha", "movie", "tv-show")
+
+	// The caller is already gone by the time the snapshot is wanted.
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	ix := d.libraryIndex(ctx)
+	if ix.IsEmpty() {
+		t.Fatal("a dead caller must not stop a shared snapshot from being built")
+	}
+	if _, ok := ix.Lookup("Dune 2021", library.MediaMovie); !ok {
+		t.Fatal("the snapshot should hold what the NAS actually reported")
+	}
+}
+
+// A failed reading must not be held as "you own nothing" for the whole TTL.
+func TestAFailedLibraryReadingIsRetriedPromptly(t *testing.T) {
+	fake := &fakeSyno{loginSid: "sid", err: errors.New("nas unreachable")}
+	d, st := libDeps(t, fake)
+	addSource(t, st, "Alpha", "movie", "tv-show")
+
+	if !d.libraryIndex(context.Background()).IsEmpty() {
+		t.Fatal("an unreachable NAS yields nothing")
+	}
+	// The NAS comes back.
+	fake.err = nil
+	fake.subfolders = map[string][]syno.Folder{"/movie": {{Name: "Dune 2021", Path: "/movie/Dune 2021"}}}
+
+	// Age the cache by less than the success TTL but more than the retry window.
+	d.lib.mu.Lock()
+	d.lib.builtAt = time.Now().Add(-time.Minute)
+	d.lib.mu.Unlock()
+
+	if d.libraryIndex(context.Background()).IsEmpty() {
+		t.Fatal("a failure must be retried well before the success TTL, or one blip costs five minutes of markers")
+	}
+}
+
+// A SUCCESSFUL reading still gets the full TTL — the retry window must not turn
+// into a NAS listing on every search.
+func TestASuccessfulLibraryReadingKeepsTheFullTTL(t *testing.T) {
+	fake := &fakeSyno{
+		loginSid:   "sid",
+		subfolders: map[string][]syno.Folder{"/movie": {{Name: "Dune 2021", Path: "/movie/Dune 2021"}}},
+	}
+	d, st := libDeps(t, fake)
+	addSource(t, st, "Alpha", "movie", "tv-show")
+
+	d.libraryIndex(context.Background())
+	before := fake.fileListCalls
+	d.lib.mu.Lock()
+	d.lib.builtAt = time.Now().Add(-time.Minute) // inside the success TTL
+	d.lib.mu.Unlock()
+
+	d.libraryIndex(context.Background())
+	if fake.fileListCalls != before {
+		t.Fatal("a good snapshot must be reused for the full TTL, not rebuilt every minute")
+	}
+}

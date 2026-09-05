@@ -63,3 +63,4 @@ Specs are grouped by category band; status moves
 | [2005](specs/2005-season-groups-download/spec.md) | Obvious season dividers in the download options list | 🟢 shipped |
 | [2006](specs/2006-release-year-sort/spec.md) | Release-year sort no longer leads with year-less titles | 🟢 shipped |
 | [2007](specs/2007-release-year-sort/spec.md) | Release-year sort is fast again, and Discover opens on Most popular | 🟢 shipped |
+| [2008](specs/2008-posters-and-owned/spec.md) | Posters and owned markers survive a source outage | 🔵 in-review |

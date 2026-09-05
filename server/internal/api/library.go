@@ -26,6 +26,16 @@ import (
 // their own download appearing immediately.
 const libraryTTL = 5 * time.Minute
 
+// libraryRetryTTL is how long a FAILED reading is held before trying again. Short
+// on purpose: an empty snapshot from a failure looks exactly like "you own
+// nothing", and holding that for the full TTL turns one blip into five minutes of
+// missing markers for every user at once.
+const libraryRetryTTL = 15 * time.Second
+
+// libraryBuildTimeout bounds the detached build. Generous enough for a NAS listing
+// a few large parents, short enough that a wedged NAS cannot pin the lock.
+const libraryBuildTimeout = 20 * time.Second
+
 // libraryCache holds the current snapshot. It lives behind a pointer on Deps
 // because Deps is copied by value into every handler closure — a value field
 // here would give each handler its own private cache and defeat the point.
@@ -37,6 +47,9 @@ type libraryCache struct {
 	mu      sync.Mutex
 	index   *library.Index
 	builtAt time.Time
+	// builtOK is false when the last build could not reach the NAS, so the empty
+	// snapshot it produced is retried in seconds rather than held for the TTL.
+	builtOK bool
 
 	// evidence is layer two: what a SPECIFIC title folder was found to contain.
 	// Layer one (index) only says a folder with a matching name exists, which
@@ -135,11 +148,28 @@ func (d Deps) libraryIndex(ctx context.Context) *library.Index {
 	d.lib.mu.Lock()
 	defer d.lib.mu.Unlock()
 
-	if d.lib.index != nil && time.Since(d.lib.builtAt) < libraryTTL {
+	ttl := libraryTTL
+	if !d.lib.builtOK {
+		// The last build failed. Holding an empty snapshot for the full TTL means
+		// one blip suppresses every ownership marker, for every user, for five
+		// minutes — so a failure is retried far sooner than a success is refreshed.
+		ttl = libraryRetryTTL
+	}
+	if d.lib.index != nil && time.Since(d.lib.builtAt) < ttl {
 		return d.lib.index
 	}
-	ix := d.buildLibraryIndex(ctx)
-	d.lib.index, d.lib.builtAt = ix, time.Now()
+	// Detached from the caller's context, with a bound of its own.
+	//
+	// This snapshot is instance-wide and shared. Building it on the REQUEST
+	// context meant a single client hanging up mid-response cancelled the NAS
+	// listing, which then cached as "the NAS holds nothing" and blanked ownership
+	// for everyone until the TTL expired. A slow source makes clients hang up, so
+	// the two failures compounded: the day one source went down, ownership
+	// markers went with it.
+	bctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), libraryBuildTimeout)
+	defer cancel()
+	ix, ok := d.buildLibraryIndex(bctx)
+	d.lib.index, d.lib.builtAt, d.lib.builtOK = ix, time.Now(), ok
 	return ix
 }
 
@@ -183,14 +213,19 @@ func libraryParents(providers []store.SourceProvider) []library.Parent {
 }
 
 // buildLibraryIndex does the actual reading. Caller holds the cache lock.
-func (d Deps) buildLibraryIndex(ctx context.Context) *library.Index {
+// buildLibraryIndex reads the configured parents from the NAS.
+//
+// ok distinguishes "the NAS says there is nothing here" from "we could not ask".
+// Both yield an empty index and neither is shown to the user, but only the second
+// is worth retrying promptly.
+func (d Deps) buildLibraryIndex(ctx context.Context) (*library.Index, bool) {
 	providers, err := d.Store.ListProviders()
 	if err != nil {
-		return library.Empty(time.Now())
+		return library.Empty(time.Now()), false
 	}
 	parents := libraryParents(providers)
 	if len(parents) == 0 {
-		return library.Empty(time.Now())
+		return library.Empty(time.Now()), true // nothing configured: a real answer
 	}
 
 	names := make(map[string][]string, len(parents))
@@ -214,9 +249,9 @@ func (d Deps) buildLibraryIndex(ctx context.Context) *library.Index {
 	})
 	if err != nil {
 		// The NAS is unreachable or the session cannot be established at all.
-		return library.Empty(time.Now())
+		return library.Empty(time.Now()), false
 	}
-	return library.Build(parents, names, time.Now())
+	return library.Build(parents, names, time.Now()), true
 }
 
 // mediaKind maps the catalog's own type strings onto the library's two parents.
