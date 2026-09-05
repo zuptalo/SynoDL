@@ -59,6 +59,17 @@ type Watcher struct {
 	// polling the task list for notifications.
 	destMu      sync.RWMutex
 	activeDests map[string]bool
+	// pendingDests is every destination with a task that has NOT finished —
+	// downloading, waiting, paused, extracting, errored, whatever. It is a wider
+	// set than activeDests on purpose, and it answers a different question.
+	//
+	// activeDests asks "is this arriving right now", for Discover's badge, where a
+	// paused task is correctly not "arriving". This asks "is there any reason this
+	// folder is legitimately empty", for deciding whether content has been removed
+	// from the NAS (spec 1029) — and a paused download is exactly such a reason:
+	// its folder is empty now and will not be when it resumes. Treating that as a
+	// removal would delete the record of what was being fetched.
+	pendingDests map[string]bool
 
 	// OnFinished, when set, is told the destination of a download that has just
 	// finished, so the reading of what is on the NAS can be refreshed for that
@@ -92,6 +103,26 @@ func (w *Watcher) ActiveDestinations() map[string]bool {
 		out[d] = true
 	}
 	return out
+}
+
+// UnfinishedDestinations returns the destinations of tasks that have not
+// finished, including paused and errored ones. Safe for concurrent use; the
+// returned map is a copy.
+func (w *Watcher) UnfinishedDestinations() map[string]bool {
+	w.destMu.RLock()
+	defer w.destMu.RUnlock()
+	out := make(map[string]bool, len(w.pendingDests))
+	for d := range w.pendingDests {
+		out[d] = true
+	}
+	return out
+}
+
+// isUnfinished reports whether a task might still put bytes on disk. Anything
+// that is not finished counts, because a paused task resumes and an errored one
+// gets retried — in both cases the folder fills later.
+func isUnfinished(status string) bool {
+	return !strings.EqualFold(strings.TrimSpace(status), "finished")
 }
 
 // isActive reports whether a task is still putting bytes on disk. A finished,
@@ -159,13 +190,21 @@ func (w *Watcher) poll(ctx context.Context) {
 	// Refresh the destinations Discover reads. Rebuilt wholesale so a task that
 	// finished or was removed stops being reported as in progress.
 	dests := make(map[string]bool)
+	pending := make(map[string]bool)
 	for _, t := range tasks {
-		if d := strings.Trim(strings.TrimSpace(t.Destination), "/"); d != "" && isActive(t.Status) {
+		d := strings.Trim(strings.TrimSpace(t.Destination), "/")
+		if d == "" {
+			continue
+		}
+		if isActive(t.Status) {
 			dests[d] = true
+		}
+		if isUnfinished(t.Status) {
+			pending[d] = true
 		}
 	}
 	w.destMu.Lock()
-	w.activeDests = dests
+	w.activeDests, w.pendingDests = dests, pending
 	w.destMu.Unlock()
 	for _, t := range tasks {
 		last, notified, found, err := w.store.GetWatched(t.ID)

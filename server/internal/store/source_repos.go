@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"strings"
+	"time"
 )
 
 // Download-source catalog persistence (spec 0005). One admin-configured provider
@@ -453,6 +454,13 @@ type SourceDownload struct {
 	QualityLabel      string
 	QualityResolution string
 	QualityEncoder    string
+
+	// MissingSince is when the title folder was FIRST seen to be gone from the
+	// NAS — absent, or present but holding no video (spec 1029). Zero means it is
+	// there, or has not been looked at. The record is deleted only once this has
+	// stood for the grace period, because it is the only thing that knows which
+	// version was downloaded and several ordinary states look like "empty".
+	MissingSince time.Time
 }
 
 // normDest strips leading/trailing slashes so a stored destination matches the
@@ -482,7 +490,11 @@ func (s *Store) SaveSourceDownload(d SourceDownload, now int64) error {
 			quality_id         = excluded.quality_id,
 			quality_label      = excluded.quality_label,
 			quality_resolution = excluded.quality_resolution,
-			quality_encoder    = excluded.quality_encoder`,
+			quality_encoder    = excluded.quality_encoder,
+			-- A re-send means the content is on its way back, so it is no longer
+			-- gone. Without this the record we just wrote would be deleted by the
+			-- reconciliation that had already marked the old one missing.
+			missing_since      = 0`,
 		normDest(d.Destination), d.MediaType, d.Title, d.Year, d.IMDbScore, d.PosterURL, d.CatalogID, owner, now,
 		d.QualityID, d.QualityLabel, d.QualityResolution, d.QualityEncoder)
 	return err
@@ -495,7 +507,8 @@ func (s *Store) SourceDownloads() (map[string]SourceDownload, error) {
 		SELECT sd.destination, sd.media_type, sd.title, sd.year, sd.imdb_score,
 		       sd.poster_url, sd.catalog_id,
 		       COALESCE(sd.owner_user_id, 0), COALESCE(u.username, ''),
-		       sd.quality_id, sd.quality_label, sd.quality_resolution, sd.quality_encoder
+		       sd.quality_id, sd.quality_label, sd.quality_resolution, sd.quality_encoder,
+		       sd.missing_since
 		FROM source_downloads sd
 		LEFT JOIN users u ON u.id = sd.owner_user_id`)
 	if err != nil {
@@ -505,9 +518,13 @@ func (s *Store) SourceDownloads() (map[string]SourceDownload, error) {
 	out := map[string]SourceDownload{}
 	for rows.Next() {
 		var d SourceDownload
+		var missing int64
 		if err := rows.Scan(&d.Destination, &d.MediaType, &d.Title, &d.Year, &d.IMDbScore, &d.PosterURL, &d.CatalogID, &d.OwnerID, &d.OwnerName,
-			&d.QualityID, &d.QualityLabel, &d.QualityResolution, &d.QualityEncoder); err != nil {
+			&d.QualityID, &d.QualityLabel, &d.QualityResolution, &d.QualityEncoder, &missing); err != nil {
 			return nil, err
+		}
+		if missing > 0 {
+			d.MissingSince = time.Unix(missing, 0)
 		}
 		out[d.Destination] = d
 	}
@@ -519,4 +536,37 @@ func orDefault(v, def string) string {
 		return def
 	}
 	return v
+}
+
+// MarkSourceDownloadMissing records that a title folder was seen to be gone.
+//
+// The stamp is set only if it is not already set, so the grace period runs from
+// when the folder was FIRST seen gone. Re-stamping on every cycle would keep the
+// record permanently young and it would never become old enough to delete —
+// which is the failure mode where this looks like it works and quietly does
+// nothing.
+func (s *Store) MarkSourceDownloadMissing(destination string, at time.Time) error {
+	_, err := s.db.Exec(
+		`UPDATE source_downloads SET missing_since = ?
+		 WHERE destination = ? AND missing_since = 0`, at.Unix(), normDest(destination))
+	return err
+}
+
+// ClearSourceDownloadMissing forgets that a folder was ever seen gone, because
+// it has been seen again.
+func (s *Store) ClearSourceDownloadMissing(destination string) error {
+	_, err := s.db.Exec(
+		`UPDATE source_downloads SET missing_since = 0 WHERE destination = ?`, normDest(destination))
+	return err
+}
+
+// DeleteSourceDownload removes what SynoDL remembers about one title folder.
+//
+// Only this table. The per-user download history is deliberately untouched: it
+// is an append-only statistics and quota-accounting log, and deleting a film
+// from the NAS must not retroactively rewrite what somebody downloaded or how
+// much of their allowance they used (spec 1029 FR-011).
+func (s *Store) DeleteSourceDownload(destination string) error {
+	_, err := s.db.Exec(`DELETE FROM source_downloads WHERE destination = ?`, normDest(destination))
+	return err
 }

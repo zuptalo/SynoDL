@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestSourceProviderConfigRoundTrip(t *testing.T) {
@@ -386,5 +387,123 @@ func TestProviderStoresBothAddresses(t *testing.T) {
 	}
 	if p.MainBase != "https://main.example" || p.AltBase != "https://mirror.example" {
 		t.Fatalf("addresses did not round-trip: %+v", p)
+	}
+}
+
+// --- spec 1029: forgetting content that has left the NAS -------------------
+
+func TestSourceDownloadMissingMarkRoundTrips(t *testing.T) {
+	s := openTestStore(t)
+	if err := s.SaveSourceDownload(SourceDownload{
+		Destination: "movie/Gone", Title: "Gone", QualityResolution: "1080p", QualityEncoder: "Pahe",
+	}, 1); err != nil {
+		t.Fatalf("SaveSourceDownload: %v", err)
+	}
+
+	all, err := s.SourceDownloads()
+	if err != nil {
+		t.Fatalf("SourceDownloads: %v", err)
+	}
+	if got := all["movie/Gone"].MissingSince; !got.IsZero() {
+		t.Fatalf("a fresh record is not missing, got %v", got)
+	}
+
+	at := time.Unix(1_700_000_000, 0)
+	if err := s.MarkSourceDownloadMissing("movie/Gone", at); err != nil {
+		t.Fatalf("MarkSourceDownloadMissing: %v", err)
+	}
+	all, _ = s.SourceDownloads()
+	if got := all["movie/Gone"].MissingSince; !got.Equal(at) {
+		t.Errorf("missingSince = %v, want %v", got, at)
+	}
+
+	// Marking again must NOT move the timestamp: the grace period runs from when
+	// the folder was FIRST seen gone, and re-stamping it every cycle would mean
+	// the record is never old enough to delete.
+	if err := s.MarkSourceDownloadMissing("movie/Gone", at.Add(time.Hour)); err != nil {
+		t.Fatalf("re-mark: %v", err)
+	}
+	all, _ = s.SourceDownloads()
+	if got := all["movie/Gone"].MissingSince; !got.Equal(at) {
+		t.Errorf("re-marking moved the clock to %v; the grace period would never elapse", got)
+	}
+
+	if err := s.ClearSourceDownloadMissing("movie/Gone"); err != nil {
+		t.Fatalf("ClearSourceDownloadMissing: %v", err)
+	}
+	all, _ = s.SourceDownloads()
+	if got := all["movie/Gone"].MissingSince; !got.IsZero() {
+		t.Errorf("a restored folder should clear the mark, got %v", got)
+	}
+}
+
+// A re-send of a title that had been marked missing must clear the mark: the
+// content is on its way back, and leaving the mark would delete the record we
+// just wrote.
+func TestSavingASourceDownloadClearsTheMissingMark(t *testing.T) {
+	s := openTestStore(t)
+	rec := SourceDownload{Destination: "movie/Back", Title: "Back"}
+	if err := s.SaveSourceDownload(rec, 1); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	if err := s.MarkSourceDownloadMissing("movie/Back", time.Unix(1_700_000_000, 0)); err != nil {
+		t.Fatalf("mark: %v", err)
+	}
+	if err := s.SaveSourceDownload(rec, 2); err != nil {
+		t.Fatalf("re-save: %v", err)
+	}
+	all, _ := s.SourceDownloads()
+	if got := all["movie/Back"].MissingSince; !got.IsZero() {
+		t.Errorf("re-sending a title left it marked missing (%v); its record would then be deleted", got)
+	}
+}
+
+func TestDeleteSourceDownload(t *testing.T) {
+	s := openTestStore(t)
+	for _, d := range []string{"movie/Keep", "movie/Drop"} {
+		if err := s.SaveSourceDownload(SourceDownload{Destination: d, Title: d}, 1); err != nil {
+			t.Fatalf("save %s: %v", d, err)
+		}
+	}
+	if err := s.DeleteSourceDownload("movie/Drop"); err != nil {
+		t.Fatalf("DeleteSourceDownload: %v", err)
+	}
+	all, _ := s.SourceDownloads()
+	if _, still := all["movie/Drop"]; still {
+		t.Error("the deleted record is still there")
+	}
+	if _, gone := all["movie/Keep"]; !gone {
+		t.Error("deleting one record removed another")
+	}
+}
+
+// The per-user history is an append-only statistics and quota log. Removing
+// content from the NAS must not rewrite what a user downloaded, or how much of
+// their allowance they used.
+func TestForgettingADownloadLeavesTheHistoryAlone(t *testing.T) {
+	s := openTestStore(t)
+	uid, err := s.CreateUser("u", "h", true)
+	if err != nil {
+		t.Fatalf("CreateUser: %v", err)
+	}
+	if err := s.SaveSourceDownload(SourceDownload{Destination: "movie/Drop", Title: "Drop"}, 1); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	if err := s.AddDownloadHistory(DownloadHistory{
+		UserID: uid, Source: SourceCatalog, Category: CategoryMovie,
+		Destination: "movie/Drop", TaskName: "Drop.2024.1080p.mkv", CreatedAt: 1,
+	}); err != nil {
+		t.Fatalf("AddDownloadHistory: %v", err)
+	}
+
+	if err := s.DeleteSourceDownload("movie/Drop"); err != nil {
+		t.Fatalf("DeleteSourceDownload: %v", err)
+	}
+	names, err := s.RecordedNamesFor("movie/Drop")
+	if err != nil {
+		t.Fatalf("RecordedNamesFor: %v", err)
+	}
+	if len(names) != 1 {
+		t.Errorf("history rows = %d, want 1: forgetting content must not rewrite the statistics log", len(names))
 	}
 }

@@ -46,6 +46,14 @@ type Deps struct {
 	// distinction therefore costs no additional read of the NAS. nil means the
 	// watcher is not running, and nothing is reported as downloading.
 	ActiveDests func() map[string]bool
+
+	// PendingDests reports the destinations of tasks that have NOT finished —
+	// paused and errored ones included. It is what stops the removal
+	// reconciliation (spec 1029) from reading a folder that is empty because its
+	// download is paused as a folder whose content has been deleted. Supplied by
+	// the same watcher poll as ActiveDests, so it costs no extra NAS read. nil
+	// means the watcher is not running, and nothing is protected on those grounds.
+	PendingDests func() map[string]bool
 }
 
 // InitCaches allocates the shared in-memory caches on d and returns it.

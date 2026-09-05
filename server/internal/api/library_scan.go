@@ -119,10 +119,21 @@ func (d Deps) scanOnce(ctx context.Context) {
 		// never disagree about the answer. It writes through to the store itself.
 		if _, ok := d.folderEvidence(bctx, folder); !ok {
 			// The NAS went away mid-cycle. Stop rather than spend the rest of the
-			// budget on calls that will all fail.
+			// budget on calls that will all fail — and do NOT reconcile, because a
+			// half-read cycle is not evidence that anything was removed.
 			return
 		}
 	}
+
+	// Reconcile what we remember against what is actually there, so content the
+	// user has deleted stops being remembered (spec 1029).
+	//
+	// AFTER the reads, not before: a folder read this cycle is judged on the
+	// reading just taken rather than on last cycle's. It costs no NAS call of its
+	// own — everything it needs is the index above and the stored readings. A
+	// recorded folder the scan has not reached yet simply reports as unknown and
+	// is left alone until it has.
+	d.forgetRemovedContent(bctx, ix)
 }
 
 // scanBatch picks which folders this cycle re-reads: anything explicitly
