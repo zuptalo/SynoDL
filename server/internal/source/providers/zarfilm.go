@@ -301,6 +301,20 @@ func (p zarfilm) listing(ctx context.Context, c *source.Client, cfg source.Confi
 	if err != nil {
 		return nil, 0, err
 	}
+	// A session that is not valid HERE is answered with a login page — status 200,
+	// no cards. Parsed naively that is indistinguishable from "the archive is
+	// empty", so the source reported success with no results and the app had
+	// nothing to tell the user. It matters most on a mirror: credentials captured
+	// on the main domain are not necessarily valid on the alternate one, and this
+	// is the moment that becomes visible.
+	//
+	// Deliberately narrow: only when NOTHING parsed AND the page does not say we
+	// are logged in. A real archive page past its last page is still a logged-in
+	// page, so exhausting the catalog still reads as an empty result, not as a
+	// broken session.
+	if len(items) == 0 && !parseLoginState(body).LoggedIn {
+		return nil, 0, &source.ErrNeedsRefresh{Layer: source.LayerToken}
+	}
 	return items, parsePageCount(body), nil
 }
 

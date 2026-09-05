@@ -114,6 +114,13 @@ const selectedSourceName = computed(
 const degraded = ref<DegradedSource[]>([]);
 
 const loading = ref(false);
+// Which source the results currently on screen came from. Results are kept while
+// a new search runs — a refresh should not flash to an empty grid — but that is
+// only honest while the QUESTION is unchanged. When the selected source changes
+// and the new search fails, the old source's results are still on screen under
+// the new source's name, which is what made a failing ZarFilm show 30nama's
+// catalog labelled "ZarFilm".
+const itemsSource = ref('');
 const needsRefresh = ref(false);
 const unavailable = ref(true);
 const errorMsg = ref('');
@@ -321,6 +328,7 @@ async function fetchPage(reset: boolean): Promise<void> {
     (i) => !i.comingSoon && !(hideOwned.value && (i.ownership === 'owned' || i.ownership === 'downloading')),
   );
   items.value = reset ? incoming : [...items.value, ...incoming];
+  itemsSource.value = selectedSource.value;
 }
 
 // A rolling deploy makes the backend briefly unreachable. Retry a transient
@@ -371,7 +379,16 @@ async function runSearch(reset = true): Promise<void> {
       if (gen !== searchGen) return; // superseded mid-pagination — stop calling the provider
     }
   } catch (e) {
-    if (gen === searchGen) handleErr(e); // ignore errors from a superseded search
+    if (gen === searchGen) {
+      // Never leave one source's catalog on screen under another source's name.
+      // Keeping stale results through a failure is right for a refresh of the
+      // same view and wrong the moment the selection changed.
+      if (reset && itemsSource.value !== selectedSource.value) {
+        items.value = [];
+        itemsSource.value = selectedSource.value;
+      }
+      handleErr(e); // ignore errors from a superseded search
+    }
   } finally {
     if (gen === searchGen) loading.value = false;
   }

@@ -34,6 +34,13 @@ type zarFakeSite struct {
 	// noPanel serves archives with no filter panel, the way most of the site's
 	// pages look, so the degrade path is exercised rather than assumed.
 	noPanel bool
+	// loginPage serves what a MIRROR serves a session that is not valid on it: a
+	// login form, status 200, and none of the markers a real page carries — not
+	// even the logged-in flag. Nothing about it says "error".
+	loginPage bool
+	// emptyArchive serves a real, logged-in archive page that simply has no cards,
+	// which is what asking for a page past the last one looks like.
+	emptyArchive bool
 }
 
 func newZarFakeSite(t *testing.T) *zarFakeSite {
@@ -43,6 +50,15 @@ func newZarFakeSite(t *testing.T) *zarFakeSite {
 		site.lastCookie = r.Header.Get("Cookie")
 		site.lastPath = r.URL.RequestURI()
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		if site.loginPage {
+			// No ajax_var at all — exactly what the live mirror returns.
+			w.Write([]byte(`<html><body><form action="/login"><input type="password" name="pwd"></form></body></html>`))
+			return
+		}
+		if site.emptyArchive {
+			w.Write([]byte(zarAjaxVarForTest(true) + `<div class="posts_hoder_archive"></div>`))
+			return
+		}
 		if site.meta != "" {
 			w.Write(mustFixture(t, site.meta))
 		}
@@ -602,5 +618,48 @@ func TestZarfilmPaywalledRowsNameNoFile(t *testing.T) {
 	// driver reports — there is no option left that could name a file.
 	if !errors.Is(err, source.ErrUnsubscribed) {
 		t.Fatalf("err = %v, want ErrUnsubscribed", err)
+	}
+}
+
+// zarAjaxVarForTest mirrors the inline flag every real page of the site carries.
+func zarAjaxVarForTest(loggedIn bool) string {
+	u, logged := "0", ""
+	if loggedIn {
+		u, logged = "424242", "1"
+	}
+	return `<script>var ajax_var = {"ajaxurl":"/x","u":"` + u + `","logged":"` + logged + `"};</script>`
+}
+
+// Spec 2009: a session that is not valid on the host answering is told so with a
+// LOGIN PAGE at status 200 — no cards, and none of the markers a real page has.
+// Parsed naively that is indistinguishable from an empty archive, so the source
+// reported success with no results and the app had nothing to say. It matters
+// most on a mirror, where credentials captured on the main domain may simply not
+// be valid.
+func TestZarfilmLoginPageIsReportedAsANeedForRefreshing(t *testing.T) {
+	site := newZarFakeSite(t)
+	site.loginPage = true
+
+	_, err := zarfilm{}.Search(context.Background(), source.NewClient(), zarCfg(site),
+		zarSession("abc"), source.SearchQuery{Page: 1})
+
+	var needs *source.ErrNeedsRefresh
+	if !errors.As(err, &needs) {
+		t.Fatalf("err = %v, want a needs-refresh so the user is told to re-paste", err)
+	}
+}
+
+// The rule must stay narrow: running out of catalog is NOT a broken session.
+func TestZarfilmEmptyArchiveIsStillJustEmpty(t *testing.T) {
+	site := newZarFakeSite(t)
+	site.emptyArchive = true
+
+	res, err := zarfilm{}.Search(context.Background(), source.NewClient(), zarCfg(site),
+		zarSession("abc"), source.SearchQuery{Page: 99})
+	if err != nil {
+		t.Fatalf("a logged-in page with no cards is an empty result, not an error: %v", err)
+	}
+	if len(res.Items) != 0 {
+		t.Fatalf("items = %d, want none", len(res.Items))
 	}
 }

@@ -64,3 +64,4 @@ Specs are grouped by category band; status moves
 | [2006](specs/2006-release-year-sort/spec.md) | Release-year sort no longer leads with year-less titles | 🟢 shipped |
 | [2007](specs/2007-release-year-sort/spec.md) | Release-year sort is fast again, and Discover opens on Most popular | 🟢 shipped |
 | [2008](specs/2008-posters-and-owned/spec.md) | Posters and owned markers survive a source outage | 🔵 in-review |
+| [2009](specs/2009-say-when-source/spec.md) | Say when a source session is not valid where it is being asked | 🔵 in-review |
