@@ -187,27 +187,163 @@ func RecordedRelease(name string) (Release, bool) {
 		base = strings.TrimSuffix(base, "."+e)
 	}
 	var r Release
+	r.Key = ReleaseKey(name)
 	if m := reResolution.FindStringSubmatch(base); m != nil {
 		r.Resolution = strings.ToLower(m[1])
 	} else if reUHD.MatchString(base) {
 		r.Resolution = "2160p"
 	}
-	parts := reNameSeparators.Split(base, -1)
-	// Drop empties so trailing separators do not shift the position.
-	kept := parts[:0]
-	for _, p := range parts {
-		if strings.TrimSpace(p) != "" {
-			kept = append(kept, p)
+	if r.Resolution == "" {
+		return Release{Key: r.Key}, false
+	}
+
+	// The encoder is found by walking the tokens that follow the RESOLUTION, not
+	// by counting in from the end.
+	//
+	// Position was the original rule — "the token before the site's trailing brand
+	// tag" — and it is wrong on the names these sites actually publish, because
+	// they append a subtitle or dubbing marker after the encoder:
+	//
+	//	...x264.DD5.1.Pahe.SoftSub.ZarFilm   encoder Pahe, position picks SoftSub
+	//	...WEB-DL.Dubbed.ZarFilm             no encoder at all, position picks Dubbed
+	//
+	// The resolution is the right anchor because everything to its left is the
+	// title and everything to its right is release vocabulary — of which the
+	// encoder is the only part that is not a fixed, known word.
+	toks, seps := splitTokens(base)
+	start := -1
+	for i, t := range toks {
+		if isResolutionToken(t) {
+			start = i + 1
+			break
 		}
 	}
-	if len(kept) >= 2 {
-		r.Group = foldToken(kept[len(kept)-2])
+	if start < 0 {
+		// The resolution came from "4K"/"UHD" rather than a resolution token, so
+		// nothing anchors the walk. Recover nothing rather than guess.
+		return Release{Key: r.Key}, false
 	}
-	r.Key = ReleaseKey(name)
-	if r.Resolution == "" || r.Group == "" {
+
+	// Candidates are what is left once every known release word is dropped.
+	type candidate struct {
+		tok    string
+		hyphen bool // separated from what precedes it by '-', i.e. scene-style
+	}
+	var cands []candidate
+	for i := start; i < len(toks); i++ {
+		if isReleaseVocabulary(toks[i]) {
+			continue
+		}
+		cands = append(cands, candidate{tok: toks[i], hyphen: i > 0 && seps[i-1] == "-"})
+	}
+
+	switch len(cands) {
+	case 0:
+		// The name carries no encoder. Reporting one anyway is what made a dubbing
+		// marker look like an encode nobody produced.
+		return Release{Key: r.Key}, false
+	case 1:
+		// Ambiguous: on these sites a lone trailing word is the site's own brand,
+		// which every one of its files carries and which therefore identifies
+		// nothing. A hyphen is what distinguishes a scene group from a brand, so
+		// only that is recovered — marking the wrong version is worse than marking
+		// none (spec 1025).
+		if !cands[0].hyphen {
+			return Release{Key: r.Key}, false
+		}
+		r.Group = foldToken(cands[0].tok)
+	default:
+		// The last is the site's brand; the one before it is the encoder.
+		r.Group = foldToken(cands[len(cands)-2].tok)
+	}
+	if r.Group == "" {
 		return Release{Key: r.Key}, false
 	}
 	return r, true
+}
+
+// splitTokens splits a release name into its tokens and the separators between
+// them. The separators are kept because a '-' means something a '.' does not: it
+// is how a scene name marks the group off from the rest.
+func splitTokens(s string) (toks []string, seps []string) {
+	prev := 0
+	for _, m := range reNameSeparators.FindAllStringIndex(s, -1) {
+		if t := s[prev:m[0]]; t != "" {
+			toks = append(toks, t)
+			seps = append(seps, s[m[0]:m[1]])
+		}
+		prev = m[1]
+	}
+	if t := s[prev:]; t != "" {
+		toks = append(toks, t)
+		seps = append(seps, "")
+	}
+	// seps[i] is what FOLLOWS toks[i]. A run counts as a hyphen if it contains
+	// one, so "x264-GROUP" and "x264 - GROUP" read alike.
+	for i, sp := range seps {
+		if strings.Contains(sp, "-") {
+			seps[i] = "-"
+		}
+	}
+	return toks, seps
+}
+
+func isResolutionToken(t string) bool {
+	switch strings.ToLower(t) {
+	case "2160p", "1080p", "720p", "480p", "360p":
+		return true
+	}
+	return false
+}
+
+// releaseVocabulary is the fixed words a release name uses that are NOT the group
+// that produced the encode: how it was sourced, how it was encoded, what audio it
+// carries, and what was done to its subtitles or dialogue.
+//
+// A deny-list rather than an allow-list because group names are open-ended — new
+// ones appear constantly — while this vocabulary is small and stable. A word
+// missing from it costs at most a missed mark, never a wrong one.
+var releaseVocabulary = map[string]bool{
+	// how it was sourced
+	"web": true, "webdl": true, "dl": true, "webrip": true, "bluray": true,
+	"blueray": true, "brrip": true, "bdrip": true, "hdrip": true, "dvdrip": true,
+	"hdtv": true, "remux": true, "cam": true, "ts": true, "hdcam": true,
+	// how it was encoded
+	"x264": true, "x265": true, "h264": true, "h265": true, "hevc": true,
+	"avc": true, "xvid": true, "divx": true, "10bit": true, "8bit": true,
+	"hdr": true, "hdr10": true, "sdr": true, "dv": true, "hq": true,
+	// what audio it carries
+	"aac": true, "ac3": true, "eac3": true, "dd": true, "ddp": true, "dts": true,
+	"truehd": true, "atmos": true, "flac": true, "mp3": true, "opus": true,
+	// what was done to the words
+	"softsub": true, "hardsub": true, "sub": true, "subbed": true, "subs": true,
+	"dub": true, "dubbed": true, "dual": true, "dualaudio": true, "multi": true,
+	"farsi": true, "persian": true, "english": true, "censored": true,
+	"uncensored": true,
+	// size and framing tags that ride along
+	"fhd": true, "uhd": true, "4k": true, "hd": true, "sd": true, "imax": true,
+	"extended": true, "uncut": true, "proper": true, "repack": true,
+	"internal": true, "limited": true, "unrated": true, "complete": true,
+	"season": true, "part": true,
+}
+
+// isReleaseVocabulary reports whether a token is a known release word rather than
+// a possible group name. Bare numbers count: they are channel counts and years
+// ("DD5.1" splits into "DD", "5", "1"), never a group on their own.
+func isReleaseVocabulary(t string) bool {
+	f := foldToken(t)
+	if f == "" {
+		return true
+	}
+	if releaseVocabulary[f] || isResolutionToken(t) {
+		return true
+	}
+	for _, r := range f {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true // nothing but digits
 }
 
 var reNameSeparators = regexp.MustCompile(`[.\-_ ]+`)

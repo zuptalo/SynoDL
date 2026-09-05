@@ -973,6 +973,10 @@ func (d Deps) versionsSentFor(folder string) []store.SourceDownload {
 	if d.Store == nil || folder == "" {
 		return nil
 	}
+	wantParent, wantKey, wantYear := titleFolderIdentity(folder)
+	if wantKey == "" {
+		return nil
+	}
 	all, err := d.Store.SourceDownloads()
 	if err != nil {
 		return nil
@@ -986,10 +990,23 @@ func (d Deps) versionsSentFor(folder string) []store.SourceDownload {
 		// recorded before sources could be told apart carry no source at all, which
 		// is most of the history on a long-lived instance. The folder is the same
 		// folder either way.
-		dest := strings.Trim(strings.TrimSpace(rec.Destination), "/")
-		if dest != folder && !strings.HasPrefix(dest, folder+"/") {
+		//
+		// Compared the way the library index compares names, NOT as exact text
+		// (spec 2015). The folder a download was sent to and the folder it lives in
+		// now are routinely different strings, because a media server renames it
+		// once the download lands — most often by appending the release year. On
+		// exact text, not one send record matched its own download.
+		gotParent, gotKey, gotYear := titleFolderIdentity(rec.Destination)
+		if gotParent != wantParent || gotKey != wantKey {
 			continue
 		}
+		// The index's own conservative rule: years must agree only when BOTH sides
+		// have one, so a rename that adds a year still matches while two different
+		// films of the same name never do.
+		if wantYear != "" && gotYear != "" && wantYear != gotYear {
+			continue
+		}
+
 		// Downloads created before the version was recorded still know which file
 		// was asked for. Recovering the release from THAT name answers for a
 		// library that has since been renamed, where the files themselves cannot.
@@ -1006,4 +1023,36 @@ func (d Deps) versionsSentFor(folder string) []store.SourceDownload {
 		out = append(out, rec)
 	}
 	return out
+}
+
+// titleFolderIdentity reduces a destination or a NAS folder to what identifies
+// the TITLE it belongs to: the parent it sits under, the comparison key of the
+// title folder's name, and the release year that name carries.
+//
+// A season segment is stripped first, so "tv-show/Friends/Season 01" and
+// "tv-show/Friends (1994)" resolve to the same title — the season itself is read
+// separately, by seasonOfDestination, from the untouched destination.
+//
+// The parent is kept because a name alone is not an identity: a film and a
+// series can share one, and a send into the movies folder must never answer for
+// the series of the same name.
+func titleFolderIdentity(p string) (parent, key, year string) {
+	p = strings.Trim(strings.TrimSpace(p), "/")
+	if p == "" {
+		return "", "", ""
+	}
+	segs := strings.Split(p, "/")
+	// A trailing season folder belongs to the title above it.
+	if len(segs) > 2 {
+		if _, ok := library.SeasonOfFolder(segs[len(segs)-1]); ok {
+			segs = segs[:len(segs)-1]
+		}
+	}
+	if len(segs) < 2 {
+		return "", "", "" // a bare name with no parent identifies nothing
+	}
+	name := segs[len(segs)-1]
+	parent = strings.Join(segs[:len(segs)-1], "/")
+	key, year = library.Key(name)
+	return parent, key, year
 }

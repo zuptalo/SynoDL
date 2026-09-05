@@ -844,9 +844,83 @@ func TestRecordedDownloadsAreMatchedByFolder(t *testing.T) {
 	}
 	// A different title must not pick them up, including one that merely shares a
 	// prefix.
-	for _, other := range []string{"movie/Dune", "movie/Dune 2021 Part Two", "tv-show/Dark"} {
+	for _, other := range []string{"movie/Dune 2021 Part Two", "movie/Arrival", "tv-show/Severance"} {
 		if got := d.versionsSentFor(other); len(got) != 0 {
 			t.Fatalf("%q must match nothing, got %d", other, len(got))
 		}
+	}
+}
+
+// Spec 2015: the folder a download was sent to and the folder it now lives in
+// are routinely not the same string — a media server renames it after the
+// download lands, most often by appending the release year. Comparing them as
+// exact text meant that on the reporting instance not one send record matched
+// its own download.
+func TestASentDownloadIsFoundAfterItsFolderIsRenamed(t *testing.T) {
+	fake := &fakeSyno{loginSid: "sid"}
+	d, st := libDeps(t, fake)
+	addSource(t, st, "Alpha", "movie", "tv-show")
+
+	if err := st.SaveSourceDownload(store.SourceDownload{
+		Destination:  "movie/The Sheep Detectives",
+		QualityLabel: "1080p · SoftSub · Pahe", QualityResolution: "1080p", QualityEncoder: "Pahe",
+	}, 1); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	if err := st.SaveSourceDownload(store.SourceDownload{
+		Destination:  "tv-show/Friends/Season 01",
+		QualityLabel: "1080p", QualityResolution: "1080p", QualityEncoder: "Silence",
+	}, 1); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+
+	// The year the media server added must not lose the record.
+	if got := d.versionsSentFor("movie/The Sheep Detectives (2026)"); len(got) != 1 {
+		t.Fatalf("a renamed movie folder must still find its send: %d", len(got))
+	}
+	// And a season under a renamed series folder still belongs to it.
+	got := d.versionsSentFor("tv-show/Friends (1994)")
+	if len(got) != 1 {
+		t.Fatalf("a renamed series folder must still find its season's send: %d", len(got))
+	}
+	if seasonOfDestination(got[0].Destination) != 1 {
+		t.Errorf("the season must survive the match, got %d", seasonOfDestination(got[0].Destination))
+	}
+
+	// The conservative half. A record with no year matches a folder that has
+	// gained one — that IS the rename, and it is the same rule the index used to
+	// decide this folder was the title in the first place. What must not match is
+	// a different name, or a year that positively disagrees.
+	if err := st.SaveSourceDownload(store.SourceDownload{
+		Destination:  "movie/Arrival 2016",
+		QualityLabel: "1080p", QualityResolution: "1080p", QualityEncoder: "Silence",
+	}, 1); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	for _, other := range []string{
+		"movie/Arrival (2021)",             // both say a year, and they disagree
+		"movie/The Sheep Detective (2026)", // a different name
+	} {
+		if got := d.versionsSentFor(other); len(got) != 0 {
+			t.Errorf("%q must match nothing, got %d", other, len(got))
+		}
+	}
+}
+
+// A title folder in the WRONG parent is a different title. Matching on the name
+// alone would let a film and a series of the same name claim each other's sends.
+func TestASentDownloadIsNotFoundUnderAnotherParent(t *testing.T) {
+	fake := &fakeSyno{loginSid: "sid"}
+	d, st := libDeps(t, fake)
+	addSource(t, st, "Alpha", "movie", "tv-show")
+
+	if err := st.SaveSourceDownload(store.SourceDownload{
+		Destination:  "movie/Fargo",
+		QualityLabel: "1080p", QualityResolution: "1080p", QualityEncoder: "Silence",
+	}, 1); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	if got := d.versionsSentFor("tv-show/Fargo (2014)"); len(got) != 0 {
+		t.Fatalf("the film's send must not answer for the series, got %d", len(got))
 	}
 }
