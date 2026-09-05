@@ -13,7 +13,9 @@ package source
 
 import (
 	"context"
+	"regexp"
 	"sort"
+	"strings"
 	"sync"
 )
 
@@ -98,6 +100,27 @@ func ImageHostAllowed(host string) bool {
 		}
 	}
 	return false
+}
+
+// reResolution matches the resolution tokens release names and quality labels use.
+var reResolution = regexp.MustCompile(`(?i)\b(2160p|1080p|720p|480p|360p)\b`)
+
+// ResolutionOf reads a resolution out of free text — a quality label, a release
+// name — and normalises 4K/UHD onto the token everything else uses.
+//
+// Drivers should prefer whatever the source states explicitly; this is the
+// fallback for a source that leaves the field empty but names the resolution in
+// its label anyway, which one of them does for every option it returns. Without
+// it those options carry no resolution at all, and anything comparing releases
+// cannot see them (spec 2011).
+func ResolutionOf(s string) string {
+	if m := reResolution.FindStringSubmatch(s); m != nil {
+		return strings.ToLower(m[1])
+	}
+	if regexp.MustCompile(`(?i)\b(4k|uhd)\b`).MatchString(s) {
+		return "2160p"
+	}
+	return ""
 }
 
 // SearchFilters mirrors the provider's advanced-search facets. Empty fields are

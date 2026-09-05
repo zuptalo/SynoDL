@@ -390,10 +390,14 @@ func (p nama30) downloads(ctx context.Context, c *source.Client, cfg source.Conf
 			continue // not downloadable (e.g. stream-only)
 		}
 		q := source.QualityOption{
-			ID:         d.ID,
-			Label:      html.UnescapeString(d.Quality),
-			Size:       d.Size,
-			Resolution: d.Resolution,
+			ID:    d.ID,
+			Label: html.UnescapeString(d.Quality),
+			Size:  d.Size,
+			// The provider leaves `resolution` empty on every download it returns,
+			// while naming it plainly in the quality label ("BluRay 1080p"). An
+			// option with no resolution cannot be compared against what is on the
+			// NAS at all, so nothing was ever marked as already downloaded.
+			Resolution: firstNonEmptyStr(d.Resolution, source.ResolutionOf(html.UnescapeString(d.Quality))),
 			Encoder:    html.UnescapeString(d.Encoder),
 			Hardsub:    bool(d.Hardsub),
 		}
@@ -895,4 +899,14 @@ func (f *flexNumStr) UnmarshalJSON(b []byte) error {
 	}
 	*f = flexNumStr(string(b)) // a JSON number → its literal digits
 	return nil
+}
+
+// firstNonEmptyStr returns the first value that is not blank.
+func firstNonEmptyStr(vals ...string) string {
+	for _, v := range vals {
+		if strings.TrimSpace(v) != "" {
+			return v
+		}
+	}
+	return ""
 }
