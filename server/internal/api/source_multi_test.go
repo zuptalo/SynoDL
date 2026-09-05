@@ -546,3 +546,38 @@ func TestProviderAcceptsBothAddresses(t *testing.T) {
 		t.Fatalf("addresses did not round-trip: %s", got)
 	}
 }
+
+// Spec 0009 edge case: material for an address that no longer exists cannot be
+// sent anywhere, and reporting it as present tells the admin something untrue.
+// Removing the address removes its material.
+func TestRemovingTheAlternateAddressDropsItsMaterial(t *testing.T) {
+	resetFake()
+	h, _ := newStatefulRouter(t)
+	admin := adminAfterSetup(t, h)
+
+	body := `{"kind":"faketest","displayName":"Two","moviesParent":"movie","tvParent":"tv-show",` +
+		`"altBase":"https://mirror.example",` +
+		`"session":{"c_token":"MAIN","user_agent":"UA"},` +
+		`"altSession":{"c_token":"ALT","user_agent":"ALT-UA"}}`
+	rec := do(t, h, "POST", "/v1/source/providers", body, admin)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create = %d %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `"hasAltSession":true`) {
+		t.Fatalf("expected alternate material stored: %s", rec.Body.String())
+	}
+	var created struct {
+		ID int64 `json:"id"`
+	}
+	_ = json.Unmarshal(rec.Body.Bytes(), &created)
+
+	// Take the alternate address away.
+	upd := do(t, h, "PUT", "/v1/source/providers/"+strconv.FormatInt(created.ID, 10),
+		`{"kind":"faketest","displayName":"Two","moviesParent":"movie","tvParent":"tv-show","altBase":""}`, admin)
+	if upd.Code != http.StatusOK {
+		t.Fatalf("update = %d %s", upd.Code, upd.Body.String())
+	}
+	if strings.Contains(upd.Body.String(), `"hasAltSession":true`) {
+		t.Fatalf("material for a removed address was kept: %s", upd.Body.String())
+	}
+}
