@@ -94,6 +94,10 @@ type evidenceRec struct {
 	// leaves the server: options are matched here and the client is told only
 	// which option it already has (spec 1025, FR-006).
 	releases map[int][]library.Release
+	// folder is where this title actually lives on the NAS. Downloads are recorded
+	// against a destination, so this is what matches them to a title — and unlike a
+	// catalog id it is the same folder whichever source the user is browsing.
+	folder string
 	// keys is the identity of each file found, by season — the same shape as
 	// releases, but the whole-file identity rather than tokens read out of it.
 	// It is what a source that rewrites its release names leaves us to match on.
@@ -493,6 +497,7 @@ func (d Deps) titleDetail(
 	if !rec.hasVideo {
 		return source.OwnershipAbsent, nil, evidenceRec{}
 	}
+	rec.folder = entry.Path
 	if kind == library.MediaMovie {
 		return source.OwnershipOwned, nil, rec
 	}

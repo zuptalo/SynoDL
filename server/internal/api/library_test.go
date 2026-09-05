@@ -808,3 +808,45 @@ func TestWithNoHistoryAndNoReadableNamesNothingIsMarked(t *testing.T) {
 		t.Fatal("nothing identifies this option; it must not be marked")
 	}
 }
+
+// Spec 1028: recorded downloads are matched by WHERE they went, not by which
+// catalog entry they came from.
+//
+// A catalog id names one source's listing, so the same film downloaded from one
+// source went unrecognised while browsing the other — and ids recorded before
+// sources could be told apart carry no source at all, which was 47 of 65 records
+// on a real instance. The folder is the same folder either way.
+func TestRecordedDownloadsAreMatchedByFolder(t *testing.T) {
+	fake := &fakeSyno{loginSid: "sid"}
+	d, st := libDeps(t, fake)
+	addSource(t, st, "Alpha", "movie", "tv-show")
+
+	// Recorded with an id from a DIFFERENT source, and one with no source at all.
+	if err := st.SaveSourceDownload(store.SourceDownload{
+		Destination: "movie/Dune 2021", CatalogID: "2:dune-from-the-other-source",
+		QualityLabel: "2160p", QualityResolution: "2160p", QualityEncoder: "FraMeSToR",
+	}, 1); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	if err := st.SaveSourceDownload(store.SourceDownload{
+		Destination: "tv-show/Dark 2017/Season 01", CatalogID: "",
+		QualityLabel: "1080p", QualityResolution: "1080p", QualityEncoder: "Silence",
+	}, 1); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+
+	if got := d.versionsSentFor("movie/Dune 2021"); len(got) != 1 {
+		t.Fatalf("a download from another source's listing must still be found: %d", len(got))
+	}
+	// A series' seasons live under the title folder and all belong to it.
+	if got := d.versionsSentFor("tv-show/Dark 2017"); len(got) != 1 {
+		t.Fatalf("a season's download must be found under its title folder: %d", len(got))
+	}
+	// A different title must not pick them up, including one that merely shares a
+	// prefix.
+	for _, other := range []string{"movie/Dune", "movie/Dune 2021 Part Two", "tv-show/Dark"} {
+		if got := d.versionsSentFor(other); len(got) != 0 {
+			t.Fatalf("%q must match nothing, got %d", other, len(got))
+		}
+	}
+}
