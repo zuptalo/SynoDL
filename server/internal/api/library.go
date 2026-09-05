@@ -297,7 +297,13 @@ func (d Deps) buildLibraryIndex(ctx context.Context) (*library.Index, bool) {
 		// Nothing configured is a real answer, and it must reach the store too:
 		// a stored reading that outlived the source it describes would keep
 		// answering for folders the operator has disconnected (FR-009).
-		d.persistLibraryFolders(nil, nil, time.Now())
+		//
+		// Only when there IS something to clear, though. An instance with no
+		// sources — every one before the operator adds the first — would otherwise
+		// run a write transaction on every build, for nothing.
+		if stored, err := d.Store.GetLibraryFolders(); err == nil && len(stored.Parents) > 0 {
+			d.persistLibraryFolders(nil, nil, time.Now())
+		}
 		return library.Empty(time.Now()), true
 	}
 

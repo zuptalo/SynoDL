@@ -76,6 +76,17 @@ func (d Deps) scanOnce(ctx context.Context) {
 	if d.lib == nil || d.Store == nil || d.NAS == nil {
 		return
 	}
+	// Do nothing at all until the instance has been set up.
+	//
+	// The first cycle runs at boot, and on a brand-new instance that is the same
+	// moment the operator is completing the setup wizard. There is nothing to
+	// read — no NAS is configured yet — but the cycle still opened a write
+	// transaction, and SQLite let that contend with the setup request's own
+	// writes. The e2e stateful stack failed its setup with a 500 on a slower
+	// machine while passing locally, which is exactly what a lock race looks like.
+	if _, err := d.Store.GetOperatorConfig(); err != nil {
+		return
+	}
 	bctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), libraryBuildTimeout)
 	defer cancel()
 

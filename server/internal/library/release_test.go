@@ -274,3 +274,44 @@ func TestRecordedReleaseTreatsALoneDottedTokenAsTheSiteBrand(t *testing.T) {
 		t.Errorf("group = %q, want rarbg", got.Group)
 	}
 }
+
+// The vocabulary deny-list decides what can be an encoder at all, so its edges
+// are worth pinning: punctuation-only tokens and bare numbers are never groups,
+// and an unknown word is (that is the point of a deny-list — group names are
+// open-ended).
+func TestReleaseVocabularyEdges(t *testing.T) {
+	for _, tc := range []struct {
+		tok  string
+		want bool
+	}{
+		{"", true},        // nothing at all
+		{"...", true},     // folds away to nothing
+		{"5", true},       // a channel count, from DD5.1
+		{"2024", true},    // a year
+		{"1080p", true},   // the resolution itself
+		{"WEB", true},     // known source tag
+		{"SoftSub", true}, // known subtitle marker
+		{"x265", true},    // known codec
+		{"Pahe", false},   // a group
+		{"TENEIGHTY", false},
+		{"30nama", false}, // a brand, but indistinguishable from a group here
+	} {
+		if got := isReleaseVocabulary(tc.tok); got != tc.want {
+			t.Errorf("isReleaseVocabulary(%q) = %v, want %v", tc.tok, got, tc.want)
+		}
+	}
+}
+
+// A resolution written as 4K/UHD is recognised for the RESOLUTION but does not
+// anchor the token walk, so nothing is recovered rather than a token picked from
+// the wrong place.
+func TestRecordedReleaseWithoutAResolutionTokenRecoversNothing(t *testing.T) {
+	for _, name := range []string{
+		"Movie.2024.4K.WEB-DL.x265.Joy.ZarFilm.mkv",
+		"Movie.2024.UHD.BluRay.Silence.30nama.mkv",
+	} {
+		if got, ok := RecordedRelease(name); ok {
+			t.Errorf("%q recovered %s/%s; no resolution token anchors the walk", name, got.Resolution, got.Group)
+		}
+	}
+}
