@@ -575,7 +575,7 @@ func handleSourceTitle(d Deps) http.Handler {
 			// Mark the ONE option the user already has, rather than every option
 			// for a season they have some of (spec 1025). Matching happens here so
 			// the release tokens never cross to the client.
-			td.Qualities = markOwnedOptions(td.Qualities, ev, d.versionsSentFor(td.ID))
+			td.Qualities = markOwnedOptions(td.Qualities, ev, d.versionsSentFor(ev.folder))
 		} else {
 			td.Ownership = source.OwnershipUnknown
 		}
@@ -968,8 +968,9 @@ func asProviderVerify(err error, target **source.ErrProviderVerify) bool {
 // versionsSentFor returns what this instance has sent for a catalog title, which
 // is how the sheet can say which version is already on the NAS even for a library
 // whose file names carry nothing to identify (spec 0010).
-func (d Deps) versionsSentFor(catalogID string) []store.SourceDownload {
-	if d.Store == nil || strings.TrimSpace(catalogID) == "" {
+func (d Deps) versionsSentFor(folder string) []store.SourceDownload {
+	folder = strings.Trim(strings.TrimSpace(folder), "/")
+	if d.Store == nil || folder == "" {
 		return nil
 	}
 	all, err := d.Store.SourceDownloads()
@@ -978,7 +979,15 @@ func (d Deps) versionsSentFor(catalogID string) []store.SourceDownload {
 	}
 	var out []store.SourceDownload
 	for _, rec := range all {
-		if rec.CatalogID != catalogID {
+		// Matched by WHERE it went, not by which catalog entry it came from.
+		//
+		// A catalog id names one source's listing, so the same film downloaded from
+		// one source would not be recognised while browsing the other — and ids
+		// recorded before sources could be told apart carry no source at all, which
+		// is most of the history on a long-lived instance. The folder is the same
+		// folder either way.
+		dest := strings.Trim(strings.TrimSpace(rec.Destination), "/")
+		if dest != folder && !strings.HasPrefix(dest, folder+"/") {
 			continue
 		}
 		// Downloads created before the version was recorded still know which file
