@@ -411,4 +411,38 @@ var migrations = []string{
 	UPDATE watched_tasks    SET owner_user_id = NULL
 	  WHERE owner_user_id IS NOT NULL AND owner_user_id NOT IN (SELECT id FROM users);
 	`,
+
+	// 0020 — remember YouTube downloads that FAILED (spec 0012).
+	//
+	// This is the only state this feature stores, and the asymmetry is the
+	// point. A worker job's lifecycle belongs to the orchestrator and is read
+	// back by listing labelled jobs, so nothing here shadows it. But a finished
+	// job is swept by its TTL, and a SUCCESS leaves the downloaded files as its
+	// own evidence while a FAILURE would leave nothing at all — the user would
+	// simply never learn that the thing they asked for did not arrive.
+	//
+	// reason holds a short, already-sanitised phrase. It must never carry a
+	// command line, a filesystem path, or raw worker output (Principle III).
+	//
+	// user_id is SET NULL rather than CASCADE: deleting an account must not
+	// erase the operator's record that a download failed, but must not leave a
+	// dangling reference either — matching how tasks and downloads already
+	// outlive the account that started them.
+	//
+	// IF NOT EXISTS is required, not decorative: the schema-drift repair (spec
+	// 1031) rewinds schema_migrations and reopens, which re-runs every migration
+	// after the rewind point. A migration that cannot run twice turns that
+	// repair into a boot failure.
+	`
+	CREATE TABLE IF NOT EXISTS ytdl_failures (
+		request_id TEXT PRIMARY KEY,
+		user_id    INTEGER REFERENCES users(id) ON DELETE SET NULL,
+		source_url TEXT NOT NULL,
+		mode       TEXT NOT NULL,
+		scope      TEXT NOT NULL DEFAULT '',
+		reason     TEXT NOT NULL DEFAULT '',
+		failed_at  INTEGER NOT NULL DEFAULT 0
+	);
+	CREATE INDEX IF NOT EXISTS idx_ytdl_failures_failed_at ON ytdl_failures (failed_at DESC);
+	`,
 }

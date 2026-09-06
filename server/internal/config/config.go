@@ -62,6 +62,46 @@ type Config struct {
 	// rest. Required once the stateful store is active; optional while the
 	// server still runs in the legacy SYNO_URL-only mode. Never logged.
 	SecretsKey string
+
+	// --- YouTube download workers (spec 0012) ------------------------------
+	//
+	// Every one of these is OPTIONAL. With no worker image and no library
+	// claims configured the feature simply reports itself unavailable, so a
+	// Compose or bare-container install is unaffected by its existence. There
+	// is deliberately no default image: a missing one must mean "off", never a
+	// surprise pull of something nobody chose.
+
+	// YtdlImage is the worker image, which MUST be a pinned tag. An outdated
+	// extractor stops working against the source, so this is bumped
+	// deliberately alongside the supply-chain review rather than floated.
+	YtdlImage string
+	// YtdlNamespace is where workers are created. Empty means the pod's own
+	// namespace, which is the only one the Role covers.
+	YtdlNamespace string
+	// YtdlMusicClaim / YtdlMusicVideoClaim are the PVCs holding the operator's
+	// two media libraries. A worker mounts exactly one of them; the server
+	// container mounts neither (constitution v2.1.0).
+	YtdlMusicClaim      string
+	YtdlMusicVideoClaim string
+	// YtdlUID / YtdlGID are the ownership the worker runs as, so saved files
+	// are readable by the media server without permission repair.
+	YtdlUID int64
+	YtdlGID int64
+	// YtdlDeadlineSeconds bounds a single download. Nothing may run forever.
+	YtdlDeadlineSeconds int64
+	// YtdlTTLSeconds is how long a finished job lingers before the cluster
+	// sweeps it. It doubles as the visibility window for a SUCCESSFUL download;
+	// failures are recorded durably and are unaffected by it.
+	YtdlTTLSeconds int32
+	// YtdlMinDurationSeconds separates a track from a clip in bulk runs. A
+	// LOWER bound only — a long compilation is legitimate content.
+	YtdlMinDurationSeconds int
+}
+
+// YtdlConfigured reports whether the operator has set this feature up. When it
+// is false the endpoints answer 503 with an explanation rather than failing.
+func (c Config) YtdlConfigured() bool {
+	return c.YtdlImage != "" && (c.YtdlMusicClaim != "" || c.YtdlMusicVideoClaim != "")
 }
 
 // Load reads configuration from the environment, applying dev defaults and
@@ -82,6 +122,16 @@ func Load() (Config, error) {
 		StreamMax:          envInt("STREAM_MAX_CONCURRENT", 64),
 		DataDir:            env("DATA_DIR", "/data"),
 		SecretsKey:         os.Getenv("SECRETS_KEY"),
+
+		YtdlImage:              os.Getenv("YTDL_IMAGE"),
+		YtdlNamespace:          os.Getenv("YTDL_NAMESPACE"),
+		YtdlMusicClaim:         os.Getenv("YTDL_MUSIC_CLAIM"),
+		YtdlMusicVideoClaim:    os.Getenv("YTDL_MUSIC_VIDEO_CLAIM"),
+		YtdlUID:                int64(envInt("YTDL_UID", 1000)),
+		YtdlGID:                int64(envInt("YTDL_GID", 1000)),
+		YtdlDeadlineSeconds:    int64(envInt("YTDL_DEADLINE_SECONDS", 7200)),
+		YtdlTTLSeconds:         int32(envInt("YTDL_TTL_SECONDS", 86400)),
+		YtdlMinDurationSeconds: envInt("YTDL_MIN_DURATION_SECONDS", 90),
 	}
 
 	if cfg.Env == "dev" && cfg.SynoURL == "" {
