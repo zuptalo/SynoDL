@@ -250,23 +250,26 @@ the entry ends at failed rather than completed.
 - **FR-023**: System MUST refuse or coalesce a request for a link that is already
   being downloaded into the same library, so two workers never write the same
   folder concurrently.
-- **FR-024**: System MUST retain a finished download's outcome for
-  [NEEDS CLARIFICATION: how long should a completed or failed download stay
-  visible? The orchestrator discards finished jobs after a while, so either that
-  window IS the history (simple, but history is bounded and vanishes on cluster
-  cleanup) or finished outcomes are recorded durably in SynoDL's own store
-  (survives everything, but adds stored state and a retention rule)].
-- **FR-025**: The music and music-video libraries MUST be
-  [NEEDS CLARIFICATION: configured once by the operator and shared by everyone,
-  or selected per SynoDL user in the way NAS folder access already is? The
-  existing per-user folder-grant model implies the latter, but these libraries
-  are media-server libraries rather than NAS download destinations].
-- **FR-026**: Submitting a download and reviewing its state MUST be reachable
-  [NEEDS CLARIFICATION: from the existing Tasks view alongside NAS downloads, or
-  from its own place in the app? The shell already carries five tabs, and these
-  downloads do not come from Download Station, so mixing them into Tasks may
-  either helpfully unify "things being fetched" or confusingly merge two
-  unrelated systems].
+- **FR-024**: System MUST keep a durable record of a download that FAILED, so an
+  unsuccessful outcome stays visible after the orchestrator has discarded the
+  underlying job. A successful download's entry MAY expire with that cleanup —
+  the saved files are its lasting record — but a failure MUST NOT vanish
+  unremarked.
+- **FR-024a**: A stored failure record MUST be removable by the user, and MUST
+  NOT accumulate without bound.
+- **FR-025**: The music and music-video libraries MUST be configured once by the
+  operator and shared by every SynoDL user. They are instance-wide destinations,
+  not per-user ones, and MUST NOT be selectable per request beyond the choice of
+  which of the two a given mode writes to.
+- **FR-026**: YouTube downloads MUST appear as rows in the existing Tasks list
+  alongside NAS downloads, without adding a new tab, and each row MUST be
+  visibly marked as to which of the two systems it belongs to.
+- **FR-027**: A YouTube download row MUST offer only the actions that apply to
+  it, and MUST NOT present controls it cannot honour — there is no pausing,
+  resuming, or resource-level control over a worker once it is running.
+- **FR-028**: Existing filtering, sorting, and bulk actions over the Tasks list
+  MUST continue to behave correctly with both kinds of row present, and MUST NOT
+  apply a NAS-only action to a YouTube row.
 
 ### Key Entities
 
@@ -277,6 +280,9 @@ the entry ends at failed rather than completed.
   request it belongs to, which mode it is serving, and where it is in its life.
 - **Media library** — one of the two destinations: which mode writes to it, where
   it is mounted, and the record of what has already been saved into it.
+- **Failure record** — the durable trace of a download that did not succeed:
+  which link and mode it was, when it failed, and enough of a reason for the user
+  to act on it. Removable by the user; not kept for successful downloads.
 
 ## Success Criteria
 
@@ -323,6 +329,13 @@ the entry ends at failed rather than completed.
 - **In-flight state is not ours to keep.** A download's live state is read back
   from the orchestrator's own record of its jobs rather than mirrored into the
   store, so there is nothing to drift and nothing extra to protect.
+- **New: failures are written at rest.** The one thing this feature stores is a
+  record of downloads that failed — the submitted link, the chosen mode, the time,
+  and a reason. It lives in the existing single SQLite store under the one-store
+  rule; it introduces no second datastore. Submitted links are user-chosen public
+  URLs rather than secrets, but they are still user data: they stay out of logs
+  and metrics exactly as task URIs do, are visible only to the instance's own
+  users, and are removable.
 - **Still never logged.** Source links, saved file paths, and library paths stay
   out of logs, error strings, and metrics, exactly as task URIs already do.
 
@@ -338,6 +351,10 @@ the entry ends at failed rather than completed.
   rediscovering it.
 - **Only YouTube is in scope.** The host allowlist starts and ends there; other
   sources are a later spec.
+- **The two libraries are instance-wide.** Because they are mounted into worker
+  pods at deploy time and are the media server's own libraries, they are the
+  operator's configuration, not a per-user choice. Anyone who can sign in to this
+  SynoDL instance can add to them.
 - **Concurrency is bounded by a small operator-invisible limit**, tuned in code
   rather than configured, with requests beyond it waiting rather than failing.
 - **A duplicate in-flight request is refused, not queued behind the first**, on
@@ -354,3 +371,27 @@ the entry ends at failed rather than completed.
   shape.
 - **No progress reporting is a requirement, not a gap.** Byte-level progress is
   deliberately absent and should not be added later without a new spec.
+
+## Clarifications
+
+### Session 2026-09-06
+
+- Q: How long does a finished download stay visible, and does that mean SynoDL
+  stores anything? → A: Record failures only. A successful download fades with
+  the orchestrator's own cleanup window — the saved files are its record — but a
+  failure gets a durable row so a broken link or an extractor break is still
+  visible days later. This is the one piece of stored state the feature adds.
+- Q: Are the two media libraries operator-wide or chosen per SynoDL user? → A:
+  Operator-wide and shared. They are mounted into worker pods at deploy time and
+  are the media server's libraries; per-user destinations would mean per-user
+  paths inside a shared mount for no real gain. Everyone who can sign in can add
+  to them.
+- Q: Where does this live, given the shell already carries five tabs? → A: Mixed
+  into the existing Tasks list as ordinary rows, marked by their source. No sixth
+  tab and no segmented control. Consequence carried into FR-027 and FR-028: the
+  list now holds two kinds of row with different capabilities, so NAS-only
+  actions must not be offered on — or applied to — a YouTube row.
+- Deferred with a documented default rather than asked (marker limit): worker
+  concurrency is a small in-code limit with excess requests waiting, and a
+  duplicate in-flight request for the same link and library is refused rather
+  than queued. Both are recorded in Assumptions and revisitable in the plan.

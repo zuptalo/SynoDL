@@ -13,7 +13,7 @@
 
 ## Requirement Completeness
 
-- [ ] No [NEEDS CLARIFICATION] markers remain
+- [x] No [NEEDS CLARIFICATION] markers remain
 - [x] Requirements are testable and unambiguous
 - [x] Success criteria are measurable
 - [x] Success criteria are technology-agnostic (no implementation details)
@@ -31,21 +31,22 @@
 
 ## Notes
 
-- Three `[NEEDS CLARIFICATION]` markers remain by design, on FR-024 (how long a
-  finished download stays visible), FR-025 (whether the two libraries are
-  operator-wide or per SynoDL user), and FR-026 (where submitting and reviewing
-  downloads lives in the app). Each is a genuine fork with no safe default:
-  FR-024 decides whether this feature adds stored state at all, FR-025 sits on
-  the Principle III per-user access model, and FR-026 shapes the whole UI
-  deliverable. They are the agenda for `/speckit-clarify`.
-- Two further questions raised during drafting were resolved with documented
-  defaults rather than markers, per the three-marker limit: worker concurrency
-  (a small in-code limit, requests beyond it wait) and duplicate in-flight
-  requests (refused, not queued). Both are recorded in Assumptions and are cheap
-  to revisit in the plan.
+- All checklist items pass. The three `[NEEDS CLARIFICATION]` markers raised at
+  specify time were resolved in the 2026-09-06 clarification session and are
+  recorded in the spec's Clarifications section:
+  - FR-024 → record failures only (the feature's single piece of stored state).
+  - FR-025 → the two libraries are operator-wide and shared.
+  - FR-026 → YouTube downloads mix into the existing Tasks list, which added
+    FR-027 and FR-028 to keep NAS-only actions off YouTube rows.
+- Two questions were resolved with documented defaults rather than markers, per
+  the three-marker limit: worker concurrency (a small in-code limit, excess
+  requests wait) and duplicate in-flight requests (refused, not queued). Both sit
+  in Assumptions and are cheap to revisit during planning.
 - "Plex" and "YouTube" appear by name as the operator's actual environment and
   the only allowlisted source; they are product context, not implementation
   choices.
 - Everything under Assumptions → "The download recipe is settled" was verified
   end-to-end against real content before drafting, so the plan implements known
   behaviour rather than researching it.
+
+**Status**: ready for `/speckit-plan`.
