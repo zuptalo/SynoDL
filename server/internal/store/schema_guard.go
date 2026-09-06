@@ -252,4 +252,123 @@ func (s *Store) checkSchema() {
 	if rest := schemaDrift(have, want); len(rest) > 0 {
 		slog.Error("schema drift remains", "items", strings.Join(rest, ","))
 	}
+	// Rows whose parent is gone, left behind while foreign keys were off on most
+	// connections (spec 2019). Driven by what SQLite reports as broken rather than
+	// by a migration having run, because on the reporting instance that migration
+	// was recorded without taking effect.
+	if swept, err := s.sweepOrphans(); err != nil {
+		slog.Error("orphan sweep", "err", err)
+	} else if len(swept) > 0 {
+		slog.Warn("orphaned rows cleaned", "rows", strings.Join(swept, ","))
+	}
+}
+
+// sweepOrphans deletes rows SQLite itself reports as violating a foreign key.
+//
+// The migration that first did this cannot be relied on alone. On the reporting
+// instance its version was recorded while the statements had no effect — the same
+// "recorded as applied, never ran" shape that has now bitten three times — and a
+// cleanup that silently does not happen is worse than none, because everyone
+// believes it did.
+//
+// So it is driven by PRAGMA foreign_key_check instead of by bookkeeping. That
+// asks the database what is actually broken rather than what should have been
+// fixed, which means:
+//   - it cannot act on a healthy database, because there is nothing to report
+//   - it cannot remove a row that is still referenced, because SQLite would not
+//     have named it
+//   - it needs no version, no flag, and no memory of having run
+//
+// The action per row is the one the schema itself declares: CASCADE deletes,
+// SET NULL clears the column. Anything else is left alone and reported.
+func (s *Store) sweepOrphans() ([]string, error) {
+	type violation struct {
+		table string
+		rowid int64
+		fkid  int64
+	}
+	rows, err := s.db.Query(`PRAGMA foreign_key_check`)
+	if err != nil {
+		return nil, err
+	}
+	var found []violation
+	for rows.Next() {
+		var v violation
+		var parent sql.NullString
+		var rowid sql.NullInt64
+		if err := rows.Scan(&v.table, &rowid, &parent, &v.fkid); err != nil {
+			_ = rows.Close()
+			return nil, err
+		}
+		// A WITHOUT ROWID table cannot be addressed this way; skip rather than
+		// guess at which row was meant.
+		if !rowid.Valid {
+			continue
+		}
+		v.rowid = rowid.Int64
+		found = append(found, v)
+	}
+	if err := rows.Err(); err != nil {
+		_ = rows.Close()
+		return nil, err
+	}
+	_ = rows.Close()
+	if len(found) == 0 {
+		return nil, nil
+	}
+
+	cleaned := map[string]int{}
+	for _, v := range found {
+		action, column, err := fkAction(s.db, v.table, v.fkid)
+		if err != nil {
+			return nil, err
+		}
+		switch action {
+		case "CASCADE":
+			if _, err := s.db.Exec(
+				fmt.Sprintf(`DELETE FROM %q WHERE rowid = ?`, v.table), v.rowid); err != nil {
+				return nil, fmt.Errorf("sweep %s: %w", v.table, err)
+			}
+			cleaned[v.table+" (deleted)"]++
+		case "SET NULL":
+			if _, err := s.db.Exec(
+				fmt.Sprintf(`UPDATE %q SET %q = NULL WHERE rowid = ?`, v.table, column), v.rowid); err != nil {
+				return nil, fmt.Errorf("sweep %s: %w", v.table, err)
+			}
+			cleaned[v.table+"."+column+" (cleared)"]++
+		default:
+			// NO ACTION / RESTRICT: the schema does not say to remove it, so we do
+			// not. The caller reports it instead.
+			cleaned[v.table+" (left: "+action+")"]++
+		}
+	}
+	out := make([]string, 0, len(cleaned))
+	for k, n := range cleaned {
+		out = append(out, fmt.Sprintf("%s x%d", k, n))
+	}
+	sort.Strings(out)
+	return out, nil
+}
+
+// fkAction reports what the schema says to do when the parent of this foreign key
+// disappears, and which column holds it.
+func fkAction(db *sql.DB, table string, fkid int64) (action, column string, err error) {
+	rows, err := db.Query(fmt.Sprintf(`PRAGMA foreign_key_list(%q)`, table))
+	if err != nil {
+		return "", "", err
+	}
+	defer func() { _ = rows.Close() }()
+	for rows.Next() {
+		var (
+			id, seq                             int64
+			parent, from, to, onUpd, onDel, mat string
+		)
+		if err := rows.Scan(&id, &seq, &parent, &from, &to, &onUpd, &onDel, &mat); err != nil {
+			return "", "", err
+		}
+		if id == fkid {
+			return strings.ToUpper(onDel), from, nil
+		}
+	}
+	return "", "", rows.Err()
 }

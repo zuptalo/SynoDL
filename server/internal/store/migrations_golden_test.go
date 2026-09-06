@@ -36,4 +36,5 @@ var migrationGolden = []string{
 	"2975c6b83f389c32", // version 31
 	"d494619344fa7a5b", // version 32
 	"4330393b49392b38", // version 33
+	"755fca4ae4b6b045", // version 34
 }
