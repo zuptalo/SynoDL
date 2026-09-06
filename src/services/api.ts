@@ -192,6 +192,31 @@ export interface SetupPayload {
   adminPassword: string;
 }
 
+/**
+ * A YouTube download (spec 0012). Deliberately tiny: four states and nothing
+ * else. There is no size, no progress, no speed and no estimate here — the
+ * server does not send them, and their absence is the requirement rather than
+ * an omission to be filled in later.
+ */
+export interface YtdlDownload {
+  requestId: string;
+  url: string;
+  mode: 'music' | 'music-video';
+  scope: 'single' | 'playlist' | 'channel';
+  state: 'scheduled' | 'started' | 'completed' | 'failed';
+  /** Shown to admins only, matching the rule for NAS tasks. */
+  submittedBy?: string;
+  submittedAt?: number;
+  /** Populated only when state is 'failed'. */
+  reason?: string;
+}
+
+export interface YtdlSnapshot {
+  downloads: YtdlDownload[];
+  /** The live half could not be read; stored failures are still present. */
+  degraded: boolean;
+}
+
 export interface TaskSnapshot {
   tasks: Task[];
   stats: Stats;
@@ -715,6 +740,19 @@ export const api = {
   updateNasConfig: (input: NasConnInput) => request<void>('/v1/nas/config', jsonMethod('PUT', input)),
 
   tasks: () => request<{ tasks: Task[]; stats: Stats }>('/v1/tasks'),
+
+  // YouTube downloads (spec 0012). A separate feed from /v1/tasks on purpose:
+  // the NAS task path is the app's most load-bearing endpoint and this feature
+  // does not touch it — the two are merged here in the client instead.
+  ytdl: () => request<YtdlSnapshot>('/v1/ytdl'),
+  ytdlSubmit: (url: string, mode: 'music' | 'music-video') =>
+    request<{ requestId: string; scope: string; mode: string; state: string }>(
+      '/v1/ytdl',
+      json({ url, mode }),
+    ),
+  // Dismisses the RECORD of a finished download. Never deletes what it saved.
+  ytdlDismiss: (requestId: string) =>
+    request<void>(`/v1/ytdl/${encodeURIComponent(requestId)}`, { method: 'DELETE' }),
 
   createTaskURIs: (
     uris: string[],

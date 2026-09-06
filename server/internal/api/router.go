@@ -47,6 +47,11 @@ type Deps struct {
 	// watcher is not running, and nothing is reported as downloading.
 	ActiveDests func() map[string]bool
 
+	// Jobs runs the short-lived YouTube download workers (spec 0012). NIL means
+	// this deployment has no orchestrator — a Compose or bare-container install
+	// — and the endpoints answer 503 with an explanation rather than failing.
+	Jobs JobRunner
+
 	// PendingDests reports the destinations of tasks that have NOT finished —
 	// paused and errored ones included. It is what stops the removal
 	// reconciliation (spec 1029) from reading a folder that is empty because its
@@ -144,6 +149,13 @@ func NewRouter(d Deps) http.Handler {
 		mux.Handle("POST /v1/tasks/pause", handleTaskActionStateful(d, "pause"))
 		mux.Handle("POST /v1/tasks/resume", handleTaskActionStateful(d, "resume"))
 		mux.Handle("POST /v1/tasks/delete", handleTaskActionStateful(d, "delete"))
+
+		// YouTube download workers (spec 0012). Deliberately separate from
+		// /v1/tasks: the NAS task path is the app's most load-bearing endpoint
+		// and this feature does not touch it — the client merges the two feeds.
+		mux.Handle("POST /v1/ytdl", handleYtdlSubmit(d))
+		mux.Handle("GET /v1/ytdl", handleYtdlList(d))
+		mux.Handle("DELETE /v1/ytdl/{requestId}", handleYtdlDismiss(d))
 
 		mux.Handle("GET /v1/fs/shares", handleListSharesStateful(d))
 		mux.Handle("GET /v1/fs/list", handleListFolderStateful(d))

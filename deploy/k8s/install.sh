@@ -61,9 +61,19 @@ else
 fi
 
 echo "==> applying manifests for APP_HOST=$APP_HOST SYNO_URL=$SYNO_URL SYNO_TLS_INSECURE=$SYNO_TLS_INSECURE"
-for f in 00-namespace 10-synodl 20-ingressroute; do
+for f in 00-namespace 10-synodl 20-ingressroute 30-rbac; do
   envsubst '${APP_HOST} ${SYNO_URL} ${SYNO_TLS_INSECURE}' < "$DIR/${f}.yaml" | "$KUBECTL" apply -f -
 done
+
+# The two media libraries for YouTube downloads (spec 0012) are OPTIONAL and are
+# applied only when you say where they live. Without them synodl runs exactly as
+# before and the feature reports itself unavailable.
+if [ -n "${NAS_HOST:-}" ] && [ -n "${MUSIC_PATH:-}" ] && [ -n "${MUSIC_VIDEO_PATH:-}" ]; then
+  echo "▶ media libraries: ${NAS_HOST}:${MUSIC_PATH} + ${NAS_HOST}:${MUSIC_VIDEO_PATH}"
+  envsubst '${NAS_HOST} ${MUSIC_PATH} ${MUSIC_VIDEO_PATH}' < "$DIR/40-media.yaml" | "$KUBECTL" apply -f -
+else
+  echo "▶ media libraries: skipped (set NAS_HOST, MUSIC_PATH and MUSIC_VIDEO_PATH to enable YouTube downloads)"
+fi
 
 # A ConfigMap change does not restart the pod on its own (envFrom is read at boot).
 # Roll the Deployment so a re-run that changes SYNO_URL / origins takes effect now.

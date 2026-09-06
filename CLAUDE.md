@@ -8,13 +8,18 @@ any single file.
 
 SynoDL is a mobile-first, self-hostable client for **Synology Download Station**
 (the download manager app on Synology NAS/DSM). It ships as an installable
-**PWA** (Vue 3 + Ionic) backed by a small **Go** proxy (`synodl`). The defining
-constraint, which shapes nearly every design decision, is that the server is a
-**stateless, credential-free proxy**: it persists nothing, holds no credentials,
-and only forwards an explicit allowlist of DSM Web APIs to the single
-operator-configured NAS (`SYNO_URL`). The NAS session id (`sid`) lives on the
-client (IndexedDB) and rides each request in the `X-Syno-Sid` header. Never add
-a server feature that stores state or widens the proxy beyond the allowlist.
+**PWA** (Vue 3 + Ionic) backed by a small **Go** service (`synodl`). The
+defining constraint, which shapes nearly every design decision, is
+**custodial state and credential safety** (constitution Principle III): SynoDL
+holds its own user accounts and one stored NAS connection, all persistent state
+lives in a SINGLE encrypted SQLite database on ONE volume, secrets are encrypted
+at rest under `SECRETS_KEY`, and the server forwards only an explicit allowlist
+of DSM Web APIs to the single operator-configured NAS. Never add a second
+datastore, and never widen the proxy beyond the allowlist.
+
+A legacy **stateless** mode still exists for dev/e2e continuity: without
+`SECRETS_KEY` the server persists nothing, the client carries the NAS session id
+(`sid`) in the `X-Syno-Sid` header, and the NAS comes from `SYNO_URL`.
 
 SynoDL is licensed **AGPL-3.0-only** (see `LICENSE`). SynoDL is not affiliated
 with Synology Inc.; Synology, DSM, and Download Station are trademarks of
@@ -56,6 +61,17 @@ One repo, two parts, shipped as a single container.
     error mapping. Tested against an `httptest` fake DSM.
   - `internal/synomock/` — the mock DSM implementation (shared by
     `cmd/synomock` and tests), with `/__mock/*` control endpoints.
+  - `cmd/synok8s` + `internal/k8smock/` — the **mock Kubernetes Jobs API**, the
+    same idea as the mock DSM: `make start` and e2e never need a cluster. It
+    downloads nothing; `/__mock/*` drives a Job through its lifecycle, including
+    `vanish` (disappearing with no terminal condition), which is how "a missing
+    Job is never reported as completed" gets tested rather than argued about.
+  - `internal/k8s/` — a tiny stdlib Jobs client (create / list-by-label /
+    delete) against ONE namespace. Deliberately not `client-go`: three calls do
+    not justify it. Tested against an `httptest` fake API server.
+  - `internal/ytdl/` — the verified yt-dlp recipe, the URL host allowlist and
+    scope classifier, Job assembly, and the lifecycle→state mapping. Pure and
+    table-tested; this is where spec 0012's behaviour lives.
   - `internal/{config,httpx}/` — env config (fail-fast), HTTP middleware
     (recover → log → CORS), JSON responses, rate limiting.
 - **`e2e/`** — Playwright tests, hermetic: they build and boot their own
@@ -89,8 +105,8 @@ App comes up on http://localhost:5273 and proxies the API to `synodl` on
 `:8280`, which talks to the mock DSM on `:8291`. Log in with the mock account
 `admin` / `secret` (the OTP account is `otpuser` / `secret` + code `000000`; `disabled`, `blocked`,
 and `expired` — password `secret` — reproduce the matching DSM account states).
-Other targets: `make backend` / `make frontend` / `make mock` (run one piece),
-`make stop`. Inside `server/`: `make run`, `make test`, `make vet`, `make fmt`,
+Other targets: `make backend` / `make frontend` / `make mock` / `make mockk8s`
+(run one piece), `make stop`. Inside `server/`: `make run`, `make test`, `make vet`, `make fmt`,
 `make tidy`. Point the backend at a real NAS with `SYNO_URL=https://nas:5001`
 (add `SYNO_TLS_INSECURE=true` only for self-signed certs).
 
@@ -111,6 +127,8 @@ ports before adding a new listener):
 | 5275 | e2e test Vite for the stateful stack |
 | 8283 | e2e synodl, stateful (accounts + download sources) |
 | 8294 | e2e mock DSM for the stateful stack (TLS) |
+| 8295 | mock Kubernetes Jobs API dev (`make start`, spec 0012) |
+| 8296 | e2e mock Kubernetes Jobs API (stateful stack) |
 
 The production container still listens on the conventional **8080**
 internally — only dev listeners and the compose *host* port use the block.
@@ -142,12 +160,27 @@ npm run test:e2e              # Playwright e2e (builds + boots its own synodl + 
 
 ## Key architectural conventions
 
-**Stateless, credential-free proxy.** The server persists nothing — no
-database, no files, no volumes. Credentials cross the server only inside the
-login forward; the `sid` returns to the client and rides each request in
-`X-Syno-Sid`. Never log credentials, sids, OTP codes, or full task URIs. The
-proxy exposes typed `/v1` endpoints only — it is NOT a transparent `/webapi`
-passthrough, so the DSM API allowlist is structural (`internal/syno`).
+**Custodial state, one volume.** All persistent state is one SQLite database on
+one mounted volume (`DATA_DIR`): operator setup, SynoDL accounts, per-user NAS
+folder access, push subscriptions, settings. There is no second datastore.
+Stored NAS credentials and the VAPID private key are encrypted at rest under
+`SECRETS_KEY`. Never log credentials, sids, OTP codes, or full task URIs. The
+server exposes typed `/v1` endpoints only — it is NOT a transparent `/webapi`
+passthrough, so the DSM API allowlist is structural (`internal/syno`). Download
+tasks themselves are never persisted; the NAS is their source of truth.
+
+**Ephemeral workers for long external work (spec 0012).** Downloading from
+YouTube runs in a short-lived Kubernetes Job, never in the server process. The
+server creates the Job and then reads state back by LISTing Jobs by label — it
+never mirrors that state into the database, so a restart cannot desynchronise
+anything. The only thing stored is a record of downloads that FAILED, because a
+success leaves its files as evidence and a failure would leave nothing once the
+cluster sweeps the Job. Rules that must hold: a worker mounts exactly ONE media
+library (so the wrong one is unreachable, not merely unwritten); a user-supplied
+URL is host-allowlisted and passed as a discrete argv element, never
+interpolated into a shell string; the worker image tag is pinned, never
+`:latest`; and RBAC is a namespaced Role, never a ClusterRole. Outside a
+cluster the endpoints answer 503 and the rest of the app is unaffected.
 
 **DSM version differences** are absorbed in `internal/syno` via `SYNO.API.Info`
 discovery (cached per-API path + max supported version), not by UI branches.

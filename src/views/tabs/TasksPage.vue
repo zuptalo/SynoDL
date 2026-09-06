@@ -34,7 +34,7 @@ import { useRoute, useRouter } from 'vue-router';
 import { useTasks } from '@/composables/useTasks';
 import { useTaskFilter } from '@/composables/useTaskFilter';
 import { api } from '@/services/api';
-import { applyTaskFilter, type TaskFilterState } from '@/services/task-sort';
+import { ALL_STATUSES, applyTaskFilter, type TaskFilterState } from '@/services/task-sort';
 import { formatSpeed } from '@/utils/format';
 import type { Task } from '@/types/task';
 import TaskItem from '@/components/TaskItem.vue';
@@ -43,6 +43,8 @@ import NewTaskModal from '@/components/NewTaskModal.vue';
 import UploadModal from '@/components/UploadModal.vue';
 import { useUploads } from '@/composables/useUploads';
 import UploadItem from '@/components/UploadItem.vue';
+import { useYtdl } from '@/composables/useYtdl';
+import YtdlItem from '@/components/YtdlItem.vue';
 import TaskDetailModal from '@/components/TaskDetailModal.vue';
 import type { RefresherCustomEvent } from '@ionic/vue';
 
@@ -58,6 +60,42 @@ const uploadOpen = ref(false);
 // only leaves this list when it is dismissed, so a failure cannot go unnoticed.
 const { jobs: uploads, retry: retryUpload, cancel: cancelUpload, dismiss: dismissUpload } =
   useUploads();
+
+// YouTube downloads (spec 0012) report here alongside NAS downloads. They are a
+// SEPARATE list rather than rows merged into `tasks`, and deliberately so: the
+// two systems have different states and different capabilities, and keeping
+// them apart in code is what makes it impossible for a NAS-only bulk action to
+// reach one (FR-028). They still read as one list to the user.
+const {
+  downloads: ytdlDownloads,
+  available: ytdlAvailable,
+  dismiss: dismissYtdl,
+} = useYtdl();
+
+// A status filter names NAS statuses ("downloading", "seeding", …) that a
+// YouTube download cannot have, so a NARROWED one hides them rather than
+// pretending they match. Narrowed is the operative word: the default filter has
+// every status enabled, which means "nothing is filtered out" — treating that
+// as an active filter would hide these rows permanently. A text search still
+// applies either way.
+const statusFilterNarrowed = computed(
+  () => filter.value.statuses.length > 0 && filter.value.statuses.length < ALL_STATUSES.length,
+);
+const visibleYtdl = computed(() => {
+  if (!ytdlAvailable.value) return [];
+  if (statusFilterNarrowed.value) return [];
+  const term = (filter.value.term ?? '').trim().toLowerCase();
+  if (!term) return ytdlDownloads.value;
+  return ytdlDownloads.value.filter((d) => d.url.toLowerCase().includes(term));
+});
+
+async function onDismissYtdl(requestId: string): Promise<void> {
+  try {
+    await dismissYtdl(requestId);
+  } catch {
+    // The next poll is the source of truth; a failed dismiss simply reappears.
+  }
+}
 // The warning only belongs on screen while something is actually in flight.
 const uploadRunning = computed(() =>
   uploads.value.some((j) => j.state === 'sending' || j.state === 'waiting'),
@@ -320,6 +358,19 @@ async function onDelete(id: string): Promise<void> {
         <ion-note v-if="uploadRunning" class="upload-hint" color="medium">
           Keep the app open while an upload is running.
         </ion-note>
+      </ion-list>
+
+      <!-- YouTube downloads sit with the NAS ones and read the same way: they
+           are downloads in progress. They are a separate list because they are
+           a separate system — no pause, no resume, no progress. -->
+      <ion-list v-if="visibleYtdl.length" data-testid="ytdl-list">
+        <ion-list-header><ion-label>From YouTube</ion-label></ion-list-header>
+        <YtdlItem
+          v-for="d in visibleYtdl"
+          :key="d.requestId"
+          :download="d"
+          @dismiss="onDismissYtdl"
+        />
       </ion-list>
 
       <div v-if="!loaded" class="center"><ion-spinner name="crescent" /></div>

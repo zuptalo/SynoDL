@@ -24,6 +24,7 @@ Specs are grouped by category band; status moves
 | [0009](specs/0009-two-addresses-per/spec.md) | Two addresses per source, each with its own sign-in | 🟢 shipped |
 | [0010](specs/0010-mark-version-you/spec.md) | Mark the version you downloaded, from what we sent | 🟢 shipped |
 | [0011](specs/0011-keep-knowing-what-nas/spec.md) | Keep knowing what is on the NAS | 🟢 shipped |
+| [0012](specs/0012-download-youtube-audio/spec.md) | Save YouTube music and music videos to the library | 🔵 in-review |
 
 ## ⚡ Ad-hoc (1001–1999)
 

@@ -40,6 +40,9 @@ const MOCK_PORT = Number(process.env.SYNODL_E2E_MOCK_PORT) || 8292;
 // spec set can disturb the other's fixtures.
 const SF_PORT = Number(process.env.SYNODL_E2E_SF_PORT) || 8283;
 const SF_MOCK_PORT = Number(process.env.SYNODL_E2E_SF_MOCK_PORT) || 8294;
+// The fake Jobs API standing in for the cluster (spec 0012). Only the stateful
+// stack needs it: YouTube downloads exist only there.
+const SF_K8S_PORT = Number(process.env.SYNODL_E2E_SF_K8S_PORT) || 8296;
 export const STATEFUL_ADMIN = { username: 'e2eadmin', password: 'e2e-admin-password' };
 
 async function waitFor(url: string, timeoutMs = 30_000): Promise<void> {
@@ -91,6 +94,7 @@ export default async function globalSetup(): Promise<void> {
   freePort(MOCK_PORT);
   freePort(SF_PORT);
   freePort(SF_MOCK_PORT);
+  freePort(SF_K8S_PORT);
 
   // 1. Build both test binaries.
   execSync(`go build -o "${TMP}/synomock-e2e" ./cmd/synomock`, { cwd: SERVER, stdio: 'inherit' });
@@ -102,6 +106,7 @@ export default async function globalSetup(): Promise<void> {
     cwd: SERVER,
     stdio: 'inherit',
   });
+  execSync(`go build -o "${TMP}/synok8s-e2e" ./cmd/synok8s`, { cwd: SERVER, stdio: 'inherit' });
 
   // 2. Mock DSM first (synodl discovers its API table lazily, but a healthy
   //    mock from the start keeps the first login snappy and deterministic).
@@ -129,7 +134,14 @@ export default async function globalSetup(): Promise<void> {
   });
   await waitForTLS(`https://localhost:${SF_MOCK_PORT}/webapi/query.cgi`);
 
-  // 5. The stateful proxy under test. A fresh DATA_DIR per run keeps it
+  // 5. The fake Jobs API. Auto-advance stays OFF: specs drive each job to a
+  //    state explicitly, so a test never races a timer. It downloads nothing.
+  const sfK8sPid = start(`${TMP}/synok8s-e2e`, 'synok8s-e2e.log', {
+    MOCK_K8S_PORT: String(SF_K8S_PORT),
+  });
+  await waitFor(`http://localhost:${SF_K8S_PORT}/__mock/jobs`);
+
+  // 6. The stateful proxy under test. A fresh DATA_DIR per run keeps it
   //    hermetic: no state survives from a previous run.
   const sfData = path.join(TMP, 'e2e-sf-data');
   rmSync(sfData, { recursive: true, force: true });
@@ -146,10 +158,17 @@ export default async function globalSetup(): Promise<void> {
     // with no real credentials.
     SOURCE_MOCK_ZARFILM: `https://localhost:${SF_MOCK_PORT}/mocksrc/zar`,
     SOURCE_MOCK_30NAMA: `https://localhost:${SF_MOCK_PORT}/mocksrc/tn`,
+    // YouTube download workers (spec 0012), pointed at the fake Jobs API. The
+    // SAME client code runs here as in a real cluster, so the wire format, the
+    // label selector and the lifecycle mapping are all genuinely exercised.
+    YTDL_API_URL: `http://localhost:${SF_K8S_PORT}`,
+    YTDL_IMAGE: 'jauderho/yt-dlp:2026.08.19',
+    YTDL_MUSIC_CLAIM: 'synodl-music',
+    YTDL_MUSIC_VIDEO_CLAIM: 'synodl-music-video',
   });
   await waitFor(`http://localhost:${SF_PORT}/healthz`);
 
-  // 6. First-run setup, so specs can sign in instead of each repeating a wizard.
+  // 7. First-run setup, so specs can sign in instead of each repeating a wizard.
   const setup = await fetch(`http://localhost:${SF_PORT}/v1/setup`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -181,7 +200,13 @@ export default async function globalSetup(): Promise<void> {
 
   writeFileSync(
     PIDS_FILE,
-    JSON.stringify({ synodl: synodlPid, synomock: mockPid, synodlSf: sfPid, synomockSf: sfMockPid }),
+    JSON.stringify({
+      synodl: synodlPid,
+      synomock: mockPid,
+      synodlSf: sfPid,
+      synomockSf: sfMockPid,
+      synok8sSf: sfK8sPid,
+    }),
   );
 }
 

@@ -1,0 +1,50 @@
+# Permission for synodl to run short-lived YouTube download workers (spec 0012).
+#
+# This is the narrowest thing that works, and it is narrow on purpose: the
+# constitution (v2.1.0, Principle III) treats this ServiceAccount token as a
+# credential under the same custody rules as a NAS password. Before changing
+# anything here, note what is deliberately ABSENT:
+#
+#   - It is a Role, NEVER a ClusterRole. synodl can act in its own namespace and
+#     nowhere else in the cluster.
+#   - No `secrets`. A compromised synodl must not be able to read the cluster's
+#     secrets — including its own SECRETS_KEY.
+#   - No `pods/exec` or `pods/attach`. Creating a workload is not the same
+#     permission as getting a shell inside one.
+#   - No `create`/`delete` on pods directly. Pods arrive only as a consequence of
+#     a Job, which is what makes "workers are ephemeral" enforceable.
+#
+# The `pods` read is what lets a Job's state be reported accurately; the Job
+# object alone does not always say why something failed.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: synodl
+  namespace: synodl
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: synodl-worker
+  namespace: synodl
+rules:
+  - apiGroups: ["batch"]
+    resources: ["jobs"]
+    verbs: ["create", "get", "list", "delete"]
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: synodl-worker
+  namespace: synodl
+subjects:
+  - kind: ServiceAccount
+    name: synodl
+    namespace: synodl
+roleRef:
+  kind: Role
+  name: synodl-worker
+  apiGroup: rbac.authorization.k8s.io

@@ -188,3 +188,46 @@ account. The `sid` is stored on the client; the server keeps nothing.
 No `Secret` and no Postgres manifest exist here **by design** — the proxy is
 stateless and credential-free. The host-specific values (`APP_HOST`, `SYNO_URL`,
 `SYNO_TLS_INSECURE`) are substituted at apply time and are **not** committed.
+
+## Downloading from YouTube (spec 0012)
+
+Optional. Without it SynoDL runs exactly as before and the feature reports
+itself unavailable in the app.
+
+1. **Create two shares on the NAS** — one for music, one for music videos — and
+   export both over NFS to the cluster. Own them as the uid/gid you will set in
+   `YTDL_UID` / `YTDL_GID` (1000/1000 by default), or workers cannot write.
+2. **Apply the manifests** with the paths set, and `install.sh` picks them up:
+
+   ```sh
+   NAS_HOST=10.0.1.2 MUSIC_PATH=/volume1/music MUSIC_VIDEO_PATH=/volume1/music-video ./install.sh
+   ```
+
+   `30-rbac.yaml` grants synodl permission to run worker Jobs in its own
+   namespace and nothing else; `40-media.yaml` creates the two ReadWriteMany
+   volumes. RWX is required — several workers may mount the same library at once,
+   possibly on different nodes.
+3. **Point Plex at the two shares.** Music as a Music library. Plex has no
+   first-class music-video library type; Other Videos suits the
+   `Artist/Album/Title` shape these produce.
+
+### Keeping it working
+
+The worker image tag in `10-synodl.yaml` is **pinned and must stay pinned**. It
+carries the extractor, and an outdated extractor stops working against YouTube —
+usually within weeks, and silently. Bump it deliberately alongside the
+supply-chain review rather than floating it on `:latest`, where you would find
+out from a user instead of from a test.
+
+### Verifying
+
+A music download should leave, under the music library:
+
+```text
+<Artist>/<Album or Singles>/<the YouTube title>.mp3
+<Artist>/<Album or Singles>/<the YouTube title>.lrc
+```
+
+and the audio file's tags should carry a non-empty album and album artist. That
+last part is the difference between Plex shelving a track properly and dumping it
+under *[Unknown Album]*, and it is the easiest thing to regress.
