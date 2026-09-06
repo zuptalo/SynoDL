@@ -4,7 +4,7 @@
 
 **Created**: 2026-09-05
 
-**Status**: in-review
+**Status**: shipped
 
 **Input**: Found while verifying the two-address fallback in action: a source with no alternate address still reported `hasAltSession: true`.
 

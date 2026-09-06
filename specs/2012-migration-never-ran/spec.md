@@ -4,7 +4,7 @@
 
 **Created**: 2026-09-05
 
-**Status**: in-review
+**Status**: shipped
 
 **Input**: User report: "The configurations are gone and there is no way to add any!"
 

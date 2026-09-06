@@ -4,7 +4,7 @@
 
 **Created**: 2026-09-05
 
-**Status**: in-review
+**Status**: shipped
 
 **Input**: User report: "the OWNED details are gone! We see the title as owned, but when we dive in we don't see which quality is actually available on the NAS anymore!"
 

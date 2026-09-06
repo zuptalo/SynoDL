@@ -4,7 +4,7 @@
 
 **Created**: 2026-09-05
 
-**Status**: in-review
+**Status**: shipped
 
 **Input**: User request: "make sure the downloaded version in owned it is marked correctly for series and movies"
 
