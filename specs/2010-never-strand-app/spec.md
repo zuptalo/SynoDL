@@ -4,7 +4,7 @@
 
 **Created**: 2026-09-05
 
-**Status**: in-review
+**Status**: shipped
 
 **Input**: User report: "When a source that is down is selected when app opens, it doesn't allow switching to the healthy one, let's automatically switch to the healthy one even if the previous session the selected source was the one that is not available anymore"
 

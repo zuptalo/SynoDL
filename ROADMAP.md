@@ -21,9 +21,9 @@ Specs are grouped by category band; status moves
 | [0006](specs/0006-per-user-download/spec.md) | Per-User Download Statistics and Richer Notifications | 🟢 shipped |
 | [0007](specs/0007-multiple-download-sources/spec.md) | Multiple Download Sources | 🟢 shipped |
 | [0008](specs/0008-show-which-discover/spec.md) | Show which Discover titles you already have | 🟢 shipped |
-| [0009](specs/0009-two-addresses-per/spec.md) | Two addresses per source, each with its own sign-in | 🔵 in-review |
-| [0010](specs/0010-mark-version-you/spec.md) | Mark the version you downloaded, from what we sent | 🔵 in-review |
-| [0011](specs/0011-keep-knowing-what-nas/spec.md) | Keep knowing what is on the NAS | 🔵 in-review |
+| [0009](specs/0009-two-addresses-per/spec.md) | Two addresses per source, each with its own sign-in | 🟢 shipped |
+| [0010](specs/0010-mark-version-you/spec.md) | Mark the version you downloaded, from what we sent | 🟢 shipped |
+| [0011](specs/0011-keep-knowing-what-nas/spec.md) | Keep knowing what is on the NAS | 🟢 shipped |
 
 ## ⚡ Ad-hoc (1001–1999)
 
@@ -49,15 +49,15 @@ Specs are grouped by category band; status moves
 | [1020](specs/1020-fall-back-source/spec.md) | Alternate Domain Fallback for a Download Source | 🟢 shipped |
 | [1021](specs/1021-name-new-downloads/spec.md) | Name new downloads the way Plex expects | 🟢 shipped |
 | [1022](specs/1022-upload-file-straight/spec.md) | Upload a file straight into your library | 🟢 shipped |
-| [1023](specs/1023-zarfilm-titles-carry/spec.md) | ZarFilm titles carry an IMDb link and a synopsis | 🔵 in-review |
-| [1024](specs/1024-filter-and-sort/spec.md) | Filter and sort every source the same way | 🔵 in-review |
-| [1025](specs/1025-mark-version-you/spec.md) | Mark the version you actually downloaded | 🔵 in-review |
-| [1026](specs/1026-tell-one-release/spec.md) | Tell one release from another by the file it makes | 🔵 in-review |
-| [1027](specs/1027-choosing-quality-deliberate-act/spec.md) | Choosing a quality is a deliberate act | 🔵 in-review |
-| [1028](specs/1028-recover-past-versions/spec.md) | Recover the version of downloads made before we recorded it | 🔵 in-review |
-| [1029](specs/1029-forget-content-left-nas/spec.md) | Forget content that has left the NAS | 🔵 in-review |
-| [1030](specs/1030-discover-opens-newest-titles/spec.md) | Discover opens on the newest titles | ⚪ planned |
-| [1031](specs/1031-schema-drift-guard/spec.md) | Notice when a database's schema is not what it should be | ⚪ planned |
+| [1023](specs/1023-zarfilm-titles-carry/spec.md) | ZarFilm titles carry an IMDb link and a synopsis | 🟢 shipped |
+| [1024](specs/1024-filter-and-sort/spec.md) | Filter and sort every source the same way | 🟢 shipped |
+| [1025](specs/1025-mark-version-you/spec.md) | Mark the version you actually downloaded | 🟢 shipped |
+| [1026](specs/1026-tell-one-release/spec.md) | Tell one release from another by the file it makes | 🟢 shipped |
+| [1027](specs/1027-choosing-quality-deliberate-act/spec.md) | Choosing a quality is a deliberate act | 🟢 shipped |
+| [1028](specs/1028-recover-past-versions/spec.md) | Recover the version of downloads made before we recorded it | 🟢 shipped |
+| [1029](specs/1029-forget-content-left-nas/spec.md) | Forget content that has left the NAS | 🟢 shipped |
+| [1030](specs/1030-discover-opens-newest-titles/spec.md) | Discover opens on the newest titles | 🟢 shipped |
+| [1031](specs/1031-schema-drift-guard/spec.md) | Notice when a database's schema is not what it should be | 🟢 shipped |
 
 ## 🐛 Hotfixes & Bug Fixes (2001+)
 
@@ -70,12 +70,12 @@ Specs are grouped by category band; status moves
 | [2005](specs/2005-season-groups-download/spec.md) | Obvious season dividers in the download options list | 🟢 shipped |
 | [2006](specs/2006-release-year-sort/spec.md) | Release-year sort no longer leads with year-less titles | 🟢 shipped |
 | [2007](specs/2007-release-year-sort/spec.md) | Release-year sort is fast again, and Discover opens on Most popular | 🟢 shipped |
-| [2008](specs/2008-posters-and-owned/spec.md) | Posters and owned markers survive a source outage | 🔵 in-review |
-| [2009](specs/2009-say-when-source/spec.md) | Say when a source session is not valid where it is being asked | 🔵 in-review |
-| [2010](specs/2010-never-strand-app/spec.md) | Never strand the app on a source that is down | 🔵 in-review |
-| [2011](specs/2011-source-omits-resolution/spec.md) | A source that omits the resolution can still be matched | 🔵 in-review |
-| [2012](specs/2012-migration-never-ran/spec.md) | A migration added in the middle never runs | 🔵 in-review |
-| [2013](specs/2013-orphaned-alt-credentials/spec.md) | Removing an address removes its credentials | 🔵 in-review |
+| [2008](specs/2008-posters-and-owned/spec.md) | Posters and owned markers survive a source outage | 🟢 shipped |
+| [2009](specs/2009-say-when-source/spec.md) | Say when a source session is not valid where it is being asked | 🟢 shipped |
+| [2010](specs/2010-never-strand-app/spec.md) | Never strand the app on a source that is down | 🟢 shipped |
+| [2011](specs/2011-source-omits-resolution/spec.md) | A source that omits the resolution can still be matched | 🟢 shipped |
+| [2012](specs/2012-migration-never-ran/spec.md) | A migration added in the middle never runs | 🟢 shipped |
+| [2013](specs/2013-orphaned-alt-credentials/spec.md) | Removing an address removes its credentials | 🟢 shipped |
 | [2015](specs/2015-recovered-version-reads/spec.md) | The version you downloaded is not the one marked | 🟢 shipped |
 | [2016](specs/2016-data-dir-special-chars/spec.md) | A DATA_DIR with punctuation in it opens the wrong database | 🟢 shipped |
 | [2017](specs/2017-hide-owned-migration-skipped/spec.md) | "Hide what I have" never saved, and every view save answered 500 | 🟢 shipped |

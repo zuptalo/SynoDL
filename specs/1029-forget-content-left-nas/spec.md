@@ -4,7 +4,7 @@
 
 **Created**: 2026-09-06
 
-**Status**: in-review
+**Status**: shipped
 <!-- SynoDL spec lifecycle: planned → in-progress → in-review → shipped. -->
 
 **Input**: User description: "we need to have some scheduled scans and see if anything has been removed from the nas folders and update our database accordingly as well, if a folder doesn't exist anymore or the folder doesn't contain any movie file, then we can consider it as gone and we can delete it's data from the database"

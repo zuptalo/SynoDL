@@ -4,7 +4,7 @@
 
 **Created**: 2026-09-06
 
-**Status**: planned
+**Status**: shipped
 <!-- SynoDL spec lifecycle: planned → in-progress → in-review → shipped. -->
 
 **Input**: User description: "let's change the deafult sorting order to be on Release year as well so we always get the latest titles in the begining"

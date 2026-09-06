@@ -4,7 +4,7 @@
 
 **Created**: 2026-09-06
 
-**Status**: planned
+**Status**: shipped
 <!-- SynoDL spec lifecycle: planned → in-progress → in-review → shipped. -->
 
 **Input**: User asked for the check noted at the end of spec 2017: compare the live schema against what the migration list should have produced.

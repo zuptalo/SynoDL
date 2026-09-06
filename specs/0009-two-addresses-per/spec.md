@@ -4,7 +4,7 @@
 
 **Created**: 2026-09-05
 
-**Status**: in-review
+**Status**: shipped
 <!-- SynoDL spec lifecycle: planned → in-progress → in-review → shipped. -->
 
 **Input**: User request: "if you think it is better to make the alternative url the main or if you think we should have both configured in the source as backup plan, let's make that happen, we can allow the user to provide one or both of them in the configuration and we can switch between them when one becomes unavailable just like today"

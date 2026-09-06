@@ -4,7 +4,7 @@
 
 **Created**: 2026-09-05
 
-**Status**: in-review
+**Status**: shipped
 
 **Input**: User report: "In all sources it says zarfilm is not responding but it is hard to spot, when switching to zarfilm only it says download source needs refresh, after swaping tabs once it shows the 30nama content while zarfilm is selected"
 
