@@ -14,6 +14,8 @@ import {
   IonListHeader,
   IonModal,
   IonNote,
+  IonSegment,
+  IonSegmentButton,
   IonSelect,
   IonSelectOption,
   IonTextarea,
@@ -28,6 +30,7 @@ import { batch, extractUrls } from '@/services/url-detect';
 import { messageForError } from '@/services/syno-errors';
 import { useDestinationPrefs } from '@/composables/useDestinationPrefs';
 import { useSession } from '@/composables/useSession';
+import { useYtdl } from '@/composables/useYtdl';
 import FolderPickerModal from '@/components/FolderPickerModal.vue';
 
 const { defaultDest, favorites } = useDestinationPrefs();
@@ -62,6 +65,33 @@ const progress = ref('');
 const BATCH_SIZE = 10;
 
 const urls = computed(() => extractUrls(text.value));
+
+// YouTube links can go somewhere Download Station cannot follow (spec 0012):
+// straight into the music or music-video library, fetched by a worker. The
+// choice only appears when there IS a YouTube link in the box and the server
+// can actually run workers, so the ordinary "send this to the NAS" flow is
+// untouched for everyone else.
+const YOUTUBE_HOSTS = [
+  'youtube.com',
+  'www.youtube.com',
+  'm.youtube.com',
+  'music.youtube.com',
+  'youtu.be',
+];
+const youtubeUrls = computed(() =>
+  urls.value.filter((u) => {
+    try {
+      return YOUTUBE_HOSTS.includes(new URL(u).hostname.toLowerCase());
+    } catch {
+      return false;
+    }
+  }),
+);
+const { available: ytdlAvailable, submit: submitYtdl } = useYtdl();
+const ytdlMode = ref<'nas' | 'music' | 'music-video'>('nas');
+const sendingToLibrary = computed(
+  () => ytdlMode.value !== 'nas' && youtubeUrls.value.length > 0 && ytdlAvailable.value,
+);
 const canSubmit = computed(() => !busy.value && (urls.value.length > 0 || file.value !== null));
 
 watch(
@@ -140,6 +170,22 @@ async function submit(): Promise<void> {
   error.value = '';
   progress.value = '';
   try {
+    // A media library is a different destination entirely: it does not touch
+    // the NAS task path, so this returns early rather than falling through into
+    // the Download Station options below.
+    if (sendingToLibrary.value) {
+      const mode = ytdlMode.value as 'music' | 'music-video';
+      let added = 0;
+      for (const url of youtubeUrls.value) {
+        await submitYtdl(url, mode);
+        added += 1;
+        if (youtubeUrls.value.length > 1) {
+          progress.value = `Started ${added} of ${youtubeUrls.value.length}…`;
+        }
+      }
+      emit('created');
+      return;
+    }
     if (urls.value.length > 0) {
       const opts = {
         destination: destination.value || undefined,
@@ -264,6 +310,35 @@ async function submit(): Promise<void> {
             {{ urls.length }} link{{ urls.length === 1 ? '' : 's' }} detected
           </ion-note>
         </ion-item>
+
+        <!-- Only for YouTube links, and only where the server can run workers. -->
+        <template v-if="youtubeUrls.length > 0 && ytdlAvailable">
+          <ion-list-header><ion-label>Send to</ion-label></ion-list-header>
+          <ion-item lines="none">
+            <ion-segment
+              :value="ytdlMode"
+              data-testid="ytdl-mode"
+              @ionChange="ytdlMode = ($event.detail.value ?? 'nas') as 'nas' | 'music' | 'music-video'"
+            >
+              <ion-segment-button value="nas" data-testid="ytdl-mode-nas">
+                <ion-label>Download Station</ion-label>
+              </ion-segment-button>
+              <ion-segment-button value="music" data-testid="ytdl-mode-music">
+                <ion-label>Music</ion-label>
+              </ion-segment-button>
+              <ion-segment-button value="music-video" data-testid="ytdl-mode-video">
+                <ion-label>Music video</ion-label>
+              </ion-segment-button>
+            </ion-segment>
+          </ion-item>
+          <ion-item v-if="sendingToLibrary" lines="none">
+            <ion-note data-testid="ytdl-hint">
+              {{ youtubeUrls.length }} YouTube link{{ youtubeUrls.length === 1 ? '' : 's' }} will be
+              saved to your {{ ytdlMode === 'music' ? 'music' : 'music video' }} library. A playlist
+              or channel link fetches everything in it that is a full-length track.
+            </ion-note>
+          </ion-item>
+        </template>
 
         <ion-list-header><ion-label>Task file</ion-label></ion-list-header>
         <ion-item>
