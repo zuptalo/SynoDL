@@ -1,6 +1,27 @@
 <!--
 Sync Impact Report
-- Version: 1.1.0 → 2.0.0 (MAJOR: Principle III redefined — the NON-NEGOTIABLE
+- Version: 2.0.0 → 2.1.0 (MINOR: no principle removed or reversed. Principle III
+  gains three custody rules for worker orchestration, and the "Single image, one
+  volume" Domain Constraint is materially expanded to permit ephemeral worker Jobs
+  and the media volumes they alone mount (spec 0012). The single-SQLite-volume rule
+  for SynoDL's OWN state is untouched and still NON-NEGOTIABLE.)
+- Modified in 2.1.0: intro (adds fetching media from allowlisted public sources into
+  the operator's libraries); Principle III ("One store, one volume" carve-out for
+  worker-written media libraries; three new bullets — worker orchestration is a
+  credential, allowlisted + argv worker inputs, job state belongs to the orchestrator;
+  Credential-Safety Impact trigger widened); Domain Constraints ("Single image, one
+  volume" → "Single server image, one state volume", plus new "Ephemeral workers
+  only", "Media volumes are worker-only", and "Worker images are pinned" guardrails);
+  Gate sequencing (checklist trigger now includes worker/cluster credentials);
+  Governance complexity clause (adds least-privilege worker orchestration).
+- Templates / docs to review for sync (follow-up in the spec 0012 PR):
+  .specify/templates/*.md — ✅ no change needed (gates are referenced generically,
+  never enumerated); deploy/k8s — ⚠ pending (ServiceAccount + namespaced Role +
+  RoleBinding, and the two worker-only media volumes); CLAUDE.md — ⚠ pending, and
+  note it is ALSO still stale from v2.0.0: lines 13 and 145 describe the server as a
+  "stateless, credential-free proxy" that "persists nothing", which v2.0.0
+  superseded. Fix both the stale framing and the worker model in the spec 0012 PR.
+- Prior version (2.0.0): Version: 1.1.0 → 2.0.0 (MAJOR: Principle III redefined — the NON-NEGOTIABLE
   "Stateless, Credential-Free Proxy" becomes "Custodial State & Credential Safety".
   SynoDL gains its own user accounts, a single encrypted SQLite volume, stored NAS
   credentials, and offline Web Push (spec 0003). The allowlist-only NAS access and
@@ -36,8 +57,9 @@ Sync Impact Report
 SynoDL is a mobile-first, self-hostable client for Synology Download Station: an
 installable PWA (Vue 3 + Ionic) backed by a small self-hosted Go service
 (`synodl`) with its own user accounts that forwards an allowlisted subset of the
-DSM Web API to the operator's NAS on those users' behalf. This
-constitution governs every spec, plan, task, and change made in this repository.
+DSM Web API to the operator's NAS on those users' behalf, and fetches media from
+allowlisted public sources into the operator's libraries through short-lived worker
+jobs. This constitution governs every spec, plan, task, and change made in this repository.
 It supersedes habit and convenience. Where a principle says **MUST**, a violation
 blocks merge unless it is explicitly justified in the spec's *Complexity &
 Exceptions* section and accepted by a maintainer. Where it says **SHOULD**, a
@@ -86,7 +108,9 @@ allowlist-only NAS access and never leaking secrets — is preserved and extende
   public URL), SynoDL's own user accounts, per-user NAS folder access, push
   subscriptions, VAPID keys, and app settings. There is no second datastore and no
   state outside that volume. Download tasks themselves are never persisted — the
-  NAS remains their source of truth.
+  NAS remains their source of truth. Media libraries written by worker jobs (see
+  Domain Constraints) are NOT SynoDL state: they hold no SynoDL data, their source of
+  truth is the filesystem, and the server container never mounts them.
 - **Secrets are encrypted at rest.** Stored NAS credentials and the VAPID private
   key MUST be encrypted in the database under a key derived from an operator-
   provided secret (`SECRETS_KEY`, injected as env / k8s Secret, never written to
@@ -101,11 +125,30 @@ allowlist-only NAS access and never leaking secrets — is preserved and extende
   explicit DSM API allowlist implemented in `server/internal/syno` to the single
   operator-configured NAS. No open-proxy behavior: no client-supplied target hosts,
   no passthrough of arbitrary `SYNO.*` APIs. Adding an API is a spec-level decision.
+- **Worker inputs are allowlisted, never shell-interpolated.** A user-supplied URL
+  handed to a worker MUST be validated against an explicit host allowlist before the
+  worker is created, and MUST reach the worker as a discrete argv element — never
+  interpolated into a shell string. This is the DSM allowlist's instinct applied to
+  the second external surface: the user picks a target within the allowlist, never an
+  arbitrary host, and never the command around it.
 - **Least privilege by design.** App users authenticate to SynoDL, never to the
   NAS; SynoDL acts on the NAS through the single stored connection. Because that
   one NAS account cannot express per-app-user permissions, per-user NAS folder
   access is enforced by SynoDL itself and validated on every task-create.
-- Every spec that touches stored data, the NAS connection, or user auth MUST
+- **Worker orchestration is a credential.** Where SynoDL is granted access to an
+  orchestrator API in order to launch workers (a Kubernetes ServiceAccount token),
+  that token falls under these same custody rules: never logged, never in an error
+  payload, never exposed to a client. Its RBAC MUST be least-privilege and
+  namespace-scoped — a Role, never a ClusterRole — with verbs limited to what job
+  orchestration actually needs, and it MUST NOT grant reading secrets, exec/attach
+  into pods, or reach workloads outside SynoDL's own namespace.
+- **Job state belongs to the orchestrator.** In-flight worker state is derived by
+  listing the orchestrator's own labelled jobs, never mirrored into the SQLite store
+  — a mirror drifts the moment a job outlives a server restart. Where a spec needs a
+  durable record of *finished* work, it lives in the single SQLite store like any
+  other state, under the one-store rule; never in a second datastore.
+- Every spec that touches stored data, the NAS connection, worker orchestration, or
+  user auth MUST
   contain a **Credential-Safety Impact** section answering: what is stored and how
   it is protected, what crosses to the NAS, what could appear in logs or errors,
   and why.
@@ -179,10 +222,24 @@ Every unit of work is visible from roadmap to merge.
 
 These are project-specific guardrails every relevant spec MUST respect.
 
-- **Single image, one volume.** Client and server ship as one container: `synodl`
-  serves the built PWA at `/` and the API at `/v1` and `/healthz`. No sidecars. Its
-  only persistence is the single SQLite volume of Principle III; no other volumes,
-  no external datastore.
+- **Single server image, one state volume.** Client and server ship as one
+  container: `synodl` serves the built PWA at `/` and the API at `/v1` and
+  `/healthz`. No sidecars. Its only persistence is the single SQLite volume of
+  Principle III; the server container mounts no other volume, and there is no
+  external datastore.
+- **Ephemeral workers only.** The server MAY launch short-lived worker jobs for
+  long-running work against external sources. A worker MUST be ephemeral — it
+  starts, performs one unit of work, and terminates — MUST hold no SynoDL state, and
+  MUST NOT become a long-running service, a sidecar, or a second server. Workers are
+  the ONLY additional pods SynoDL may create.
+- **Media volumes are worker-only.** The operator's media libraries are mounted
+  read-write by worker pods and by nothing else; the server container MUST NOT mount
+  them. They are the operator's media, not SynoDL state (Principle III).
+- **Worker images are pinned and deliberately updated.** A worker runs a pinned
+  third-party image tag, never a mutable `:latest`. Because an outdated extractor
+  silently breaks against the sites it fetches from, worker image bumps follow the
+  same deliberate cadence as the supply-chain scan in Development Workflow —
+  reviewed, bumped, tested, and shipped, never floated.
 - **DSM API allowlist.** Every DSM API the proxy may call is declared and
   implemented in `server/internal/syno`; adding an API to the allowlist is a spec-
   level decision, not an implementation detail.
@@ -235,7 +292,8 @@ These are project-specific guardrails every relevant spec MUST respect.
 - **Gate sequencing.** `/speckit-clarify` runs before `/speckit-plan`;
   `/speckit-analyze` runs after `/speckit-tasks` and before `/speckit-implement`.
   `/speckit-checklist` is REQUIRED for any spec touching Principle III (stored
-  data, secrets at rest, the NAS connection/credentials, user auth, or the DSM
+  data, secrets at rest, the NAS connection/credentials, user auth, the DSM
+  allowlist, worker orchestration credentials or cluster access, or the worker input
   allowlist) and optional otherwise.
 
 ## Governance
@@ -250,8 +308,8 @@ These are project-specific guardrails every relevant spec MUST respect.
 - Complexity must be justified: anything that adds a moving part, a dependency, or a
   server capability must show why a simpler option won't do, and how it keeps the
   Principle III custody rules (single volume, secrets encrypted at rest, allowlist-
-  only NAS access, no secrets in logs) intact.
+  only NAS access, least-privilege worker orchestration, no secrets in logs) intact.
 - Runtime engineering guidance that is not constitutional lives in `CLAUDE.md` and
   `CONTRIBUTING.md`; where they conflict with this document, this document wins.
 
-**Version**: 2.0.0 | **Ratified**: 2026-07-26 | **Last Amended**: 2026-07-27
+**Version**: 2.1.0 | **Ratified**: 2026-07-26 | **Last Amended**: 2026-09-06
