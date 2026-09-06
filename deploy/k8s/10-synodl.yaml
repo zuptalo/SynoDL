@@ -50,6 +50,32 @@ data:
   # is also present; without it, it stays on the legacy SYNO_URL path — so this is
   # safe to apply before you're ready to switch.
   DATA_DIR: "/data"
+  # YouTube download workers (spec 0012). ALL OPTIONAL: with no image and no
+  # library claims the feature reports itself unavailable and nothing else
+  # changes, so this file stays safe to apply before the media volumes exist.
+  #
+  # The image tag is PINNED and must stay pinned. An outdated extractor silently
+  # stops working against YouTube, so bump this deliberately — like any other
+  # dependency — rather than floating it on :latest and finding out from a user.
+  YTDL_IMAGE: "jauderho/yt-dlp:2026.08.19"
+  # The two libraries from 40-media.yaml. A worker mounts exactly ONE of them,
+  # chosen by the request's mode; the synodl container mounts neither.
+  YTDL_MUSIC_CLAIM: "synodl-music"
+  YTDL_MUSIC_VIDEO_CLAIM: "synodl-music-video"
+  # Ownership the worker runs as, so saved files are readable by Plex and by you
+  # without a chown afterwards. Must match who owns the NFS shares.
+  YTDL_UID: "1000"
+  YTDL_GID: "1000"
+  # Nothing may run forever. A large channel is slow, not infinite; past this a
+  # download is stopped and reported as failed.
+  YTDL_DEADLINE_SECONDS: "7200"
+  # How long a FINISHED job lingers before the cluster sweeps it. This doubles as
+  # the visibility window for a successful download — a failure is recorded in
+  # the database and is unaffected by it.
+  YTDL_TTL_SECONDS: "86400"
+  # Below this, an item in a playlist or channel is a clip rather than a track.
+  # A lower bound only: long compilations are legitimate content.
+  YTDL_MIN_DURATION_SECONDS: "90"
   # STATIC_DIR (=/app/web, single-container mode) is baked into the image; no need
   # to repeat it here.
 ---
@@ -98,6 +124,10 @@ spec:
       # Give the old pod time to finish in-flight requests on SIGTERM (the server
       # shuts down gracefully) before it's killed, so nothing is dropped mid-deploy.
       terminationGracePeriodSeconds: 30
+      # The identity that lets synodl create worker Jobs (30-rbac.yaml). It is
+      # scoped to this namespace and to Jobs; see that file for what it
+      # deliberately cannot do.
+      serviceAccountName: synodl
       # The image runs as uid/gid 1000; fsGroup makes the mounted SQLite volume
       # group-owned by 1000 so the non-root process can write the database.
       securityContext:
@@ -125,6 +155,10 @@ spec:
                   key: SECRETS_KEY
                   optional: true
           volumeMounts:
+            # ONLY the state volume. The media libraries are deliberately NOT
+            # mounted here: worker pods mount them and the server never does
+            # (constitution v2.1.0). That is what makes it impossible for a bug
+            # in the server to write into someone's music library.
             - name: data
               mountPath: /data
           # /healthz returns 200 once the HTTP server is up. Liveness/readiness hit it.

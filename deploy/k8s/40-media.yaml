@@ -1,0 +1,69 @@
+# The two media libraries YouTube download workers write into (spec 0012).
+#
+# ReadWriteMany, and that is not a preference. Several workers can run at once,
+# each mounting the same library, and they are not guaranteed to land on the same
+# node — so the local-path ReadWriteOnce volume that holds synodl's own database
+# is exactly the wrong model here. These are NFS exports from the NAS, which is
+# also what lets Plex read the same files.
+#
+# These volumes are the OPERATOR'S MEDIA, not SynoDL state. Nothing here is
+# backed up with the synodl-data volume, nothing here is encrypted, and the
+# synodl container itself never mounts either of them — only worker pods do
+# (constitution v2.1.0, Domain Constraints).
+#
+# Set NAS_HOST, MUSIC_PATH and MUSIC_VIDEO_PATH before applying; install.sh
+# substitutes them. Create the two shares on the NAS first, owned by the uid/gid
+# you set in YTDL_UID / YTDL_GID, or the workers will not be able to write.
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: synodl-music
+spec:
+  capacity:
+    storage: 1Ti # NFS ignores this; Kubernetes still requires a number.
+  accessModes: ["ReadWriteMany"]
+  persistentVolumeReclaimPolicy: Retain # never let a deleted claim erase media
+  storageClassName: ""
+  nfs:
+    server: "${NAS_HOST}"
+    path: "${MUSIC_PATH}"
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: synodl-music
+  namespace: synodl
+spec:
+  accessModes: ["ReadWriteMany"]
+  storageClassName: ""
+  volumeName: synodl-music
+  resources:
+    requests:
+      storage: 1Ti
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: synodl-music-video
+spec:
+  capacity:
+    storage: 1Ti
+  accessModes: ["ReadWriteMany"]
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: ""
+  nfs:
+    server: "${NAS_HOST}"
+    path: "${MUSIC_VIDEO_PATH}"
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: synodl-music-video
+  namespace: synodl
+spec:
+  accessModes: ["ReadWriteMany"]
+  storageClassName: ""
+  volumeName: synodl-music-video
+  resources:
+    requests:
+      storage: 1Ti
