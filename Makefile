@@ -45,12 +45,17 @@ DEV_BACKEND_ENV = cd $(SERVER_DIR) && set -a && { [ -f .env ] && . ./.env; }; \
 		: $${SOURCE_MOCK_30NAMA:=https://localhost:8291/mocksrc/tn}; \
 		echo "▶ Download sources: in-repo FAKE sites (make start REAL_SOURCES=1 for the real ones)"; \
 	fi; \
+	: $${YTDL_API_URL:=http://localhost:8295}; \
+	: $${YTDL_IMAGE:=jauderho/yt-dlp:2026.08.19}; \
+	: $${YTDL_MUSIC_CLAIM:=synodl-music}; \
+	: $${YTDL_MUSIC_VIDEO_CLAIM:=synodl-music-video}; \
 	mkdir -p "$$DATA_DIR"; set +a;
 
 start: tools
-	@echo "▶ Starting mock DSM (:8291) + backend (air) + frontend (vite) - Ctrl+C to stop all"
+	@echo "▶ Starting mock DSM (:8291) + mock Jobs API (:8295) + backend (air) + frontend (vite) - Ctrl+C to stop all"
 	@trap 'kill 0' INT TERM EXIT; \
 		( cd $(SERVER_DIR) && MOCK_TLS=1 go run ./cmd/synomock ) & \
+		( cd $(SERVER_DIR) && MOCK_K8S_AUTO_ADVANCE_MS=4000 go run ./cmd/synok8s ) & \
 		( $(DEV_BACKEND_ENV) $(AIR) ) & \
 		( npm run dev ) & \
 		wait
@@ -59,11 +64,18 @@ start: tools
 mock:
 	@cd $(SERVER_DIR) && MOCK_TLS=1 go run ./cmd/synomock
 
+## mockk8s: run only the mock Jobs API that stands in for the cluster (spec 0012).
+##   It never downloads anything. Drive a job by hand with, e.g.:
+##     curl -XPOST localhost:8295/__mock/jobs/<request-id>/fail
+mockk8s:
+	@cd $(SERVER_DIR) && go run ./cmd/synok8s
+
 ## stop: kill any stray dev processes
 stop:
 	-@pkill -f "$(AIR)" 2>/dev/null || true
 	-@pkill -f "synodl" 2>/dev/null || true
 	-@pkill -f "synomock" 2>/dev/null || true
+	-@pkill -f "synok8s" 2>/dev/null || true
 	-@pkill -f "vite" 2>/dev/null || true
 
 ## backend: run only the backend in hot-reload mode (SYNO_URL defaults to the mock)

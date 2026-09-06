@@ -80,7 +80,7 @@ func (f *fakeJobs) setStatus(t *testing.T, requestID string, st k8s.JobStatus) {
 func ytdlCfg() config.Config {
 	return config.Config{
 		MaxTorrentMB: 16, LoginPerMinute: 1000, UploadMaxMB: 8,
-		YtdlImage:              "jauderho/yt-dlp:2026.09.01",
+		YtdlImage:              "jauderho/yt-dlp:2026.08.19",
 		YtdlMusicClaim:         "synodl-music",
 		YtdlMusicVideoClaim:    "synodl-music-video",
 		YtdlUID:                1000,

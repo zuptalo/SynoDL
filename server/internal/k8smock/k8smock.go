@@ -1,0 +1,193 @@
+// Package k8smock is a fake Kubernetes Jobs API: enough of the surface for
+// SynoDL's own client, plus /__mock/* controls to drive a Job's lifecycle on
+// demand.
+//
+// It exists for the same reason cmd/synomock does. The Domain Constraints say
+// local dev and the e2e suite must never require real hardware, and the cluster
+// API is now a dependency in exactly the way DSM already was. Faking only at
+// the Go interface boundary would leave the wire format, the label selector,
+// and the lifecycle-to-state mapping untested — which is precisely where this
+// feature's bugs would live.
+//
+// It NEVER downloads anything. It records the Job it was handed and lets a test
+// say what happens to it next.
+package k8smock
+
+import (
+	"encoding/json"
+	"log/slog"
+	"net/http"
+	"strings"
+	"sync"
+	"time"
+
+	"synodl/server/internal/k8s"
+)
+
+// Server holds the fake cluster's Jobs.
+type Server struct {
+	mu   sync.Mutex
+	jobs map[string]*k8s.Job
+
+	// autoAdvance makes a created Job walk scheduled → started → completed on
+	// its own. Off by default so tests stay deterministic; `make start` turns it
+	// on so a developer can watch a download progress without curling controls.
+	autoAdvance time.Duration
+}
+
+func New(autoAdvance time.Duration) *Server {
+	return &Server{jobs: map[string]*k8s.Job{}, autoAdvance: autoAdvance}
+}
+
+func (s *Server) Handler() http.Handler {
+	mux := http.NewServeMux()
+
+	// The real API surface SynoDL uses — nothing more.
+	mux.HandleFunc("POST /apis/batch/v1/namespaces/{ns}/jobs", s.createJob)
+	mux.HandleFunc("GET /apis/batch/v1/namespaces/{ns}/jobs", s.listJobs)
+	mux.HandleFunc("DELETE /apis/batch/v1/namespaces/{ns}/jobs/{name}", s.deleteJob)
+
+	// Controls, mirroring synomock's /__mock/* convention.
+	mux.HandleFunc("POST /__mock/jobs/{name}/start", s.control("start"))
+	mux.HandleFunc("POST /__mock/jobs/{name}/succeed", s.control("succeed"))
+	mux.HandleFunc("POST /__mock/jobs/{name}/fail", s.control("fail"))
+	mux.HandleFunc("POST /__mock/jobs/{name}/deadline", s.control("deadline"))
+	mux.HandleFunc("POST /__mock/jobs/{name}/vanish", s.control("vanish"))
+	mux.HandleFunc("POST /__mock/reset", s.reset)
+	mux.HandleFunc("GET /__mock/jobs", s.listJobs)
+	return mux
+}
+
+func (s *Server) createJob(w http.ResponseWriter, r *http.Request) {
+	var j k8s.Job
+	if err := json.NewDecoder(r.Body).Decode(&j); err != nil {
+		http.Error(w, `{"message":"bad job"}`, http.StatusBadRequest)
+		return
+	}
+	s.mu.Lock()
+	if _, exists := s.jobs[j.Metadata.Name]; exists {
+		s.mu.Unlock()
+		w.WriteHeader(http.StatusConflict)
+		_, _ = w.Write([]byte(`{"message":"already exists"}`))
+		return
+	}
+	s.jobs[j.Metadata.Name] = &j
+	name, delay := j.Metadata.Name, s.autoAdvance
+	s.mu.Unlock()
+
+	slog.Info("k8smock: job created", "name", name, "mode", j.Metadata.Labels["synodl.io/mode"])
+	if delay > 0 {
+		go s.advance(name, delay)
+	}
+	w.WriteHeader(http.StatusCreated)
+	_ = json.NewEncoder(w).Encode(j)
+}
+
+// advance walks a job through its lifecycle, for hand-testing in dev.
+func (s *Server) advance(name string, delay time.Duration) {
+	time.Sleep(delay)
+	s.apply(name, "start")
+	time.Sleep(delay)
+	s.apply(name, "succeed")
+}
+
+func (s *Server) listJobs(w http.ResponseWriter, r *http.Request) {
+	selector := r.URL.Query().Get("labelSelector")
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	out := k8s.JobList{Items: []k8s.Job{}}
+	for _, j := range s.jobs {
+		if matches(j.Metadata.Labels, selector) {
+			out.Items = append(out.Items, *j)
+		}
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(out)
+}
+
+// matches implements the equality-only label selector SynoDL uses.
+func matches(labels map[string]string, selector string) bool {
+	if strings.TrimSpace(selector) == "" {
+		return true
+	}
+	for _, clause := range strings.Split(selector, ",") {
+		k, v, ok := strings.Cut(strings.TrimSpace(clause), "=")
+		if !ok {
+			continue
+		}
+		if labels[k] != v {
+			return false
+		}
+	}
+	return true
+}
+
+func (s *Server) deleteJob(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	s.mu.Lock()
+	_, ok := s.jobs[name]
+	delete(s.jobs, name)
+	s.mu.Unlock()
+	if !ok {
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = w.Write([]byte(`{"message":"not found"}`))
+		return
+	}
+	_, _ = w.Write([]byte(`{"status":"Success"}`))
+}
+
+func (s *Server) control(action string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if !s.apply(r.PathValue("name"), action) {
+			http.Error(w, `{"message":"no such job"}`, http.StatusNotFound)
+			return
+		}
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}
+}
+
+// apply drives one Job to a new lifecycle state. The name may be the Job's own
+// name or the request id it carries, so a test can use whichever it has.
+func (s *Server) apply(name, action string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	j := s.jobs[name]
+	if j == nil {
+		for _, candidate := range s.jobs {
+			if candidate.Metadata.Labels["synodl.io/request-id"] == name {
+				j = candidate
+				break
+			}
+		}
+	}
+	if j == nil {
+		return false
+	}
+
+	switch action {
+	case "start":
+		j.Status = k8s.JobStatus{Active: 1}
+	case "succeed":
+		j.Status = k8s.JobStatus{Succeeded: 1, Conditions: []k8s.JobCondition{{Type: "Complete", Status: "True"}}}
+	case "fail":
+		j.Status = k8s.JobStatus{Failed: 1, Conditions: []k8s.JobCondition{
+			{Type: "Failed", Status: "True", Reason: "BackoffLimitExceeded"}}}
+	case "deadline":
+		j.Status = k8s.JobStatus{Failed: 1, Conditions: []k8s.JobCondition{
+			{Type: "Failed", Status: "True", Reason: "DeadlineExceeded"}}}
+	case "vanish":
+		// Disappears WITHOUT a terminal condition — the case that proves a
+		// missing job is never reported as a success.
+		delete(s.jobs, j.Metadata.Name)
+	}
+	return true
+}
+
+func (s *Server) reset(w http.ResponseWriter, r *http.Request) {
+	s.mu.Lock()
+	s.jobs = map[string]*k8s.Job{}
+	s.mu.Unlock()
+	_, _ = w.Write([]byte(`{"ok":true}`))
+}

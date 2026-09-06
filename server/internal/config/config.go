@@ -78,6 +78,11 @@ type Config struct {
 	// YtdlNamespace is where workers are created. Empty means the pod's own
 	// namespace, which is the only one the Role covers.
 	YtdlNamespace string
+	// YtdlAPIURL points the worker client at an explicit Jobs API instead of
+	// discovering the in-cluster one. Dev and e2e set it to the in-repo mock
+	// orchestrator, so the SAME client code runs on a laptop as in the cluster.
+	// Unset in production, where in-cluster discovery is the only path.
+	YtdlAPIURL string
 	// YtdlMusicClaim / YtdlMusicVideoClaim are the PVCs holding the operator's
 	// two media libraries. A worker mounts exactly one of them; the server
 	// container mounts neither (constitution v2.1.0).
@@ -125,6 +130,7 @@ func Load() (Config, error) {
 
 		YtdlImage:              os.Getenv("YTDL_IMAGE"),
 		YtdlNamespace:          os.Getenv("YTDL_NAMESPACE"),
+		YtdlAPIURL:             os.Getenv("YTDL_API_URL"),
 		YtdlMusicClaim:         os.Getenv("YTDL_MUSIC_CLAIM"),
 		YtdlMusicVideoClaim:    os.Getenv("YTDL_MUSIC_VIDEO_CLAIM"),
 		YtdlUID:                int64(envInt("YTDL_UID", 1000)),

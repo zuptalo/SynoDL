@@ -12,7 +12,7 @@ import (
 func testConfig(mode Mode, raw string) JobConfig {
 	return JobConfig{
 		Namespace: "synodl",
-		Image:     "jauderho/yt-dlp:2026.09.01",
+		Image:     "jauderho/yt-dlp:2026.08.19",
 		RequestID: "abc123",
 		UserID:    "7",
 		Mode:      mode,

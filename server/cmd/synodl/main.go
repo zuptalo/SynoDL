@@ -21,6 +21,7 @@ import (
 
 	"synodl/server/internal/api"
 	"synodl/server/internal/config"
+	"synodl/server/internal/k8s"
 	"synodl/server/internal/nas"
 	"synodl/server/internal/push"
 	"synodl/server/internal/store"
@@ -47,6 +48,7 @@ func main() {
 		Cfg:          cfg,
 		Version:      version,
 		ReleaseNotes: decodeReleaseNotes(releaseNotesB64),
+		Jobs:         newJobRunner(cfg),
 	}
 
 	// Stateful mode (spec 0003) activates when SECRETS_KEY is configured: open the
@@ -198,4 +200,49 @@ func decodeReleaseNotes(b64 string) []api.ReleaseNote {
 		return nil
 	}
 	return notes
+}
+
+// newJobRunner builds the client that launches YouTube download workers
+// (spec 0012), or returns nil when this deployment cannot run them.
+//
+// nil is a perfectly ordinary outcome, not a failure: SynoDL under Docker
+// Compose or a bare container has no orchestrator, and the endpoints answer 503
+// with an explanation. The server MUST still boot — this feature is additive
+// and must never be able to take an existing install down.
+func newJobRunner(cfg config.Config) api.JobRunner {
+	if !cfg.YtdlConfigured() {
+		// No worker image or no library claims: the operator has not set this
+		// up, so say nothing louder than a debug line.
+		return nil
+	}
+
+	var kc k8s.Config
+	if cfg.YtdlAPIURL != "" {
+		// Dev and e2e: talk to the in-repo mock orchestrator over plain HTTP.
+		// The same client code runs here as in the cluster, which is the point —
+		// the wire format and the label selector get exercised for real.
+		ns := cfg.YtdlNamespace
+		if ns == "" {
+			ns = "synodl"
+		}
+		kc = k8s.Config{Host: cfg.YtdlAPIURL, Namespace: ns}
+	} else {
+		var err error
+		kc, err = k8s.InClusterConfig()
+		if err != nil {
+			slog.Info("youtube downloads unavailable: not running in a cluster", "err", err)
+			return nil
+		}
+		if cfg.YtdlNamespace != "" {
+			kc.Namespace = cfg.YtdlNamespace
+		}
+	}
+
+	client, err := k8s.New(kc)
+	if err != nil {
+		slog.Error("youtube downloads unavailable: worker client", "err", err)
+		return nil
+	}
+	slog.Info("youtube downloads enabled", "namespace", client.Namespace(), "image", cfg.YtdlImage)
+	return client
 }
