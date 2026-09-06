@@ -27,11 +27,13 @@ export default function globalTeardown(): void {
       synomock?: number;
       synodlSf?: number;
       synomockSf?: number;
+      synok8sSf?: number;
     };
     stop(pids.synodl);
     stop(pids.synomock);
     stop(pids.synodlSf);
     stop(pids.synomockSf);
+    stop(pids.synok8sSf);
     rmSync(PIDS_FILE, { force: true });
   } catch {
     /* nothing to tear down */

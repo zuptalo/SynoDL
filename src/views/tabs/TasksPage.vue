@@ -34,7 +34,7 @@ import { useRoute, useRouter } from 'vue-router';
 import { useTasks } from '@/composables/useTasks';
 import { useTaskFilter } from '@/composables/useTaskFilter';
 import { api } from '@/services/api';
-import { applyTaskFilter, type TaskFilterState } from '@/services/task-sort';
+import { ALL_STATUSES, applyTaskFilter, type TaskFilterState } from '@/services/task-sort';
 import { formatSpeed } from '@/utils/format';
 import type { Task } from '@/types/task';
 import TaskItem from '@/components/TaskItem.vue';
@@ -73,11 +73,17 @@ const {
 } = useYtdl();
 
 // A status filter names NAS statuses ("downloading", "seeding", …) that a
-// YouTube download cannot have, so an active one hides them rather than
-// pretending they match. A text search still applies.
+// YouTube download cannot have, so a NARROWED one hides them rather than
+// pretending they match. Narrowed is the operative word: the default filter has
+// every status enabled, which means "nothing is filtered out" — treating that
+// as an active filter would hide these rows permanently. A text search still
+// applies either way.
+const statusFilterNarrowed = computed(
+  () => filter.value.statuses.length > 0 && filter.value.statuses.length < ALL_STATUSES.length,
+);
 const visibleYtdl = computed(() => {
   if (!ytdlAvailable.value) return [];
-  if (filter.value.statuses && filter.value.statuses.length > 0) return [];
+  if (statusFilterNarrowed.value) return [];
   const term = (filter.value.term ?? '').trim().toLowerCase();
   if (!term) return ytdlDownloads.value;
   return ytdlDownloads.value.filter((d) => d.url.toLowerCase().includes(term));
