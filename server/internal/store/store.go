@@ -71,6 +71,12 @@ func Open(dsn string, cipher *Cipher) (*Store, error) {
 		_ = db.Close()
 		return nil, err
 	}
+	// The counter says every migration has been applied. Check that the schema
+	// agrees, because twice now it has not: a migration inserted mid-list is
+	// recorded as applied on any installation already past that position, and
+	// never runs (spec 2012, spec 2017). Missing columns are added here; anything
+	// else is reported. See schema_guard.go.
+	s.checkSchema()
 	return s, nil
 }
 
