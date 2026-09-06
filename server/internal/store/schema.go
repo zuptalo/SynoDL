@@ -371,4 +371,44 @@ var migrations = []string{
 	// tolerates "duplicate column name" precisely so a reconciliation like this
 	// one can be appended.
 	`ALTER TABLE source_prefs ADD COLUMN hide_owned INTEGER NOT NULL DEFAULT 0;`,
+
+	// Spec 2019: sweep up rows the cascades should have removed and did not.
+	//
+	// Until spec 0011's store fix, PRAGMA foreign_keys was applied with a single
+	// Exec after opening. *sql.DB is a POOL and that pragma is per-CONNECTION, so
+	// every connection but one ran with foreign keys OFF — and ON DELETE CASCADE
+	// silently did nothing on those. Deleting a user or a download source left
+	// its dependent rows behind.
+	//
+	// The one that matters is source_provider_secrets: it holds the ENCRYPTED
+	// session credentials for a source, and DeleteProvider removes only the
+	// provider row and trusts the cascade for the rest. So an operator who
+	// deleted a source still has its credentials stored. Encrypted, and
+	// unreachable — nothing can address a provider id that no longer exists — but
+	// kept well past the point the operator asked for it to be gone.
+	//
+	// Every statement below is exactly what the cascade would have done, and
+	// every row it touches is already unreachable: it is keyed to a parent that
+	// does not exist, and ids are AUTOINCREMENT so no future row can reclaim one.
+	// The two SET NULL columns are nulled rather than deleted, matching their own
+	// declared action — a task or a download outlives the account that started it.
+	//
+	// One-off. Since the pragma fix the cascades fire on every connection, so no
+	// new orphans accumulate.
+	`
+	DELETE FROM destination_prefs       WHERE user_id     NOT IN (SELECT id FROM users);
+	DELETE FROM download_events         WHERE user_id     NOT IN (SELECT id FROM users);
+	DELETE FROM download_history        WHERE user_id     NOT IN (SELECT id FROM users);
+	DELETE FROM folder_grants           WHERE user_id     NOT IN (SELECT id FROM users);
+	DELETE FROM notification_prefs      WHERE user_id     NOT IN (SELECT id FROM users);
+	DELETE FROM push_subscriptions      WHERE user_id     NOT IN (SELECT id FROM users);
+	DELETE FROM sessions                WHERE user_id     NOT IN (SELECT id FROM users);
+	DELETE FROM source_prefs            WHERE user_id     NOT IN (SELECT id FROM users);
+	DELETE FROM task_claims             WHERE user_id     NOT IN (SELECT id FROM users);
+	DELETE FROM source_provider_secrets WHERE provider_id NOT IN (SELECT id FROM source_providers);
+	UPDATE source_downloads SET owner_user_id = NULL
+	  WHERE owner_user_id IS NOT NULL AND owner_user_id NOT IN (SELECT id FROM users);
+	UPDATE watched_tasks    SET owner_user_id = NULL
+	  WHERE owner_user_id IS NOT NULL AND owner_user_id NOT IN (SELECT id FROM users);
+	`,
 }
