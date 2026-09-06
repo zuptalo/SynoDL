@@ -39,12 +39,23 @@ const page = ref(1);
 const pages = ref(0);
 const query = ref('');
 const filters = ref<SourceSearchFilters>({});
-// Default browse sort when the user hasn't chosen one: most popular, descending.
+// Default browse sort when the user hasn't chosen one: recently added,
+// descending — so Discover opens on what the source has just published rather
+// than on the same perennial favourites every time.
+//
+// NOT release year, which is the obvious choice and the wrong one: the sources
+// carry rows whose year is missing or nonsense ("7441", "2029", untitled
+// projects) and those sort straight to the top of a descending year list.
+// Excluding them needs a year bound, and spec 2007 measured that bound making
+// the source's query ten times slower (16-20s against 1.9s) — so it was
+// reverted, and there is no cheap way to order by year without leading on
+// rubbish. "Recently added" is what "the latest titles" means in practice.
+//
 // Once the user picks a sort/direction (or sets a filter), their choice is
 // persisted server-side and loadView() restores it on every open — these
 // defaults only fill the gap for a brand-new account with no saved view.
-const DEFAULT_SORT = 'favorite';
-const DEFAULT_ORDER = 'desc';
+export const DEFAULT_SORT = 'date';
+export const DEFAULT_ORDER = 'desc';
 const sort = ref(DEFAULT_SORT);
 // Sort direction, folded into the same dropdown as the sort field. "desc" is the
 // natural reading of every sort option (most popular / newest / highest first).

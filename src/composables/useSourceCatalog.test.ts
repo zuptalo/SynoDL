@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi, type Mock } from 'vitest';
-import { useSourceCatalog } from './useSourceCatalog';
+import { useSourceCatalog, DEFAULT_SORT, DEFAULT_ORDER } from './useSourceCatalog';
 import { api, ApiError, type CatalogTitle } from '@/services/api';
 
 // Only the search call is faked — ApiError and everything else stay real, because
@@ -60,8 +60,11 @@ describe('useSourceCatalog.searchIneffective', () => {
   beforeEach(() => {
     cat.query.value = '';
     cat.filters.value = {};
-    cat.sort.value = 'favorite';
-    cat.order.value = 'desc';
+    // Named, not spelled out: this reset means "the default", and hardcoding the
+    // value made the suite fail the day the default changed rather than telling
+    // us anything about searchIneffective.
+    cat.sort.value = DEFAULT_SORT;
+    cat.order.value = DEFAULT_ORDER;
   });
 
   it('is false when not searching, even with ineffective selections', () => {

@@ -482,18 +482,21 @@ var typeCodes = map[string]string{
 }
 
 // allowedOrderby is the set of provider orderby fields we expose; anything else
-// falls back to most-popular descending (the app default).
+// falls back to recently-added descending (the app default).
 var allowedOrderby = map[string]bool{"year": true, "date": true, "favorite": true, "imdb": true}
 
 func orderbyField(sort string) string {
 	if allowedOrderby[sort] {
 		return sort
 	}
-	// Default: most popular, descending — the same default the client uses
-	// (DEFAULT_SORT in useSourceCatalog.ts), so the two can't drift. It used to
-	// be the release-year sort, but that one leads with the provider's
-	// broken-year rows, which is the worst thing to land on (spec 2007).
-	return "favorite"
+	// Default: recently added, descending — the same default the client uses
+	// (DEFAULT_SORT in useSourceCatalog.ts), so the two can't drift.
+	//
+	// NOT the release-year sort: that one leads with the provider's broken-year
+	// rows, which is the worst thing to land on, and the bound that excludes them
+	// costs ten times the query time (spec 2006, reverted by spec 2007). It was
+	// most-popular until spec 1030, which opens Discover on what is new instead.
+	return "date"
 }
 
 // orderDir clamps the direction to the provider's two values; anything but an
