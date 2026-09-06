@@ -386,7 +386,7 @@ func TestThirtynamaBrowseFiltersAndSort(t *testing.T) {
 		t.Fatalf("Search: %v", err)
 	}
 	if !strings.Contains(gotPath, "orderby/favorite") {
-		t.Fatalf("path = %q, want orderby/favorite", gotPath)
+		t.Fatalf("path = %q, want orderby/date", gotPath)
 	}
 	// No explicit order → the provider default, descending.
 	if !strings.Contains(gotPath, "order/desc") {
@@ -401,12 +401,12 @@ func TestThirtynamaBrowseFiltersAndSort(t *testing.T) {
 		t.Fatalf("score/genre missing; body = %q", dec)
 	}
 
-	// Empty sort → Most popular default (spec 2007); movie → code 15.
+	// Empty sort → Recently added default (spec 1030); movie → code 15.
 	_, _ = nama30{}.Search(context.Background(), source.NewClient(), cfg, source.Session{},
 		source.SearchQuery{Filters: source.SearchFilters{Type: "movie"}})
 	dec2, _ := url.QueryUnescape(gotBody)
-	if !strings.Contains(gotPath, "orderby/favorite") {
-		t.Fatalf("default sort path = %q, want orderby/favorite", gotPath)
+	if !strings.Contains(gotPath, "orderby/date") {
+		t.Fatalf("default sort path = %q, want orderby/date", gotPath)
 	}
 	if !strings.Contains(dec2, `"type":"15"`) {
 		t.Fatalf("movie must map to code 15; body = %q", dec2)
@@ -416,7 +416,7 @@ func TestThirtynamaBrowseFiltersAndSort(t *testing.T) {
 	_, _ = nama30{}.Search(context.Background(), source.NewClient(), cfg, source.Session{},
 		source.SearchQuery{Sort: "favorite", Order: "asc"})
 	if !strings.Contains(gotPath, "orderby/favorite/order/asc") {
-		t.Fatalf("ascending path = %q, want orderby/favorite/order/asc", gotPath)
+		t.Fatalf("ascending path = %q, want orderby/date/order/asc", gotPath)
 	}
 
 	// A type value that's already a provider code (from the live facet list, e.g.
@@ -470,11 +470,15 @@ func TestThirtynamaYearSortSendsNoImplicitBounds(t *testing.T) {
 	}
 }
 
-// An empty or unrecognised sort resolves to Most popular — the same default the
-// client uses (DEFAULT_SORT in useSourceCatalog.ts), so the two can't drift.
-// It used to fall back to the release-year sort, which leads with the source's
-// broken-year rows and is the worst thing to land on (spec 2007).
-func TestThirtynamaDefaultSortIsFavorite(t *testing.T) {
+// An empty or unrecognised sort resolves to Recently added — the same default
+// the client uses (DEFAULT_SORT in useSourceCatalog.ts), so the two can't drift.
+// A request the client believes is default would otherwise come back ordered
+// differently from what it asked for.
+//
+// It must NOT fall back to the release-year sort, which leads with the source's
+// broken-year rows and is the worst thing to land on (spec 2006/2007). It was
+// Most popular until spec 1030 opened Discover on what is new instead.
+func TestThirtynamaDefaultSortIsRecentlyAdded(t *testing.T) {
 	var gotPath string
 	cfg, done := fakeProvider(t, func(w http.ResponseWriter, r *http.Request) {
 		gotPath = r.URL.Path
@@ -488,8 +492,8 @@ func TestThirtynamaDefaultSortIsFavorite(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Search sort=%q: %v", sort, err)
 		}
-		if !strings.Contains(gotPath, "orderby/favorite/order/desc") {
-			t.Fatalf("sort %q → path %q, want orderby/favorite/order/desc", sort, gotPath)
+		if !strings.Contains(gotPath, "orderby/date/order/desc") {
+			t.Fatalf("sort %q → path %q, want orderby/date/order/desc", sort, gotPath)
 		}
 	}
 }
