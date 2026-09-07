@@ -27,6 +27,7 @@ import {
   cloudUploadOutline,
   ellipsisHorizontal,
   linkOutline,
+  musicalNotesOutline,
   optionsOutline,
 } from 'ionicons/icons';
 import { computed, ref, watch } from 'vue';
@@ -45,6 +46,7 @@ import { useUploads } from '@/composables/useUploads';
 import UploadItem from '@/components/UploadItem.vue';
 import { useYtdl } from '@/composables/useYtdl';
 import YtdlItem from '@/components/YtdlItem.vue';
+import YoutubeDownloadModal from '@/components/YoutubeDownloadModal.vue';
 import TaskDetailModal from '@/components/TaskDetailModal.vue';
 import type { RefresherCustomEvent } from '@ionic/vue';
 
@@ -54,6 +56,10 @@ const { filter, apply } = useTaskFilter();
 const filterOpen = ref(false);
 const newTaskOpen = ref(false);
 const uploadOpen = ref(false);
+// Its own sheet rather than a mode inside the new-task one (spec 1033): that
+// sheet leads with a destination picker which means nothing for a library
+// download, and led with it while still looking interactive.
+const ytdlOpen = ref(false);
 
 // Uploads report HERE as well as in the sheet, so dismissing the sheet is a UI
 // choice rather than losing sight of a transfer that is still running. A job
@@ -428,6 +434,17 @@ async function onDelete(id: string): Promise<void> {
             >
               <ion-icon :icon="cloudUploadOutline" />
             </ion-fab-button>
+            <!-- Offered only where the server can actually run a worker, so the
+                 button never opens a sheet that cannot work (FR-002). -->
+            <ion-fab-button
+              v-if="ytdlAvailable"
+              class="app-fab"
+              title="Save from YouTube"
+              data-testid="ytdl-open"
+              @click="ytdlOpen = true"
+            >
+              <ion-icon :icon="musicalNotesOutline" />
+            </ion-fab-button>
           </ion-fab-list>
         </template>
       </ion-fab>
@@ -441,6 +458,11 @@ async function onDelete(id: string): Promise<void> {
     />
     <NewTaskModal :is-open="newTaskOpen" @created="onCreated" @dismiss="newTaskOpen = false" />
     <UploadModal :is-open="uploadOpen" @uploaded="onCreated" @dismiss="uploadOpen = false" />
+    <YoutubeDownloadModal
+      :is-open="ytdlOpen"
+      @created="ytdlOpen = false"
+      @dismiss="ytdlOpen = false"
+    />
     <TaskDetailModal
       :is-open="detailId !== null"
       :task="detailTask"
