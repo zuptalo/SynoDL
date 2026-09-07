@@ -26,6 +26,7 @@ import (
 	"synodl/server/internal/push"
 	"synodl/server/internal/store"
 	"synodl/server/internal/syno"
+	"synodl/server/internal/ytdl"
 )
 
 // Stamped at build time via -ldflags (see Dockerfile); the same VERSION is
@@ -49,6 +50,7 @@ func main() {
 		Version:      version,
 		ReleaseNotes: decodeReleaseNotes(releaseNotesB64),
 		Jobs:         newJobRunner(cfg),
+		Describer:    ytdl.Describer{BaseURL: cfg.YtdlOEmbedURL},
 	}
 
 	// Stateful mode (spec 0003) activates when SECRETS_KEY is configured: open the

@@ -11,7 +11,7 @@
  * a cluster, not a transfer we can steer — presenting a control we cannot
  * honour would be worse than presenting none.
  */
-import { computed } from 'vue';
+import { computed, ref } from 'vue';
 import {
   IonIcon,
   IonItem,
@@ -35,10 +35,13 @@ const emit = defineEmits<{ (e: 'dismiss', requestId: string): void }>();
 
 const isVideo = computed(() => props.download.mode === 'music-video');
 
-// A YouTube link is not a title. Until the download finishes there is nothing
-// better to show, so render the most identifying part of the URL rather than
-// the whole query string.
-const heading = computed(() => {
+// The item's own title when the source would tell us (spec 1034), falling back
+// to the most identifying part of the link. The fallback is not a rare path: a
+// channel publishes no metadata document at all.
+const heading = computed(() => props.download.title || linkLabel.value);
+
+// The readable form of the link, for when there is no title to show.
+const linkLabel = computed(() => {
   const d = props.download;
   try {
     const u = new URL(d.url);
@@ -85,6 +88,15 @@ const scopeLabel = computed(
   () => ({ single: '', playlist: 'playlist', channel: 'channel' })[props.download.scope],
 );
 
+// Artwork goes through the server so the viewer's browser never contacts
+// Google (spec 1034, FR-008). Its own proxy, not the catalog poster one: those
+// hosts come from the download sources, and YouTube is not one of them.
+const artworkSrc = computed(() =>
+  props.download.artwork ? `/v1/ytdl/thumb?u=${encodeURIComponent(props.download.artwork)}` : '',
+);
+// A thumbnail that 404s must leave the icon behind, not a hole (FR-007).
+const artworkFailed = ref(false);
+
 // Only a finished download can be dismissed. Removing a running one would
 // strand its worker mid-write, so the action is not offered at all.
 const canDismiss = computed(
@@ -96,7 +108,15 @@ const canDismiss = computed(
   <ion-item-sliding :disabled="!canDismiss">
     <ion-item :detail="false" data-testid="ytdl-item">
       <div slot="start" class="poster" aria-hidden="true">
-        <ion-icon :icon="stateIcon" class="poster-ph" :style="{ color: stateColorVar }" />
+        <img
+          v-if="artworkSrc && !artworkFailed"
+          :src="artworkSrc"
+          alt=""
+          loading="lazy"
+          data-testid="ytdl-artwork"
+          @error="artworkFailed = true"
+        />
+        <ion-icon v-else :icon="stateIcon" class="poster-ph" :style="{ color: stateColorVar }" />
       </div>
       <ion-label>
         <h2 class="name" data-testid="ytdl-name">{{ heading }}</h2>
@@ -104,6 +124,9 @@ const canDismiss = computed(
           <!-- The source marker (FR-026): a mixed list must say which system a
                row belongs to, since the two behave differently. -->
           <span class="type" data-testid="ytdl-source">YouTube</span>
+          <span v-if="download.uploader" class="uploader" data-testid="ytdl-uploader">
+            {{ download.uploader }}
+          </span>
           <span>{{ isVideo ? 'Music video' : 'Music' }}</span>
           <span v-if="scopeLabel">{{ scopeLabel }}</span>
         </div>
@@ -151,11 +174,28 @@ const canDismiss = computed(
 .poster-ph {
   font-size: 22px;
 }
+/* A YouTube thumbnail is 16:9 and the slot is portrait, so cover-crop it rather
+   than letterboxing — the row's metrics match TaskItem's and must not shift. */
+.poster img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+/* A published title can be long and arrives in any script, so it is clipped to
+   one line and the row keeps the height of every other row in the list,
+   whatever the track is called (FR-011). */
 .name {
   font-weight: 600;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.uploader {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 40%;
 }
 .media,
 .meta {

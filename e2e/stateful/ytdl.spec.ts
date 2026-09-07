@@ -183,3 +183,30 @@ test('signing out is enough to be refused', async () => {
 test.afterAll(async () => {
   await resetJobs();
 });
+
+// Spec 1034: the row describes what is downloading rather than showing the URL
+// that was pasted. The mock answers the metadata lookup deterministically, so
+// this asserts our rendering rather than whatever YouTube publishes today.
+test('a row names the track instead of showing its link', async ({ page }) => {
+  await submit(token, 'https://youtu.be/namedtrack', 'music');
+  await gotoTasks(page);
+
+  const row = page.getByTestId('ytdl-item').first();
+  await expect(row).toBeVisible({ timeout: 15_000 });
+  await expect(row.getByTestId('ytdl-name')).toHaveText('Mock Track namedtrack');
+  await expect(row.getByTestId('ytdl-uploader')).toHaveText('Mock Artist');
+  // The URL must no longer be the heading.
+  await expect(row.getByTestId('ytdl-name')).not.toContainText('youtu.be');
+});
+
+// A channel publishes no metadata document, so the row falls back to the link.
+// That fallback is a normal path, not an error path.
+test('a channel with no metadata still reads sensibly', async ({ page }) => {
+  await submit(token, 'https://youtube.com/@someartist', 'music');
+  await gotoTasks(page);
+
+  const row = page.getByTestId('ytdl-item').first();
+  await expect(row).toBeVisible({ timeout: 15_000 });
+  await expect(row.getByTestId('ytdl-name')).toContainText('@someartist');
+  await expect(row.getByTestId('ytdl-uploader')).toHaveCount(0);
+});

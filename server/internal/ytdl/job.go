@@ -28,6 +28,13 @@ const (
 	// database lookup per row just to render "who sent this".
 	AnnSubmittedByName = "synodl.io/submitted-by-name"
 
+	// What the request IS, learned once at submission (spec 1034). Annotations
+	// rather than labels: a title is long, unicode, and full of characters a
+	// label value may not contain. All three are best-effort and often absent.
+	AnnTitle    = "synodl.io/title"
+	AnnUploader = "synodl.io/uploader"
+	AnnArtwork  = "synodl.io/artwork"
+
 	// Selector matches every Job this feature owns, and nothing else.
 	Selector = LabelManagedBy + "=synodl," + LabelKind + "=ytdl"
 
@@ -56,6 +63,8 @@ type JobConfig struct {
 	RequestID string
 	UserID    string
 	UserName  string
+	// Desc is what the source said this is. Empty is normal and fine.
+	Desc      Description
 	Mode      Mode
 	Target    Target
 	Libraries map[Mode]Library
@@ -107,14 +116,10 @@ func BuildJob(c JobConfig) (*k8s.Job, error) {
 		APIVersion: "batch/v1",
 		Kind:       "Job",
 		Metadata: k8s.ObjectMeta{
-			Name:      JobName(c.RequestID),
-			Namespace: c.Namespace,
-			Labels:    labels,
-			Annotations: map[string]string{
-				AnnSourceURL:       c.Target.URL,
-				AnnSubmittedBy:     c.UserID,
-				AnnSubmittedByName: c.UserName,
-			},
+			Name:        JobName(c.RequestID),
+			Namespace:   c.Namespace,
+			Labels:      labels,
+			Annotations: annotationsFor(c),
 		},
 		Spec: k8s.JobSpec{
 			BackoffLimit:            int32p(0),
@@ -159,6 +164,27 @@ func BuildJob(c JobConfig) (*k8s.Job, error) {
 			},
 		},
 	}, nil
+}
+
+// annotationsFor builds the Job's annotations, omitting anything unknown so an
+// absent title is an absent key rather than an empty string a reader must then
+// test for.
+func annotationsFor(c JobConfig) map[string]string {
+	out := map[string]string{
+		AnnSourceURL:       c.Target.URL,
+		AnnSubmittedBy:     c.UserID,
+		AnnSubmittedByName: c.UserName,
+	}
+	for k, v := range map[string]string{
+		AnnTitle:    c.Desc.Title,
+		AnnUploader: c.Desc.Uploader,
+		AnnArtwork:  c.Desc.Artwork,
+	} {
+		if v != "" {
+			out[k] = v
+		}
+	}
+	return out
 }
 
 var unsafeName = regexp.MustCompile(`[^a-z0-9-]+`)

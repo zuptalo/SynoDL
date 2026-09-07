@@ -46,6 +46,7 @@ DEV_BACKEND_ENV = cd $(SERVER_DIR) && set -a && { [ -f .env ] && . ./.env; }; \
 		echo "▶ Download sources: in-repo FAKE sites (make start REAL_SOURCES=1 for the real ones)"; \
 	fi; \
 	: $${YTDL_API_URL:=http://localhost:8295}; \
+	: $${YTDL_OEMBED_URL:=http://localhost:8295/oembed}; \
 	: $${YTDL_IMAGE:=jauderho/yt-dlp:2026.08.19}; \
 	: $${YTDL_MUSIC_CLAIM:=synodl-music}; \
 	: $${YTDL_MUSIC_VIDEO_CLAIM:=synodl-music-video}; \
