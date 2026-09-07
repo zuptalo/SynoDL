@@ -59,6 +59,7 @@ Specs are grouped by category band; status moves
 | [1029](specs/1029-forget-content-left-nas/spec.md) | Forget content that has left the NAS | 🟢 shipped |
 | [1030](specs/1030-discover-opens-newest-titles/spec.md) | Discover opens on the newest titles | 🟢 shipped |
 | [1031](specs/1031-schema-drift-guard/spec.md) | Notice when a database's schema is not what it should be | 🟢 shipped |
+| [1032](specs/1032-show-release-year/spec.md) | Show release year and readable genres on titles | 🔵 in-review |
 
 ## 🐛 Hotfixes & Bug Fixes (2001+)
 

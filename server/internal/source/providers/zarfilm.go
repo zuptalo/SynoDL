@@ -393,7 +393,10 @@ func (p zarfilm) Search(ctx context.Context, c *source.Client, cfg source.Config
 			Title:     it.Title,
 			PosterURL: it.PosterURL,
 			IMDbScore: it.Rating,
-			Genres:    it.Genres,
+			// The card markup carries a release year, which was parsed here and
+			// then discarded on the way out until spec 1032.
+			Year:   it.Year,
+			Genres: it.Genres,
 		})
 	}
 	return out, nil

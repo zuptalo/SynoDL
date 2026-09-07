@@ -36,6 +36,8 @@ import {
 } from '@/services/api';
 import { bySeasonThenSize, seasonNum, sizeMB } from '@/services/quality-sort';
 import { useSourceCatalog } from '@/composables/useSourceCatalog';
+import { displayYear } from '@/services/release-year';
+import { genreLabels } from '@/services/genre-label';
 import { splitYear } from '@/services/title-year';
 import { imdbUrl } from '@/services/imdb-link';
 import type { Task } from '@/types/task';
@@ -111,7 +113,13 @@ const emit = defineEmits<{
   (e: 'needs-refresh'): void;
 }>();
 
-const { preferredQuality, status } = useSourceCatalog();
+const { preferredQuality, status, parameters } = useSourceCatalog();
+
+// Same rules as the grid, so the sheet cannot disagree with the card that
+// opened it: the source's year when believable, else the one in the title.
+const headerYear = computed(() => displayYear(info.value.year, info.value.title));
+// Genres in the app's own vocabulary rather than the source's (spec 1032).
+const headerGenres = computed(() => genreLabels(info.value.genres, parameters.value?.genres, 4));
 const router = useRouter();
 
 const loading = ref(false);
@@ -706,7 +714,7 @@ async function offerOverLimit(): Promise<void> {
             <h2>{{ titleParts.title }}</h2>
             <p class="meta">
               <span class="type">{{ info.type }}</span>
-              <span v-if="titleParts.year" class="year">{{ titleParts.year }}</span>
+              <span v-if="headerYear" class="year">{{ headerYear }}</span>
               <!-- The rating doubles as the way out to IMDb. With an id but no
                    score there's still a page worth visiting, so the link stands
                    on its own; with no id at all it stays plain text. -->
@@ -724,8 +732,8 @@ async function offerOverLimit(): Promise<void> {
               <span v-else-if="info.imdbScore">★ {{ info.imdbScore.toFixed(1) }} IMDb</span>
               <span v-if="info.providerScore">{{ info.providerScore.toFixed(1) }} 30N</span>
             </p>
-            <p v-if="info.genres?.length" class="genres">
-              {{ info.genres.slice(0, 4).join(' · ') }}
+            <p v-if="headerGenres.length" class="genres">
+              {{ headerGenres.join(' · ') }}
             </p>
           </div>
         </div>
