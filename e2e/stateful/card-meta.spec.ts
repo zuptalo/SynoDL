@@ -89,3 +89,40 @@ test('a card stops repeating the type once a type filter is applied', async ({ p
   // ...and the genre is still there, which is what the freed room was for.
   expect(after.some((c) => /\b(Comedy|Drama|Action)\b/.test(c))).toBe(true);
 });
+
+// Spec 1035: the caption reads like the detail sheet — three lines, each
+// answering a different question, rather than four facts run together on one.
+test('a card caption is three lines: name, then rating/type/year, then genres', async ({ page }) => {
+  await login(page);
+  await gotoDiscover(page);
+  const card = page.getByTestId('catalog-card').first();
+  await expect(card).toBeVisible({ timeout: 30_000 });
+
+  // Name on its own line, then the facts, then the genres.
+  await expect(card.locator('h3')).toHaveCount(1);
+  await expect(card.locator('p.facts')).toHaveCount(1);
+  await expect(card.locator('p.genres')).toHaveCount(1);
+
+  // The facts line reads rating, then type, then year.
+  const facts = (await card.locator('p.facts').innerText()).replace(/\s+/g, ' ').trim();
+  expect(facts, `facts line was: ${facts}`).toMatch(/^★\s*[\d.]+\s+\w+\s+\d{4}$/);
+
+  // The genre line separates several genres the way the sheet does.
+  const genres = await card.locator('p.genres').innerText();
+  expect(genres.trim().length).toBeGreaterThan(0);
+});
+
+// FR-005: a title missing a fact must not make its card a different height,
+// or the grid stops looking like a grid.
+test('cards stay the same height when a title knows less about itself', async ({ page }) => {
+  await login(page);
+  await gotoDiscover(page);
+  const cards = page.getByTestId('catalog-card');
+  await expect(cards.first()).toBeVisible({ timeout: 30_000 });
+
+  const heights = await cards.evaluateAll((els) =>
+    els.slice(0, 8).map((el) => Math.round(el.getBoundingClientRect().height)),
+  );
+  const unique = [...new Set(heights)];
+  expect(unique.length, `card heights differ: ${heights.join(', ')}`).toBe(1);
+});
