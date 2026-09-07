@@ -11,6 +11,7 @@ import (
 	"synodl/server/internal/nas"
 	"synodl/server/internal/store"
 	"synodl/server/internal/syno"
+	"synodl/server/internal/ytdl"
 )
 
 // Deps carries everything the router needs. Handlers depend on the small
@@ -46,6 +47,12 @@ type Deps struct {
 	// distinction therefore costs no additional read of the NAS. nil means the
 	// watcher is not running, and nothing is reported as downloading.
 	ActiveDests func() map[string]bool
+
+	// Describer looks up what a submitted link IS (spec 1034), so a row can name
+	// the track instead of showing its URL. The zero value asks the real
+	// endpoint; tests point it somewhere unreachable, which is also the case
+	// this feature must survive.
+	Describer ytdl.Describer
 
 	// Jobs runs the short-lived YouTube download workers (spec 0012). NIL means
 	// this deployment has no orchestrator — a Compose or bare-container install
@@ -156,6 +163,9 @@ func NewRouter(d Deps) http.Handler {
 		mux.Handle("POST /v1/ytdl", handleYtdlSubmit(d))
 		mux.Handle("GET /v1/ytdl", handleYtdlList(d))
 		mux.Handle("DELETE /v1/ytdl/{requestId}", handleYtdlDismiss(d))
+		// Artwork, so a viewer's browser never contacts Google directly. Its own
+		// host rule, deliberately not the catalog poster proxy's (spec 1034).
+		mux.Handle("GET /v1/ytdl/thumb", handleYtdlThumb(d))
 
 		mux.Handle("GET /v1/fs/shares", handleListSharesStateful(d))
 		mux.Handle("GET /v1/fs/list", handleListFolderStateful(d))

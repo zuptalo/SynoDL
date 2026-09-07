@@ -31,8 +31,13 @@ type JobRunner interface {
 // estimate. Their ABSENCE is the requirement (FR-017) — a zero-valued field
 // would be an invitation to start populating it later.
 type ytdlDownloadView struct {
-	RequestID   string `json:"requestId"`
-	URL         string `json:"url"`
+	RequestID string `json:"requestId"`
+	URL       string `json:"url"`
+	// What it is, when the source would say (spec 1034). Omitted rather than
+	// empty, so the client renders its fallback on absence instead of on "".
+	Title       string `json:"title,omitempty"`
+	Uploader    string `json:"uploader,omitempty"`
+	Artwork     string `json:"artwork,omitempty"`
 	Mode        string `json:"mode"`
 	Scope       string `json:"scope"`
 	State       string `json:"state"`
@@ -136,6 +141,10 @@ func handleYtdlSubmit(d Deps) http.Handler {
 			}
 		}
 
+		// Ask what this is, briefly. A failure here costs a nicer row and nothing
+		// else — it must never be the reason a download does not start (FR-003).
+		desc := d.Describer.Describe(r.Context(), target)
+
 		requestID := newRequestID()
 		job, err := ytdl.BuildJob(ytdl.JobConfig{
 			Namespace:          d.Cfg.YtdlNamespace,
@@ -143,6 +152,7 @@ func handleYtdlSubmit(d Deps) http.Handler {
 			RequestID:          requestID,
 			UserID:             strconv.FormatInt(u.ID, 10),
 			UserName:           u.Username,
+			Desc:               desc,
 			Mode:               mode,
 			Target:             target,
 			Libraries:          libs,
@@ -252,6 +262,9 @@ func (d Deps) ytdlViewOf(j k8s.Job, u *store.User) ytdlDownloadView {
 		Mode:      j.Metadata.Labels[ytdl.LabelMode],
 		Scope:     j.Metadata.Labels[ytdl.LabelScope],
 		State:     string(state),
+		Title:     j.Metadata.Annotations[ytdl.AnnTitle],
+		Uploader:  j.Metadata.Annotations[ytdl.AnnUploader],
+		Artwork:   j.Metadata.Annotations[ytdl.AnnArtwork],
 	}
 	if state == ytdl.StateFailed {
 		v.Reason = ytdl.FailureReason(j)

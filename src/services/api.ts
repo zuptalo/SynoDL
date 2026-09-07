@@ -204,6 +204,14 @@ export interface YtdlDownload {
   mode: 'music' | 'music-video';
   scope: 'single' | 'playlist' | 'channel';
   state: 'scheduled' | 'started' | 'completed' | 'failed';
+  /**
+   * What the download IS, learned once at submission (spec 1034). All three are
+   * best-effort and ABSENT more often than empty — a channel has no metadata
+   * document at all — so render a fallback on absence rather than trusting ''.
+   */
+  title?: string;
+  uploader?: string;
+  artwork?: string;
   /** Shown to admins only, matching the rule for NAS tasks. */
   submittedBy?: string;
   submittedAt?: number;

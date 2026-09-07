@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"sync"
 	"testing"
+	"time"
 
 	"synodl/server/internal/config"
 	"synodl/server/internal/k8s"
@@ -105,6 +106,10 @@ func newYtdlRouter(t *testing.T, jobs JobRunner, cfg config.Config) (http.Handle
 	return NewRouter(Deps{
 		Cfg: cfg, Version: "test", Stateful: true, Store: st,
 		NAS: nas.New(st, factory), Jobs: jobs,
+		// Pointed at a closed port with a tiny deadline: these tests must never
+		// touch the network, and "the lookup failed" is the case this feature
+		// has to survive anyway (spec 1034, FR-003).
+		Describer: ytdl.Describer{BaseURL: "http://127.0.0.1:1", Timeout: 50 * time.Millisecond},
 	}), st
 }
 
@@ -122,6 +127,8 @@ type ytdlListResp struct {
 		Mode        string `json:"mode"`
 		Scope       string `json:"scope"`
 		State       string `json:"state"`
+		Title       string `json:"title"`
+		Uploader    string `json:"uploader"`
 		SubmittedBy string `json:"submittedBy"`
 		Reason      string `json:"reason"`
 	} `json:"downloads"`
@@ -414,5 +421,65 @@ func TestYtdlDismiss(t *testing.T) {
 	}
 	if r := do(t, h, "DELETE", "/v1/ytdl/nope", "", admin); r.Code != http.StatusNotFound {
 		t.Errorf("dismissing an unknown id = %d, want 404", r.Code)
+	}
+}
+
+// FR-003. The metadata lookup is decoration; it must never be the reason a
+// download does not start. Every other test in this file already runs with a
+// Describer pointed at a closed port, so the whole suite is this assertion —
+// but state it once explicitly, because it is a promise rather than a
+// side-effect.
+func TestYtdlSubmit_SucceedsWhenTheLookupFails(t *testing.T) {
+	jobs := &fakeJobs{}
+	h, _ := newYtdlRouter(t, jobs, ytdlCfg())
+	admin := adminAfterSetup(t, h)
+
+	rec := submit(t, h, admin, `{"url":"https://youtu.be/abc","mode":"music"}`)
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("submit = %d %s; a failed lookup must not fail the download", rec.Code, rec.Body.String())
+	}
+	if len(jobs.created) != 1 {
+		t.Fatalf("want the job created anyway, got %d", len(jobs.created))
+	}
+	// And the row falls back rather than carrying an empty title.
+	if _, ok := jobs.created[0].Metadata.Annotations[ytdl.AnnTitle]; ok {
+		t.Error("an unknown title must be an ABSENT annotation, not an empty one")
+	}
+}
+
+// What a successful lookup puts on the job, so the row can render it.
+func TestYtdlSubmit_CarriesTheDescriptionOntoTheJob(t *testing.T) {
+	meta := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"title":"A Song","author_name":"An Artist","thumbnail_url":"https://i.ytimg.com/vi/abc/hq.jpg"}`))
+	}))
+	defer meta.Close()
+
+	c, _ := store.NewCipher("kdf-input-for-tests")
+	st, err := store.Open(filepath.Join(t.TempDir(), "db.sqlite"), c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	mock := httptest.NewServer(synomock.New().Handler())
+	t.Cleanup(mock.Close)
+	jobs := &fakeJobs{}
+	h := NewRouter(Deps{
+		Cfg: ytdlCfg(), Version: "test", Stateful: true, Store: st,
+		NAS:  nas.New(st, func(base string, insecure bool) syno.Client { return syno.NewHTTPClient(mock.URL, false) }),
+		Jobs: jobs, Describer: ytdl.Describer{BaseURL: meta.URL, Timeout: 2 * time.Second},
+	})
+	admin := adminAfterSetup(t, h)
+
+	if rec := submit(t, h, admin, `{"url":"https://youtu.be/abc","mode":"music"}`); rec.Code != http.StatusAccepted {
+		t.Fatalf("submit = %d", rec.Code)
+	}
+	ann := jobs.created[0].Metadata.Annotations
+	if ann[ytdl.AnnTitle] != "A Song" || ann[ytdl.AnnUploader] != "An Artist" {
+		t.Errorf("description not carried onto the job: %+v", ann)
+	}
+
+	got := listYtdl(t, h, admin)
+	if got.Downloads[0].Title != "A Song" || got.Downloads[0].Uploader != "An Artist" {
+		t.Errorf("description not surfaced on the view: %+v", got.Downloads[0])
 	}
 }

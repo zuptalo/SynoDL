@@ -162,6 +162,10 @@ export default async function globalSetup(): Promise<void> {
     // SAME client code runs here as in a real cluster, so the wire format, the
     // label selector and the lifecycle mapping are all genuinely exercised.
     YTDL_API_URL: `http://localhost:${SF_K8S_PORT}`,
+    // The "what is this link?" lookup, pointed at the same mock. Without this
+    // the suite would reach the public internet to render a row title, which
+    // the dev-parity rule forbids and which would make it flaky besides.
+    YTDL_OEMBED_URL: `http://localhost:${SF_K8S_PORT}/oembed`,
     YTDL_IMAGE: 'jauderho/yt-dlp:2026.08.19',
     YTDL_MUSIC_CLAIM: 'synodl-music',
     YTDL_MUSIC_VIDEO_CLAIM: 'synodl-music-video',

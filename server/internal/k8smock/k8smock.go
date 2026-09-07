@@ -54,6 +54,13 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /__mock/jobs/{name}/deadline", s.control("deadline"))
 	mux.HandleFunc("POST /__mock/jobs/{name}/vanish", s.control("vanish"))
 	mux.HandleFunc("POST /__mock/reset", s.reset)
+
+	// The feature's OTHER external dependency: the "what is this link?" lookup
+	// (spec 1034). It lives here rather than in its own binary because this mock
+	// already stands in for everything outside the cluster that these downloads
+	// touch, and a second process for one endpoint would be more moving parts
+	// than the thing it replaces.
+	mux.HandleFunc("GET /oembed", s.oembed)
 	mux.HandleFunc("GET /__mock/jobs", s.listJobs)
 	return mux
 }
@@ -183,6 +190,27 @@ func (s *Server) apply(name, action string) bool {
 		delete(s.jobs, j.Metadata.Name)
 	}
 	return true
+}
+
+// oembed answers the metadata lookup with a deterministic document derived from
+// the link, so a test can assert the row shows a TITLE rather than a URL without
+// depending on what YouTube happens to publish today.
+func (s *Server) oembed(w http.ResponseWriter, r *http.Request) {
+	raw := r.URL.Query().Get("url")
+	if raw == "" {
+		http.Error(w, `{"message":"no url"}`, http.StatusBadRequest)
+		return
+	}
+	// A channel has no oEmbed document in reality, so the mock has none either —
+	// that fallback path is worth exercising rather than papering over.
+	if strings.Contains(raw, "/@") || strings.Contains(raw, "/channel/") {
+		w.WriteHeader(http.StatusNotFound)
+		return
+	}
+	id := raw[strings.LastIndex(raw, "/")+1:]
+	w.Header().Set("Content-Type", "application/json")
+	_, _ = w.Write([]byte(`{"title":"Mock Track ` + id + `","author_name":"Mock Artist",` +
+		`"thumbnail_url":"https://i.ytimg.com/vi/` + id + `/hqdefault.jpg"}`))
 }
 
 func (s *Server) reset(w http.ResponseWriter, r *http.Request) {

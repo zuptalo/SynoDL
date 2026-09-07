@@ -78,6 +78,11 @@ type Config struct {
 	// YtdlNamespace is where workers are created. Empty means the pod's own
 	// namespace, which is the only one the Role covers.
 	YtdlNamespace string
+	// YtdlOEmbedURL points the "what is this link?" lookup (spec 1034) at an
+	// explicit endpoint instead of the source's real one. Dev and e2e set it to
+	// the in-repo mock, which is what keeps the suite hermetic — without it the
+	// tests would reach out to the public internet.
+	YtdlOEmbedURL string
 	// YtdlAPIURL points the worker client at an explicit Jobs API instead of
 	// discovering the in-cluster one. Dev and e2e set it to the in-repo mock
 	// orchestrator, so the SAME client code runs on a laptop as in the cluster.
@@ -131,6 +136,7 @@ func Load() (Config, error) {
 		YtdlImage:              os.Getenv("YTDL_IMAGE"),
 		YtdlNamespace:          os.Getenv("YTDL_NAMESPACE"),
 		YtdlAPIURL:             os.Getenv("YTDL_API_URL"),
+		YtdlOEmbedURL:          os.Getenv("YTDL_OEMBED_URL"),
 		YtdlMusicClaim:         os.Getenv("YTDL_MUSIC_CLAIM"),
 		YtdlMusicVideoClaim:    os.Getenv("YTDL_MUSIC_VIDEO_CLAIM"),
 		YtdlUID:                int64(envInt("YTDL_UID", 1000)),
