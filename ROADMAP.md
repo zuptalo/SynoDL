@@ -60,6 +60,7 @@ Specs are grouped by category band; status moves
 | [1030](specs/1030-discover-opens-newest-titles/spec.md) | Discover opens on the newest titles | 🟢 shipped |
 | [1031](specs/1031-schema-drift-guard/spec.md) | Notice when a database's schema is not what it should be | 🟢 shipped |
 | [1032](specs/1032-show-release-year/spec.md) | Show release year and readable genres on titles | 🔵 in-review |
+| [1033](specs/1033-give-youtube-downloads/spec.md) | Give YouTube downloads their own button | ⚪ planned |
 
 ## 🐛 Hotfixes & Bug Fixes (2001+)
 
