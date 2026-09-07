@@ -44,6 +44,8 @@ import {
 import { posterSrc, type CatalogTitle } from '@/services/api';
 import { logoForKind, monogram } from '@/services/source-logo';
 import { splitYear } from '@/services/title-year';
+import { displayYear } from '@/services/release-year';
+import { genreLabels } from '@/services/genre-label';
 import { useSourceCatalog } from '@/composables/useSourceCatalog';
 import { sortLabel } from '@/services/source-filters';
 import { useSession } from '@/composables/useSession';
@@ -84,6 +86,7 @@ const {
   loadParameters,
   filterOptions,
   optionLabel,
+  parameters,
   sources,
   selectedSource,
   selectedSourceName,
@@ -115,6 +118,21 @@ function displayTitle(raw: string): string {
 }
 function yearOf(raw: string): string {
   return splitYear(raw).year;
+}
+
+// The year the source published, falling back to the one at the end of the
+// title — 30nama has no year field at all — and nothing when neither is
+// believable. ZarFilm titles carry no trailing year, which is why they showed
+// none at all before the source field started coming through (spec 1032).
+function yearFor(t: CatalogTitle): string {
+  return displayYear(t.year, t.title);
+}
+
+// One genre, in English whichever source supplied it. Capped rather than
+// joined: the caption has a fixed line budget and the title must never
+// truncate to make room for metadata.
+function genresFor(t: CatalogTitle): string[] {
+  return genreLabels(t.genres, parameters.value?.genres, 1);
 }
 
 const filterOpen = ref(false);
@@ -688,8 +706,11 @@ function goSettings(): void {
               <h3>{{ displayTitle(t.title) }}</h3>
               <p>
                 <span v-if="t.imdbScore">★ {{ t.imdbScore.toFixed(1) }}</span>
-                <span v-if="yearOf(t.title)" class="year">{{ yearOf(t.title) }}</span>
-                <span class="type">{{ t.type }}</span>
+                <span v-if="yearFor(t)" class="year">{{ yearFor(t) }}</span>
+                <!-- The type is what the filter just set. Repeating it on every
+                     card says nothing and costs the room a genre needs. -->
+                <span v-if="!filters.type" class="type">{{ t.type }}</span>
+                <span v-for="g in genresFor(t)" :key="g" class="genre">{{ g }}</span>
               </p>
             </ion-label>
           </button>
@@ -1043,5 +1064,14 @@ function goSettings(): void {
 }
 .meta .year {
   font-variant-numeric: tabular-nums;
+}
+/* A genre can be long ("Romantic-Comedy"). It is the last thing on the line and
+   the first thing that may be sacrificed, so it truncates rather than wrapping
+   the caption onto another line and pushing the grid out of alignment. */
+.meta .genre {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
 }
 </style>

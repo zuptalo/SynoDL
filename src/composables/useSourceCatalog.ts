@@ -636,6 +636,10 @@ export function useSourceCatalog() {
   return {
     status,
     items,
+    // Exposed so a card can turn one source's Persian genre name into the
+    // English slug the other source already uses (spec 1032). The mapping is
+    // in the facets we fetch for the filter sheet, so no extra request.
+    parameters,
     page,
     pages,
     query,

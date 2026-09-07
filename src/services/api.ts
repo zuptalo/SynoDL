@@ -376,6 +376,12 @@ export interface CatalogTitle {
   /** The wide cover image, shown large behind the detail header (may be absent). */
   backdropUrl?: string;
   imdbId: string;
+  /**
+   * Release year as the source publishes it. Absent for sources that have no
+   * such field (30nama), whose years sit at the end of `title` instead — use
+   * `displayYear()` rather than reading this directly.
+   */
+  year?: string;
   imdbScore: number;
   providerScore: number;
   plot: string;
