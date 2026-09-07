@@ -128,11 +128,22 @@ function yearFor(t: CatalogTitle): string {
   return displayYear(t.year, t.title);
 }
 
-// One genre, in English whichever source supplied it. Capped rather than
-// joined: the caption has a fixed line budget and the title must never
-// truncate to make room for metadata.
+// Genres now have a line of their own (spec 1035), so more than one fits.
+// Three rather than the sheet's four: a card is narrower, and beyond three the
+// line clips anyway.
 function genresFor(t: CatalogTitle): string[] {
-  return genreLabels(t.genres, parameters.value?.genres, 1);
+  return genreLabels(t.genres, parameters.value?.genres, 3);
+}
+
+// Whether the middle line has anything at all to say. Without this a title with
+// no type, year or rating would render an empty line and stand a pixel taller
+// than its neighbours.
+function factsFor(t: CatalogTitle): string[] {
+  const out: string[] = [];
+  if (!filters.value.type && t.type) out.push(t.type);
+  if (yearFor(t)) out.push(yearFor(t));
+  if (t.imdbScore) out.push(String(t.imdbScore));
+  return out;
 }
 
 const filterOpen = ref(false);
@@ -704,13 +715,18 @@ function goSettings(): void {
             </div>
             <ion-label class="meta">
               <h3>{{ displayTitle(t.title) }}</h3>
-              <p>
+              <!-- Three lines matching the detail sheet's header, in its order
+                   (spec 1035), so tapping a card does not rearrange the facts
+                   the user was just reading. Each <p> is omitted entirely when
+                   it has nothing to say, so a title missing a rating or a genre
+                   does not leave a blank line and knock the grid out of line. -->
+              <p v-if="factsFor(t).length" class="facts">
                 <span v-if="t.imdbScore">★ {{ t.imdbScore.toFixed(1) }}</span>
-                <span v-if="yearFor(t)" class="year">{{ yearFor(t) }}</span>
-                <!-- The type is what the filter just set. Repeating it on every
-                     card says nothing and costs the room a genre needs. -->
                 <span v-if="!filters.type" class="type">{{ t.type }}</span>
-                <span v-for="g in genresFor(t)" :key="g" class="genre">{{ g }}</span>
+                <span v-if="yearFor(t)" class="year">{{ yearFor(t) }}</span>
+              </p>
+              <p v-if="genresFor(t).length" class="genres">
+                {{ genresFor(t).join(' · ') }}
               </p>
             </ion-label>
           </button>
@@ -1065,13 +1081,18 @@ function goSettings(): void {
 .meta .year {
   font-variant-numeric: tabular-nums;
 }
-/* A genre can be long ("Romantic-Comedy"). It is the last thing on the line and
-   the first thing that may be sacrificed, so it truncates rather than wrapping
-   the caption onto another line and pushing the grid out of alignment. */
-.meta .genre {
+/* Both fact lines clip rather than wrap. A caption that grew a fourth line
+   would push its neighbours out of alignment, and the grid reads as a grid only
+   while every cell is the same height (FR-005, FR-006). */
+.meta .facts,
+.meta .genres {
+  white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  white-space: nowrap;
-  min-width: 0;
+}
+/* The genre line is one string rather than flex items, so it ellipsises as a
+   sentence would — "Crime · Drama · Thr…" — instead of dropping a whole genre. */
+.meta .genres {
+  display: block;
 }
 </style>

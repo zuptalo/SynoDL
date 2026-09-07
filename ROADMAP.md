@@ -62,6 +62,7 @@ Specs are grouped by category band; status moves
 | [1032](specs/1032-show-release-year/spec.md) | Show release year and readable genres on titles | 🔵 in-review |
 | [1033](specs/1033-give-youtube-downloads/spec.md) | Give YouTube downloads their own button | 🔵 in-review |
 | [1034](specs/1034-make-youtube-downloads/spec.md) | Make YouTube downloads readable in the task list | 🔵 in-review |
+| [1035](specs/1035-card-captions-read/spec.md) | Card captions read like the detail sheet | 🔵 in-review |
 
 ## 🐛 Hotfixes & Bug Fixes (2001+)
 
