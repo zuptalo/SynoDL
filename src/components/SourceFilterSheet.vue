@@ -134,10 +134,10 @@ function clear(): void {
       <ion-toolbar>
         <ion-title>Filters</ion-title>
         <ion-buttons slot="start">
-          <ion-button @click="clear">Clear</ion-button>
+          <ion-button data-testid="filter-clear" @click="clear">Clear</ion-button>
         </ion-buttons>
         <ion-buttons slot="end">
-          <ion-button :strong="true" @click="apply">Apply</ion-button>
+          <ion-button :strong="true" data-testid="filter-apply" @click="apply">Apply</ion-button>
         </ion-buttons>
       </ion-toolbar>
     </ion-header>
@@ -152,7 +152,7 @@ function clear(): void {
       <ion-list inset>
         <ion-list-header>Basics</ion-list-header>
         <ion-item>
-          <ion-select v-model="type" label="Type" interface="alert">
+          <ion-select v-model="type" label="Type" interface="alert" data-testid="filter-type">
             <ion-select-option v-for="t in filterOptions.types" :key="t.value" :value="t.value">
               {{ t.label }}
             </ion-select-option>

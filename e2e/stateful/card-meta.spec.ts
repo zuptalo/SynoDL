@@ -55,3 +55,37 @@ test('the year is shown once, not twice', async ({ page }) => {
   const years = caption.match(/\b20\d{2}\b/g) ?? [];
   expect(years.length, `caption was: ${caption}`).toBe(1);
 });
+
+// Spec 1032, FR-007. This is the assertion that was missing: it was left to a
+// manual browser check that then could not be performed, so the one behaviour
+// with no automated test was also the one nobody had looked at.
+test('a card stops repeating the type once a type filter is applied', async ({ page }) => {
+  await login(page);
+  await gotoDiscover(page);
+  const cards = page.getByTestId('catalog-card');
+  await expect(cards.first()).toBeVisible({ timeout: 30_000 });
+
+  // With no filter, the type IS part of the caption.
+  const before = await cards.allInnerTexts();
+  expect(before.some((c) => /\bMovie\b/.test(c)), `no Movie card to test with: ${before[0]}`).toBe(
+    true,
+  );
+
+  await page.getByTestId('filter-open').click();
+  await page.getByTestId('filter-type').click();
+  // ion-select interface="alert" opens an Ionic alert of radio options.
+  await page.locator('ion-alert button:has-text("Movie")').first().click();
+  await page.locator('ion-alert button:has-text("OK")').click();
+  await page.getByTestId('filter-apply').click();
+
+  await expect(cards.first()).toBeVisible({ timeout: 30_000 });
+  const after = await cards.allInnerTexts();
+  // The filter chip already says Movie; repeating it on every card is a line of
+  // meta saying nothing, and it costs the room the genre needs.
+  expect(
+    after.every((c) => !/\bMovie\b/.test(c)),
+    `type still repeated after filtering: ${after.find((c) => /\bMovie\b/.test(c))}`,
+  ).toBe(true);
+  // ...and the genre is still there, which is what the freed room was for.
+  expect(after.some((c) => /\b(Comedy|Drama|Action)\b/.test(c))).toBe(true);
+});
