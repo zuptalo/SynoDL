@@ -43,9 +43,20 @@ const (
 // <base>.<lang>.<ext> and offers no way to omit the language infix — while Plex
 // and Jellyfin match LYRICS by exact basename and video SUBTITLES by a 2-letter
 // language suffix. Two different rules, one rename each.
+//
+// Both END IN `exit 0`, and that is load-bearing (spec 2020). An unmatched glob
+// stays literal in a shell, so with no companion file the loop's last command
+// is a false test — and a loop's exit status is its last command's. yt-dlp
+// reads any non-zero exec status as post-processing failure and fails the
+// download, which meant every track WITHOUT lyrics was reported as failed even
+// though it had downloaded, tagged and saved perfectly. Lyrics are absent more
+// often than present, so that was most of them.
+//
+// Tidying a sidecar is not worth failing a download over under any
+// circumstance: the media file is the download.
 const (
-	execRenameLyrics = `after_move:p=%(filepath)q; b="${p%.mp3}"; for s in "$b".*.lrc; do [ -e "$s" ] && mv -f "$s" "$b.lrc"; done`
-	execRenameSubs   = `after_move:p=%(filepath)q; b="${p%.*}"; for s in "$b".*.srt; do n=$(echo "$s" | sed "s/-orig\.srt$/.srt/"); [ "$s" != "$n" ] && mv -f "$s" "$n"; done`
+	execRenameLyrics = `after_move:p=%(filepath)q; b="${p%.mp3}"; for s in "$b".*.lrc; do [ -e "$s" ] && mv -f "$s" "$b.lrc"; done; exit 0`
+	execRenameSubs   = `after_move:p=%(filepath)q; b="${p%.*}"; for s in "$b".*.srt; do n=$(echo "$s" | sed "s/-orig\.srt$/.srt/"); [ "$s" != "$n" ] && mv -f "$s" "$n"; done; exit 0`
 )
 
 // Options is everything needed to build a worker command.
