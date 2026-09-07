@@ -2,6 +2,7 @@ package providers
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -682,5 +683,38 @@ func TestExplicitResolutionWins(t *testing.T) {
 	}
 	if got := firstNonEmptyStr("", source.ResolutionOf("BluRay 720p")); got != "720p" {
 		t.Fatalf("got %q, want the label fallback", got)
+	}
+}
+
+// Spec 1032: this driver's card genres are the provider's English SLUGS, which
+// is what lets them join with ZarFilm's Persian labels through one shared
+// English vocabulary. If they ever became display names instead, every card
+// would start mixing languages — so pin it.
+//
+// Driven through JSON rather than a struct literal, because that also pins the
+// field binding: reading `name` instead of `slug` is exactly the regression
+// this guards against, and it would be invisible to a literal.
+func TestThirtynamaGenreNamesAreSlugsNotDisplayNames(t *testing.T) {
+	var post tnPost
+	if err := json.Unmarshal([]byte(`{
+		"title": "Some Film",
+		"genre": [
+			{"name": "\u062f\u0631\u0627\u0645", "slug": "drama"},
+			{"name": "Sci-Fi", "slug": "sci-fi"},
+			{"name": "No Slug Here", "slug": ""}
+		]
+	}`), &post); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+
+	got := post.genreNames()
+	want := []string{"drama", "sci-fi"}
+	if len(got) != len(want) {
+		t.Fatalf("genreNames() = %v, want %v (a genre with no slug is skipped)", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("genreNames()[%d] = %q, want %q", i, got[i], want[i])
+		}
 	}
 }

@@ -240,8 +240,17 @@ type CatalogTitle struct {
 	PosterFallbackURL string `json:"posterFallbackUrl,omitempty"`
 	// The wide "cover" image, shown large behind the detail header. Empty when the
 	// title has no distinct backdrop (then the header uses the poster).
-	BackdropURL   string   `json:"backdropUrl,omitempty"`
-	IMDbID        string   `json:"imdbId"`
+	BackdropURL string `json:"backdropUrl,omitempty"`
+	IMDbID      string `json:"imdbId"`
+	// Year is the release year as the SOURCE publishes it — a bare "1974" for a
+	// film, and empty when the source has no such field (30nama has none; its
+	// years live at the end of the title string, which the client splits off).
+	//
+	// A string rather than a number: a series carries a range, and an ongoing
+	// one an open range, neither of which fits an int. It is also deliberately
+	// NOT validated here — the driver reports what the source said, and the
+	// client decides what is plausible enough to show (spec 1032, FR-006).
+	Year          string   `json:"year,omitempty"`
 	IMDbScore     float64  `json:"imdbScore"`
 	ProviderScore float64  `json:"providerScore"`
 	Plot          string   `json:"plot"`

@@ -663,3 +663,39 @@ func TestZarfilmEmptyArchiveIsStillJustEmpty(t *testing.T) {
 		t.Fatalf("items = %d, want none", len(res.Items))
 	}
 }
+
+// Spec 1032: the archive cards carry a release year, and the driver used to
+// parse it and then drop it on the floor when building the catalog title.
+func TestZarfilmSearchCarriesReleaseYear(t *testing.T) {
+	site := newZarFakeSite(t)
+	res, err := zarfilm{}.Search(context.Background(), source.NewClient(), zarCfg(site),
+		zarSession("abc"), source.SearchQuery{Page: 1})
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	if len(res.Items) == 0 {
+		t.Fatal("no items")
+	}
+
+	var withYear int
+	for _, it := range res.Items {
+		if it.Year == "" {
+			continue
+		}
+		withYear++
+		// A year the site publishes is a plain 4-digit one; anything else means
+		// we picked up the wrong node.
+		if len(it.Year) != 4 {
+			t.Errorf("%q: year = %q, want a bare 4-digit year", it.Title, it.Year)
+		}
+		for _, r := range it.Year {
+			if r < '0' || r > '9' {
+				t.Errorf("%q: year = %q, want digits only", it.Title, it.Year)
+				break
+			}
+		}
+	}
+	if withYear == 0 {
+		t.Fatal("no item carried a release year; the archive fixture has them on every card")
+	}
+}
