@@ -1,6 +1,10 @@
 package ytdl
 
 import (
+	"errors"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -272,4 +276,91 @@ func TestArgs_ExecSnippetIsConstantAndUserFree(t *testing.T) {
 			t.Errorf("[%s] --exec must run after_move, got %q", mode, execs[0])
 		}
 	}
+}
+
+// runExecSnippet executes an --exec value the way yt-dlp does: strip the timing
+// prefix, substitute the quoted file path, hand it to a shell. Returns the exit
+// status, which is the whole point — yt-dlp treats a non-zero one as
+// post-processing failure and fails the download.
+func runExecSnippet(t *testing.T, snippet, mediaPath string) int {
+	t.Helper()
+	cmd := strings.TrimPrefix(snippet, "after_move:")
+	cmd = strings.Replace(cmd, "%(filepath)q", "'"+mediaPath+"'", 1)
+	out, err := exec.Command("/bin/sh", "-c", cmd).CombinedOutput()
+	if err == nil {
+		return 0
+	}
+	var ee *exec.ExitError
+	if errors.As(err, &ee) {
+		t.Logf("snippet output: %s", out)
+		return ee.ExitCode()
+	}
+	t.Fatalf("running snippet: %v", err)
+	return -1
+}
+
+// Spec 2020. A download that worked was being reported as failed.
+//
+// The rename loop ended with a test for a file that is not there. An unmatched
+// glob stays literal, the existence test is false, and because that test is the
+// LAST command in the loop it becomes the exit status of the whole snippet —
+// which yt-dlp reports as post-processing failure.
+//
+// Lyrics are absent more often than present (an instrumental, a live set, an
+// ambience recording), so this mislabelled a large share of real downloads.
+func TestExecSnippets_SucceedWithNoCompanionFile(t *testing.T) {
+	cases := []struct{ name, snippet, media string }{
+		{"music, no lyrics", execRenameLyrics, "Track.mp3"},
+		{"music video, no subtitles", execRenameSubs, "Track.mp4"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			media := filepath.Join(dir, tc.media)
+			if err := os.WriteFile(media, []byte("x"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if code := runExecSnippet(t, tc.snippet, media); code != 0 {
+				t.Errorf("exit %d with no companion file; a saved track must not read as failed", code)
+			}
+			if _, err := os.Stat(media); err != nil {
+				t.Errorf("the media file must survive: %v", err)
+			}
+		})
+	}
+}
+
+// The rename must still happen — fixing the exit status must not fix it by
+// doing nothing (FR-002).
+func TestExecSnippets_StillRenameTheCompanionFile(t *testing.T) {
+	t.Run("music", func(t *testing.T) {
+		dir := t.TempDir()
+		media := filepath.Join(dir, "Track.mp3")
+		_ = os.WriteFile(media, []byte("x"), 0o600)
+		_ = os.WriteFile(filepath.Join(dir, "Track.en-orig.lrc"), []byte("x"), 0o600)
+
+		if code := runExecSnippet(t, execRenameLyrics, media); code != 0 {
+			t.Fatalf("exit %d", code)
+		}
+		// Media servers match lyrics by EXACT basename, so the language infix
+		// has to go.
+		if _, err := os.Stat(filepath.Join(dir, "Track.lrc")); err != nil {
+			t.Errorf("lyrics not renamed to the exact basename: %v", err)
+		}
+	})
+
+	t.Run("music video", func(t *testing.T) {
+		dir := t.TempDir()
+		media := filepath.Join(dir, "Track.mp4")
+		_ = os.WriteFile(media, []byte("x"), 0o600)
+		_ = os.WriteFile(filepath.Join(dir, "Track.en-orig.srt"), []byte("x"), 0o600)
+
+		if code := runExecSnippet(t, execRenameSubs, media); code != 0 {
+			t.Fatalf("exit %d", code)
+		}
+		// Video subtitles keep a 2-letter language, which is what gets parsed.
+		if _, err := os.Stat(filepath.Join(dir, "Track.en.srt")); err != nil {
+			t.Errorf("subtitle not renamed to a bare language code: %v", err)
+		}
+	})
 }
