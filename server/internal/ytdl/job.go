@@ -72,6 +72,9 @@ type JobConfig struct {
 	DeadlineSeconds    int64
 	TTLSeconds         int32
 	MinDurationSeconds int
+	// GroupName is the playlist or channel an expanded item came from, already
+	// sanitised. Empty for a directly submitted link.
+	GroupName string
 
 	CPURequest, MemRequest string
 	CPULimit, MemLimit     string
@@ -147,6 +150,7 @@ func BuildJob(c JobConfig) (*k8s.Job, error) {
 							Target:             c.Target,
 							OutDir:             MountPath,
 							MinDurationSeconds: c.MinDurationSeconds,
+							GroupName:          c.GroupName,
 						}),
 						Env: []k8s.EnvVar{
 							// No writable home directory exists in the pod.

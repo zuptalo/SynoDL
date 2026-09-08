@@ -183,7 +183,13 @@ func handleYtdlSubmit(d Deps) http.Handler {
 		// a job listing would miss it and the same link could be queued over and
 		// over. Matched on the item's identity rather than on URL text, so the
 		// several spellings of one video cannot each get their own download.
-		if existing, found, err := d.Store.FindYtdlInFlight(target.VideoID(), string(mode)); err == nil && found {
+		// A group has no video id, so it is matched on its normalised URL — the
+		// same idea applied to the only identity a channel has.
+		dupKey := target.VideoID()
+		if dupKey == "" {
+			dupKey = target.URL
+		}
+		if existing, found, err := d.Store.FindYtdlInFlight(dupKey, string(mode)); err == nil && found {
 			httpx.JSON(w, http.StatusConflict, map[string]string{
 				"error":     "that link is already downloading",
 				"requestId": existing,
@@ -220,23 +226,39 @@ func handleYtdlSubmit(d Deps) http.Handler {
 			return
 		}
 
-		// Accepting a download is now recording it and QUEUING it — no worker is
-		// created here (FR-021, FR-022). The reconciler admits it when a slot
-		// frees, which is what keeps an uncapped channel expansion from dropping
-		// several hundred jobs on the orchestrator at once, and what makes the
+		// A playlist or channel becomes a GROUP, which starts out not knowing
+		// what it contains (FR-014, FR-015). A single link is a download that
+		// can be queued straight away. Both are recorded before any worker
+		// exists, and neither is started here (FR-021, FR-022) — the reconciler
+		// does that, which is what keeps an uncapped expansion from dropping
+		// several hundred jobs on the orchestrator at once and what makes the
 		// wait visible instead of hidden inside the cluster.
+		kind, state := store.YtdlKindSingle, ytdl.StateQueued
+		if target.Scope != ytdl.ScopeSingle {
+			kind, state = store.YtdlKindGroup, ytdl.StateResolving
+		}
+
+		// The group's own name is what its items will be filed under when they
+		// have nothing better (FR-036), so it is sanitised at the boundary
+		// rather than on the way out to a worker.
+		groupName := ""
+		if kind == store.YtdlKindGroup {
+			groupName = ytdl.SanitizeName(desc.Title)
+		}
+
 		if err := d.Store.CreateYtdlDownload(store.YtdlDownload{
 			RequestID: requestID,
-			Kind:      store.YtdlKindSingle,
+			Kind:      kind,
 			UserID:    &u.ID,
 			SourceURL: target.URL,
 			VideoID:   target.VideoID(),
 			Mode:      string(mode),
 			Scope:     string(target.Scope),
-			State:     string(ytdl.StateQueued),
+			State:     string(state),
 			Title:     desc.Title,
 			Uploader:  desc.Uploader,
 			Artwork:   desc.Artwork,
+			GroupName: groupName,
 			Origin:    store.YtdlOriginDirect,
 		}); err != nil {
 			httpx.Error(w, http.StatusInternalServerError, "could not record the download")
@@ -251,15 +273,17 @@ func handleYtdlSubmit(d Deps) http.Handler {
 
 		httpx.JSON(w, http.StatusAccepted, ytdlSubmitView{
 			RequestID: requestID,
+			Kind:      string(kind),
 			Scope:     string(target.Scope),
 			Mode:      string(mode),
-			State:     string(ytdl.StateQueued),
+			State:     string(state),
 		})
 	})
 }
 
 type ytdlSubmitView struct {
 	RequestID string `json:"requestId"`
+	Kind      string `json:"kind"`
 	Scope     string `json:"scope"`
 	Mode      string `json:"mode"`
 	State     string `json:"state"`

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -526,5 +527,314 @@ func TestAdmit_SkipsADeletedAccountsQueuedWork(t *testing.T) {
 	}
 	if got.UserID != nil {
 		t.Fatalf("UserID = %d, want it detached", *got.UserID)
+	}
+}
+
+// Expansion (spec 0013, US6). A playlist or channel stops being one opaque bulk
+// job and becomes the items it contains — each with its own progress, its own
+// outcome, and its own retry.
+
+// submitGroup submits a channel link and returns its request id.
+func submitGroup(t *testing.T, h http.Handler, auth map[string]string, url string) string {
+	t.Helper()
+	rec := submit(t, h, auth, `{"url":"`+url+`","mode":"music"}`)
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("submit group = %d %s", rec.Code, rec.Body.String())
+	}
+	var sub ytdlSubmitResp
+	_ = json.Unmarshal(rec.Body.Bytes(), &sub)
+	if sub.Kind != "group" || sub.State != "resolving" {
+		t.Fatalf("submit = %+v, want a group that is resolving", sub)
+	}
+	return sub.RequestID
+}
+
+// expansionOutput builds enumeration output for the given ids.
+func expansionOutput(uploader string, ids ...string) string {
+	var b strings.Builder
+	for _, id := range ids {
+		b.WriteString(ytdl.ExpandSentinel + " id=" + id + " uploader=" + uploader + " title=Track " + id + "\n")
+	}
+	return b.String()
+}
+
+func TestExpand_TurnsAChannelIntoItsItems(t *testing.T) {
+	jobs := &fakeJobs{}
+	h, st := newYtdlRouter(t, jobs, ytdlCfg())
+	admin := adminAfterSetup(t, h)
+	gid := submitGroup(t, h, admin, "https://www.youtube.com/@lofi")
+
+	d := InitCaches(Deps{Cfg: ytdlCfg(), Store: st, Jobs: jobs})
+
+	// First cycle starts the enumeration worker; it mounts no library.
+	d.reconcileYtdlOnce(context.Background())
+	if len(jobs.created) != 1 {
+		t.Fatalf("created %d jobs, want the enumeration worker", len(jobs.created))
+	}
+	if len(jobs.created[0].Spec.Template.Spec.Volumes) != 0 {
+		t.Error("the enumeration worker mounted a media library; it writes nothing")
+	}
+
+	// It finishes, having listed three items.
+	expandName := ytdl.ExpandJobName(gid)
+	jobs.setStatusByName(t, expandName, k8s.JobStatus{Succeeded: 1})
+	jobs.attachPodFor(expandName, gid, ytdl.JobKindExpand)
+	jobs.logs[expandName+"-worker"] = expansionOutput("Lo-fi Beats", "aaaaaaaaaaa", "bbbbbbbbbbb", "ccccccccccc")
+
+	d.reconcileYtdlOnce(context.Background())
+
+	items, _, err := st.ListYtdlItems(gid, "", 100)
+	if err != nil {
+		t.Fatalf("items: %v", err)
+	}
+	if len(items) != 3 {
+		t.Fatalf("expanded into %d items, want 3", len(items))
+	}
+	for _, it := range items {
+		// Queued, or already admitted — expansion and admission happen in the
+		// same cycle on purpose, so an item need not wait a tick to start.
+		if it.State != "queued" && it.State != "scheduled" {
+			t.Errorf("item %s = %q, want it queued or admitted", it.RequestID, it.State)
+		}
+		if it.Scope != "single" {
+			t.Errorf("item %s scope = %q, want single", it.RequestID, it.Scope)
+		}
+		// FR-037: the group's name travels with each item, so the album is
+		// right even though the item is fetched with no playlist context.
+		if it.GroupName != "Lo-fi Beats" {
+			t.Errorf("item %s groupName = %q, want the channel's name", it.RequestID, it.GroupName)
+		}
+	}
+
+	// The group itself now has the channel's name, learned from its contents.
+	g, _ := st.GetYtdlDownload(gid)
+	if g.GroupName != "Lo-fi Beats" || g.State == "resolving" {
+		t.Fatalf("group = %+v, want it named and out of resolving", g)
+	}
+}
+
+func TestExpand_SkipsWhatIsAlreadyHeld(t *testing.T) {
+	// FR-020. Re-running a channel queues only what is new — checked BEFORE
+	// anything is queued, so no rows are created that would immediately finish
+	// having done nothing.
+	jobs := &fakeJobs{}
+	h, st := newYtdlRouter(t, jobs, ytdlCfg())
+	admin := adminAfterSetup(t, h)
+	owner := adminUserID(t, st)
+
+	// Already have one of them.
+	held := store.YtdlDownload{
+		RequestID: "old", Kind: store.YtdlKindSingle, UserID: &owner,
+		SourceURL: "https://www.youtube.com/watch?v=aaaaaaaaaaa", VideoID: "aaaaaaaaaaa",
+		Mode: "music", Scope: "single", State: "completed",
+	}
+	if err := st.CreateYtdlDownload(held); err != nil {
+		t.Fatal(err)
+	}
+
+	gid := submitGroup(t, h, admin, "https://www.youtube.com/@lofi")
+	d := InitCaches(Deps{Cfg: ytdlCfg(), Store: st, Jobs: jobs})
+	d.reconcileYtdlOnce(context.Background())
+
+	expandName := ytdl.ExpandJobName(gid)
+	jobs.setStatusByName(t, expandName, k8s.JobStatus{Succeeded: 1})
+	jobs.attachPodFor(expandName, gid, ytdl.JobKindExpand)
+	jobs.logs[expandName+"-worker"] = expansionOutput("Lo-fi Beats", "aaaaaaaaaaa", "bbbbbbbbbbb")
+	d.reconcileYtdlOnce(context.Background())
+
+	items, _, _ := st.ListYtdlItems(gid, "", 100)
+	if len(items) != 1 {
+		t.Fatalf("queued %d items, want only the one not already held", len(items))
+	}
+	if items[0].VideoID != "bbbbbbbbbbb" {
+		t.Fatalf("queued %q, want the new item", items[0].VideoID)
+	}
+}
+
+func TestExpand_ADismissedRecordMeansTheItemIsNoLongerHeld(t *testing.T) {
+	// FR-020a. Dismissing forgets a download; asking for it again is a real
+	// request, not a duplicate.
+	jobs := &fakeJobs{}
+	h, st := newYtdlRouter(t, jobs, ytdlCfg())
+	admin := adminAfterSetup(t, h)
+	owner := adminUserID(t, st)
+
+	if err := st.CreateYtdlDownload(store.YtdlDownload{
+		RequestID: "old", Kind: store.YtdlKindSingle, UserID: &owner,
+		SourceURL: "https://www.youtube.com/watch?v=aaaaaaaaaaa", VideoID: "aaaaaaaaaaa",
+		Mode: "music", Scope: "single", State: "completed",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if ok, err := st.DeleteYtdlDownload("old", owner, false); err != nil || !ok {
+		t.Fatalf("dismiss: %v %v", ok, err)
+	}
+
+	gid := submitGroup(t, h, admin, "https://www.youtube.com/@lofi")
+	d := InitCaches(Deps{Cfg: ytdlCfg(), Store: st, Jobs: jobs})
+	d.reconcileYtdlOnce(context.Background())
+	expandName := ytdl.ExpandJobName(gid)
+	jobs.setStatusByName(t, expandName, k8s.JobStatus{Succeeded: 1})
+	jobs.attachPodFor(expandName, gid, ytdl.JobKindExpand)
+	jobs.logs[expandName+"-worker"] = expansionOutput("Lo-fi Beats", "aaaaaaaaaaa")
+	d.reconcileYtdlOnce(context.Background())
+
+	items, _, _ := st.ListYtdlItems(gid, "", 100)
+	if len(items) != 1 {
+		t.Fatalf("queued %d items, want the dismissed one fetched again", len(items))
+	}
+}
+
+func TestExpand_AFailedEnumerationFailsTheGroupPlainly(t *testing.T) {
+	// FR-013d: nothing may sit in `resolving` forever. And an empty expansion
+	// would say "this channel has nothing in it", which is a different and
+	// wrong statement.
+	jobs := &fakeJobs{}
+	h, st := newYtdlRouter(t, jobs, ytdlCfg())
+	admin := adminAfterSetup(t, h)
+	gid := submitGroup(t, h, admin, "https://www.youtube.com/@lofi")
+
+	d := InitCaches(Deps{Cfg: ytdlCfg(), Store: st, Jobs: jobs})
+	d.reconcileYtdlOnce(context.Background())
+	jobs.setStatusByName(t, ytdl.ExpandJobName(gid), k8s.JobStatus{Failed: 1})
+	d.reconcileYtdlOnce(context.Background())
+
+	g, _ := st.GetYtdlDownload(gid)
+	if g.State != "failed" {
+		t.Fatalf("group = %q, want it failed rather than stuck resolving", g.State)
+	}
+	if g.Reason == "" {
+		t.Error("a failed expansion must say something the user can act on")
+	}
+	for _, forbidden := range []string{"yt-dlp", "--", "/out"} {
+		if strings.Contains(g.Reason, forbidden) {
+			t.Errorf("reason %q leaks %q", g.Reason, forbidden)
+		}
+	}
+}
+
+func TestExpand_OneFailedItemLeavesTheRestAlone(t *testing.T) {
+	// FR-018. The whole reason for expanding: a single bad entry used to take
+	// the entire channel with it.
+	jobs := &fakeJobs{}
+	h, st := newYtdlRouter(t, jobs, ytdlCfg())
+	admin := adminAfterSetup(t, h)
+	gid := submitGroup(t, h, admin, "https://www.youtube.com/@lofi")
+
+	d := InitCaches(Deps{Cfg: ytdlCfg(), Store: st, Jobs: jobs})
+	d.reconcileYtdlOnce(context.Background())
+	expandName := ytdl.ExpandJobName(gid)
+	jobs.setStatusByName(t, expandName, k8s.JobStatus{Succeeded: 1})
+	jobs.attachPodFor(expandName, gid, ytdl.JobKindExpand)
+	jobs.logs[expandName+"-worker"] = expansionOutput("Lo-fi Beats", "aaaaaaaaaaa", "bbbbbbbbbbb", "ccccccccccc")
+	d.reconcileYtdlOnce(context.Background())
+
+	items, _, _ := st.ListYtdlItems(gid, "", 100)
+	if len(items) != 3 {
+		t.Fatalf("want 3 items, got %d", len(items))
+	}
+	// They get admitted, then one fails.
+	d.reconcileYtdlOnce(context.Background())
+	jobs.setStatus(t, items[0].RequestID, k8s.JobStatus{Failed: 1})
+	jobs.setStatus(t, items[1].RequestID, k8s.JobStatus{Succeeded: 1})
+	jobs.setStatus(t, items[2].RequestID, k8s.JobStatus{Succeeded: 1})
+	d.reconcileYtdlOnce(context.Background())
+
+	c, err := st.YtdlCounts(gid)
+	if err != nil {
+		t.Fatalf("counts: %v", err)
+	}
+	if c.Completed != 2 || c.Failed != 1 {
+		t.Fatalf("counts = %+v, want 2 saved and 1 failed", c)
+	}
+	// The group reports failed BECAUSE something failed — reporting an
+	// unsuccessful run as completed is the one outcome 0012 FR-018 forbids.
+	g, _ := st.GetYtdlDownload(gid)
+	if g.State != "failed" {
+		t.Fatalf("group = %q, want failed when an item failed", g.State)
+	}
+}
+
+func TestExpand_AGroupWhereEverythingWorkedIsCompleted(t *testing.T) {
+	jobs := &fakeJobs{}
+	h, st := newYtdlRouter(t, jobs, ytdlCfg())
+	admin := adminAfterSetup(t, h)
+	gid := submitGroup(t, h, admin, "https://www.youtube.com/@lofi")
+
+	d := InitCaches(Deps{Cfg: ytdlCfg(), Store: st, Jobs: jobs})
+	d.reconcileYtdlOnce(context.Background())
+	expandName := ytdl.ExpandJobName(gid)
+	jobs.setStatusByName(t, expandName, k8s.JobStatus{Succeeded: 1})
+	jobs.attachPodFor(expandName, gid, ytdl.JobKindExpand)
+	jobs.logs[expandName+"-worker"] = expansionOutput("Lo-fi Beats", "aaaaaaaaaaa", "bbbbbbbbbbb")
+	d.reconcileYtdlOnce(context.Background())
+
+	items, _, _ := st.ListYtdlItems(gid, "", 100)
+	d.reconcileYtdlOnce(context.Background())
+	for _, it := range items {
+		jobs.setStatus(t, it.RequestID, k8s.JobStatus{Succeeded: 1})
+	}
+	d.reconcileYtdlOnce(context.Background())
+
+	g, _ := st.GetYtdlDownload(gid)
+	if g.State != "completed" {
+		t.Fatalf("group = %q, want completed", g.State)
+	}
+	if g.FinishedAt == nil {
+		t.Error("a finished group must carry when it finished")
+	}
+}
+
+// FR-013d, the other way a download can sit forever: a job the orchestrator
+// never starts.
+func TestReconcile_AScheduledJobThatNeverAppearsDoesNotWaitForever(t *testing.T) {
+	jobs := &fakeJobs{}
+	h, st := newYtdlRouter(t, jobs, ytdlCfg())
+	admin := adminAfterSetup(t, h)
+	rec := submit(t, h, admin, `{"url":"https://youtu.be/abc","mode":"music"}`)
+	var sub ytdlSubmitResp
+	_ = json.Unmarshal(rec.Body.Bytes(), &sub)
+
+	d := InitCaches(Deps{Cfg: ytdlCfg(), Store: st, Jobs: jobs})
+	d.reconcileYtdlOnce(context.Background())
+
+	// The orchestrator loses the job entirely — it was created and is now gone,
+	// with no terminal condition. The record must not be left believing it is
+	// still starting.
+	_ = jobs.DeleteJob(context.Background(), ytdl.JobName(sub.RequestID))
+	for i := 0; i < 3; i++ {
+		d.reconcileYtdlOnce(context.Background())
+	}
+
+	got, _ := st.GetYtdlDownload(sub.RequestID)
+	if got.State == "scheduled" || got.State == "downloading" {
+		t.Fatalf("state = %q after its job vanished, want it resolved to a final state", got.State)
+	}
+}
+
+func TestAdmit_AGroupDoesNotOccupyASlot(t *testing.T) {
+	// A group sits in `downloading` while its items run, but has no worker of
+	// its own. Counting it against the limit would make a channel download
+	// three at a time instead of four, with nothing on screen to explain why.
+	jobs := &fakeJobs{}
+	h, st := newYtdlRouter(t, jobs, ytdlCfg())
+	admin := adminAfterSetup(t, h)
+	gid := submitGroup(t, h, admin, "https://www.youtube.com/@lofi")
+
+	d := InitCaches(Deps{Cfg: ytdlCfg(), Store: st, Jobs: jobs})
+	d.reconcileYtdlOnce(context.Background())
+	expandName := ytdl.ExpandJobName(gid)
+	jobs.setStatusByName(t, expandName, k8s.JobStatus{Succeeded: 1})
+	jobs.attachPodFor(expandName, gid, ytdl.JobKindExpand)
+	jobs.logs[expandName+"-worker"] = expansionOutput("Lo-fi Beats",
+		"aaaaaaaaaaa", "bbbbbbbbbbb", "ccccccccccc", "ddddddddddd", "eeeeeeeeeee")
+	d.reconcileYtdlOnce(context.Background())
+
+	running, err := st.CountYtdlRunning()
+	if err != nil {
+		t.Fatalf("count: %v", err)
+	}
+	if running != 4 {
+		t.Fatalf("running = %d, want the full limit of 4 — the group must not hold a slot", running)
 	}
 }

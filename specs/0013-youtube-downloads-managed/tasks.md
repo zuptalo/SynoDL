@@ -225,18 +225,18 @@ each independently trackable and retryable.
 - [X] T074 [US6] Add `BuildExpansionJob` to `server/internal/ytdl/job.go`.
 - [X] T075 [US6] *(brought forward into Phase 4 — the client could not express the record's states without it.)* Add the six-state model to `server/internal/ytdl/job.go` — `resolving`, `queued`, `scheduled`, `downloading`, `completed`, `failed` — replacing the four of spec 0012, with failure still checked before success everywhere.
 - [X] T076 [US6] [TEST] Add cases for the legal transitions of `data-model.md`, including that `failed → queued` is the only edge out of a final state and only on an explicit action.
-- [ ] T077 [US6] Add expansion to `server/internal/api/ytdl_reconcile.go`: run the listing Job for a `resolving` request, read its entries, skip items already held (FR-020), and insert the rest in one transaction.
-- [ ] T078 [US6] [TEST] In `server/internal/api/ytdl_reconcile_test.go`, add a case asserting a dismissed record means an item is no longer held and is fetched again (FR-020a).
-- [ ] T079 [US6] [TEST] In `server/internal/api/ytdl_reconcile_test.go`, add a case asserting a `resolving` request whose expansion worker vanishes reaches `failed` rather than waiting forever (FR-013d).
+- [X] T077 [US6] Add expansion to `server/internal/api/ytdl_reconcile.go`: run the listing Job for a `resolving` request, read its entries, skip items already held (FR-020), and insert the rest in one transaction.
+- [X] T078 [US6] [TEST] In `server/internal/api/ytdl_reconcile_test.go`, add a case asserting a dismissed record means an item is no longer held and is fetched again (FR-020a).
+- [X] T079 [US6] [TEST] In `server/internal/api/ytdl_reconcile_test.go`, add a case asserting a `resolving` request whose expansion worker vanishes reaches `failed` rather than waiting forever (FR-013d).
 - [X] T079a [US6] [TEST] In `server/internal/ytdl/expand_test.go`, add a case asserting **no ceiling** on expansion (FR-017): a large entry list yields one record per entry with no truncation, no cap constant, and no silent drop. This was an explicit product decision and nothing else guards it.
-- [ ] T079b [US6] [TEST] In `server/internal/api/ytdl_reconcile_test.go`, extend T079's coverage to the other way a download can sit forever (FR-013d): a `scheduled` download whose pod never appears must reach `failed` rather than waiting indefinitely.
-- [ ] T080 [US6] Add group state derivation and aggregate counts to `server/internal/store/ytdl_repos.go`.
-- [ ] T081 [US6] [TEST] Add `server/internal/api/ytdl_detail_test.go` cases for `GET /v1/ytdl/{requestId}/items` — paged items plus the group aggregate; 404 for a group the caller may not see.
-- [ ] T082 [US6] Add the group-items handler to `server/internal/api/ytdl_detail.go` and register the route.
-- [ ] T083 [US6] Exclude items from the top-level list in `server/internal/api/ytdl_handlers.go` (FR-019b) so a large channel cannot crowd out other downloads.
-- [ ] T084 [P] [US6] Render a group row with aggregate counts in `src/components/YtdlItem.vue`.
-- [ ] T085 [P] [US6] Create `src/components/YtdlGroupModal.vue` listing a group's items, each openable, retryable and dismissable.
-- [ ] T086 [US6] Add `e2e/stateful/ytdl-expand.spec.ts`: a playlist expands to per-entry rows behind one group row; one entry failing leaves the others unaffected; the Tasks list gains exactly one row.
+- [X] T079b [US6] [TEST] In `server/internal/api/ytdl_reconcile_test.go`, extend T079's coverage to the other way a download can sit forever (FR-013d): a `scheduled` download whose pod never appears must reach `failed` rather than waiting indefinitely.
+- [X] T080 [US6] Add group state derivation and aggregate counts to `server/internal/store/ytdl_repos.go`.
+- [X] T081 [US6] [TEST] Add `server/internal/api/ytdl_detail_test.go` cases for `GET /v1/ytdl/{requestId}/items` — paged items plus the group aggregate; 404 for a group the caller may not see.
+- [X] T082 [US6] Add the group-items handler to `server/internal/api/ytdl_detail.go` and register the route.
+- [X] T083 [US6] Exclude items from the top-level list in `server/internal/api/ytdl_handlers.go` (FR-019b) so a large channel cannot crowd out other downloads.
+- [X] T084 [P] [US6] Render a group row with aggregate counts in `src/components/YtdlItem.vue`.
+- [X] T085 [P] [US6] Create `src/components/YtdlGroupModal.vue` listing a group's items, each openable, retryable and dismissable.
+- [X] T086 [US6] Add `e2e/stateful/ytdl-expand.spec.ts`: a playlist expands to per-entry rows behind one group row; one entry failing leaves the others unaffected; the Tasks list gains exactly one row.
 
 ---
 
@@ -250,15 +250,15 @@ both modes.
 
 **Depends on**: Phase 9.
 
-- [ ] T087 [P] [US8] [TEST] Add `server/internal/ytdl/sanitize_test.go` — table-driven and adversarial: path separators, parent-directory references, absolute paths, leading dots, control characters, an over-long name, an empty result after stripping. **No input may produce a value that escapes the mounted library** (FR-038a).
-- [ ] T088 [US8] Create `server/internal/ytdl/sanitize.go`. This is defence in depth by intent — the extractor's own filename sanitising stays, and neither alone is the argument.
-- [ ] T089 [US8] [TEST] Add `server/internal/ytdl/command_test.go` cases asserting the group name reaches the worker as a discrete argument, never concatenated (FR-038), that album falls back playlist/channel → generic (FR-036), and that the folder template and the tag template remain the same expression. Also assert artist still falls back to the uploader (FR-035) — that works today and has no test, and T090 edits the very same expression.
-- [ ] T090 [US8] Change `tmplAlbum` and the metadata arguments in `server/internal/ytdl/command.go` to take the sanitised group name, preserving the folder/tag identity that keeps a track from being foldered as one thing and tagged as another.
-- [ ] T091 [US8] Pass the group name through `JobConfig` in `server/internal/ytdl/job.go` for expanded items (FR-037).
-- [ ] T092 [US8] **Experiment (R9)**: run the music-video path against the pinned `jauderho/yt-dlp:2026.08.19` and inspect the output file for embedded cover art. Record the result in `research.md`.
-- [ ] T093 [US8] Depending on T092, either keep embedded art or add a sidecar poster for the video path in `server/internal/ytdl/command.go` (FR-034 accepts either).
-- [ ] T094 [US8] **Experiment (R6)**: confirm whether the extractor sanitises a value injected via metadata parsing. Record in `research.md`. This does not change what is built — T088 is required regardless — it records whether there is a second layer.
-- [ ] T095 [US8] **Experiment (R2)**: confirm progress fields are usable on the audio path through post-processing, and that a track does not appear stuck at 100% during extraction. Record in `research.md`.
+- [X] T087 [P] [US8] [TEST] Add `server/internal/ytdl/sanitize_test.go` — table-driven and adversarial: path separators, parent-directory references, absolute paths, leading dots, control characters, an over-long name, an empty result after stripping. **No input may produce a value that escapes the mounted library** (FR-038a).
+- [X] T088 [US8] Create `server/internal/ytdl/sanitize.go`. This is defence in depth by intent — the extractor's own filename sanitising stays, and neither alone is the argument.
+- [X] T089 [US8] [TEST] Add `server/internal/ytdl/command_test.go` cases asserting the group name reaches the worker as a discrete argument, never concatenated (FR-038), that album falls back playlist/channel → generic (FR-036), and that the folder template and the tag template remain the same expression. Also assert artist still falls back to the uploader (FR-035) — that works today and has no test, and T090 edits the very same expression.
+- [X] T090 [US8] Change `tmplAlbum` and the metadata arguments in `server/internal/ytdl/command.go` to take the sanitised group name, preserving the folder/tag identity that keeps a track from being foldered as one thing and tagged as another.
+- [X] T091 [US8] Pass the group name through `JobConfig` in `server/internal/ytdl/job.go` for expanded items (FR-037).
+- [X] T092 [US8] **Experiment (R9)** — DONE, answered without downloading anything: AtomicParsley is absent from the pinned image but mutagen 1.48.1 is present, and the postprocessor's own source shows mutagen is Method 1 and AtomicParsley only the fallback. Verified end-to-end inside the image on a locally generated mp4. Original task: run the music-video path against the pinned `jauderho/yt-dlp:2026.08.19` and inspect the output file for embedded cover art. Record the result in `research.md`.
+- [X] T093 [US8] **No-op** — T092 showed art embeds on both paths, so no sidecar is written; a second source of truth for the same artwork would be worse than none. Original task: either keep embedded art or add a sidecar poster for the video path in `server/internal/ytdl/command.go` (FR-034 accepts either).
+- [X] T094 [US8] **Experiment (R6)** — DONE, and it found a real traversal in spec 0012's shipped recipe: the extractor leaves a BARE `..` untouched, and `artist`/`album` come from the source rather than from SynoDL, so an artist of `..` escaped the library entirely. Fixed with a constant `--replace-in-metadata` guard on the directory fields. Original task: confirm whether the extractor sanitises a value injected via metadata parsing. Record in `research.md`. This does not change what is built — T088 is required regardless — it records whether there is a second layer.
+- [X] T095 [US8] **Experiment (R2)** — DONE: the fields render on the audio path, and an absent field comes through as the literal `NA`, which the parser already reads as absent. Pinned with a test using the real line shape. Original task: confirm progress fields are usable on the audio path through post-processing, and that a track does not appear stuck at 100% during extraction. Record in `research.md`.
 
 ---
 
@@ -268,23 +268,23 @@ both modes.
 
 **Depends on**: Phase 9.
 
-- [ ] T096 [TEST] Add `server/internal/api/ytdl_notify_test.go`: a direct download notifies as one download; a group notifies at most once, when every item is final, with saved and failed counts; a group of 340 items produces exactly one notification (SC-005b); notification respects ownership and the user's existing scope.
-- [ ] T097 Create `server/internal/api/ytdl_notify.go` honouring the existing `notification_prefs` (added / completed / failed) rather than introducing a second set of switches.
-- [ ] T098 Hook group-final detection into `server/internal/api/ytdl_reconcile.go`.
-- [ ] T099 [TEST] In `server/internal/api/ytdl_notify_test.go`, add a case asserting a group with one item stuck cannot notify, and that FR-013d's bound is what eventually lets it.
+- [X] T096 [TEST] Add `server/internal/api/ytdl_notify_test.go`: a direct download notifies as one download; a group notifies at most once, when every item is final, with saved and failed counts; a group of 340 items produces exactly one notification (SC-005b); notification respects ownership and the user's existing scope.
+- [X] T097 Create `server/internal/api/ytdl_notify.go` honouring the existing `notification_prefs` (added / completed / failed) rather than introducing a second set of switches.
+- [X] T098 Hook group-final detection into `server/internal/api/ytdl_reconcile.go`.
+- [X] T099 [TEST] In `server/internal/api/ytdl_notify_test.go`, add a case asserting a group with one item stuck cannot notify, and that FR-013d's bound is what eventually lets it.
 
 ---
 
 ## Phase 12: Polish & Cross-Cutting
 
-- [ ] T100 [P] Verify no source link, saved path, library path, playlist name, or raw worker output appears in any log, metric or error payload (FR-032a). Grep the new code and add a test where a handler builds an error string.
-- [ ] T100a [P] Confirm `specs/0013-youtube-downloads-managed/contracts/http-api.md` still enumerates every user- or source-influenced value that reaches a worker (FR-038c), and that each is covered by the FR-038 / FR-038a / FR-038b tests. If implementation added a value the list does not name, add it in both places.
-- [ ] T101 [P] [TEST] In `server/internal/api/ytdl_handlers_test.go`, add cases asserting an orchestrator or log-read failure is reported distinctly from a download having failed (FR-032b), and that `degraded` keeps its spec 0012 meaning.
-- [ ] T102 [P] [TEST] In `server/internal/api/ytdl_handlers_test.go`, add a case asserting the queue reveals nothing cross-user to a non-admin (FR-009c).
-- [ ] T103 [P] Confirm the list stays responsive at several thousand records (SC-006a) — seed the store and measure; the page query must not load the whole history.
-- [ ] T104 [P] Update `CLAUDE.md`: the six states, the reconciler, the queue, `pods/log`, and `YTDL_MAX_PARALLEL`. The existing text describes spec 0012's four states and "no server-side queue".
-- [ ] T105 [P] Update `docs/UPGRADING.md` with the operator-facing change: a new environment variable and a widened Role.
-- [ ] T105a [P] Review `e2e/stateful/ytdl-fab.spec.ts` and `e2e/stateful/ytdl.spec.ts` against the changed submit response and the new states, and update any assertion that encoded spec 0012's four-state model.
+- [X] T100 [P] Verify no source link, saved path, library path, playlist name, or raw worker output appears in any log, metric or error payload (FR-032a). Grep the new code and add a test where a handler builds an error string.
+- [X] T100a [P] Confirm `specs/0013-youtube-downloads-managed/contracts/http-api.md` still enumerates every user- or source-influenced value that reaches a worker (FR-038c), and that each is covered by the FR-038 / FR-038a / FR-038b tests. If implementation added a value the list does not name, add it in both places.
+- [X] T101 [P] [TEST] In `server/internal/api/ytdl_handlers_test.go`, add cases asserting an orchestrator or log-read failure is reported distinctly from a download having failed (FR-032b), and that `degraded` keeps its spec 0012 meaning.
+- [X] T102 [P] [TEST] In `server/internal/api/ytdl_handlers_test.go`, add a case asserting the queue reveals nothing cross-user to a non-admin (FR-009c).
+- [X] T103 [P] Confirm the list stays responsive at several thousand records (SC-006a) — seed the store and measure; the page query must not load the whole history.
+- [X] T104 [P] Update `CLAUDE.md`: the six states, the reconciler, the queue, `pods/log`, and `YTDL_MAX_PARALLEL`. The existing text describes spec 0012's four states and "no server-side queue".
+- [X] T105 [P] Update `docs/UPGRADING.md` with the operator-facing change: a new environment variable and a widened Role.
+- [X] T105a [P] Review `e2e/stateful/ytdl-fab.spec.ts` and `e2e/stateful/ytdl.spec.ts` against the changed submit response and the new states, and update any assertion that encoded spec 0012's four-state model.
 - [ ] T106 Run the full gate: `npm run build`, `npm run test:unit:coverage`, `cd server && go build ./... && go vet ./... && go test ./...`, `npm run test:e2e`.
 - [ ] T107 Set the spec `Status:` to `in-review` and run `make roadmap`.
 

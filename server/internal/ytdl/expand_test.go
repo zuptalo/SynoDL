@@ -5,7 +5,9 @@ import (
 	"testing"
 )
 
-func entryLine(id, title string) string { return ExpandSentinel + " id=" + id + " title=" + title }
+func entryLine(id, title string) string {
+	return ExpandSentinel + " id=" + id + " uploader=Lo-fi Beats title=" + title
+}
 
 func TestExpandArgs_ListsWithoutDownloading(t *testing.T) {
 	args := ExpandArgs(Target{URL: "https://www.youtube.com/@lofi/videos", Scope: ScopeChannel})
@@ -50,6 +52,15 @@ func TestParseEntries_ReadsOurOwnLines(t *testing.T) {
 	}
 	if got[0].URL != "https://www.youtube.com/watch?v=aaaaaaaaaaa" {
 		t.Fatalf("URL = %q, want a canonical watch link rebuilt from the id", got[0].URL)
+	}
+}
+
+func TestParseEntries_CarriesTheUploader(t *testing.T) {
+	// A channel publishes no oEmbed document, so this is the only place its real
+	// name can be learned (FR-036).
+	got := ParseEntries([]byte(entryLine("abc", "Midnight Study")))
+	if len(got) != 1 || got[0].Uploader != "Lo-fi Beats" {
+		t.Fatalf("got %+v, want the uploader carried through", got)
 	}
 }
 

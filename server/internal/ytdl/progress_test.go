@@ -156,3 +156,57 @@ func TestScanOutput_EmptyOrIrrelevantSaysNothing(t *testing.T) {
 		}
 	}
 }
+
+// What the AUDIO path actually emits (verified against the pinned image, T095).
+//
+// A single-stream download has no stream index, and the extractor renders an
+// absent field as the literal "NA" rather than omitting it. That is the real
+// shape of most lines this parser will ever see, so it is worth pinning
+// exactly rather than approximating with a synthetic one.
+func TestParseProgress_AudioPathRendersNAForStreamFields(t *testing.T) {
+	line := ProgressSentinel + " status=downloading downloaded=524288 total=1048576 stream=NA of=NA"
+	r, ok := ParseProgress(line)
+	if !ok {
+		t.Fatalf("the audio path's own line was not parsed: %q", line)
+	}
+	if r.Status != "downloading" || r.Downloaded != 524288 || r.Total != 1048576 {
+		t.Fatalf("parsed %+v, want the byte counts read", r)
+	}
+	// "NA" is not a number, so both stay zero — which Fraction reads as a single
+	// stream, and the whole download is that one stream.
+	if r.Stream != 0 || r.Streams != 0 {
+		t.Fatalf("stream=%d of=%d, want NA treated as absent", r.Stream, r.Streams)
+	}
+	f, known := r.Fraction()
+	if !known || f < 0.49 || f > 0.51 {
+		t.Fatalf("fraction = %v (%v), want half — a single stream IS the whole download", f, known)
+	}
+}
+
+// The estimate fallback in the template, which is what a live or
+// unknown-length item reports.
+func TestParseProgress_TotalMayBeAnEstimate(t *testing.T) {
+	r, ok := ParseProgress(ProgressSentinel + " status=downloading downloaded=1000 total=9000 stream=NA of=NA")
+	if !ok {
+		t.Fatal("not parsed")
+	}
+	if f, known := r.Fraction(); !known || f < 0.11 || f > 0.12 {
+		t.Fatalf("fraction = %v (%v), want about an ninth", f, known)
+	}
+}
+
+// Post-processing (extracting to mp3) emits no download progress of its own, so
+// the last line before it says "finished". The bar sitting full while the file
+// is converted is honest: the DOWNLOAD is done.
+func TestParseProgress_FinishedStatusIsFullNotUnknown(t *testing.T) {
+	r, ok := ParseProgress(ProgressSentinel + " status=finished downloaded=1048576 total=1048576 stream=NA of=NA")
+	if !ok {
+		t.Fatal("not parsed")
+	}
+	if r.Status != "finished" {
+		t.Fatalf("status = %q", r.Status)
+	}
+	if f, known := r.Fraction(); !known || f < 0.99 {
+		t.Fatalf("fraction = %v (%v), want it full", f, known)
+	}
+}

@@ -3,6 +3,7 @@
 package api
 
 import (
+	"context"
 	"log/slog"
 	"net/http"
 
@@ -43,6 +44,16 @@ type Deps struct {
 	// own cache. Built by NewRouter; nil in tests that do not need it, which the
 	// accessors treat as "know nothing".
 	ytdlProgress *progressCache
+
+	// Notifier announces a download's outcome, when the user asked to be told.
+	// A small interface rather than *push.Watcher so tests can observe what
+	// would have been sent without a push endpoint anywhere in sight. Nil in a
+	// deployment without push, which simply means nothing is announced.
+	Notifier DownloadNotifier
+
+	// ytdlMissing counts consecutive cycles in which a supposedly-running
+	// download had no job. A POINTER for the same reason ytdlProgress is.
+	ytdlMissing *missingJobs
 
 	// ytdlOnTick is a test seam: the reconciler calls it at the end of every
 	// cycle so a test can observe that the loop is still running without
@@ -98,7 +109,15 @@ func InitCaches(d Deps) Deps {
 	if d.ytdlProgress == nil {
 		d.ytdlProgress = newProgressCache()
 	}
+	if d.ytdlMissing == nil {
+		d.ytdlMissing = newMissingJobs()
+	}
 	return d
+}
+
+// DownloadNotifier is the slice of the push watcher this feature needs.
+type DownloadNotifier interface {
+	NotifyDownload(ctx context.Context, event string, ownerUserID int64, id, title, body string)
 }
 
 // NewRouter builds the full handler tree with the recover → log → CORS

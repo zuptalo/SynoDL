@@ -47,6 +47,7 @@ import UploadItem from '@/components/UploadItem.vue';
 import { useYtdl } from '@/composables/useYtdl';
 import YtdlItem from '@/components/YtdlItem.vue';
 import YtdlDetailModal from '@/components/YtdlDetailModal.vue';
+import YtdlGroupModal from '@/components/YtdlGroupModal.vue';
 import YoutubeDownloadModal from '@/components/YoutubeDownloadModal.vue';
 import TaskDetailModal from '@/components/TaskDetailModal.vue';
 import type { RefresherCustomEvent } from '@ionic/vue';
@@ -66,6 +67,9 @@ const ytdlOpen = ref(false);
 // it is open and a download that is dismissed elsewhere shows a gone state
 // instead of stale data.
 const ytdlDetailId = ref<string | null>(null);
+// A group opens its CONTENTS rather than a detail sheet: what someone wants
+// from a channel row is the list of what it is doing (FR-019a).
+const ytdlGroupId = ref<string | null>(null);
 
 // Uploads report HERE as well as in the sheet, so dismissing the sheet is a UI
 // choice rather than losing sight of a transfer that is still running. A job
@@ -140,6 +144,14 @@ function openDetail(id: string): void {
 const ytdlDetail = computed<YtdlDownload | null>(
   () => ytdlDownloads.value.find((d) => d.requestId === ytdlDetailId.value) ?? null,
 );
+const ytdlGroup = computed<YtdlDownload | null>(
+  () => ytdlDownloads.value.find((d) => d.requestId === ytdlGroupId.value) ?? null,
+);
+function onOpenYtdl(requestId: string): void {
+  const row = ytdlDownloads.value.find((d) => d.requestId === requestId);
+  if (row?.kind === 'group') ytdlGroupId.value = requestId;
+  else ytdlDetailId.value = requestId;
+}
 
 // Deep link from a tapped download notification: /tabs/tasks?task=<id> opens
 // that task's detail once the list has loaded (so the sheet resolves the live
@@ -397,7 +409,7 @@ async function onDelete(id: string): Promise<void> {
           :key="d.requestId"
           :download="d"
           @dismiss="onDismissYtdl"
-          @open="ytdlDetailId = $event"
+          @open="onOpenYtdl"
           @retry="onRetryYtdl"
         />
       </ion-list>
@@ -496,6 +508,13 @@ async function onDelete(id: string): Promise<void> {
       :download="ytdlDetail"
       @dismiss="ytdlDetailId = null"
       @retry="onRetryYtdl"
+    />
+    <YtdlGroupModal
+      :is-open="ytdlGroupId !== null"
+      :group="ytdlGroup"
+      @dismiss="ytdlGroupId = null"
+      @retry="onRetryYtdl"
+      @open="ytdlDetailId = $event"
     />
   </ion-page>
 </template>

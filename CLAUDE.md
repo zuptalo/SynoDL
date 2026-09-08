@@ -133,6 +133,9 @@ ports before adding a new listener):
 | 8295 | mock Kubernetes Jobs API dev (`make start`, spec 0012) |
 | 8296 | e2e mock Kubernetes Jobs API (stateful stack) |
 
+`YTDL_MAX_PARALLEL` (default 4) bounds how many YouTube downloads run at once
+for the whole instance; everything beyond it waits in a durable queue.
+
 The production container still listens on the conventional **8080**
 internally — only dev listeners and the compose *host* port use the block.
 
@@ -172,18 +175,42 @@ server exposes typed `/v1` endpoints only — it is NOT a transparent `/webapi`
 passthrough, so the DSM API allowlist is structural (`internal/syno`). Download
 tasks themselves are never persisted; the NAS is their source of truth.
 
-**Ephemeral workers for long external work (spec 0012).** Downloading from
-YouTube runs in a short-lived Kubernetes Job, never in the server process. The
-server creates the Job and then reads state back by LISTing Jobs by label — it
-never mirrors that state into the database, so a restart cannot desynchronise
-anything. The only thing stored is a record of downloads that FAILED, because a
-success leaves its files as evidence and a failure would leave nothing once the
-cluster sweeps the Job. Rules that must hold: a worker mounts exactly ONE media
-library (so the wrong one is unreachable, not merely unwritten); a user-supplied
-URL is host-allowlisted and passed as a discrete argv element, never
-interpolated into a shell string; the worker image tag is pinned, never
-`:latest`; and RBAC is a namespaced Role, never a ClusterRole. Outside a
-cluster the endpoints answer 503 and the rest of the app is unaffected.
+**Ephemeral workers for long external work (specs 0012, 0013).** Downloading
+from YouTube runs in short-lived Kubernetes Jobs, never in the server process.
+Everything periodic happens in ONE reconciler loop (`ytdl_reconcile.go`): list
+this feature's Jobs, read running workers' output, capture the facts that will
+not outlive them, resolve expansions, and admit from the queue. One loop rather
+than several so they cannot race over the same Jobs list — and so that reading a
+worker's output is driven by a download running, never by somebody looking at
+the page.
+
+What is stored and what is derived is the Principle III line. The store holds
+the REQUEST and its FINISHED outcome, for successes as well as failures; the
+orchestrator holds what is happening right now; a live progress percentage is
+cached in memory and lost on restart without consequence. A queued download is
+durable because it has no worker to mirror.
+
+A download moves through six states — `resolving`, `queued`, `scheduled`,
+`downloading`, `completed`, `failed`. `queued` and `scheduled` are kept apart
+deliberately: "SynoDL is holding this behind others" and "the worker is starting
+now" are different waits. At most `YTDL_MAX_PARALLEL` (default 4) run at once,
+instance-wide, with slots shared fairly between users and a pasted link admitted
+ahead of the same user's bulk-expanded items.
+
+A playlist or channel is expanded into one download per item by its own
+short-lived enumeration worker, which mounts no library because it writes
+nothing. There is no ceiling on how many items that produces, so the group is
+ONE row in the Tasks list with its items behind it.
+
+Rules that must hold: a download worker mounts exactly ONE media library (so the
+wrong one is unreachable, not merely unwritten); a user- or source-supplied value
+is host-allowlisted and passed as a discrete argv element, never interpolated
+into a shell string — AND, where it becomes a folder name, sanitised so it cannot
+escape the library (`ytdl/sanitize.go`; discrete-argv passing prevents command
+injection and does nothing about a path); the worker image tag is pinned, never
+`:latest`; and RBAC is a namespaced Role, never a ClusterRole, with `pods/log`
+granted only to read a worker's own output. Outside a cluster the endpoints
+answer 503 and the rest of the app is unaffected.
 
 **DSM version differences** are absorbed in `internal/syno` via `SYNO.API.Info`
 discovery (cached per-API path + max supported version), not by UI branches.

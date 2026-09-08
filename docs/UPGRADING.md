@@ -43,6 +43,44 @@ production: redeploys are reproducible and a rollback is just re-pinning the
 previous number. `:latest` floats with every merge to main — ideal for an
 auto-updating home deployment, since only fully-green merges ever publish.
 
+## Version-specific notes
+
+### Upgrading to the release that includes spec 0013 (managed YouTube downloads)
+
+Two operator-facing changes, both only relevant to a **Kubernetes** deployment
+that has the YouTube download feature configured. A Docker Compose or bare
+container install is unaffected — those endpoints answer 503 either way.
+
+**1. The Role needs `pods/log`.** A download now reports real progress, and
+reports whether a lyrics file was written and in what language. Those facts exist
+nowhere except in the worker's own output: the Job object does not carry them,
+and the server never mounts your media libraries, so it cannot look at the files.
+
+Apply the updated `deploy/k8s/30-rbac.yaml`, or add to your Role by hand:
+
+```yaml
+  - apiGroups: [""]
+    resources: ["pods/log"]
+    verbs: ["get"]
+```
+
+It is a subresource with its own RBAC entry, so this grants reading a worker's
+output and nothing else — still a namespaced Role, still no `secrets`, still no
+`exec` or `attach`. **Without it, downloads still work**; they simply show no
+progress, because the server cannot read what the worker is saying.
+
+**2. `YTDL_MAX_PARALLEL` (optional, default 4).** How many downloads run at once
+for the whole instance. Everything beyond it waits in a queue that survives a
+restart. Raise it if your cluster has room — the source's own rate limiting is
+usually the real ceiling before the cluster is.
+
+```yaml
+  YTDL_MAX_PARALLEL: "4"
+```
+
+**Nothing to do about the database.** The upgrade adds one table and migrates
+your existing failure records into it on first start.
+
 ## Upgrading
 
 ```sh

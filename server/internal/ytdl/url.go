@@ -9,7 +9,6 @@ package ytdl
 
 import (
 	"errors"
-	"fmt"
 	"net/url"
 	"strings"
 )
@@ -179,6 +178,11 @@ func (t Target) VideoID() string {
 	return segs[len(segs)-1]
 }
 
-// Describe renders a target for a log line or an error message. It deliberately
-// never includes anything else about the request.
-func (t Target) Describe() string { return fmt.Sprintf("%s (%s)", t.URL, t.Scope) }
+// Deliberately no Describe() here any more.
+//
+// Spec 0012 had one — "renders a target for a log line or an error message" —
+// and by spec 0013 it had no callers at all. A helper whose whole purpose is to
+// put a source link into a log, sitting unused next to a rule that says source
+// links stay out of logs (FR-032a), is an invitation rather than a convenience.
+// If a future caller genuinely needs to describe a target, the scope alone is
+// almost always what they want.

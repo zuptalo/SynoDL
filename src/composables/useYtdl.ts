@@ -1,12 +1,17 @@
 /**
- * YouTube downloads (spec 0012), held OUTSIDE any component — the same reason
- * uploads are: submitting one from the new-task sheet and then closing that
- * sheet must not hide a download that is still running.
+ * YouTube downloads (spec 0012, extended by spec 0013), held OUTSIDE any
+ * component — the same reason uploads are: submitting one from the new-task
+ * sheet and then closing that sheet must not hide a download that is still
+ * running.
  *
- * There is deliberately no progress here. A download reports only where it is
- * in its life — scheduled, started, completed, failed — because that is what
- * was asked for, and because the worker has no channel back to us anyway. That
- * makes polling cheap: one request, whatever the history size.
+ * Spec 0012 reported no progress here, on the grounds that "the worker has no
+ * channel back to us". It has one — its own output — so a running download now
+ * carries a percentage. Polling stays cheap regardless: the server holds the
+ * latest reading in memory and every client reads the same held value, so the
+ * number of people watching cannot change how often the cluster is asked.
+ *
+ * The list is paged, because history is unbounded and one expanded channel can
+ * fill it on its own.
  */
 import { computed, onMounted, onUnmounted, ref } from 'vue';
 import { ApiError, api, type YtdlDownload } from '@/services/api';

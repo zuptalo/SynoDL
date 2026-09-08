@@ -3,6 +3,7 @@ package store
 import (
 	"errors"
 	"testing"
+	"time"
 )
 
 func dl(id string, uid *int64) YtdlDownload {
@@ -289,4 +290,75 @@ func TestSetYtdlStateAndCompanion(t *testing.T) {
 	if got.HasLyrics == nil || !*got.HasLyrics || got.LyricsLang != "en" {
 		t.Fatalf("companion facts not recorded: %+v", got)
 	}
+}
+
+// SC-006a. History is unbounded by design (FR-006), so the list has to stay
+// responsive at a size a single expanded channel can reach on its own. The
+// property under test is that a page costs the same whether it is the first
+// page of ten rows or the fortieth of ten thousand — which is the difference
+// between a keyset cursor and OFFSET, and the reason the cursor exists.
+func TestListYtdlDownloads_StaysFastAtScale(t *testing.T) {
+	if testing.Short() {
+		t.Skip("seeds thousands of rows")
+	}
+	s := openTestStore(t)
+	anna, _ := s.CreateUser("anna", "h", false)
+
+	const rows = 5000
+	tx, err := s.db.Begin()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < rows; i++ {
+		if _, err := tx.Exec(
+			`INSERT INTO ytdl_downloads (request_id, kind, user_id, source_url, video_id, mode, scope, state, queue_seq, created_at)
+			 VALUES (?, 'single', ?, ?, ?, 'music', 'single', 'completed', ?, ?)`,
+			"r"+itoa(i), anna, "https://youtu.be/v"+itoa(i), "v"+itoa(i), i, 1700000000+i,
+		); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+
+	first := time.Now()
+	page, cursor, err := s.ListYtdlDownloads(anna, false, "", 50)
+	firstPage := time.Since(first)
+	if err != nil || len(page) != 50 {
+		t.Fatalf("first page: %d rows, %v", len(page), err)
+	}
+
+	// Walk deep into the history — the case OFFSET degrades on, because it
+	// re-walks everything it skips.
+	for i := 0; i < 60 && cursor != ""; i++ {
+		page, cursor, err = s.ListYtdlDownloads(anna, false, cursor, 50)
+		if err != nil {
+			t.Fatalf("page %d: %v", i, err)
+		}
+	}
+	deep := time.Now()
+	_, _, err = s.ListYtdlDownloads(anna, false, cursor, 50)
+	deepPage := time.Since(deep)
+	if err != nil {
+		t.Fatalf("deep page: %v", err)
+	}
+
+	// Generous by an order of magnitude: this is a shape check, not a
+	// benchmark, and it should not go red because the machine was busy.
+	if deepPage > 20*firstPage+50*time.Millisecond {
+		t.Fatalf("a deep page took %v against a first page of %v — the list is not paging by keyset", deepPage, firstPage)
+	}
+}
+
+func itoa(n int) string {
+	if n == 0 {
+		return "0"
+	}
+	var b []byte
+	for n > 0 {
+		b = append([]byte{byte('0' + n%10)}, b...)
+		n /= 10
+	}
+	return string(b)
 }

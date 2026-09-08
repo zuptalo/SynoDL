@@ -141,6 +141,12 @@ func main() {
 			// of the task list, and the user does not have to browse to the title
 			// for it to catch up (spec 0011 FR-007).
 			watcher.OnFinished = deps.RefreshFolder
+			// YouTube downloads announce themselves through the SAME watcher, so
+			// they honour the preferences and the scope a user has already
+			// chosen (spec 0013, FR-025a). A second set of switches would
+			// surprise someone who asked to be told when a download finishes:
+			// they asked about downloads, not about which subsystem ran one.
+			deps.Notifier = watcher
 			go watcher.Run(context.Background())
 		}
 		// Keep the download-source session warm: a single gentle probe every 15

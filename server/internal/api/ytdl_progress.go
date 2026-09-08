@@ -82,3 +82,39 @@ func (c *progressCache) Forget(requestID string) {
 	defer c.mu.Unlock()
 	delete(c.m, requestID)
 }
+
+// missingJobs tracks downloads whose record says they are running but which the
+// orchestrator no longer has a job for (spec 0013, FR-013d).
+//
+// A job can be absent for a moment that means nothing — a create that has not
+// propagated, a list that raced it — so a single sighting is not evidence.
+// Being absent on two CONSECUTIVE cycles is: the reconciler has looked twice,
+// several seconds apart, and the job is not there.
+//
+// The alternative to tracking this is a download that sits at "starting"
+// forever because the cluster quietly dropped it, which is exactly the state
+// FR-013d exists to forbid. Reporting it as FAILED rather than completed is the
+// same instinct as spec 0012's FR-018: where the evidence is missing, resolve
+// against ourselves.
+type missingJobs struct {
+	mu sync.Mutex
+	n  map[string]int
+}
+
+func newMissingJobs() *missingJobs { return &missingJobs{n: map[string]int{}} }
+
+// Saw records that a download's job is missing, and reports whether it has now
+// been missing long enough to act on.
+func (m *missingJobs) Saw(requestID string) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.n[requestID]++
+	return m.n[requestID] >= 2
+}
+
+// Present clears a download that has a job again.
+func (m *missingJobs) Present(requestID string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	delete(m.n, requestID)
+}

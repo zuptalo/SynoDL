@@ -29,7 +29,11 @@ const ExpandSentinel = "[synodl-entry]"
 // `title` is what to show while it waits; anything else can be learned later,
 // and asking for more here would slow an enumeration that may cover thousands of
 // items.
-const ExpandTemplate = ExpandSentinel + " id=%(id)s title=%(title)s"
+// `uploader` is asked for so a CHANNEL can be named. A channel publishes no
+// oEmbed document, so SynoDL learns nothing about it at submission — but every
+// entry knows who published it, and that is the channel's real name rather than
+// the tab name playlist_title would give.
+const ExpandTemplate = ExpandSentinel + " id=%(id)s uploader=%(uploader,channel)s title=%(title)s"
 
 // ExpandArgs builds the argv for an enumeration worker.
 //
@@ -58,6 +62,9 @@ func ExpandArgs(t Target) []string {
 type Entry struct {
 	// ID is the source's own identifier for the item.
 	ID string
+	// Uploader is who published it — the channel's real name. Used to name a
+	// group that could not be named at submission (FR-036).
+	Uploader string
 	// Title is what to show while it waits its turn. Often empty, and that is
 	// fine — the row falls back to the link, as it already does elsewhere.
 	Title string
@@ -92,7 +99,7 @@ func ParseEntries(raw []byte) []Entry {
 		}
 		rest := strings.TrimPrefix(line, ExpandSentinel+" ")
 
-		id, title := parseEntryFields(rest)
+		id, uploader, title := parseEntryFields(rest)
 		if !validEntryID(id) || seen[id] {
 			continue
 		}
@@ -104,7 +111,12 @@ func ParseEntries(raw []byte) []Entry {
 		}
 
 		seen[id] = true
-		out = append(out, Entry{ID: id, Title: strings.TrimSpace(title), URL: target.URL})
+		out = append(out, Entry{
+			ID:       id,
+			Uploader: strings.TrimSpace(uploader),
+			Title:    strings.TrimSpace(title),
+			URL:      target.URL,
+		})
 	}
 	return out
 }
@@ -131,18 +143,26 @@ func validEntryID(id string) bool {
 	return true
 }
 
-// parseEntryFields splits `id=<id> title=<the rest>`.
+// parseEntryFields splits `id=<id> uploader=<name> title=<the rest>`.
 //
 // Title is taken as everything after `title=` rather than as a whitespace-
-// delimited field, because titles contain spaces — most of them do.
-func parseEntryFields(s string) (id, title string) {
-	const idKey, titleKey = "id=", " title="
+// delimited field, because titles contain spaces — most of them do. The uploader
+// is bounded by the ` title=` that follows it for the same reason.
+func parseEntryFields(s string) (id, uploader, title string) {
+	const idKey, upKey, titleKey = "id=", " uploader=", " title="
 	if !strings.HasPrefix(s, idKey) {
-		return "", ""
+		return "", "", ""
 	}
 	s = strings.TrimPrefix(s, idKey)
-	if i := strings.Index(s, titleKey); i >= 0 {
-		return s[:i], s[i+len(titleKey):]
+
+	ti := strings.Index(s, titleKey)
+	if ti >= 0 {
+		title = s[ti+len(titleKey):]
+		s = s[:ti]
 	}
-	return s, ""
+	if ui := strings.Index(s, upKey); ui >= 0 {
+		uploader = s[ui+len(upKey):]
+		s = s[:ui]
+	}
+	return s, uploader, title
 }

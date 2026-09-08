@@ -69,9 +69,31 @@ yt-dlp chatter. A line SynoDL acts on must be one SynoDL asked for, so the
 template starts with a fixed marker and anything without it is ignored rather
 than guessed at.
 
-**To verify**: exact field availability for the audio path, where the download
-completes before extraction and the post-processing steps produce no progress
-events of their own.
+**RESOLVED (T095)** — the fields render, and the audio path has one wrinkle
+worth pinning.
+
+Verified by rendering the exact template against the pinned image, with no
+network:
+
+```
+audio mid-download    -> status=downloading downloaded=524288 total=1048576 stream=NA of=NA
+audio, estimate only  -> status=downloading downloaded=1000   total=9000    stream=NA of=NA
+audio finished        -> status=finished    downloaded=1048576 total=1048576 stream=NA of=NA
+video stream 1 of 2   -> status=downloading downloaded=50 total=100 stream=1 of=2
+video stream 2 of 2   -> status=downloading downloaded=50 total=100 stream=2 of=2
+```
+
+Two things follow. The `total_bytes_estimate` fallback works, so an item of
+unknown length still reports. And an absent field renders as the literal **"NA"**
+rather than being omitted — so the audio path, which is a single stream, sends
+`stream=NA of=NA` on every line. The parser reads an unparseable number as
+absent, which `Fraction` then treats as a single stream covering the whole
+download. That is the correct behaviour, and it is now pinned by a test using the
+real line rather than a synthetic one.
+
+Post-processing (extracting to mp3) emits no progress of its own, so the last
+line before it says `finished` and the bar sits full while the file is converted.
+That is honest: the DOWNLOAD is done, and the conversion is quick.
 
 ---
 
@@ -175,8 +197,49 @@ put files outside the library a request was aimed at.
 table-driven) AND keep the worker's own sanitising. Neither alone is the
 argument.
 
-**To verify**: that the extractor's sanitising applies to a value injected via
-metadata parsing, not only to values it extracted itself.
+**RESOLVED (T094) — and it found a real hole, in shipped spec 0012 code.**
+
+Verified against the pinned image, with no network involved. The extractor's
+`sanitize_filename` replaces separators with lookalikes, so the obvious attack is
+already harmless:
+
+```
+'../../../etc' -> '..⧸..⧸..⧸etc'      (safe)
+'AC/DC'        -> 'AC⧸DC'             (safe, and still readable)
+```
+
+But a **bare `..` is left exactly as it is**, because it contains no separator to
+replace. Rendered through the real output template that is a genuine escape:
+
+```
+album  '..'  ->  /out/Someone/../Track.mp3     escapes the album folder
+artist '..'  ->  /A/T.mp3                      escapes the LIBRARY
+```
+
+`--windows-filenames` does not fix it and makes the artist case worse.
+
+The important part is WHOSE values these are. `artist`, `uploader` and `album`
+come from the SOURCE — whatever the site published — and never pass through
+SynoDL, so `SanitizeName` cannot see them. This is not the spec 0013 group name;
+it is a path SynoDL has been handing workers since spec 0012.
+
+**Fix**: the worker command carries a constant `--replace-in-metadata` guard that
+neuters a dot-only value in each field that becomes a DIRECTORY. `track` and
+`title` are excluded on purpose: they become the filename, which always gains an
+extension (so `..` is `...mp3`, a file), and 0012 FR-008 requires the published
+title to survive verbatim.
+
+Verified after the fix:
+
+```
+artist '..'   album 'A'    ->  /out/_/A/T.mp3
+artist '...'  album '..'   ->  /out/_/_/_.mp3
+artist 'Lo-fi Beats' album 'Chill' -> /out/Lo-fi Beats/Chill/Track.mp3   (untouched)
+```
+
+So the answer to the original question is **no** — the extractor is not a
+reliable second layer, and FR-038a's insistence on our own sanitising was right
+for a reason stronger than defence in depth.
 
 ---
 
@@ -242,10 +305,41 @@ which is precisely the failure mode nobody notices.
 Pinned image (Verified, `deploy/k8s/10-synodl.yaml:60`):
 `jauderho/yt-dlp:2026.08.19`.
 
-**To verify — this is a real experiment, not a code read**: run the video path
-against the pinned image and inspect the output file. If art is embedded and the
-media server displays it, FR-034 is met as-is. If not, write a sidecar. The spec
-was written to accept either outcome so this cannot block.
+**RESOLVED (T092)** — art embeds, and no sidecar is needed.
+
+Answered by inspecting the pinned image and exercising the mechanism, rather
+than by downloading anything: the question was never about YouTube, it was about
+what the image can do.
+
+```
+AtomicParsley  ABSENT
+ffmpeg         /usr/bin/ffmpeg
+mutagen        1.48.1
+yt-dlp         2026.08.19
+```
+
+AtomicParsley being absent looks like the failure this was written to catch, and
+is not. Reading the postprocessor out of the image's own zipapp settles it:
+
+```
+117  # Method 1: Use mutagen
+118  if not mutagen or prefer_atomicparsley:
+143  # Method 2: Use AtomicParsley
+151  'Neither mutagen nor AtomicParsley was found. Falling back to ffmpeg'
+```
+
+**mutagen is Method 1**, imports `MP4, MP4Cover`, and is present. AtomicParsley
+is only the fallback for when it is not. Confirmed end-to-end inside the image on
+a locally generated mp4 and jpg — nothing fetched — with the cover written and
+read back at the right size:
+
+```
+EMBEDDED: True bytes: 248
+```
+
+FR-034 is therefore met by embedding on both paths. **T093 is a no-op**: no
+sidecar poster is written, and adding one would be a second source of truth for
+the same artwork.
 
 ---
 
@@ -326,9 +420,13 @@ is e2e-testable without new harness work beyond the mock's new controls.
 
 | Ref | To verify | Blocks |
 |---|---|---|
-| R2 | Progress fields on the audio path, where post-processing follows the download | Progress for Music mode |
-| R6 | That the extractor sanitises a value injected via metadata parsing | Nothing — server-side sanitising is required regardless |
-| R9 | Whether mp4 cover art embeds against the pinned image | Choice between embedded art and a sidecar; FR-034 accepts either |
+| R2 | ~~Progress fields on the audio path~~ **RESOLVED**: they render; absent fields come through as the literal `NA`, which the parser already reads as absent. | — |
+| R6 | ~~That the extractor sanitises a value injected via metadata parsing~~ **RESOLVED**: it does not, for a bare `..`. Found a real traversal in spec 0012's recipe; fixed with a constant metadata guard. | — |
+| R9 | ~~Whether mp4 cover art embeds against the pinned image~~ **RESOLVED**: it does, via mutagen. No sidecar. | — |
 
-None of the three blocks the plan. Each is an experiment with a defined fallback
-already written into the spec.
+**All three are resolved**, and none of them by downloading anything: each turned
+out to be a question about the pinned image rather than about YouTube, and was
+answered by inspecting the image and exercising the mechanism inside it.
+
+One of them (R6) found a real path traversal in spec 0012's shipped recipe. That
+is the case for running an experiment rather than reasoning about it.

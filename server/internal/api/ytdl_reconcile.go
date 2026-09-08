@@ -100,8 +100,92 @@ func (d Deps) reconcileYtdlOnce(ctx context.Context) {
 	// cycle rather than the next one.
 	d.readWorkerOutput(ctx, jobs)
 	d.captureFinished(live)
+	d.resolveVanished(live)
+	d.resolveExpansions(ctx, jobs)
+	d.refreshGroups(ctx)
 	d.sweepDismissed(ctx, jobs)
 	d.admitQueued(ctx)
+}
+
+// resolveVanished fails downloads whose worker the orchestrator has lost.
+//
+// A record saying "scheduled" or "downloading" with no job behind it means the
+// job went away without ever reporting an outcome — the cluster dropped it, or
+// something deleted it. Without this the download sits at "starting" forever,
+// which FR-013d forbids: every non-final state must be able to reach a final one
+// unattended.
+//
+// It resolves to FAILED, never completed. That is spec 0012's FR-018 instinct
+// unchanged: where the evidence of success is missing, resolve against
+// ourselves rather than claim a download worked.
+func (d Deps) resolveVanished(live map[string]k8s.Job) {
+	if d.Store == nil || d.ytdlMissing == nil {
+		return
+	}
+	running, err := d.Store.ListYtdlRunning()
+	if err != nil {
+		return
+	}
+	for _, rec := range running {
+		if _, ok := live[rec.RequestID]; ok {
+			d.ytdlMissing.Present(rec.RequestID)
+			continue
+		}
+		// Two consecutive cycles, several seconds apart, before acting: one
+		// absent listing can just be a create that has not propagated.
+		if !d.ytdlMissing.Saw(rec.RequestID) {
+			continue
+		}
+		now := time.Now().Unix()
+		_ = d.Store.SetYtdlState(rec.RequestID, string(ytdl.StateFailed),
+			"the download did not complete", &now)
+		d.ytdlMissing.Present(rec.RequestID)
+		if d.ytdlProgress != nil {
+			d.ytdlProgress.Forget(rec.RequestID)
+		}
+	}
+}
+
+// refreshGroups recomputes each group's state from its items.
+//
+// A group has no worker of its own once expansion is done, so its state is a
+// function of what its items are doing: still working while any item is not
+// final, then completed if every item completed, otherwise failed (FR-019).
+func (d Deps) refreshGroups(ctx context.Context) {
+	if d.Store == nil {
+		return
+	}
+	groups, err := d.Store.ListYtdlActiveGroups()
+	if err != nil {
+		return
+	}
+	for _, g := range groups {
+		c, err := d.Store.YtdlCounts(g.RequestID)
+		if err != nil || c.Total == 0 {
+			continue
+		}
+		if c.Remaining > 0 {
+			continue // still working
+		}
+		state := string(ytdl.StateCompleted)
+		reason := ""
+		if c.Failed > 0 {
+			// Failure is reported before success, everywhere: a group where
+			// anything failed did not entirely work, and saying otherwise is
+			// the one outcome 0012 FR-018 forbids.
+			state = string(ytdl.StateFailed)
+			reason = "some items could not be downloaded"
+		}
+		now := time.Now().Unix()
+		if err := d.Store.SetYtdlState(g.RequestID, state, reason, &now); err != nil {
+			continue
+		}
+		// A group notifies ONCE, here, when every item is final (FR-025c). With
+		// no ceiling on expansion, notifying per item would turn one paste into
+		// several hundred pushes.
+		g.State, g.Reason = state, reason
+		d.notifyFinished(ctx, g, state)
+	}
 }
 
 // admitQueued starts as many waiting downloads as there is room for.
@@ -200,6 +284,8 @@ func (d Deps) startYtdlJob(ctx context.Context, rec store.YtdlDownload) error {
 		Target:    ytdl.Target{URL: rec.SourceURL, Scope: ytdl.Scope(rec.Scope)},
 		Libraries: libs,
 
+		GroupName: rec.GroupName,
+
 		DeadlineSeconds:    d.Cfg.YtdlDeadlineSeconds,
 		TTLSeconds:         d.Cfg.YtdlTTLSeconds,
 		MinDurationSeconds: d.Cfg.YtdlMinDurationSeconds,
@@ -220,6 +306,171 @@ func (d Deps) startYtdlJob(ctx context.Context, rec store.YtdlDownload) error {
 
 var errNoLibraryConfigured = errors.New("no media library configured for that mode")
 
+// resolveExpansions moves groups through `resolving`.
+//
+// A group is submitted as a request nobody can start yet: SynoDL does not know
+// what it contains. It gets an enumeration worker, and when that finishes its
+// output becomes one download record per entry. That is the whole of expansion
+// on this side — the enumeration itself, and reading it, live in internal/ytdl.
+func (d Deps) resolveExpansions(ctx context.Context, jobs []k8s.Job) {
+	if d.Store == nil || d.Jobs == nil {
+		return
+	}
+
+	// Index the enumeration workers by request id.
+	expandJobs := map[string]k8s.Job{}
+	for _, j := range jobs {
+		if j.Metadata.Labels[ytdl.LabelJobKind] != ytdl.JobKindExpand {
+			continue
+		}
+		if id := j.Metadata.Labels[ytdl.LabelRequestID]; id != "" {
+			expandJobs[id] = j
+		}
+	}
+
+	groups, err := d.Store.ListYtdlResolving()
+	if err != nil {
+		return
+	}
+	for _, g := range groups {
+		j, running := expandJobs[g.RequestID]
+		if !running {
+			// No worker yet: either it has never been started, or it finished
+			// and was swept before we read it. Starting one is idempotent — the
+			// orchestrator answers 409 for a name that already exists.
+			d.startExpansion(ctx, g)
+			continue
+		}
+		switch ytdl.StateOf(j) {
+		case ytdl.StateFailed:
+			// FR-013d: a group cannot sit in `resolving` forever. If the
+			// enumeration failed, so did the request — plainly, and with a
+			// reason the user can act on.
+			now := time.Now().Unix()
+			_ = d.Store.SetYtdlState(g.RequestID, string(ytdl.StateFailed),
+				"could not read what that link contains", &now)
+			_ = d.Jobs.DeleteJob(ctx, j.Metadata.Name)
+		case ytdl.StateCompleted:
+			d.expandInto(ctx, g, j)
+		}
+	}
+}
+
+// startExpansion creates the enumeration worker for a group.
+func (d Deps) startExpansion(ctx context.Context, g store.YtdlDownload) {
+	job, err := ytdl.BuildExpansionJob(ytdl.JobConfig{
+		Namespace: d.Cfg.YtdlNamespace,
+		Image:     d.Cfg.YtdlImage,
+		RequestID: g.RequestID,
+		Mode:      ytdl.Mode(g.Mode),
+		Target:    ytdl.Target{URL: g.SourceURL, Scope: ytdl.Scope(g.Scope)},
+	})
+	if err != nil {
+		now := time.Now().Unix()
+		_ = d.Store.SetYtdlState(g.RequestID, string(ytdl.StateFailed), "could not be started", &now)
+		return
+	}
+	if _, err := d.Jobs.CreateJob(ctx, job); err != nil && !k8s.IsConflict(err) {
+		now := time.Now().Unix()
+		_ = d.Store.SetYtdlState(g.RequestID, string(ytdl.StateFailed), "could not be started", &now)
+	}
+}
+
+// expandInto turns a finished enumeration into one queued download per entry.
+func (d Deps) expandInto(ctx context.Context, g store.YtdlDownload, j k8s.Job) {
+	raw, err := d.podLogFor(ctx, j)
+	if err != nil {
+		// The output is gone before we read it. Failing the group is the honest
+		// outcome: an empty expansion would look like "this channel has nothing
+		// in it", which is a different and wrong statement.
+		now := time.Now().Unix()
+		_ = d.Store.SetYtdlState(g.RequestID, string(ytdl.StateFailed),
+			"could not read what that link contains", &now)
+		return
+	}
+
+	entries := ytdl.ParseEntries(raw)
+
+	// A CHANNEL publishes no metadata document, so nothing was learned about it
+	// at submission and its group has no name yet. Every entry knows who
+	// published it, and that is the channel's real name — unlike the tab name a
+	// playlist_title would have given (spec 0012 research, §5).
+	groupName := g.GroupName
+	if groupName == "" {
+		for _, e := range entries {
+			if n := ytdl.SanitizeName(e.Uploader); n != "" {
+				groupName = n
+				break
+			}
+		}
+	}
+
+	items := make([]store.YtdlDownload, 0, len(entries))
+	for _, e := range entries {
+		// Already held: a completed record for this item in this mode means
+		// re-running the channel should not fetch it again (FR-020). Checked
+		// HERE, before anything is queued, so a re-run creates no rows that
+		// would immediately finish having done nothing.
+		held, err := d.Store.YtdlAlreadyHeld(e.ID, g.Mode)
+		if err == nil && held {
+			continue
+		}
+		items = append(items, store.YtdlDownload{
+			RequestID: newRequestID(),
+			ParentID:  g.RequestID,
+			Kind:      store.YtdlKindItem,
+			UserID:    g.UserID,
+			SourceURL: e.URL,
+			VideoID:   e.ID,
+			Mode:      g.Mode,
+			Scope:     string(ytdl.ScopeSingle),
+			State:     string(ytdl.StateQueued),
+			Title:     e.Title,
+			GroupName: groupName,
+			Origin:    store.YtdlOriginExpanded,
+		})
+	}
+
+	// One transaction, whatever the size. A channel with no ceiling can be
+	// thousands of rows, and a half-inserted group would leave a request that is
+	// neither resolving nor complete.
+	if err := d.Store.CreateYtdlItems(g.RequestID, items); err != nil {
+		return // try again next cycle; the group stays resolving
+	}
+	// The group takes the name too, so its own row reads as the channel rather
+	// than as a bare link.
+	if groupName != "" && g.GroupName == "" {
+		_ = d.Store.SetYtdlGroupName(g.RequestID, groupName)
+	}
+	_ = d.Jobs.DeleteJob(ctx, j.Metadata.Name)
+}
+
+// podLogFor reads the output of a job's pod.
+func (d Deps) podLogFor(ctx context.Context, j k8s.Job) ([]byte, error) {
+	pods, err := d.Jobs.ListPods(ctx, ytdl.Selector)
+	if err != nil {
+		return nil, err
+	}
+	want := j.Metadata.Labels[ytdl.LabelRequestID]
+	for _, p := range pods {
+		if p.Metadata.Labels[ytdl.LabelRequestID] != want {
+			continue
+		}
+		if p.Metadata.Labels[ytdl.LabelJobKind] != ytdl.JobKindExpand {
+			continue
+		}
+		return d.Jobs.PodLog(ctx, p.Metadata.Name, k8s.PodLogOptions{
+			Container: "downloader",
+			// An enumeration's whole output matters, not just its tail — the
+			// first entries are as much part of the answer as the last.
+			TailLines: 0,
+		})
+	}
+	return nil, errExpansionOutputGone
+}
+
+var errExpansionOutputGone = errors.New("expansion output is no longer available")
+
 // captureFinished writes the outcome of anything that has just become final.
 //
 // This is what makes a download's history survive the orchestrator sweeping its
@@ -235,6 +486,11 @@ func (d Deps) captureFinished(live map[string]k8s.Job) {
 		return
 	}
 	for id, j := range live {
+		// A group's own state is derived from its items, never from a job — the
+		// enumeration worker is not the group.
+		if j.Metadata.Labels[ytdl.LabelJobKind] == ytdl.JobKindExpand {
+			continue
+		}
 		state := ytdl.StateOf(j)
 		if !state.Terminal() {
 			continue

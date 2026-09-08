@@ -53,7 +53,14 @@ func (d Deps) captureTerminal(rec store.YtdlDownload, state, reason string) {
 		return
 	}
 	now := time.Now().Unix()
-	_ = d.Store.SetYtdlState(rec.RequestID, state, reason, &now)
+	if err := d.Store.SetYtdlState(rec.RequestID, state, reason, &now); err != nil {
+		// FR-006b: a download that saved its files is not failed because a row
+		// could not be written. Nothing is announced either — announcing an
+		// outcome we could not record would mean announcing it again next cycle.
+		return
+	}
+	rec.State, rec.Reason = state, reason
+	d.notifyFinished(context.Background(), rec, state)
 }
 
 // ytdlLiveJobs indexes the orchestrator's jobs by request id.

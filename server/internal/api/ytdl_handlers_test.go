@@ -138,6 +138,40 @@ func (f *fakeJobs) emit(podName, output string) {
 	})
 }
 
+// setStatusByName drives a job addressed by its object name.
+func (f *fakeJobs) setStatusByName(t *testing.T, name string, st k8s.JobStatus) {
+	t.Helper()
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for i := range f.jobs {
+		if f.jobs[i].Metadata.Name == name {
+			f.jobs[i].Status = st
+			return
+		}
+	}
+	t.Fatalf("no job named %q", name)
+}
+
+// attachPodFor gives a named job a running pod carrying the labels the
+// reconciler matches on.
+func (f *fakeJobs) attachPodFor(jobName, requestID, jobKind string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.logs == nil {
+		f.logs = map[string]string{}
+	}
+	f.pods = append(f.pods, k8s.Pod{
+		Metadata: k8s.ObjectMeta{
+			Name: jobName + "-worker",
+			Labels: map[string]string{
+				ytdl.LabelRequestID: requestID,
+				ytdl.LabelJobKind:   jobKind,
+			},
+		},
+		Status: k8s.PodStatus{Phase: "Running"},
+	})
+}
+
 // setStatus drives a created job to a lifecycle state, the way the cluster would.
 func (f *fakeJobs) setStatus(t *testing.T, requestID string, st k8s.JobStatus) {
 	t.Helper()
@@ -189,6 +223,7 @@ func newYtdlRouter(t *testing.T, jobs JobRunner, cfg config.Config) (http.Handle
 
 type ytdlSubmitResp struct {
 	RequestID string `json:"requestId"`
+	Kind      string `json:"kind"`
 	Scope     string `json:"scope"`
 	Mode      string `json:"mode"`
 	State     string `json:"state"`
@@ -736,4 +771,91 @@ func listYtdl2(t *testing.T, h http.Handler, auth map[string]string) ytdlListRes
 	var out ytdlListResp
 	_ = json.Unmarshal(rec.Body.Bytes(), &out)
 	return out
+}
+
+// Polish (spec 0013, Phase 12). Three properties that span the whole feature
+// and belong to no single story.
+
+// FR-032a: the values this feature handles that must never leave the server.
+func TestYtdl_NeverLeaksSourceValuesToAClient(t *testing.T) {
+	jobs := &fakeJobs{}
+	h, st := newYtdlRouter(t, jobs, ytdlCfg())
+	admin := adminAfterSetup(t, h)
+
+	id := ytdlRunning(t, h, jobs, st, admin, "https://youtu.be/abc")
+	jobs.emitFor(id, ytdl.ProgressSentinel+" status=downloading downloaded=10 total=100")
+	jobs.emitFor(id, "[download] Destination: /out/Queen/Singles/Bohemian Rhapsody.mp3")
+	d := InitCaches(Deps{Cfg: ytdlCfg(), Store: st, Jobs: jobs})
+	d.reconcileYtdlOnce(context.Background())
+
+	// Whatever a worker said, what reaches a client is a state, a percentage,
+	// a language and plain language — never raw output or a library path.
+	body := do(t, h, "GET", "/v1/ytdl", "", admin).Body.String()
+	for _, forbidden := range []string{"/out", "yt-dlp", "Destination:", ytdl.ProgressSentinel} {
+		if strings.Contains(body, forbidden) {
+			t.Errorf("the list response leaks %q: %s", forbidden, body)
+		}
+	}
+	detail := do(t, h, "GET", "/v1/ytdl/"+id, "", admin).Body.String()
+	for _, forbidden := range []string{"/out", "yt-dlp", "Destination:", ytdl.ProgressSentinel} {
+		if strings.Contains(detail, forbidden) {
+			t.Errorf("the detail response leaks %q: %s", forbidden, detail)
+		}
+	}
+}
+
+// FR-032b: an infrastructure problem must stay distinguishable from a download
+// that failed. Conflating them means a user retrying a link that was never
+// broken, or ignoring one that is.
+func TestYtdlList_OrchestratorTroubleIsNotADownloadFailing(t *testing.T) {
+	jobs := &fakeJobs{}
+	h, st := newYtdlRouter(t, jobs, ytdlCfg())
+	admin := adminAfterSetup(t, h)
+	id := ytdlRunning(t, h, jobs, st, admin, "https://youtu.be/abc")
+
+	jobs.listErr = context.DeadlineExceeded
+	got := listYtdl(t, h, admin)
+
+	if !got.Degraded {
+		t.Error("an unreachable orchestrator must set degraded")
+	}
+	for _, d := range got.Downloads {
+		if d.RequestID == id && d.State == "failed" {
+			t.Fatal("an unreachable orchestrator reported a running download as failed")
+		}
+	}
+}
+
+// FR-009c: the queue is inherently cross-user, and a non-admin must learn
+// nothing from it about anybody else.
+func TestYtdlList_TheQueueRevealsNothingCrossUser(t *testing.T) {
+	jobs := &fakeJobs{}
+	h, st := newYtdlRouter(t, jobs, ytdlCfg())
+	admin := adminAfterSetup(t, h)
+	bo := ytdlSecondUser(t, h, admin, "bo")
+
+	// The admin fills the queue.
+	for i := 0; i < 8; i++ {
+		submit(t, h, admin, `{"url":"https://youtu.be/admin`+itoa2(i)+`","mode":"music"}`)
+	}
+	submit(t, h, bo, `{"url":"https://youtu.be/boSong","mode":"music"}`)
+	ytdlAdmit(t, jobs, st)
+
+	rec := do(t, h, "GET", "/v1/ytdl", "", bo)
+	body := rec.Body.String()
+	if strings.Contains(body, "admin") {
+		t.Errorf("bo's list mentions the admin: %s", body)
+	}
+	var got ytdlListResp
+	_ = json.Unmarshal(rec.Body.Bytes(), &got)
+	if len(got.Downloads) != 1 {
+		t.Fatalf("bo sees %d downloads, want only their own", len(got.Downloads))
+	}
+	// No count, no position, no total — nothing that would let bo infer how much
+	// other work exists.
+	for _, leak := range []string{"queueLength", "position", "ahead", "total"} {
+		if strings.Contains(body, leak) {
+			t.Errorf("the list exposes %q, which would describe other users' work", leak)
+		}
+	}
 }

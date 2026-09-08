@@ -335,10 +335,17 @@ func (s *Store) ListYtdlQueued() ([]YtdlDownload, error) {
 // what knows about a download between "admitted" and "the orchestrator has
 // acknowledged it" — and admitting twice in that window is exactly the bug an
 // admission loop can have.
+//
+// GROUPS are excluded, and that is load-bearing rather than tidy. A group sits
+// in `downloading` for as long as any of its items is unfinished, but it has no
+// worker of its own — its enumeration is long over. Counting it would let a
+// group permanently occupy one of the four slots its own items are queueing for,
+// so a channel would download three at a time and nobody would see why.
 func (s *Store) CountYtdlRunning() (int, error) {
 	var n int
 	err := s.db.QueryRow(
-		`SELECT COUNT(*) FROM ytdl_downloads WHERE state IN ('scheduled','downloading')`).Scan(&n)
+		`SELECT COUNT(*) FROM ytdl_downloads
+		  WHERE state IN ('scheduled','downloading') AND kind != 'group'`).Scan(&n)
 	return n, err
 }
 
@@ -396,8 +403,9 @@ func (s *Store) FindYtdlInFlight(videoID, mode string) (string, bool, error) {
 	var id string
 	err := s.db.QueryRow(
 		`SELECT request_id FROM ytdl_downloads
-		  WHERE video_id = ? AND mode = ? AND state NOT IN ('completed','failed')
-		  LIMIT 1`, videoID, mode).Scan(&id)
+		  WHERE (video_id = ? OR (video_id = '' AND source_url = ?))
+		    AND mode = ? AND state NOT IN ('completed','failed')
+		  LIMIT 1`, videoID, videoID, mode).Scan(&id)
 	if errors.Is(err, sql.ErrNoRows) {
 		return "", false, nil
 	}
@@ -405,4 +413,107 @@ func (s *Store) FindYtdlInFlight(videoID, mode string) (string, bool, error) {
 		return "", false, err
 	}
 	return id, true, nil
+}
+
+// ListYtdlResolving returns groups still waiting to learn what they contain.
+func (s *Store) ListYtdlResolving() ([]YtdlDownload, error) {
+	return s.listYtdlWhere(`state = 'resolving' AND kind = 'group'`)
+}
+
+// ListYtdlActiveGroups returns groups that have not reached a final state.
+//
+// A group's state follows its items, so this is what the reconciler recomputes
+// each cycle. Finished groups are excluded: once final they stay final, and
+// re-deriving them every three seconds would be work with no answer attached.
+func (s *Store) ListYtdlActiveGroups() ([]YtdlDownload, error) {
+	return s.listYtdlWhere(`kind = 'group' AND state NOT IN ('completed','failed','resolving')`)
+}
+
+func (s *Store) listYtdlWhere(where string) ([]YtdlDownload, error) {
+	rows, err := s.db.Query(`SELECT ` + ytdlCols + ` FROM ytdl_downloads WHERE ` + where + ` ORDER BY queue_seq ASC`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []YtdlDownload
+	for rows.Next() {
+		d, err := scanYtdlDownload(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, d)
+	}
+	return out, rows.Err()
+}
+
+// CreateYtdlItems inserts a group's items and moves the group out of resolving,
+// in ONE transaction.
+//
+// Atomic because a channel has no ceiling: thousands of rows inserted halfway
+// would leave a request that is neither still resolving nor properly expanded,
+// and nothing would ever move it on. Either the group has its items or it is
+// still waiting to be expanded, and the next cycle tries again.
+//
+// An expansion that found NOTHING new is a success, not a failure: re-running a
+// channel you already hold in full is a legitimate thing to do, and the answer
+// is "nothing to add" rather than an error.
+func (s *Store) CreateYtdlItems(groupID string, items []YtdlDownload) error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	next, err := nextQueueSeq(tx)
+	if err != nil {
+		return err
+	}
+	for _, it := range items {
+		if it.CreatedAt == 0 {
+			it.CreatedAt = time.Now().Unix()
+		}
+		if _, err := tx.Exec(
+			`INSERT INTO ytdl_downloads (`+ytdlCols+`)
+			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			it.RequestID, it.ParentID, string(YtdlKindItem), it.UserID, it.SourceURL, it.VideoID,
+			it.Mode, it.Scope, it.State, it.Title, it.Uploader, it.Artwork, it.GroupName,
+			string(YtdlOriginExpanded), it.HasLyrics, it.LyricsLang, it.Reason, 1,
+			next, it.CreatedAt, it.FinishedAt,
+		); err != nil {
+			return err
+		}
+		next++
+	}
+
+	// The group leaves `resolving` in the same transaction that gives it its
+	// items, so it is never briefly a group with nothing in it.
+	if _, err := tx.Exec(
+		`UPDATE ytdl_downloads SET state = 'downloading' WHERE request_id = ? AND state = 'resolving'`,
+		groupID); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+func nextQueueSeq(tx *sql.Tx) (int64, error) {
+	var n int64
+	err := tx.QueryRow(`SELECT COALESCE(MAX(queue_seq), 0) + 1 FROM ytdl_downloads`).Scan(&n)
+	return n, err
+}
+
+// SetYtdlGroupName records the name a group turned out to have.
+//
+// A channel publishes no metadata document, so its name is only learned once its
+// contents have been enumerated (FR-036).
+func (s *Store) SetYtdlGroupName(requestID, name string) error {
+	_, err := s.db.Exec(
+		`UPDATE ytdl_downloads SET group_name = ?, title = CASE WHEN title = '' THEN ? ELSE title END
+		  WHERE request_id = ?`, name, name, requestID)
+	return err
+}
+
+// ListYtdlRunning returns downloads whose record says a worker should exist.
+func (s *Store) ListYtdlRunning() ([]YtdlDownload, error) {
+	return s.listYtdlWhere(`state IN ('scheduled','downloading') AND kind != 'group'`)
 }

@@ -193,12 +193,6 @@ export interface SetupPayload {
 }
 
 /**
- * A YouTube download (spec 0012). Deliberately tiny: four states and nothing
- * else. There is no size, no progress, no speed and no estimate here — the
- * server does not send them, and their absence is the requirement rather than
- * an omission to be filled in later.
- */
-/**
  * The six states a download can be in (spec 0013, FR-013a).
  *
  * `queued` and `scheduled` are kept apart on purpose: "SynoDL is holding this
