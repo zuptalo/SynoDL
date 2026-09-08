@@ -4,7 +4,7 @@
 
 **Created**: 2026-09-08
 
-**Status**: planned
+**Status**: in-progress
 <!-- SynoDL spec lifecycle: planned → in-progress → in-review → shipped.
      This line is the source of truth for the spec's row in ROADMAP.md;
      bump it as the work moves through the pipeline. The spec id and category
@@ -421,10 +421,12 @@ playlist names, with embedded cover art, in both music and music-video modes.
 - **FR-006c**: Extending the store MUST be reversible in the sense that a failed
   or partial schema change leaves the existing data intact and the application
   able to report the problem rather than starting against a half-changed store.
-- **FR-006d**: When a user is deleted, their download records MUST be removed with
-  them, their queued downloads MUST leave the queue and never start, and any of
-  their workers already running MUST be left to finish rather than stranded —
-  matching what dismissal already does (FR-005b).
+- **FR-006d**: When a user is deleted, their download records MUST survive as
+  unattributed records rather than being erased — matching how NAS tasks and the
+  existing failure records already outlive the account that created them — but
+  their queued downloads MUST leave the queue and never start, and any worker
+  already running MUST be left to finish rather than stranded (FR-005b). An
+  unattributed record is visible to admins only, since FR-007 gives it no owner.
 
 **Ownership and visibility**
 
