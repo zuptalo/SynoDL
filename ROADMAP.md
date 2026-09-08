@@ -24,7 +24,7 @@ Specs are grouped by category band; status moves
 | [0009](specs/0009-two-addresses-per/spec.md) | Two addresses per source, each with its own sign-in | 🟢 shipped |
 | [0010](specs/0010-mark-version-you/spec.md) | Mark the version you downloaded, from what we sent | 🟢 shipped |
 | [0011](specs/0011-keep-knowing-what-nas/spec.md) | Keep knowing what is on the NAS | 🟢 shipped |
-| [0012](specs/0012-download-youtube-audio/spec.md) | Save YouTube music and music videos to the library | 🔵 in-review |
+| [0012](specs/0012-download-youtube-audio/spec.md) | Save YouTube music and music videos to the library | 🟢 shipped |
 
 ## ⚡ Ad-hoc (1001–1999)
 
@@ -59,10 +59,10 @@ Specs are grouped by category band; status moves
 | [1029](specs/1029-forget-content-left-nas/spec.md) | Forget content that has left the NAS | 🟢 shipped |
 | [1030](specs/1030-discover-opens-newest-titles/spec.md) | Discover opens on the newest titles | 🟢 shipped |
 | [1031](specs/1031-schema-drift-guard/spec.md) | Notice when a database's schema is not what it should be | 🟢 shipped |
-| [1032](specs/1032-show-release-year/spec.md) | Show release year and readable genres on titles | 🔵 in-review |
-| [1033](specs/1033-give-youtube-downloads/spec.md) | Give YouTube downloads their own button | 🔵 in-review |
-| [1034](specs/1034-make-youtube-downloads/spec.md) | Make YouTube downloads readable in the task list | 🔵 in-review |
-| [1035](specs/1035-card-captions-read/spec.md) | Card captions read like the detail sheet | 🔵 in-review |
+| [1032](specs/1032-show-release-year/spec.md) | Show release year and readable genres on titles | 🟢 shipped |
+| [1033](specs/1033-give-youtube-downloads/spec.md) | Give YouTube downloads their own button | 🟢 shipped |
+| [1034](specs/1034-make-youtube-downloads/spec.md) | Make YouTube downloads readable in the task list | 🟢 shipped |
+| [1035](specs/1035-card-captions-read/spec.md) | Card captions read like the detail sheet | 🟢 shipped |
 
 ## 🐛 Hotfixes & Bug Fixes (2001+)
 
@@ -85,4 +85,4 @@ Specs are grouped by category band; status moves
 | [2016](specs/2016-data-dir-special-chars/spec.md) | A DATA_DIR with punctuation in it opens the wrong database | 🟢 shipped |
 | [2017](specs/2017-hide-owned-migration-skipped/spec.md) | "Hide what I have" never saved, and every view save answered 500 | 🟢 shipped |
 | [2019](specs/2019-orphaned-rows-sweep/spec.md) | Remove rows the cascades should have taken with them | 🟢 shipped |
-| [2020](specs/2020-download-without-lyrics/spec.md) | A download without lyrics is not a failure | 🔵 in-review |
+| [2020](specs/2020-download-without-lyrics/spec.md) | A download without lyrics is not a failure | 🟢 shipped |

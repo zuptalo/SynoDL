@@ -65,7 +65,10 @@ One repo, two parts, shipped as a single container.
     same idea as the mock DSM: `make start` and e2e never need a cluster. It
     downloads nothing; `/__mock/*` drives a Job through its lifecycle, including
     `vanish` (disappearing with no terminal condition), which is how "a missing
-    Job is never reported as completed" gets tested rather than argued about.
+    Job is never reported as completed" gets tested rather than argued about. It
+    also serves `/oembed`, the "what is this link?" lookup behind a readable
+    download row (spec 1034) — without it the suite would reach the public
+    internet just to render a title.
   - `internal/k8s/` — a tiny stdlib Jobs client (create / list-by-label /
     delete) against ONE namespace. Deliberately not `client-go`: three calls do
     not justify it. Tested against an `httptest` fake API server.
