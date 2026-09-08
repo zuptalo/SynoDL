@@ -1,11 +1,16 @@
 <script setup lang="ts">
 /**
- * One YouTube download in the Tasks list (spec 0012).
+ * One YouTube download in the Tasks list (spec 0012, extended by spec 0013).
  *
- * Deliberately thinner than TaskItem: there is no progress bar, no percentage,
- * no speed and no estimate, because the server does not report them and the
- * absence is the requirement (FR-017). Row metrics match TaskItem exactly so a
- * mixed list does not make the eye jump.
+ * It now carries a progress bar, which spec 0012 deliberately did not: back then
+ * the worker had no channel back to SynoDL, so any percentage would have been
+ * invented. The server reads the worker's own output now, and reports a
+ * fraction only while a download is actually running and only when something is
+ * genuinely known — so an ABSENT progress value means "we cannot see", which is
+ * rendered as no bar rather than as a bar at zero.
+ *
+ * Row metrics still match TaskItem exactly so a mixed list does not make the eye
+ * jump, and there is still no speed and no estimate: nothing produces them.
  *
  * It also offers no pause or resume (FR-027). A worker is a running process on
  * a cluster, not a transfer we can steer — presenting a control we cannot
@@ -19,6 +24,7 @@ import {
   IonItemOptions,
   IonItemSliding,
   IonLabel,
+  IonProgressBar,
 } from '@ionic/vue';
 import {
   checkmarkCircleOutline,
@@ -108,6 +114,29 @@ const artworkSrc = computed(() =>
 // A thumbnail that 404s must leave the icon behind, not a hole (FR-007).
 const artworkFailed = ref(false);
 
+// A percentage only exists while a worker is running and only when its output
+// could be read. Absent is a real answer here — see the file comment — so it is
+// checked with `!== undefined` rather than truthiness, or a genuine 0% would be
+// indistinguishable from "unknown".
+const progress = computed(() =>
+  props.download.state === 'downloading' && props.download.progress !== undefined
+    ? props.download.progress
+    : undefined,
+);
+const percentLabel = computed(() =>
+  progress.value === undefined ? '' : `${Math.floor(progress.value * 100)}%`,
+);
+
+// A group reports how its items are getting on rather than a percentage of its
+// own — "38 of 340 saved" says more than a bar (FR-019).
+const groupSummary = computed(() => {
+  const c = props.download.counts;
+  if (!c) return '';
+  const parts = [`${c.completed} of ${c.total} saved`];
+  if (c.failed > 0) parts.push(`${c.failed} failed`);
+  return parts.join(' · ');
+});
+
 // Any download can be dismissed (spec 0013, FR-005c). Spec 0012 offered this
 // only on a finished one, because dismissing a running download would have
 // stranded its worker. It no longer does: the record goes at once and the worker
@@ -146,6 +175,8 @@ const canDismiss = computed(() => true);
           <span class="status" :style="{ color: stateColorVar }" data-testid="ytdl-status">
             {{ stateLabel }}
           </span>
+          <span v-if="percentLabel" data-testid="ytdl-percent">{{ percentLabel }}</span>
+          <span v-if="groupSummary" data-testid="ytdl-group-summary">{{ groupSummary }}</span>
           <span v-if="download.reason" class="reason" data-testid="ytdl-reason">
             {{ download.reason }}
           </span>
@@ -153,6 +184,14 @@ const canDismiss = computed(() => true);
             added by {{ download.submittedBy }}
           </span>
         </div>
+        <!-- No bar at all when nothing is known: a bar pinned at zero reads as a
+             stalled download, which is exactly the wrong thing to say. -->
+        <ion-progress-bar
+          v-if="progress !== undefined"
+          :value="progress"
+          data-testid="ytdl-progress"
+          :style="{ '--progress-background': stateColorVar }"
+        />
       </ion-label>
     </ion-item>
     <ion-item-options side="end">
@@ -227,6 +266,12 @@ const canDismiss = computed(() => true);
 }
 .status {
   font-weight: 600;
+}
+
+/* Matches TaskItem's bar exactly, for the same reason the row metrics do. */
+ion-progress-bar {
+  height: 3px;
+  border-radius: 2px;
 }
 .reason {
   overflow: hidden;

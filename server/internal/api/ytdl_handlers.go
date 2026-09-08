@@ -330,6 +330,14 @@ func (d Deps) ytdlViewOf(rec store.YtdlDownload, state, reason string, u *store.
 		FinishedAt:  rec.FinishedAt,
 		Reason:      reason,
 	}
+	// Progress belongs ONLY to a running download, and only when something is
+	// actually known about it. Absent otherwise, never zero — an unreadable log
+	// must not render as a download stuck at the start (FR-013).
+	if state == string(ytdl.StateDownloading) && d.ytdlProgress != nil {
+		if f, known := d.ytdlProgress.Get(rec.RequestID); known {
+			v.Progress = &f
+		}
+	}
 	// A group's own row reports how its items are getting on rather than a state
 	// of its own (FR-019).
 	if rec.Kind == store.YtdlKindGroup {

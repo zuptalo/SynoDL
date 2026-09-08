@@ -87,6 +87,14 @@ func Args(o Options) []string {
 	}
 
 	args := []string{
+		// Say what you are doing, in a format WE defined (spec 0013). --newline
+		// is load-bearing: without it the extractor rewrites one line with
+		// carriage returns, which is right for a terminal and unreadable for
+		// anything tailing a log. Together these turn "parse the extractor's
+		// human output" — which changes between releases — into "read back the
+		// fields we asked for".
+		"--newline",
+		"--progress-template", ProgressTemplate,
 		// Tags, not folders, are what a media server shelves by. Without these
 		// two the album and album-artist tags come out EMPTY and every track
 		// lands under "[Unknown Album]" despite a correct folder.

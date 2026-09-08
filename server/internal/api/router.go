@@ -37,6 +37,13 @@ type Deps struct {
 	// libraryIndex treats as "know nothing".
 	lib *libraryCache
 
+	// ytdlProgress holds the latest reading for each running YouTube download.
+	// A POINTER for the same reason lib and caps are: Deps is copied by value
+	// into every handler closure, and a value field would give each handler its
+	// own cache. Built by NewRouter; nil in tests that do not need it, which the
+	// accessors treat as "know nothing".
+	ytdlProgress *progressCache
+
 	// ytdlOnTick is a test seam: the reconciler calls it at the end of every
 	// cycle so a test can observe that the loop is still running without
 	// reaching into its internals. Nil in production.
@@ -87,6 +94,9 @@ func InitCaches(d Deps) Deps {
 	}
 	if d.caps == nil {
 		d.caps = &capsCache{}
+	}
+	if d.ytdlProgress == nil {
+		d.ytdlProgress = newProgressCache()
 	}
 	return d
 }

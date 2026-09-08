@@ -364,3 +364,60 @@ func TestExecSnippets_StillRenameTheCompanionFile(t *testing.T) {
 		}
 	})
 }
+
+// Progress reporting (spec 0013). The recipe gained two flags, and both are
+// about making the worker's output a format SynoDL defined rather than one it
+// guesses at.
+func TestArgs_AsksForMachineReadableProgress(t *testing.T) {
+	for _, mode := range []Mode{ModeMusic, ModeMusicVideo} {
+		args := Args(Options{Mode: mode, Target: Target{URL: "https://youtu.be/a", Scope: ScopeSingle}})
+		joined := strings.Join(args, " ")
+
+		if !contains(args, "--newline") {
+			t.Errorf("%s: --newline missing; without it progress is one line rewritten with carriage returns", mode)
+		}
+		if !contains(args, "--progress-template") {
+			t.Errorf("%s: --progress-template missing", mode)
+		}
+		if !strings.Contains(joined, ProgressSentinel) {
+			t.Errorf("%s: the progress template must carry the sentinel, or its lines cannot be told from the extractor's own chatter", mode)
+		}
+	}
+}
+
+// The template is OURS: a constant, with no user input anywhere in it. Same
+// property the --exec snippets rely on.
+func TestProgressTemplate_ContainsNoUserInput(t *testing.T) {
+	target := Target{URL: "https://youtu.be/EVIL-MARKER", Scope: ScopeSingle}
+	args := Args(Options{Mode: ModeMusic, Target: target})
+	for i, a := range args {
+		if a != ProgressTemplate {
+			continue
+		}
+		if strings.Contains(args[i], "EVIL-MARKER") {
+			t.Fatal("the progress template carries the submitted URL")
+		}
+	}
+	// And the URL still appears exactly once, as the final element after --.
+	var n int
+	for _, a := range args {
+		if a == target.URL {
+			n++
+		}
+	}
+	if n != 1 {
+		t.Fatalf("URL appears %d times, want exactly once", n)
+	}
+	if args[len(args)-1] != target.URL || args[len(args)-2] != "--" {
+		t.Fatalf("args do not end with `-- <url>`: %v", args[len(args)-3:])
+	}
+}
+
+func contains(args []string, want string) bool {
+	for _, a := range args {
+		if a == want {
+			return true
+		}
+	}
+	return false
+}

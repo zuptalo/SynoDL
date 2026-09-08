@@ -219,7 +219,8 @@ func (s *Server) emit(w http.ResponseWriter, r *http.Request) {
 	body, _ := io.ReadAll(io.LimitReader(r.Body, 64<<10))
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if _, ok := s.jobs[name]; !ok {
+	name, ok := s.resolveJobName(name)
+	if !ok {
 		w.WriteHeader(http.StatusNotFound)
 		_, _ = w.Write([]byte(`{"message":"no such job"}`))
 		return
@@ -230,6 +231,23 @@ func (s *Server) emit(w http.ResponseWriter, r *http.Request) {
 	}
 	s.logs[podNameFor(name)] += line
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// resolveJobName accepts either a job's name or the request id it carries,
+// matching what the lifecycle controls already accept — a test knows the request
+// id it submitted, not the name SynoDL derived from it.
+//
+// Caller holds the lock.
+func (s *Server) resolveJobName(nameOrRequestID string) (string, bool) {
+	if _, ok := s.jobs[nameOrRequestID]; ok {
+		return nameOrRequestID, true
+	}
+	for name, j := range s.jobs {
+		if j.Metadata.Labels["synodl.io/request-id"] == nameOrRequestID {
+			return name, true
+		}
+	}
+	return "", false
 }
 
 func (s *Server) deleteJob(w http.ResponseWriter, r *http.Request) {

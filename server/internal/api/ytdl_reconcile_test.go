@@ -232,3 +232,110 @@ func TestReconcile_ARecordThatCannotBeWrittenNeverFailsASavedDownload(t *testing
 		}
 	}
 }
+
+// ytdlRunning submits a download and drives it to a running worker with a pod
+// ready to be read, returning its request id.
+func ytdlRunning(t *testing.T, h http.Handler, jobs *fakeJobs, auth map[string]string, url string) string {
+	t.Helper()
+	rec := submit(t, h, auth, `{"url":"`+url+`","mode":"music"}`)
+	var sub ytdlSubmitResp
+	_ = json.Unmarshal(rec.Body.Bytes(), &sub)
+	jobs.setStatus(t, sub.RequestID, k8s.JobStatus{Active: 1})
+	jobs.attachPod(sub.RequestID)
+	return sub.RequestID
+}
+
+func TestReconcile_ReportsProgressFromWorkerOutput(t *testing.T) {
+	jobs := &fakeJobs{}
+	h, st := newYtdlRouter(t, jobs, ytdlCfg())
+	admin := adminAfterSetup(t, h)
+	id := ytdlRunning(t, h, jobs, admin, "https://youtu.be/abc")
+
+	d := InitCaches(Deps{Jobs: jobs, Store: st})
+	jobs.emitFor(id, ytdl.ProgressSentinel+" status=downloading downloaded=25 total=100")
+	d.reconcileYtdlOnce(context.Background())
+
+	got, ok := d.ytdlProgress.Get(id)
+	if !ok {
+		t.Fatal("no progress held after reading a worker line")
+	}
+	if got < 0.24 || got > 0.26 {
+		t.Fatalf("progress = %v, want about a quarter", got)
+	}
+
+	// A later, LOWER reading must not move the bar backwards (FR-012).
+	jobs.emitFor(id, ytdl.ProgressSentinel+" status=downloading downloaded=5 total=100")
+	d.reconcileYtdlOnce(context.Background())
+	after, _ := d.ytdlProgress.Get(id)
+	if after < got {
+		t.Fatalf("progress went backwards, %v then %v", got, after)
+	}
+}
+
+func TestReconcile_RecordsLyricsAndItsLanguageDurably(t *testing.T) {
+	// FR-011 + FR-013g. This fact exists ONLY in the worker's output, and the
+	// orchestrator sweeps that — so it has to be captured while it is readable.
+	jobs := &fakeJobs{}
+	h, st := newYtdlRouter(t, jobs, ytdlCfg())
+	admin := adminAfterSetup(t, h)
+	id := ytdlRunning(t, h, jobs, admin, "https://youtu.be/abc")
+
+	d := InitCaches(Deps{Jobs: jobs, Store: st})
+	jobs.emitFor(id, `[info] Writing video subtitles to: /out/Queen/Singles/Bohemian Rhapsody.en-orig.lrc`)
+	d.reconcileYtdlOnce(context.Background())
+
+	rec, err := st.GetYtdlDownload(id)
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	if rec.HasLyrics == nil || !*rec.HasLyrics {
+		t.Fatal("lyrics were written and should have been recorded")
+	}
+	if rec.LyricsLang != "en" {
+		t.Fatalf("lyrics language = %q, want en", rec.LyricsLang)
+	}
+}
+
+func TestReconcile_AnUnreadableLogLeavesTheStateAloneAndShowsNoProgress(t *testing.T) {
+	// FR-013. Losing a reading is not a download failing, and must not look like
+	// one — nor like a download frozen at 0%.
+	jobs := &fakeJobs{}
+	h, st := newYtdlRouter(t, jobs, ytdlCfg())
+	admin := adminAfterSetup(t, h)
+	id := ytdlRunning(t, h, jobs, admin, "https://youtu.be/abc")
+
+	jobs.logErr = errors.New("forbidden: pods/log")
+	d := InitCaches(Deps{Jobs: jobs, Store: st})
+	d.reconcileYtdlOnce(context.Background())
+
+	if _, ok := d.ytdlProgress.Get(id); ok {
+		t.Fatal("progress was invented despite the log being unreadable")
+	}
+	rec, err := st.GetYtdlDownload(id)
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	if rec.State == "failed" {
+		t.Fatal("an unreadable log reported the download as failed")
+	}
+}
+
+func TestReconcile_ForgetsProgressOnceFinished(t *testing.T) {
+	jobs := &fakeJobs{}
+	h, st := newYtdlRouter(t, jobs, ytdlCfg())
+	admin := adminAfterSetup(t, h)
+	id := ytdlRunning(t, h, jobs, admin, "https://youtu.be/abc")
+
+	d := InitCaches(Deps{Jobs: jobs, Store: st})
+	jobs.emitFor(id, ytdl.ProgressSentinel+" status=downloading downloaded=50 total=100")
+	d.reconcileYtdlOnce(context.Background())
+	if _, ok := d.ytdlProgress.Get(id); !ok {
+		t.Fatal("expected progress to be held while running")
+	}
+
+	jobs.setStatus(t, id, k8s.JobStatus{Succeeded: 1})
+	d.reconcileYtdlOnce(context.Background())
+	if _, ok := d.ytdlProgress.Get(id); ok {
+		t.Fatal("a finished download still holds progress; the cache would grow a key per download forever")
+	}
+}

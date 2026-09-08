@@ -127,6 +127,12 @@ func (d Deps) captureFinished(live map[string]k8s.Job) {
 			reason = ytdl.FailureReason(j)
 		}
 		d.captureTerminal(rec, string(state), reason)
+
+		// A finished download has no progress. Dropping the entry also stops the
+		// cache growing by one key per download for the life of the process.
+		if d.ytdlProgress != nil {
+			d.ytdlProgress.Forget(id)
+		}
 	}
 }
 
@@ -186,15 +192,35 @@ func (d Deps) readWorkerOutput(ctx context.Context, jobs []k8s.Job) {
 		if !ok || p.Status.Phase != "Running" {
 			continue
 		}
-		if _, err := d.Jobs.PodLog(ctx, p.Metadata.Name, k8s.PodLogOptions{
+		raw, err := d.Jobs.PodLog(ctx, p.Metadata.Name, k8s.PodLogOptions{
 			Container: "downloader",
 			TailLines: podLogTailLines,
-		}); err != nil {
+		})
+		if err != nil {
 			// A swept pod is the ordinary case. Losing a reading must never
-			// change what a download reports (FR-013).
+			// change what a download reports (FR-013) — the row simply shows no
+			// percentage until the next successful read, or forever.
 			continue
 		}
-		// Parsing arrives with the progress work; the read is what this phase
-		// establishes.
+
+		id := j.Metadata.Labels[ytdl.LabelRequestID]
+		reading := ytdl.ScanOutput(raw)
+
+		if reading.HasProgress && d.ytdlProgress != nil {
+			if f, known := reading.Latest.Fraction(); known {
+				d.ytdlProgress.Observe(id, f)
+			}
+		}
+
+		// Whether a lyrics file was written is the one fact here that must
+		// OUTLIVE the worker, so it goes to the store rather than the cache: the
+		// orchestrator sweeps this pod's output and there is nowhere else the
+		// fact exists (FR-011, FR-013g).
+		if reading.HasLyrics && d.Store != nil {
+			rec, err := d.Store.GetYtdlDownload(id)
+			if err == nil && (rec.HasLyrics == nil || !*rec.HasLyrics) {
+				_ = d.Store.SetYtdlCompanion(id, true, reading.LyricsLang)
+			}
+		}
 	}
 }

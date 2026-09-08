@@ -130,18 +130,18 @@ then reaches its final state; the finished download reports lyrics and language.
 
 **Depends on**: Phase 2, Phase 4.
 
-- [ ] T035 [P] [US3] [TEST] Add `server/internal/ytdl/progress_test.go` — table-driven: a well-formed sentinel line parses; a line without the sentinel is ignored, never guessed at; malformed numbers are ignored; two passes of a two-stream fetch never produce a decreasing value (FR-012); a stale reading is dropped rather than shown (FR-013).
-- [ ] T036 [US3] Create `server/internal/ytdl/progress.go`: the `--progress-template` constant with its fixed sentinel prefix, the line parser, and the monotonic clamp. Pure — no I/O.
-- [ ] T037 [P] [US3] [TEST] Add cases to `server/internal/ytdl/progress_test.go` for detecting the companion-file line and extracting its language.
-- [ ] T038 [US3] Add companion-file and language detection to `server/internal/ytdl/progress.go`.
-- [ ] T039 [US3] [TEST] Add cases to `server/internal/ytdl/command_test.go` asserting `--newline` and the progress template are present, that the template is a constant containing no user input, and that the URL is still the final argv element exactly once after `--`.
-- [ ] T040 [US3] Add `--newline` and `--progress-template` to `Args` in `server/internal/ytdl/command.go`.
-- [ ] T041 [US3] Add output reading to `server/internal/api/ytdl_reconcile.go`: for each running download, read its worker's log bounded in size and frequency (FR-013e/f), hold the reading in memory, and capture the companion-file facts durably.
-- [ ] T042 [US3] [TEST] In `server/internal/api/ytdl_reconcile_test.go`, add cases asserting an unreadable or unparseable log leaves the download's life state correct and shows no percentage, and never reports it as failed (FR-013).
-- [ ] T043 [US3] Add `progress`, `hasLyrics` and `lyricsLang` to the wire view in `server/internal/api/ytdl_handlers.go`, omitted rather than zero-valued when absent.
-- [ ] T044 [P] [US3] Add a progress bar to `src/components/YtdlItem.vue`, shown only in the `downloading` state, matching `TaskItem.vue` row metrics.
-- [ ] T045 [P] [US3] Update `YtdlDownload` in `src/services/api.ts` and `src/composables/useYtdl.ts` for the new fields.
-- [ ] T046 [US3] Add `e2e/stateful/ytdl-progress.spec.ts` driving progress lines through `/__mock/jobs/{name}/emit` and asserting the bar advances and never goes backwards.
+- [X] T035 [P] [US3] [TEST] Add `server/internal/ytdl/progress_test.go` — table-driven: a well-formed sentinel line parses; a line without the sentinel is ignored, never guessed at; malformed numbers are ignored; two passes of a two-stream fetch never produce a decreasing value (FR-012); a stale reading is dropped rather than shown (FR-013).
+- [X] T036 [US3] Create `server/internal/ytdl/progress.go`: the `--progress-template` constant with its fixed sentinel prefix, the line parser, and the monotonic clamp. Pure — no I/O.
+- [X] T037 [P] [US3] [TEST] Add cases to `server/internal/ytdl/progress_test.go` for detecting the companion-file line and extracting its language.
+- [X] T038 [US3] Add companion-file and language detection to `server/internal/ytdl/progress.go`.
+- [X] T039 [US3] [TEST] Add cases to `server/internal/ytdl/command_test.go` asserting `--newline` and the progress template are present, that the template is a constant containing no user input, and that the URL is still the final argv element exactly once after `--`.
+- [X] T040 [US3] Add `--newline` and `--progress-template` to `Args` in `server/internal/ytdl/command.go`.
+- [X] T041 [US3] Add output reading to `server/internal/api/ytdl_reconcile.go`: for each running download, read its worker's log bounded in size and frequency (FR-013e/f), hold the reading in memory, and capture the companion-file facts durably.
+- [X] T042 [US3] [TEST] In `server/internal/api/ytdl_reconcile_test.go`, add cases asserting an unreadable or unparseable log leaves the download's life state correct and shows no percentage, and never reports it as failed (FR-013).
+- [X] T043 [US3] Add `progress`, `hasLyrics` and `lyricsLang` to the wire view in `server/internal/api/ytdl_handlers.go`, omitted rather than zero-valued when absent.
+- [X] T044 [P] [US3] Add a progress bar to `src/components/YtdlItem.vue`, shown only in the `downloading` state, matching `TaskItem.vue` row metrics.
+- [X] T045 [P] [US3] Update `YtdlDownload` in `src/services/api.ts` and `src/composables/useYtdl.ts` for the new fields.
+- [X] T046 [US3] Add `e2e/stateful/ytdl-progress.spec.ts` driving progress lines through `/__mock/jobs/{name}/emit` and asserting the bar advances and never goes backwards.
 
 **Checkpoint**: the most-felt gap in spec 0012 is closed.
 

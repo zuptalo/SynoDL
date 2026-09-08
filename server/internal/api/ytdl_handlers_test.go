@@ -98,6 +98,31 @@ func (f *fakeJobs) PodLog(_ context.Context, name string, _ k8s.PodLogOptions) (
 	return []byte(out), nil
 }
 
+// attachPod gives a request id a running pod, the way the cluster would once it
+// schedules a worker. The pod carries the job's labels, so one selector finds
+// both — which is how the reconciler matches them.
+func (f *fakeJobs) attachPod(requestID string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.pods = append(f.pods, k8s.Pod{
+		Metadata: k8s.ObjectMeta{
+			Name:   ytdl.JobName(requestID) + "-worker",
+			Labels: map[string]string{ytdl.LabelRequestID: requestID},
+		},
+		Status: k8s.PodStatus{Phase: "Running"},
+	})
+}
+
+// emitFor appends a line of worker output for a request id's pod.
+func (f *fakeJobs) emitFor(requestID, line string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.logs == nil {
+		f.logs = map[string]string{}
+	}
+	f.logs[ytdl.JobName(requestID)+"-worker"] += line + "\n"
+}
+
 // emit gives a running download some worker output to be read, the way the
 // cluster would.
 func (f *fakeJobs) emit(podName, output string) {
