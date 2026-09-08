@@ -67,3 +67,30 @@ export function formatDate(unixSeconds: number): string {
   const mm = String(d.getMinutes()).padStart(2, '0');
   return `${day} ${month} ${hh}:${mm}`;
 }
+
+/**
+ * Unix seconds → `2026-11-21 14:32:07` (spec 0013, FR-031).
+ *
+ * Written out digit by digit rather than handed to `toLocaleString`, and that
+ * is the whole point: this format is a product decision, not the viewer's
+ * preference. `formatDate` above deliberately DOES follow the device locale,
+ * because a compact "26 Jul 14:03" is a convenience; this one is a record, and
+ * a record that renders differently on two devices is worse than useless when
+ * two people are comparing what happened.
+ *
+ * Picking a locale that happens to produce this shape (sv-SE does) would be
+ * relying on locale data to hold a product decision — a dependency nobody would
+ * think to check when it changed.
+ *
+ * Local time, not UTC: it answers "when did this happen to me", and the operator
+ * and their users share one NAS in one place.
+ */
+export function formatTimestamp(unixSeconds: number | undefined | null): string {
+  if (unixSeconds == null || !Number.isFinite(unixSeconds) || unixSeconds <= 0) return '—';
+  const d = new Date(unixSeconds * 1000);
+  const p = (n: number, width = 2): string => String(n).padStart(width, '0');
+  return (
+    `${p(d.getFullYear(), 4)}-${p(d.getMonth() + 1)}-${p(d.getDate())}` +
+    ` ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`
+  );
+}

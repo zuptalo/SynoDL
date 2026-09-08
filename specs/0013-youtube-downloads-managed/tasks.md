@@ -156,14 +156,14 @@ fact is present and correctly formatted.
 
 **Depends on**: Phase 4, Phase 5.
 
-- [ ] T047 [P] [US4] [TEST] Add `src/utils/format.spec.ts` cases for a fixed `yyyy-mm-dd` / `HH:MM:SS` formatter, asserting it does NOT follow device locale (FR-031) — run it under at least two locales.
-- [ ] T048 [P] [US4] Add the fixed formatter to `src/utils/format.ts`. Do not reuse the existing `toLocaleString(undefined, …)` path, which is locale-following by design.
-- [ ] T049 [US4] [TEST] Add `server/internal/api/ytdl_detail_test.go` for `GET /v1/ytdl/{requestId}`: every field per the contract; `finishedAt` omitted rather than zero while unfinished (FR-033); `submittedBy` for admins only; 404 for another user's download.
-- [ ] T050 [US4] Create `server/internal/api/ytdl_detail.go` with the detail handler, and register the route in `server/internal/api/router.go`.
-- [ ] T051 [P] [US4] Create `src/components/YtdlDetailModal.vue` following the `TaskDetailModal.vue` convention — a stock-Ionic sheet with `data-testid="ytdl-detail"` and `ytdl-detail-*` field ids, including the playlist or channel an expanded item came from (FR-019c), which is only visible here when an item is viewed on its own. Not a route; the router has no per-item routes.
-- [ ] T052 [US4] Open the detail modal from `src/components/YtdlItem.vue` on tap.
-- [ ] T053 [US4] [TEST] In `server/internal/api/ytdl_detail_test.go`, add a case asserting a failure reason contains no command line, path or raw worker output (FR-032).
-- [ ] T054 [US4] Add `e2e/stateful/ytdl-detail.spec.ts` asserting the full field set and both timestamp formats.
+- [X] T047 [P] [US4] [TEST] Add `src/utils/format.spec.ts` cases for a fixed `yyyy-mm-dd` / `HH:MM:SS` formatter, asserting it does NOT follow device locale (FR-031) — run it under at least two locales.
+- [X] T048 [P] [US4] Add the fixed formatter to `src/utils/format.ts`. Do not reuse the existing `toLocaleString(undefined, …)` path, which is locale-following by design.
+- [X] T049 [US4] [TEST] Add `server/internal/api/ytdl_detail_test.go` for `GET /v1/ytdl/{requestId}`: every field per the contract; `finishedAt` omitted rather than zero while unfinished (FR-033); `submittedBy` for admins only; 404 for another user's download.
+- [X] T050 [US4] Create `server/internal/api/ytdl_detail.go` with the detail handler, and register the route in `server/internal/api/router.go`.
+- [X] T051 [P] [US4] Create `src/components/YtdlDetailModal.vue` following the `TaskDetailModal.vue` convention — a stock-Ionic sheet with `data-testid="ytdl-detail"` and `ytdl-detail-*` field ids, including the playlist or channel an expanded item came from (FR-019c), which is only visible here when an item is viewed on its own. Not a route; the router has no per-item routes.
+- [X] T052 [US4] Open the detail modal from `src/components/YtdlItem.vue` on tap.
+- [X] T053 [US4] [TEST] In `server/internal/api/ytdl_detail_test.go`, add a case asserting a failure reason contains no command line, path or raw worker output (FR-032).
+- [X] T054 [US4] Add `e2e/stateful/ytdl-detail.spec.ts` asserting the full field set and both timestamp formats.
 
 ---
 

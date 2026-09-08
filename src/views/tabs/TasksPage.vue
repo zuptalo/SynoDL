@@ -34,7 +34,7 @@ import { computed, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useTasks } from '@/composables/useTasks';
 import { useTaskFilter } from '@/composables/useTaskFilter';
-import { api } from '@/services/api';
+import { api, type YtdlDownload } from '@/services/api';
 import { ALL_STATUSES, applyTaskFilter, type TaskFilterState } from '@/services/task-sort';
 import { formatSpeed } from '@/utils/format';
 import type { Task } from '@/types/task';
@@ -46,6 +46,7 @@ import { useUploads } from '@/composables/useUploads';
 import UploadItem from '@/components/UploadItem.vue';
 import { useYtdl } from '@/composables/useYtdl';
 import YtdlItem from '@/components/YtdlItem.vue';
+import YtdlDetailModal from '@/components/YtdlDetailModal.vue';
 import YoutubeDownloadModal from '@/components/YoutubeDownloadModal.vue';
 import TaskDetailModal from '@/components/TaskDetailModal.vue';
 import type { RefresherCustomEvent } from '@ionic/vue';
@@ -60,6 +61,11 @@ const uploadOpen = ref(false);
 // sheet leads with a destination picker which means nothing for a library
 // download, and led with it while still looking interactive.
 const ytdlOpen = ref(false);
+// Bound BY ID rather than by object, matching how the task detail sheet works:
+// the sheet then follows the live download, so a progress bar keeps moving while
+// it is open and a download that is dismissed elsewhere shows a gone state
+// instead of stale data.
+const ytdlDetailId = ref<string | null>(null);
 
 // Uploads report HERE as well as in the sheet, so dismissing the sheet is a UI
 // choice rather than losing sight of a transfer that is still running. A job
@@ -119,6 +125,12 @@ const detailTask = computed<Task | null>(
 function openDetail(id: string): void {
   detailId.value = id;
 }
+
+// Looked up from the live collection each render, for the same reason
+// detailTask is: the sheet must follow the download, not a snapshot of it.
+const ytdlDetail = computed<YtdlDownload | null>(
+  () => ytdlDownloads.value.find((d) => d.requestId === ytdlDetailId.value) ?? null,
+);
 
 // Deep link from a tapped download notification: /tabs/tasks?task=<id> opens
 // that task's detail once the list has loaded (so the sheet resolves the live
@@ -376,6 +388,7 @@ async function onDelete(id: string): Promise<void> {
           :key="d.requestId"
           :download="d"
           @dismiss="onDismissYtdl"
+          @open="ytdlDetailId = $event"
         />
       </ion-list>
 
@@ -467,6 +480,11 @@ async function onDelete(id: string): Promise<void> {
       :is-open="detailId !== null"
       :task="detailTask"
       @dismiss="detailId = null"
+    />
+    <YtdlDetailModal
+      :is-open="ytdlDetailId !== null"
+      :download="ytdlDetail"
+      @dismiss="ytdlDetailId = null"
     />
   </ion-page>
 </template>

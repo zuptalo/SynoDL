@@ -177,6 +177,8 @@ func NewRouter(d Deps) http.Handler {
 		// and this feature does not touch it — the client merges the two feeds.
 		mux.Handle("POST /v1/ytdl", handleYtdlSubmit(d))
 		mux.Handle("GET /v1/ytdl", handleYtdlList(d))
+		mux.Handle("GET /v1/ytdl/{requestId}", handleYtdlDetail(d))
+		mux.Handle("GET /v1/ytdl/{requestId}/items", handleYtdlItems(d))
 		mux.Handle("DELETE /v1/ytdl/{requestId}", handleYtdlDismiss(d))
 		// Artwork, so a viewer's browser never contacts Google directly. Its own
 		// host rule, deliberately not the catalog poster proxy's (spec 1034).

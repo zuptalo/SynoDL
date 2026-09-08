@@ -37,7 +37,10 @@ import {
 import type { YtdlDownload } from '@/services/api';
 
 const props = defineProps<{ download: YtdlDownload }>();
-const emit = defineEmits<{ (e: 'dismiss', requestId: string): void }>();
+const emit = defineEmits<{
+  (e: 'dismiss', requestId: string): void;
+  (e: 'open', requestId: string): void;
+}>();
 
 const isVideo = computed(() => props.download.mode === 'music-video');
 
@@ -147,7 +150,12 @@ const canDismiss = computed(() => true);
 
 <template>
   <ion-item-sliding :disabled="!canDismiss">
-    <ion-item :detail="false" data-testid="ytdl-item">
+    <ion-item
+      button
+      :detail="false"
+      data-testid="ytdl-item"
+      @click="emit('open', download.requestId)"
+    >
       <div slot="start" class="poster" aria-hidden="true">
         <img
           v-if="artworkSrc && !artworkFailed"

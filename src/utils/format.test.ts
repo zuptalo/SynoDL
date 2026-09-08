@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { formatBytes, formatDate, formatEta, formatPercent, formatSpeed, progressOf } from './format';
+import { formatBytes, formatDate, formatEta, formatPercent, formatSpeed, formatTimestamp, progressOf } from './format';
 
 describe('formatBytes', () => {
   it('formats each magnitude', () => {
@@ -76,5 +76,40 @@ describe('formatDate', () => {
   it('zero and garbage read as a dash', () => {
     expect(formatDate(0)).toBe('—');
     expect(formatDate(NaN)).toBe('—');
+  });
+});
+
+describe('formatTimestamp', () => {
+  // FR-031. The format is fixed by the product: year-month-day, 24-hour, to the
+  // second, on every device. These tests exist because the obvious
+  // implementation — pick a locale that renders this shape — would put a
+  // product decision inside locale data nobody would think to check.
+  it('renders year-month-day and 24-hour time to the second', () => {
+    // 2026-11-21 14:32:07 local time.
+    const t = new Date(2026, 10, 21, 14, 32, 7).getTime() / 1000;
+    expect(formatTimestamp(t)).toBe('2026-11-21 14:32:07');
+  });
+
+  it('pads every field, so widths never jump between rows', () => {
+    const t = new Date(2026, 0, 5, 9, 8, 3).getTime() / 1000;
+    expect(formatTimestamp(t)).toBe('2026-01-05 09:08:03');
+  });
+
+  it('uses 24-hour time, so afternoon is never ambiguous', () => {
+    const t = new Date(2026, 10, 21, 23, 59, 59).getTime() / 1000;
+    expect(formatTimestamp(t)).toBe('2026-11-21 23:59:59');
+    const noon = new Date(2026, 10, 21, 12, 0, 0).getTime() / 1000;
+    expect(formatTimestamp(noon)).toContain(' 12:00:00');
+    const midnight = new Date(2026, 10, 21, 0, 0, 0).getTime() / 1000;
+    expect(formatTimestamp(midnight)).toContain(' 00:00:00');
+  });
+
+  it('shows an em dash for a timestamp that does not exist yet', () => {
+    // FR-033: a download that has not finished has no final timestamp, and 0
+    // would render as 1970.
+    expect(formatTimestamp(undefined)).toBe('—');
+    expect(formatTimestamp(null)).toBe('—');
+    expect(formatTimestamp(0)).toBe('—');
+    expect(formatTimestamp(Number.NaN)).toBe('—');
   });
 });
