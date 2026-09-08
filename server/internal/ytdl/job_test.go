@@ -269,3 +269,72 @@ func TestStateValid(t *testing.T) {
 		}
 	}
 }
+
+// The enumeration worker (spec 0013, US6).
+func TestBuildExpansionJob(t *testing.T) {
+	j, err := BuildExpansionJob(JobConfig{
+		Namespace: "synodl",
+		Image:     "jauderho/yt-dlp:2026.08.19",
+		RequestID: "grp1",
+		Mode:      ModeMusic,
+		Target:    Target{URL: "https://www.youtube.com/@lofi/videos", Scope: ScopeChannel},
+	})
+	if err != nil {
+		t.Fatalf("BuildExpansionJob: %v", err)
+	}
+
+	// It writes nothing, so it mounts nothing. That is how "media volumes are
+	// worker-only" is satisfied here — by there being no volume at all.
+	if len(j.Spec.Template.Spec.Volumes) != 0 {
+		t.Errorf("enumeration job mounts %d volumes, want none", len(j.Spec.Template.Spec.Volumes))
+	}
+	if len(j.Spec.Template.Spec.Containers[0].VolumeMounts) != 0 {
+		t.Error("enumeration job has volume mounts; it writes nothing")
+	}
+	// A worker must never hold cluster credentials.
+	if j.Spec.Template.Spec.AutomountServiceAccountToken == nil || *j.Spec.Template.Spec.AutomountServiceAccountToken {
+		t.Error("enumeration worker automounts a service account token")
+	}
+	if j.Spec.ActiveDeadlineSeconds == nil || *j.Spec.ActiveDeadlineSeconds > 900 {
+		t.Errorf("deadline = %v, want a short bound — listing is seconds of work", j.Spec.ActiveDeadlineSeconds)
+	}
+	if j.Spec.BackoffLimit == nil || *j.Spec.BackoffLimit != 0 {
+		t.Error("enumeration must not retry on its own")
+	}
+
+	// The same selector finds it, and the job-kind label tells it apart.
+	if j.Metadata.Labels[LabelManagedBy] != "synodl" || j.Metadata.Labels[LabelKind] != "ytdl" {
+		t.Errorf("labels = %v, want the feature's own selector to match", j.Metadata.Labels)
+	}
+	if j.Metadata.Labels[LabelJobKind] != JobKindExpand {
+		t.Errorf("job kind = %q, want %q", j.Metadata.Labels[LabelJobKind], JobKindExpand)
+	}
+	if j.Metadata.Name == JobName("grp1") {
+		t.Error("the enumeration job shares a name with the download job; the second create would 409")
+	}
+}
+
+func TestBuildExpansionJob_RefusesASingleItem(t *testing.T) {
+	// A single video has nothing to enumerate, and building a job to discover
+	// that would be a worker started for no reason.
+	if _, err := BuildExpansionJob(JobConfig{
+		Image: "img", RequestID: "x", Mode: ModeMusic,
+		Target: Target{URL: "https://youtu.be/abc", Scope: ScopeSingle},
+	}); err == nil {
+		t.Fatal("want an error for a single item")
+	}
+}
+
+func TestBuildJob_CarriesTheDownloadJobKind(t *testing.T) {
+	j, err := BuildJob(JobConfig{
+		Image: "img", RequestID: "d1", Mode: ModeMusic,
+		Target:    Target{URL: "https://youtu.be/abc", Scope: ScopeSingle},
+		Libraries: map[Mode]Library{ModeMusic: {ClaimName: "music", UID: 1000, GID: 1000}},
+	})
+	if err != nil {
+		t.Fatalf("BuildJob: %v", err)
+	}
+	if j.Metadata.Labels[LabelJobKind] != JobKindDownload {
+		t.Errorf("job kind = %q, want %q", j.Metadata.Labels[LabelJobKind], JobKindDownload)
+	}
+}

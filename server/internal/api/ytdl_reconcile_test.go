@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"synodl/server/internal/k8s"
+	"synodl/server/internal/store"
 	"synodl/server/internal/ytdl"
 )
 
@@ -149,6 +150,7 @@ func TestReconcile_CapturesTerminalStateDurably(t *testing.T) {
 	rec := submit(t, h, admin, `{"url":"https://youtu.be/abc","mode":"music"}`)
 	var sub ytdlSubmitResp
 	_ = json.Unmarshal(rec.Body.Bytes(), &sub)
+	ytdlAdmit(t, jobs, st)
 	jobs.setStatus(t, sub.RequestID, k8s.JobStatus{Succeeded: 1})
 
 	d := Deps{Jobs: jobs, Store: st}
@@ -185,6 +187,7 @@ func TestReconcile_SweepsAJobWhoseRecordWasDismissed(t *testing.T) {
 	rec := submit(t, h, admin, `{"url":"https://youtu.be/abc","mode":"music"}`)
 	var sub ytdlSubmitResp
 	_ = json.Unmarshal(rec.Body.Bytes(), &sub)
+	ytdlAdmit(t, jobs, st)
 
 	jobs.setStatus(t, sub.RequestID, k8s.JobStatus{Active: 1})
 	if r := do(t, h, "DELETE", "/v1/ytdl/"+sub.RequestID, "", admin); r.Code != http.StatusNoContent {
@@ -217,6 +220,7 @@ func TestReconcile_ARecordThatCannotBeWrittenNeverFailsASavedDownload(t *testing
 	rec := submit(t, h, admin, `{"url":"https://youtu.be/abc","mode":"music"}`)
 	var sub ytdlSubmitResp
 	_ = json.Unmarshal(rec.Body.Bytes(), &sub)
+	ytdlAdmit(t, jobs, st)
 	jobs.setStatus(t, sub.RequestID, k8s.JobStatus{Succeeded: 1})
 
 	// Closing the store is the bluntest possible "cannot write".
@@ -235,11 +239,13 @@ func TestReconcile_ARecordThatCannotBeWrittenNeverFailsASavedDownload(t *testing
 
 // ytdlRunning submits a download and drives it to a running worker with a pod
 // ready to be read, returning its request id.
-func ytdlRunning(t *testing.T, h http.Handler, jobs *fakeJobs, auth map[string]string, url string) string {
+func ytdlRunning(t *testing.T, h http.Handler, jobs *fakeJobs, st *store.Store, auth map[string]string, url string) string {
 	t.Helper()
 	rec := submit(t, h, auth, `{"url":"`+url+`","mode":"music"}`)
 	var sub ytdlSubmitResp
 	_ = json.Unmarshal(rec.Body.Bytes(), &sub)
+	// Submitting only queues now; admission is what creates the worker.
+	ytdlAdmit(t, jobs, st)
 	jobs.setStatus(t, sub.RequestID, k8s.JobStatus{Active: 1})
 	jobs.attachPod(sub.RequestID)
 	return sub.RequestID
@@ -249,7 +255,7 @@ func TestReconcile_ReportsProgressFromWorkerOutput(t *testing.T) {
 	jobs := &fakeJobs{}
 	h, st := newYtdlRouter(t, jobs, ytdlCfg())
 	admin := adminAfterSetup(t, h)
-	id := ytdlRunning(t, h, jobs, admin, "https://youtu.be/abc")
+	id := ytdlRunning(t, h, jobs, st, admin, "https://youtu.be/abc")
 
 	d := InitCaches(Deps{Jobs: jobs, Store: st})
 	jobs.emitFor(id, ytdl.ProgressSentinel+" status=downloading downloaded=25 total=100")
@@ -278,7 +284,7 @@ func TestReconcile_RecordsLyricsAndItsLanguageDurably(t *testing.T) {
 	jobs := &fakeJobs{}
 	h, st := newYtdlRouter(t, jobs, ytdlCfg())
 	admin := adminAfterSetup(t, h)
-	id := ytdlRunning(t, h, jobs, admin, "https://youtu.be/abc")
+	id := ytdlRunning(t, h, jobs, st, admin, "https://youtu.be/abc")
 
 	d := InitCaches(Deps{Jobs: jobs, Store: st})
 	jobs.emitFor(id, `[info] Writing video subtitles to: /out/Queen/Singles/Bohemian Rhapsody.en-orig.lrc`)
@@ -302,7 +308,7 @@ func TestReconcile_AnUnreadableLogLeavesTheStateAloneAndShowsNoProgress(t *testi
 	jobs := &fakeJobs{}
 	h, st := newYtdlRouter(t, jobs, ytdlCfg())
 	admin := adminAfterSetup(t, h)
-	id := ytdlRunning(t, h, jobs, admin, "https://youtu.be/abc")
+	id := ytdlRunning(t, h, jobs, st, admin, "https://youtu.be/abc")
 
 	jobs.logErr = errors.New("forbidden: pods/log")
 	d := InitCaches(Deps{Jobs: jobs, Store: st})
@@ -324,7 +330,7 @@ func TestReconcile_ForgetsProgressOnceFinished(t *testing.T) {
 	jobs := &fakeJobs{}
 	h, st := newYtdlRouter(t, jobs, ytdlCfg())
 	admin := adminAfterSetup(t, h)
-	id := ytdlRunning(t, h, jobs, admin, "https://youtu.be/abc")
+	id := ytdlRunning(t, h, jobs, st, admin, "https://youtu.be/abc")
 
 	d := InitCaches(Deps{Jobs: jobs, Store: st})
 	jobs.emitFor(id, ytdl.ProgressSentinel+" status=downloading downloaded=50 total=100")
@@ -337,5 +343,188 @@ func TestReconcile_ForgetsProgressOnceFinished(t *testing.T) {
 	d.reconcileYtdlOnce(context.Background())
 	if _, ok := d.ytdlProgress.Get(id); ok {
 		t.Fatal("a finished download still holds progress; the cache would grow a key per download forever")
+	}
+}
+
+// The queue (spec 0013, US7). Spec 0012 had none: concurrency was "bounded by
+// the cluster", which is a real bound but an invisible one — and once a channel
+// can expand without a ceiling it means handing the orchestrator hundreds of
+// jobs at once.
+
+func ytdlQueue(t *testing.T, h http.Handler, auth map[string]string, n int) []string {
+	t.Helper()
+	var ids []string
+	for i := 0; i < n; i++ {
+		rec := submit(t, h, auth, `{"url":"https://youtu.be/song`+itoa2(i)+`","mode":"music"}`)
+		if rec.Code != http.StatusAccepted {
+			t.Fatalf("submit %d = %d %s", i, rec.Code, rec.Body.String())
+		}
+		var sub ytdlSubmitResp
+		_ = json.Unmarshal(rec.Body.Bytes(), &sub)
+		ids = append(ids, sub.RequestID)
+	}
+	return ids
+}
+
+func itoa2(n int) string {
+	if n == 0 {
+		return "0"
+	}
+	var b []byte
+	for n > 0 {
+		b = append([]byte{byte('0' + n%10)}, b...)
+		n /= 10
+	}
+	return string(b)
+}
+
+func TestAdmit_NeverRunsMoreThanTheLimit(t *testing.T) {
+	jobs := &fakeJobs{}
+	h, st := newYtdlRouter(t, jobs, ytdlCfg())
+	admin := adminAfterSetup(t, h)
+	_ = ytdlQueue(t, h, admin, 10)
+
+	d := InitCaches(Deps{Cfg: ytdlCfg(), Store: st, Jobs: jobs})
+	d.admitQueued(context.Background())
+
+	if len(jobs.created) != 4 {
+		t.Fatalf("started %d workers, want the configured limit of 4", len(jobs.created))
+	}
+	// Running again with nothing finished must not start more.
+	d.admitQueued(context.Background())
+	if len(jobs.created) != 4 {
+		t.Fatalf("a second pass started more: %d", len(jobs.created))
+	}
+}
+
+func TestAdmit_AFinishInEitherStateStartsTheNext(t *testing.T) {
+	jobs := &fakeJobs{}
+	h, st := newYtdlRouter(t, jobs, ytdlCfg())
+	admin := adminAfterSetup(t, h)
+	ids := ytdlQueue(t, h, admin, 6)
+
+	d := InitCaches(Deps{Cfg: ytdlCfg(), Store: st, Jobs: jobs})
+	d.reconcileYtdlOnce(context.Background())
+	if len(jobs.created) != 4 {
+		t.Fatalf("started %d, want 4", len(jobs.created))
+	}
+
+	// One succeeds, one fails: BOTH free a slot, because the limit is about
+	// what is running, not about what worked.
+	jobs.setStatus(t, ids[0], k8s.JobStatus{Succeeded: 1})
+	jobs.setStatus(t, ids[1], k8s.JobStatus{Failed: 1})
+	d.reconcileYtdlOnce(context.Background())
+
+	if len(jobs.created) != 6 {
+		t.Fatalf("started %d after two finished, want the next two admitted", len(jobs.created))
+	}
+}
+
+func TestAdmit_RespectsTheOperatorsLimit(t *testing.T) {
+	cfg := ytdlCfg()
+	cfg.YtdlMaxParallel = 2
+	jobs := &fakeJobs{}
+	h, st := newYtdlRouter(t, jobs, cfg)
+	admin := adminAfterSetup(t, h)
+	_ = ytdlQueue(t, h, admin, 5)
+
+	d := InitCaches(Deps{Cfg: cfg, Store: st, Jobs: jobs})
+	d.admitQueued(context.Background())
+	if len(jobs.created) != 2 {
+		t.Fatalf("started %d, want the operator's limit of 2", len(jobs.created))
+	}
+}
+
+func TestAdmit_ResumesAfterARestartWithoutDoubleStarting(t *testing.T) {
+	// FR-023. The queue is durable precisely so a restart does not strand it —
+	// and the thing to get wrong is starting everything twice on the way back.
+	jobs := &fakeJobs{}
+	h, st := newYtdlRouter(t, jobs, ytdlCfg())
+	admin := adminAfterSetup(t, h)
+	_ = ytdlQueue(t, h, admin, 6)
+
+	before := InitCaches(Deps{Cfg: ytdlCfg(), Store: st, Jobs: jobs})
+	before.admitQueued(context.Background())
+	if len(jobs.created) != 4 {
+		t.Fatalf("started %d, want 4", len(jobs.created))
+	}
+
+	// A "restart": brand new Deps, so every in-memory cache is gone. The store
+	// and the orchestrator are all that survive — which is the point.
+	after := InitCaches(Deps{Cfg: ytdlCfg(), Store: st, Jobs: jobs})
+	after.admitQueued(context.Background())
+
+	if len(jobs.created) != 4 {
+		t.Fatalf("after a restart %d workers exist, want the same 4 — the queue resumed rather than restarted", len(jobs.created))
+	}
+	// And the two still waiting are still waiting, not lost.
+	queued, err := st.ListYtdlQueued()
+	if err != nil {
+		t.Fatalf("list queued: %v", err)
+	}
+	if len(queued) != 2 {
+		t.Fatalf("%d downloads still queued, want the 2 that never started", len(queued))
+	}
+}
+
+func TestAdmit_SharesSlotsBetweenUsersEndToEnd(t *testing.T) {
+	// SC-005a, through the real store: one user's bulk work must not make
+	// another user wait for all of it.
+	jobs := &fakeJobs{}
+	h, st := newYtdlRouter(t, jobs, ytdlCfg())
+	admin := adminAfterSetup(t, h)
+	bo := ytdlSecondUser(t, h, admin, "bo")
+
+	_ = ytdlQueue(t, h, admin, 10)
+	boRec := submit(t, h, bo, `{"url":"https://youtu.be/boSong","mode":"music"}`)
+	var boSub ytdlSubmitResp
+	_ = json.Unmarshal(boRec.Body.Bytes(), &boSub)
+
+	d := InitCaches(Deps{Cfg: ytdlCfg(), Store: st, Jobs: jobs})
+	d.admitQueued(context.Background())
+
+	rec, err := st.GetYtdlDownload(boSub.RequestID)
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	if rec.State == "queued" {
+		t.Fatal("Bo's single link is still waiting behind ten of the admin's — fair-share did not apply")
+	}
+}
+
+func TestAdmit_SkipsADeletedAccountsQueuedWork(t *testing.T) {
+	// FR-006d. The record survives as history; the work does not, because
+	// nobody is waiting for it and it would occupy a slot someone else needs.
+	jobs := &fakeJobs{}
+	h, st := newYtdlRouter(t, jobs, ytdlCfg())
+	admin := adminAfterSetup(t, h)
+	bo := ytdlSecondUser(t, h, admin, "bo")
+
+	rec := submit(t, h, bo, `{"url":"https://youtu.be/boSong","mode":"music"}`)
+	var sub ytdlSubmitResp
+	_ = json.Unmarshal(rec.Body.Bytes(), &sub)
+
+	users, _ := st.ListUsers()
+	for _, u := range users {
+		if u.Username == "bo" {
+			if err := st.DeleteUser(u.ID); err != nil {
+				t.Fatalf("delete user: %v", err)
+			}
+		}
+	}
+
+	d := InitCaches(Deps{Cfg: ytdlCfg(), Store: st, Jobs: jobs})
+	d.admitQueued(context.Background())
+
+	if len(jobs.created) != 0 {
+		t.Fatalf("started %d workers for a deleted account", len(jobs.created))
+	}
+	// The record is still there, unattributed.
+	got, err := st.GetYtdlDownload(sub.RequestID)
+	if err != nil {
+		t.Fatalf("the record should survive the account: %v", err)
+	}
+	if got.UserID != nil {
+		t.Fatalf("UserID = %d, want it detached", *got.UserID)
 	}
 }

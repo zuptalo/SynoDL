@@ -17,10 +17,23 @@ async function resetJobs(): Promise<void> {
   await fetch(`${K8S}/__mock/reset`, { method: 'POST' });
 }
 
-/** Drive one job to a lifecycle state, addressed by its request id. */
+/**
+ * Drive one job to a lifecycle state, addressed by its request id.
+ *
+ * Retries on 404, because a submitted download is QUEUED first and its worker
+ * does not exist until the reconciler admits it (spec 0013). Waiting for the
+ * job to appear is part of driving it.
+ */
 async function drive(requestId: string, action: string): Promise<void> {
-  const res = await fetch(`${K8S}/__mock/jobs/${requestId}/${action}`, { method: 'POST' });
-  if (!res.ok) throw new Error(`drive ${action} failed: ${res.status}`);
+  const deadline = Date.now() + 25_000;
+  for (;;) {
+    const res = await fetch(`${K8S}/__mock/jobs/${requestId}/${action}`, { method: 'POST' });
+    if (res.ok) return;
+    if (res.status !== 404 || Date.now() > deadline) {
+      throw new Error(`drive ${action} failed: ${res.status}`);
+    }
+    await new Promise((r) => setTimeout(r, 500));
+  }
 }
 
 async function submit(
@@ -60,15 +73,15 @@ test.beforeEach(async () => {
   await clearYtdl(token);
 });
 
-test('a submitted song walks starting → downloading → saved', async ({ page }) => {
+test('a submitted song walks queued → starting → downloading → saved', async ({ page }) => {
   const { status, requestId } = await submit(token, 'https://youtu.be/zSGhyrF7YVo', 'music');
   expect(status).toBe(202);
 
   await gotoTasks(page);
-  // "starting" rather than "queued": a submitted download is handed to the
-  // orchestrator immediately, and `queued` now means something narrower —
-  // SynoDL holding it behind the parallel limit (spec 0013, FR-013b).
-  expect(await rowState(page)).toBe('starting');
+  // Queued first: submitting records the request and puts it in SynoDL's own
+  // queue; the reconciler admits it when a slot frees (spec 0013, FR-022). It
+  // moves on within a cycle, so poll rather than assert the instant.
+  await expect.poll(() => rowState(page), { timeout: 20_000 }).toBe('starting');
 
   await drive(requestId, 'start');
   await expect.poll(() => rowState(page), { timeout: 20_000 }).toBe('downloading');
@@ -253,8 +266,48 @@ test('a queued download reads differently from one that is starting', async ({ p
   const { requestId } = await submit(token, 'https://youtu.be/zSGhyrF7YVo', 'music');
 
   await gotoTasks(page);
-  await expect(page.getByTestId('ytdl-status')).toHaveText('starting');
+  await expect
+    .poll(async () => (await page.getByTestId('ytdl-status').innerText()).trim(), { timeout: 20_000 })
+    .toBe('starting');
 
   await drive(requestId, 'start');
   await expect(page.getByTestId('ytdl-status')).toHaveText('downloading');
+});
+
+/**
+ * Retry (spec 0013, US5). Recovering from a transient failure should be one
+ * action, not "find the link again and re-paste it" — which is the manual
+ * routine this whole feature exists to remove.
+ */
+test('a failed download can be retried, and runs again', async ({ page }) => {
+  const { requestId } = await submit(token, 'https://youtu.be/zSGhyrF7YVo', 'music');
+  await drive(requestId, 'start');
+  await drive(requestId, 'fail');
+
+  await gotoTasks(page);
+  await expect.poll(() => rowState(page), { timeout: 20_000 }).toBe('failed');
+
+  // Retry from the detail sheet, where someone would have just read the reason.
+  await page.getByTestId('ytdl-item').first().click();
+  await expect(page.getByTestId('ytdl-detail')).toBeVisible();
+  await page.getByTestId('ytdl-detail-retry').click();
+
+  // Back in the queue, then running again — and still ONE row, not two.
+  await expect
+    .poll(() => rowState(page), { timeout: 25_000 })
+    .toMatch(/waiting its turn|starting|downloading/);
+  await expect(page.getByTestId('ytdl-item')).toHaveCount(1);
+});
+
+test('retry is not offered for a download that has not failed', async ({ page }) => {
+  const { requestId } = await submit(token, 'https://youtu.be/zSGhyrF7YVo', 'music');
+  await drive(requestId, 'start');
+  await drive(requestId, 'succeed');
+
+  await gotoTasks(page);
+  await expect.poll(() => rowState(page), { timeout: 20_000 }).toBe('saved');
+
+  await page.getByTestId('ytdl-item').first().click();
+  await expect(page.getByTestId('ytdl-detail')).toBeVisible();
+  await expect(page.getByTestId('ytdl-detail-retry')).toHaveCount(0);
 });

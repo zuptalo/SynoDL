@@ -179,6 +179,7 @@ func NewRouter(d Deps) http.Handler {
 		mux.Handle("GET /v1/ytdl", handleYtdlList(d))
 		mux.Handle("GET /v1/ytdl/{requestId}", handleYtdlDetail(d))
 		mux.Handle("GET /v1/ytdl/{requestId}/items", handleYtdlItems(d))
+		mux.Handle("POST /v1/ytdl/{requestId}/retry", handleYtdlRetry(d))
 		mux.Handle("DELETE /v1/ytdl/{requestId}", handleYtdlDismiss(d))
 		// Artwork, so a viewer's browser never contacts Google directly. Its own
 		// host rule, deliberately not the catalog poster proxy's (spec 1034).

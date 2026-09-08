@@ -41,7 +41,7 @@ func TestYtdlDetail_CarriesEverythingKnown(t *testing.T) {
 	h, st := newYtdlRouter(t, jobs, ytdlCfg())
 	admin := adminAfterSetup(t, h)
 
-	id := ytdlRunning(t, h, jobs, admin, "https://youtu.be/abc")
+	id := ytdlRunning(t, h, jobs, st, admin, "https://youtu.be/abc")
 	_ = st.SetYtdlCompanion(id, true, "en")
 
 	got, code := ytdlDetail(t, h, admin, id)
@@ -68,10 +68,10 @@ func TestYtdlDetail_CarriesEverythingKnown(t *testing.T) {
 
 func TestYtdlDetail_FinishedCarriesBothTimestamps(t *testing.T) {
 	jobs := &fakeJobs{}
-	h, _ := newYtdlRouter(t, jobs, ytdlCfg())
+	h, st := newYtdlRouter(t, jobs, ytdlCfg())
 	admin := adminAfterSetup(t, h)
 
-	id := ytdlRunning(t, h, jobs, admin, "https://youtu.be/abc")
+	id := ytdlRunning(t, h, jobs, st, admin, "https://youtu.be/abc")
 	jobs.setStatus(t, id, k8s.JobStatus{Succeeded: 1})
 	if _, code := ytdlDetail(t, h, admin, id); code != http.StatusOK {
 		t.Fatalf("detail = %d", code)
@@ -95,11 +95,11 @@ func TestYtdlDetail_FinishedCarriesBothTimestamps(t *testing.T) {
 
 func TestYtdlDetail_AnotherUsersIsNotFound(t *testing.T) {
 	jobs := &fakeJobs{}
-	h, _ := newYtdlRouter(t, jobs, ytdlCfg())
+	h, st := newYtdlRouter(t, jobs, ytdlCfg())
 	admin := adminAfterSetup(t, h)
 	bo := ytdlSecondUser(t, h, admin, "bo")
 
-	id := ytdlRunning(t, h, jobs, admin, "https://youtu.be/abc")
+	id := ytdlRunning(t, h, jobs, st, admin, "https://youtu.be/abc")
 
 	_, theirs := ytdlDetail(t, h, bo, id)
 	_, imaginary := ytdlDetail(t, h, bo, "no-such-id")
@@ -135,10 +135,10 @@ func TestYtdlDetail_SubmitterIsAdminOnly(t *testing.T) {
 // a command line, a path, or raw worker output.
 func TestYtdlDetail_FailureReasonIsPlainLanguage(t *testing.T) {
 	jobs := &fakeJobs{}
-	h, _ := newYtdlRouter(t, jobs, ytdlCfg())
+	h, st := newYtdlRouter(t, jobs, ytdlCfg())
 	admin := adminAfterSetup(t, h)
 
-	id := ytdlRunning(t, h, jobs, admin, "https://youtu.be/abc")
+	id := ytdlRunning(t, h, jobs, st, admin, "https://youtu.be/abc")
 	jobs.setStatus(t, id, k8s.JobStatus{
 		Conditions: []k8s.JobCondition{{Type: "Failed", Status: "True", Reason: "DeadlineExceeded"}},
 	})
@@ -231,9 +231,9 @@ func TestYtdlItems_ReturnsAGroupsContents(t *testing.T) {
 
 func TestYtdlItems_NotAGroupIsNotFound(t *testing.T) {
 	jobs := &fakeJobs{}
-	h, _ := newYtdlRouter(t, jobs, ytdlCfg())
+	h, st := newYtdlRouter(t, jobs, ytdlCfg())
 	admin := adminAfterSetup(t, h)
-	id := ytdlRunning(t, h, jobs, admin, "https://youtu.be/abc")
+	id := ytdlRunning(t, h, jobs, st, admin, "https://youtu.be/abc")
 
 	if rec := do(t, h, "GET", "/v1/ytdl/"+id+"/items", "", admin); rec.Code != http.StatusNotFound {
 		t.Fatalf("items of a single download = %d, want 404", rec.Code)

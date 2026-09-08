@@ -176,17 +176,17 @@ the next; a restart resumes rather than losing the queue.
 
 **Depends on**: Phase 2, Phase 4.
 
-- [ ] T055 [P] [US7] [TEST] Add `server/internal/ytdl/queue_test.go` — table-driven over the fair-share ordering: one user's large group never starves another's single link (FR-022b); a direct submission outranks the same user's expanded items (FR-022c); with only one user having work, no slot idles; submission order is the tiebreak. Assert SC-005a directly: with one user's channel occupying the queue, a second user's link is next to be admitted, so it waits for at most one running download.
-- [ ] T056 [US7] Create `server/internal/ytdl/queue.go` with the admission ordering as a pure function over the queued set. No I/O, no clock.
-- [ ] T057 [US7] [TEST] In `server/internal/api/ytdl_reconcile_test.go`, add cases asserting never more than the limit run, that a finish in either terminal state admits the next, and that the operator's limit is what is enforced.
-- [ ] T058 [US7] Add admission to `server/internal/api/ytdl_reconcile.go`: count running, take that many from the ordering, create their Jobs. Single replica means one admitter and no distributed lock — record that in a comment.
-- [ ] T059 [US7] [TEST] In `server/internal/api/ytdl_reconcile_test.go`, add a case asserting a restart with work in flight resumes the queue and double-admits nothing (FR-023).
-- [ ] T060 [US7] Surface `queued` distinctly from `scheduled` in `src/components/YtdlItem.vue` (FR-013b) — "waiting its turn" must not read as "starting now".
-- [ ] T061 [US7] [TEST] In `server/internal/api/ytdl_handlers_test.go`, add cases asserting dismissing a queued download removes it from the queue so it never starts, and dismissing a running one does not strand its worker (FR-005b, FR-005c). Add a case for FR-009b: a group may be dismissed only by its owner or an admin, and an admin doing so is bound by the same rules — dismissal cancels another user's queued work, so it is not a read-only admin power.
-- [ ] T061a [US7] [TEST] In `server/internal/api/ytdl_reconcile_test.go`, add a case for the other half of FR-006d: when a user is deleted, their queued downloads leave the queue and never start, and a worker already running is left to finish. T025 covers only the record surviving with a NULL `user_id`.
-- [ ] T061b [US7] Handle user deletion in `server/internal/api/ytdl_reconcile.go` — admission must skip rows whose owner is gone, so a deleted account cannot keep consuming slots.
-- [ ] T062 [US7] Change `handleYtdlDismiss` in `server/internal/api/ytdl_handlers.go` to stop refusing while running, and to cascade to a group's items (FR-005a).
-- [ ] T063 [US7] Add `e2e/stateful/ytdl-queue.spec.ts`: queue more than the limit, assert exactly the limit run and the rest show as queued, and that a finish starts the next.
+- [X] T055 [P] [US7] [TEST] Add `server/internal/ytdl/queue_test.go` — table-driven over the fair-share ordering: one user's large group never starves another's single link (FR-022b); a direct submission outranks the same user's expanded items (FR-022c); with only one user having work, no slot idles; submission order is the tiebreak. Assert SC-005a directly: with one user's channel occupying the queue, a second user's link is next to be admitted, so it waits for at most one running download.
+- [X] T056 [US7] Create `server/internal/ytdl/queue.go` with the admission ordering as a pure function over the queued set. No I/O, no clock.
+- [X] T057 [US7] [TEST] In `server/internal/api/ytdl_reconcile_test.go`, add cases asserting never more than the limit run, that a finish in either terminal state admits the next, and that the operator's limit is what is enforced.
+- [X] T058 [US7] Add admission to `server/internal/api/ytdl_reconcile.go`: count running, take that many from the ordering, create their Jobs. Single replica means one admitter and no distributed lock — record that in a comment.
+- [X] T059 [US7] [TEST] In `server/internal/api/ytdl_reconcile_test.go`, add a case asserting a restart with work in flight resumes the queue and double-admits nothing (FR-023).
+- [X] T060 [US7] Surface `queued` distinctly from `scheduled` in `src/components/YtdlItem.vue` (FR-013b) — "waiting its turn" must not read as "starting now".
+- [X] T061 [US7] [TEST] In `server/internal/api/ytdl_handlers_test.go`, add cases asserting dismissing a queued download removes it from the queue so it never starts, and dismissing a running one does not strand its worker (FR-005b, FR-005c). Add a case for FR-009b: a group may be dismissed only by its owner or an admin, and an admin doing so is bound by the same rules — dismissal cancels another user's queued work, so it is not a read-only admin power.
+- [X] T061a [US7] [TEST] In `server/internal/api/ytdl_reconcile_test.go`, add a case for the other half of FR-006d: when a user is deleted, their queued downloads leave the queue and never start, and a worker already running is left to finish. T025 covers only the record surviving with a NULL `user_id`.
+- [X] T061b [US7] Handle user deletion in `server/internal/api/ytdl_reconcile.go` — admission must skip rows whose owner is gone, so a deleted account cannot keep consuming slots.
+- [X] T062 [US7] Change `handleYtdlDismiss` in `server/internal/api/ytdl_handlers.go` to stop refusing while running, and to cascade to a group's items (FR-005a).
+- [X] T063 [US7] Add `e2e/stateful/ytdl-queue.spec.ts`: queue more than the limit, assert exactly the limit run and the rest show as queued, and that a finish starts the next.
 
 ---
 
@@ -199,14 +199,14 @@ against the same link and mode as one row, not two.
 
 **Depends on**: Phase 4, Phase 7.
 
-- [ ] T064 [US5] [TEST] Add `server/internal/api/ytdl_retry_test.go`: retry moves a failed row to `queued`, increments `attempts`, clears `reason` and `finishedAt`, and keeps it one row (FR-029); retry of a non-failed download is 409; retry of another user's is 404.
-- [ ] T065 [US5] Create `server/internal/api/ytdl_retry.go` and register `POST /v1/ytdl/{requestId}/retry` in `server/internal/api/router.go`.
-- [ ] T066 [US5] [TEST] In `server/internal/api/ytdl_retry_test.go`, add a case asserting retrying a group re-queues only its failed items, not the whole group.
-- [ ] T066a [US5] [TEST] In `server/internal/api/ytdl_reconcile_test.go`, add a case asserting **nothing retries automatically** (FR-027): a failed download stays `failed` across many reconciler ticks and is never re-admitted without an explicit retry. The queue re-admits by design and `BackoffLimit` is 0, so this regression would otherwise be silent.
-- [ ] T067 [P] [US5] Add a retry action to `src/components/YtdlItem.vue` and `src/components/YtdlDetailModal.vue`, offered only in the `failed` state (FR-028).
-- [ ] T068 [P] [US5] Add `ytdlRetry` to `src/services/api.ts` and `src/composables/useYtdl.ts`.
-- [ ] T069 [US5] Show the attempt count in `src/components/YtdlDetailModal.vue` so a repeat attempt is visible as such (US5 scenario 3).
-- [ ] T070 [US5] Extend `e2e/stateful/ytdl.spec.ts` with a fail → retry → runs-again path.
+- [X] T064 [US5] [TEST] Add `server/internal/api/ytdl_retry_test.go`: retry moves a failed row to `queued`, increments `attempts`, clears `reason` and `finishedAt`, and keeps it one row (FR-029); retry of a non-failed download is 409; retry of another user's is 404.
+- [X] T065 [US5] Create `server/internal/api/ytdl_retry.go` and register `POST /v1/ytdl/{requestId}/retry` in `server/internal/api/router.go`.
+- [X] T066 [US5] [TEST] In `server/internal/api/ytdl_retry_test.go`, add a case asserting retrying a group re-queues only its failed items, not the whole group.
+- [X] T066a [US5] [TEST] In `server/internal/api/ytdl_reconcile_test.go`, add a case asserting **nothing retries automatically** (FR-027): a failed download stays `failed` across many reconciler ticks and is never re-admitted without an explicit retry. The queue re-admits by design and `BackoffLimit` is 0, so this regression would otherwise be silent.
+- [X] T067 [P] [US5] Add a retry action to `src/components/YtdlItem.vue` and `src/components/YtdlDetailModal.vue`, offered only in the `failed` state (FR-028).
+- [X] T068 [P] [US5] Add `ytdlRetry` to `src/services/api.ts` and `src/composables/useYtdl.ts`.
+- [X] T069 [US5] Show the attempt count in `src/components/YtdlDetailModal.vue` so a repeat attempt is visible as such (US5 scenario 3).
+- [X] T070 [US5] Extend `e2e/stateful/ytdl.spec.ts` with a fail → retry → runs-again path.
 
 ---
 
@@ -219,16 +219,16 @@ each independently trackable and retryable.
 
 **Depends on**: Phase 2, Phase 5, Phase 7.
 
-- [ ] T071 [P] [US6] [TEST] Add `server/internal/ytdl/expand_test.go` — table-driven: entry lines parse; a malformed line is skipped without failing the run; **every derived URL goes back through `Classify`** so an entry pointing off-allowlist is refused (FR-016a); entries are identified by stable id, not link text (FR-016b).
-- [ ] T072 [US6] Create `server/internal/ytdl/expand.go`: the listing-mode argv, the entry-line template constant, and the parser. Pure.
-- [ ] T073 [US6] [TEST] Add `server/internal/ytdl/job_test.go` cases for the expansion Job: it mounts **no** media library, carries its own deadline, and is labelled so the selector finds it.
-- [ ] T074 [US6] Add `BuildExpansionJob` to `server/internal/ytdl/job.go`.
+- [X] T071 [P] [US6] [TEST] Add `server/internal/ytdl/expand_test.go` — table-driven: entry lines parse; a malformed line is skipped without failing the run; **every derived URL goes back through `Classify`** so an entry pointing off-allowlist is refused (FR-016a); entries are identified by stable id, not link text (FR-016b).
+- [X] T072 [US6] Create `server/internal/ytdl/expand.go`: the listing-mode argv, the entry-line template constant, and the parser. Pure.
+- [X] T073 [US6] [TEST] Add `server/internal/ytdl/job_test.go` cases for the expansion Job: it mounts **no** media library, carries its own deadline, and is labelled so the selector finds it.
+- [X] T074 [US6] Add `BuildExpansionJob` to `server/internal/ytdl/job.go`.
 - [X] T075 [US6] *(brought forward into Phase 4 — the client could not express the record's states without it.)* Add the six-state model to `server/internal/ytdl/job.go` — `resolving`, `queued`, `scheduled`, `downloading`, `completed`, `failed` — replacing the four of spec 0012, with failure still checked before success everywhere.
-- [ ] T076 [US6] [TEST] Add cases for the legal transitions of `data-model.md`, including that `failed → queued` is the only edge out of a final state and only on an explicit action.
+- [X] T076 [US6] [TEST] Add cases for the legal transitions of `data-model.md`, including that `failed → queued` is the only edge out of a final state and only on an explicit action.
 - [ ] T077 [US6] Add expansion to `server/internal/api/ytdl_reconcile.go`: run the listing Job for a `resolving` request, read its entries, skip items already held (FR-020), and insert the rest in one transaction.
 - [ ] T078 [US6] [TEST] In `server/internal/api/ytdl_reconcile_test.go`, add a case asserting a dismissed record means an item is no longer held and is fetched again (FR-020a).
 - [ ] T079 [US6] [TEST] In `server/internal/api/ytdl_reconcile_test.go`, add a case asserting a `resolving` request whose expansion worker vanishes reaches `failed` rather than waiting forever (FR-013d).
-- [ ] T079a [US6] [TEST] In `server/internal/ytdl/expand_test.go`, add a case asserting **no ceiling** on expansion (FR-017): a large entry list yields one record per entry with no truncation, no cap constant, and no silent drop. This was an explicit product decision and nothing else guards it.
+- [X] T079a [US6] [TEST] In `server/internal/ytdl/expand_test.go`, add a case asserting **no ceiling** on expansion (FR-017): a large entry list yields one record per entry with no truncation, no cap constant, and no silent drop. This was an explicit product decision and nothing else guards it.
 - [ ] T079b [US6] [TEST] In `server/internal/api/ytdl_reconcile_test.go`, extend T079's coverage to the other way a download can sit forever (FR-013d): a `scheduled` download whose pod never appears must reach `failed` rather than waiting indefinitely.
 - [ ] T080 [US6] Add group state derivation and aggregate counts to `server/internal/store/ytdl_repos.go`.
 - [ ] T081 [US6] [TEST] Add `server/internal/api/ytdl_detail_test.go` cases for `GET /v1/ytdl/{requestId}/items` — paged items plus the group aggregate; 404 for a group the caller may not see.

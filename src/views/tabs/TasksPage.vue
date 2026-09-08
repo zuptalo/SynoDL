@@ -82,6 +82,7 @@ const {
   downloads: ytdlDownloads,
   available: ytdlAvailable,
   dismiss: dismissYtdl,
+  retry: retryYtdl,
 } = useYtdl();
 
 // A status filter names NAS statuses ("downloading", "seeding", …) that a
@@ -106,6 +107,14 @@ async function onDismissYtdl(requestId: string): Promise<void> {
     await dismissYtdl(requestId);
   } catch {
     // The next poll is the source of truth; a failed dismiss simply reappears.
+  }
+}
+async function onRetryYtdl(requestId: string): Promise<void> {
+  try {
+    await retryYtdl(requestId);
+  } catch {
+    // Same reasoning: the row reflects whatever the server says next. A retry
+    // the server refused (it had already been retried, say) simply stays failed.
   }
 }
 // The warning only belongs on screen while something is actually in flight.
@@ -389,6 +398,7 @@ async function onDelete(id: string): Promise<void> {
           :download="d"
           @dismiss="onDismissYtdl"
           @open="ytdlDetailId = $event"
+          @retry="onRetryYtdl"
         />
       </ion-list>
 
@@ -485,6 +495,7 @@ async function onDelete(id: string): Promise<void> {
       :is-open="ytdlDetailId !== null"
       :download="ytdlDetail"
       @dismiss="ytdlDetailId = null"
+      @retry="onRetryYtdl"
     />
   </ion-page>
 </template>

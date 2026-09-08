@@ -227,9 +227,20 @@ func listYtdl(t *testing.T, h http.Handler, auth map[string]string) ytdlListResp
 	return out
 }
 
-func TestYtdlSubmit_CreatesAJob(t *testing.T) {
+// ytdlAdmit runs one admission pass, the way the reconciler does on its clock.
+// Tests call it explicitly so they stay deterministic rather than waiting on a
+// ticker.
+func ytdlAdmit(t *testing.T, jobs JobRunner, st *store.Store) {
+	t.Helper()
+	d := InitCaches(Deps{Cfg: ytdlCfg(), Store: st, Jobs: jobs})
+	d.admitQueued(context.Background())
+}
+
+// Submitting no longer creates a worker: it records the request and QUEUES it,
+// and the reconciler admits it when a slot frees (spec 0013, FR-021/FR-022).
+func TestYtdlSubmit_QueuesRatherThanStartingImmediately(t *testing.T) {
 	jobs := &fakeJobs{}
-	h, _ := newYtdlRouter(t, jobs, ytdlCfg())
+	h, st := newYtdlRouter(t, jobs, ytdlCfg())
 	admin := adminAfterSetup(t, h)
 
 	rec := submit(t, h, admin, `{"url":"https://youtu.be/zSGhyrF7YVo","mode":"music"}`)
@@ -238,11 +249,18 @@ func TestYtdlSubmit_CreatesAJob(t *testing.T) {
 	}
 	var out ytdlSubmitResp
 	_ = json.Unmarshal(rec.Body.Bytes(), &out)
-	if out.RequestID == "" || out.Scope != "single" || out.Mode != "music" || out.State != "scheduled" {
+	if out.RequestID == "" || out.Scope != "single" || out.Mode != "music" || out.State != "queued" {
 		t.Fatalf("unexpected response: %+v", out)
 	}
+
+	// The record exists before any worker does.
+	if rec, err := st.GetYtdlDownload(out.RequestID); err != nil || rec.State != "queued" {
+		t.Fatalf("record = %+v (%v), want it queued", rec, err)
+	}
+
+	ytdlAdmit(t, jobs, st)
 	if len(jobs.created) != 1 {
-		t.Fatalf("want 1 job created, got %d", len(jobs.created))
+		t.Fatalf("want 1 job created after admission, got %d", len(jobs.created))
 	}
 	j := jobs.created[0]
 	if j.Metadata.Labels[ytdl.LabelMode] != "music" {
@@ -321,17 +339,20 @@ func TestYtdlSubmit_UnavailableWithoutAnOrchestrator(t *testing.T) {
 // FR-023: two workers must never write the same folder concurrently.
 func TestYtdlSubmit_RefusesADuplicateInFlight(t *testing.T) {
 	jobs := &fakeJobs{}
-	h, _ := newYtdlRouter(t, jobs, ytdlCfg())
+	h, st := newYtdlRouter(t, jobs, ytdlCfg())
 	admin := adminAfterSetup(t, h)
 
 	first := submit(t, h, admin, `{"url":"https://youtu.be/dup","mode":"music"}`)
 	if first.Code != http.StatusAccepted {
 		t.Fatalf("first submit = %d", first.Code)
 	}
+	// Refused while it is still only QUEUED — no job exists yet, which is
+	// exactly why this check reads the store rather than the orchestrator.
 	dup := submit(t, h, admin, `{"url":"https://youtu.be/dup","mode":"music"}`)
 	if dup.Code != http.StatusConflict {
 		t.Fatalf("duplicate submit = %d, want 409", dup.Code)
 	}
+	ytdlAdmit(t, jobs, st)
 	if len(jobs.created) != 1 {
 		t.Errorf("duplicate created a second job")
 	}
@@ -346,7 +367,7 @@ func TestYtdlSubmit_RefusesADuplicateInFlight(t *testing.T) {
 
 func TestYtdlList_ReportsTheLifecycleStates(t *testing.T) {
 	jobs := &fakeJobs{}
-	h, _ := newYtdlRouter(t, jobs, ytdlCfg())
+	h, st := newYtdlRouter(t, jobs, ytdlCfg())
 	admin := adminAfterSetup(t, h)
 
 	rec := submit(t, h, admin, `{"url":"https://youtu.be/abc","mode":"music"}`)
@@ -363,6 +384,9 @@ func TestYtdlList_ReportsTheLifecycleStates(t *testing.T) {
 			t.Errorf("state = %q, want %q", got.Downloads[0].State, want)
 		}
 	}
+	// Queued until admission runs; the reconciler does this on its clock.
+	check("queued")
+	ytdlAdmit(t, jobs, st)
 	check("scheduled")
 	jobs.setStatus(t, sub.RequestID, k8s.JobStatus{Active: 1})
 	// "downloading", not spec 0012's "started": the six-state model renamed it
@@ -415,6 +439,7 @@ func TestYtdlList_AVanishedJobIsNotCompleted(t *testing.T) {
 	rec := submit(t, h, admin, `{"url":"https://youtu.be/abc","mode":"music"}`)
 	var sub ytdlSubmitResp
 	_ = json.Unmarshal(rec.Body.Bytes(), &sub)
+	ytdlAdmit(t, jobs, st)
 
 	// It fails, is observed, and is then swept by TTL.
 	jobs.setStatus(t, sub.RequestID, k8s.JobStatus{
@@ -445,6 +470,7 @@ func TestYtdlList_RepeatedObservationDoesNotDuplicate(t *testing.T) {
 	rec := submit(t, h, admin, `{"url":"https://youtu.be/abc","mode":"music"}`)
 	var sub ytdlSubmitResp
 	_ = json.Unmarshal(rec.Body.Bytes(), &sub)
+	ytdlAdmit(t, jobs, st)
 	jobs.setStatus(t, sub.RequestID, k8s.JobStatus{Failed: 1})
 
 	for i := 0; i < 4; i++ {
@@ -499,6 +525,7 @@ func TestYtdlDismiss(t *testing.T) {
 	rec := submit(t, h, admin, `{"url":"https://youtu.be/abc","mode":"music"}`)
 	var sub ytdlSubmitResp
 	_ = json.Unmarshal(rec.Body.Bytes(), &sub)
+	ytdlAdmit(t, jobs, st)
 
 	// FR-005c. Spec 0012 refused this while a download was running; spec 0013
 	// allows it, because with a queue and with groups of hundreds there has to
@@ -526,13 +553,14 @@ func TestYtdlDismiss(t *testing.T) {
 // side-effect.
 func TestYtdlSubmit_SucceedsWhenTheLookupFails(t *testing.T) {
 	jobs := &fakeJobs{}
-	h, _ := newYtdlRouter(t, jobs, ytdlCfg())
+	h, st := newYtdlRouter(t, jobs, ytdlCfg())
 	admin := adminAfterSetup(t, h)
 
 	rec := submit(t, h, admin, `{"url":"https://youtu.be/abc","mode":"music"}`)
 	if rec.Code != http.StatusAccepted {
 		t.Fatalf("submit = %d %s; a failed lookup must not fail the download", rec.Code, rec.Body.String())
 	}
+	ytdlAdmit(t, jobs, st)
 	if len(jobs.created) != 1 {
 		t.Fatalf("want the job created anyway, got %d", len(jobs.created))
 	}
@@ -568,6 +596,7 @@ func TestYtdlSubmit_CarriesTheDescriptionOntoTheJob(t *testing.T) {
 	if rec := submit(t, h, admin, `{"url":"https://youtu.be/abc","mode":"music"}`); rec.Code != http.StatusAccepted {
 		t.Fatalf("submit = %d", rec.Code)
 	}
+	ytdlAdmit(t, jobs, st)
 	ann := jobs.created[0].Metadata.Annotations
 	if ann[ytdl.AnnTitle] != "A Song" || ann[ytdl.AnnUploader] != "An Artist" {
 		t.Errorf("description not carried onto the job: %+v", ann)
@@ -655,13 +684,14 @@ func TestYtdlList_AdminSeesEveryoneAttributed(t *testing.T) {
 // indistinguishable from outside.
 func TestYtdlDismiss_AnotherUsersIsNotFound(t *testing.T) {
 	jobs := &fakeJobs{}
-	h, _ := newYtdlRouter(t, jobs, ytdlCfg())
+	h, st := newYtdlRouter(t, jobs, ytdlCfg())
 	admin := adminAfterSetup(t, h)
 	bo := ytdlSecondUser(t, h, admin, "bo")
 
 	rec := submit(t, h, admin, `{"url":"https://youtu.be/adminSong","mode":"music"}`)
 	var out ytdlSubmitResp
 	_ = json.Unmarshal(rec.Body.Bytes(), &out)
+	ytdlAdmit(t, jobs, st)
 	jobs.setStatus(t, out.RequestID, k8s.JobStatus{Succeeded: 1})
 
 	theirs := do(t, h, "DELETE", "/v1/ytdl/"+out.RequestID, "", bo)
@@ -683,13 +713,14 @@ func TestYtdlDismiss_AdminMayDismissAnothersDownload(t *testing.T) {
 	// FR-009a, stated positively: an admin's ability to act on any download is a
 	// decision, not an accident of how FR-008's exception is phrased.
 	jobs := &fakeJobs{}
-	h, _ := newYtdlRouter(t, jobs, ytdlCfg())
+	h, st := newYtdlRouter(t, jobs, ytdlCfg())
 	admin := adminAfterSetup(t, h)
 	bo := ytdlSecondUser(t, h, admin, "bo")
 
 	rec := submit(t, h, bo, `{"url":"https://youtu.be/boSong","mode":"music"}`)
 	var out ytdlSubmitResp
 	_ = json.Unmarshal(rec.Body.Bytes(), &out)
+	ytdlAdmit(t, jobs, st)
 	jobs.setStatus(t, out.RequestID, k8s.JobStatus{Succeeded: 1})
 
 	if rec := do(t, h, "DELETE", "/v1/ytdl/"+out.RequestID, "", admin); rec.Code != http.StatusNoContent {

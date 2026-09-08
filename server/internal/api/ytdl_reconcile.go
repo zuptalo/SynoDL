@@ -2,9 +2,12 @@ package api
 
 import (
 	"context"
+	"errors"
+	"strconv"
 	"time"
 
 	"synodl/server/internal/k8s"
+	"synodl/server/internal/store"
 	"synodl/server/internal/ytdl"
 )
 
@@ -92,10 +95,130 @@ func (d Deps) reconcileYtdlOnce(ctx context.Context) {
 		}
 	}
 
+	// Order matters. Reading output and capturing outcomes come BEFORE
+	// admission, so a download that has just finished frees its slot in the same
+	// cycle rather than the next one.
 	d.readWorkerOutput(ctx, jobs)
 	d.captureFinished(live)
 	d.sweepDismissed(ctx, jobs)
+	d.admitQueued(ctx)
 }
+
+// admitQueued starts as many waiting downloads as there is room for.
+//
+// SynoDL decides this, rather than handing everything to the cluster and letting
+// it queue (which is what spec 0012 did). A cluster-side queue is invisible: the
+// user cannot see it, cannot tell it from a slow download, and — once a channel
+// can expand without a ceiling — it means dropping several hundred jobs on the
+// orchestrator at once.
+//
+// There is exactly ONE admitter, because SynoDL runs as a single replica
+// (deploy/k8s/10-synodl.yaml). That is what lets this be a plain read-then-write
+// with no distributed lock. A multi-replica deployment would need one, and is
+// out of scope for spec 0013 — the conditional UPDATE in MarkYtdlAdmitted is
+// the only nod to it.
+func (d Deps) admitQueued(ctx context.Context) {
+	if d.Store == nil || d.Jobs == nil {
+		return
+	}
+	limit := d.Cfg.YtdlMaxParallel
+	if limit <= 0 {
+		limit = 4
+	}
+
+	running, err := d.Store.CountYtdlRunning()
+	if err != nil {
+		return
+	}
+	free := limit - running
+	if free <= 0 {
+		return
+	}
+
+	queued, err := d.Store.ListYtdlQueued()
+	if err != nil || len(queued) == 0 {
+		return
+	}
+
+	candidates := make([]ytdl.Candidate, 0, len(queued))
+	byID := make(map[string]store.YtdlDownload, len(queued))
+	for _, q := range queued {
+		var uid int64
+		if q.UserID != nil {
+			uid = *q.UserID
+		}
+		candidates = append(candidates, ytdl.Candidate{
+			RequestID: q.RequestID,
+			UserID:    uid,
+			Direct:    q.Origin == store.YtdlOriginDirect,
+			Seq:       q.QueueSeq,
+		})
+		byID[q.RequestID] = q
+	}
+
+	for _, c := range ytdl.Admit(candidates, free) {
+		rec := byID[c.RequestID]
+		// Claim the slot BEFORE creating the job. If the create then fails the
+		// download is marked failed with a reason, which is recoverable by
+		// retrying; the other order could hand the orchestrator a job that no
+		// record believes is running.
+		claimed, err := d.Store.MarkYtdlAdmitted(rec.RequestID)
+		if err != nil || !claimed {
+			continue
+		}
+		if err := d.startYtdlJob(ctx, rec); err != nil {
+			now := time.Now().Unix()
+			_ = d.Store.SetYtdlState(rec.RequestID, string(ytdl.StateFailed), "could not be started", &now)
+		}
+	}
+}
+
+// startYtdlJob builds and creates the worker for one admitted download.
+func (d Deps) startYtdlJob(ctx context.Context, rec store.YtdlDownload) error {
+	libs := d.ytdlLibraries()
+	mode := ytdl.Mode(rec.Mode)
+	if _, ok := libs[mode]; !ok {
+		return errNoLibraryConfigured
+	}
+
+	var userID, userName string
+	if rec.UserID != nil {
+		userID = strconv.FormatInt(*rec.UserID, 10)
+		if u, err := d.Store.GetUserByID(*rec.UserID); err == nil {
+			userName = u.Username
+		}
+	}
+
+	job, err := ytdl.BuildJob(ytdl.JobConfig{
+		Namespace: d.Cfg.YtdlNamespace,
+		Image:     d.Cfg.YtdlImage,
+		RequestID: rec.RequestID,
+		UserID:    userID,
+		UserName:  userName,
+		Desc:      ytdl.Description{Title: rec.Title, Uploader: rec.Uploader, Artwork: rec.Artwork},
+		Mode:      mode,
+		Target:    ytdl.Target{URL: rec.SourceURL, Scope: ytdl.Scope(rec.Scope)},
+		Libraries: libs,
+
+		DeadlineSeconds:    d.Cfg.YtdlDeadlineSeconds,
+		TTLSeconds:         d.Cfg.YtdlTTLSeconds,
+		MinDurationSeconds: d.Cfg.YtdlMinDurationSeconds,
+	})
+	if err != nil {
+		return err
+	}
+	if _, err := d.Jobs.CreateJob(ctx, job); err != nil {
+		if k8s.IsConflict(err) {
+			// The job already exists: this download was admitted on an earlier
+			// cycle and the record is catching up. Not a failure.
+			return nil
+		}
+		return err
+	}
+	return nil
+}
+
+var errNoLibraryConfigured = errors.New("no media library configured for that mode")
 
 // captureFinished writes the outcome of anything that has just become final.
 //

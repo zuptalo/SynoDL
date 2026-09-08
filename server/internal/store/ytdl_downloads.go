@@ -303,3 +303,106 @@ func (s *Store) DeleteYtdlDownload(requestID string, userID int64, isAdmin bool)
 	n, err := res.RowsAffected()
 	return n > 0, err
 }
+
+// ListYtdlQueued returns everything waiting for a slot, oldest first.
+//
+// The whole queue rather than a page: admission has to see all of it to share
+// slots fairly between users (FR-022b), and picking from a page would silently
+// make fairness depend on the page size.
+func (s *Store) ListYtdlQueued() ([]YtdlDownload, error) {
+	rows, err := s.db.Query(
+		`SELECT ` + ytdlCols + ` FROM ytdl_downloads WHERE state = 'queued' ORDER BY queue_seq ASC`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []YtdlDownload
+	for rows.Next() {
+		d, err := scanYtdlDownload(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, d)
+	}
+	return out, rows.Err()
+}
+
+// CountYtdlRunning counts downloads SynoDL has handed to the orchestrator and
+// that have not finished.
+//
+// Counted from the STORE rather than from a job listing, because the store is
+// what knows about a download between "admitted" and "the orchestrator has
+// acknowledged it" — and admitting twice in that window is exactly the bug an
+// admission loop can have.
+func (s *Store) CountYtdlRunning() (int, error) {
+	var n int
+	err := s.db.QueryRow(
+		`SELECT COUNT(*) FROM ytdl_downloads WHERE state IN ('scheduled','downloading')`).Scan(&n)
+	return n, err
+}
+
+// MarkYtdlAdmitted moves a queued download to scheduled.
+//
+// Conditional on it STILL being queued, so two passes over the same queue
+// cannot both admit it. With one replica that is belt and braces; it costs
+// nothing and removes a whole class of question.
+func (s *Store) MarkYtdlAdmitted(requestID string) (bool, error) {
+	res, err := s.db.Exec(
+		`UPDATE ytdl_downloads SET state = 'scheduled' WHERE request_id = ? AND state = 'queued'`,
+		requestID)
+	if err != nil {
+		return false, err
+	}
+	n, err := res.RowsAffected()
+	return n > 0, err
+}
+
+// RequeueYtdl sends a failed download back to the queue for another attempt.
+//
+// The one edge out of a final state (FR-013c), and only ever from an explicit
+// user action — nothing in the server calls this on its own (0012 FR-021, which
+// spec 0013 keeps). Conditional on the row still being failed, so a double-tap
+// cannot count as two attempts.
+func (s *Store) RequeueYtdl(requestID string) (bool, error) {
+	res, err := s.db.Exec(
+		`UPDATE ytdl_downloads
+		    SET state = 'queued', reason = '', finished_at = NULL,
+		        attempts = attempts + 1,
+		        queue_seq = COALESCE((SELECT MAX(queue_seq) FROM ytdl_downloads), 0) + 1
+		  WHERE request_id = ? AND state = 'failed'`, requestID)
+	if err != nil {
+		return false, err
+	}
+	n, err := res.RowsAffected()
+	return n > 0, err
+}
+
+// FindYtdlInFlight returns the request id of a download for this item and mode
+// that has not finished, if there is one.
+//
+// The duplicate check (0012 FR-023, kept by spec 0013). It reads the STORE
+// rather than the orchestrator's jobs, and that changed with the queue: a
+// download waiting for a slot has no job yet, so a job listing would not see it
+// and the same link could be queued a dozen times over.
+//
+// Matched on video_id + mode rather than on URL text, so the several spellings
+// of one video cannot each get their own download (FR-016b). Mode is part of the
+// key because audio and video go to different libraries and do not collide.
+func (s *Store) FindYtdlInFlight(videoID, mode string) (string, bool, error) {
+	if videoID == "" {
+		return "", false, nil
+	}
+	var id string
+	err := s.db.QueryRow(
+		`SELECT request_id FROM ytdl_downloads
+		  WHERE video_id = ? AND mode = ? AND state NOT IN ('completed','failed')
+		  LIMIT 1`, videoID, mode).Scan(&id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", false, nil
+	}
+	if err != nil {
+		return "", false, err
+	}
+	return id, true, nil
+}

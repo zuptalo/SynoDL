@@ -30,6 +30,7 @@ import {
   checkmarkCircleOutline,
   hourglassOutline,
   musicalNotesOutline,
+  refreshOutline,
   trashOutline,
   videocamOutline,
   warningOutline,
@@ -40,6 +41,7 @@ const props = defineProps<{ download: YtdlDownload }>();
 const emit = defineEmits<{
   (e: 'dismiss', requestId: string): void;
   (e: 'open', requestId: string): void;
+  (e: 'retry', requestId: string): void;
 }>();
 
 const isVideo = computed(() => props.download.mode === 'music-video');
@@ -140,6 +142,11 @@ const groupSummary = computed(() => {
   return parts.join(' · ');
 });
 
+// Retry is offered only for a failed download (FR-028): retrying a completed
+// one would re-download what is already saved, and a running one has nothing to
+// recover from yet.
+const canRetry = computed(() => props.download.state === 'failed');
+
 // Any download can be dismissed (spec 0013, FR-005c). Spec 0012 offered this
 // only on a finished one, because dismissing a running download would have
 // stranded its worker. It no longer does: the record goes at once and the worker
@@ -203,6 +210,14 @@ const canDismiss = computed(() => true);
       </ion-label>
     </ion-item>
     <ion-item-options side="end">
+      <ion-item-option
+        v-if="canRetry"
+        color="success"
+        data-testid="ytdl-retry"
+        @click="emit('retry', download.requestId)"
+      >
+        <ion-icon slot="icon-only" :icon="refreshOutline" />
+      </ion-item-option>
       <ion-item-option
         v-if="canDismiss"
         color="danger"

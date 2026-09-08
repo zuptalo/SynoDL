@@ -72,6 +72,16 @@ export function useYtdl() {
     await refresh();
   }
 
+  /**
+   * Retry a failed download. Deliberately NOT optimistic: the server decides
+   * whether a retry is allowed at all (only a failed download may be retried),
+   * so showing it as queued before it answers would sometimes be a lie.
+   */
+  async function retry(requestId: string): Promise<void> {
+    await api.ytdlRetry(requestId);
+    await refresh();
+  }
+
   async function dismiss(requestId: string): Promise<void> {
     // Optimistic: the row goes now, and the next poll is the source of truth.
     downloads.value = downloads.value.filter((d) => d.requestId !== requestId);
@@ -89,5 +99,6 @@ export function useYtdl() {
     refresh,
     submit,
     dismiss,
+    retry,
   };
 }

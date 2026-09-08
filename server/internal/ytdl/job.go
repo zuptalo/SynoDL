@@ -102,6 +102,7 @@ func BuildJob(c JobConfig) (*k8s.Job, error) {
 	labels := map[string]string{
 		LabelManagedBy: "synodl",
 		LabelKind:      "ytdl",
+		LabelJobKind:   JobKindDownload,
 		LabelRequestID: c.RequestID,
 		LabelMode:      string(c.Mode),
 		LabelScope:     string(c.Target.Scope),
@@ -160,6 +161,96 @@ func BuildJob(c JobConfig) (*k8s.Job, error) {
 						Name:                  "library",
 						PersistentVolumeClaim: &k8s.PVCVolumeSource{ClaimName: lib.ClaimName},
 					}},
+				},
+			},
+		},
+	}, nil
+}
+
+// LabelJobKind distinguishes an enumeration worker from a download worker, so
+// one label selector still finds everything this feature owns while the
+// reconciler can tell the two apart.
+const LabelJobKind = "synodl.io/job"
+
+const (
+	JobKindDownload = "download"
+	JobKindExpand   = "expand"
+)
+
+// ExpandJobName is the enumeration worker's name for a request.
+//
+// Distinct from the download job's name because a group's expansion and a
+// group's items are different work under the same request id family; sharing a
+// name would make the second create a 409 against the first.
+func ExpandJobName(requestID string) string { return JobName(requestID) + "-expand" }
+
+// BuildExpansionJob assembles the worker that lists what a link contains.
+//
+// It is the same short-lived-worker model as a download doing a different job,
+// with two differences that matter:
+//
+//   - It mounts NO media library. It writes nothing, and a worker mounts a
+//     library only when it needs one — so the constitution's "media volumes are
+//     worker-only" rule is satisfied here by there being no volume at all.
+//   - Its deadline is much shorter. Listing a channel is seconds of work; a
+//     listing that hangs should give up long before a download would.
+func BuildExpansionJob(c JobConfig) (*k8s.Job, error) {
+	if strings.TrimSpace(c.Image) == "" {
+		return nil, errors.New("no worker image configured")
+	}
+	if c.Target.Scope == ScopeSingle {
+		return nil, errors.New("a single item has nothing to expand")
+	}
+	deadline := c.DeadlineSeconds
+	if deadline <= 0 || deadline > 900 {
+		deadline = 900
+	}
+	ttl := c.TTLSeconds
+	if ttl <= 0 {
+		ttl = 3600
+	}
+
+	labels := map[string]string{
+		LabelManagedBy: "synodl",
+		LabelKind:      "ytdl",
+		LabelJobKind:   JobKindExpand,
+		LabelRequestID: c.RequestID,
+		LabelMode:      string(c.Mode),
+		LabelScope:     string(c.Target.Scope),
+	}
+
+	return &k8s.Job{
+		APIVersion: "batch/v1",
+		Kind:       "Job",
+		Metadata: k8s.ObjectMeta{
+			Name:        ExpandJobName(c.RequestID),
+			Namespace:   c.Namespace,
+			Labels:      labels,
+			Annotations: annotationsFor(c),
+		},
+		Spec: k8s.JobSpec{
+			BackoffLimit:            int32p(0),
+			ActiveDeadlineSeconds:   int64p(deadline),
+			TTLSecondsAfterFinished: int32p(ttl),
+			Template: k8s.PodTemplateSpec{
+				Metadata: k8s.ObjectMeta{Labels: labels},
+				Spec: k8s.PodSpec{
+					RestartPolicy:                "Never",
+					AutomountServiceAccountToken: boolp(false),
+					Containers: []k8s.Container{{
+						Name:    "downloader",
+						Image:   c.Image,
+						Command: []string{WorkerBinary},
+						Args:    ExpandArgs(c.Target),
+						Env: []k8s.EnvVar{
+							{Name: "XDG_CACHE_HOME", Value: "/tmp"},
+						},
+						Resources: &k8s.Resources{
+							Requests: map[string]string{"cpu": "50m", "memory": "128Mi"},
+							Limits:   map[string]string{"cpu": "500m", "memory": "256Mi"},
+						},
+					}},
+					// No Volumes at all. Nothing is written, so nothing is mounted.
 				},
 			},
 		},

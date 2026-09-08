@@ -26,9 +26,23 @@ async function submit(token: string, url: string, mode = 'music'): Promise<strin
   return ((await res.json()) as { requestId: string }).requestId;
 }
 
+/**
+ * Drive one job to a lifecycle state, addressed by its request id.
+ *
+ * Retries on 404, because a submitted download is QUEUED first and its worker
+ * does not exist until the reconciler admits it (spec 0013). Waiting for the
+ * job to appear is part of driving it.
+ */
 async function drive(requestId: string, action: string): Promise<void> {
-  const res = await fetch(`${K8S}/__mock/jobs/${requestId}/${action}`, { method: 'POST' });
-  if (!res.ok) throw new Error(`drive ${action}: ${res.status}`);
+  const deadline = Date.now() + 25_000;
+  for (;;) {
+    const res = await fetch(`${K8S}/__mock/jobs/${requestId}/${action}`, { method: 'POST' });
+    if (res.ok) return;
+    if (res.status !== 404 || Date.now() > deadline) {
+      throw new Error(`drive ${action} failed: ${res.status}`);
+    }
+    await new Promise((r) => setTimeout(r, 500));
+  }
 }
 
 async function gotoTasks(page: Page): Promise<void> {

@@ -33,7 +33,12 @@ import type { YtdlDownload } from '@/services/api';
 import { formatTimestamp } from '@/utils/format';
 
 const props = defineProps<{ isOpen: boolean; download: YtdlDownload | null }>();
-defineEmits<{ (e: 'dismiss'): void }>();
+defineEmits<{ (e: 'dismiss'): void; (e: 'retry', requestId: string): void }>();
+
+// Retry is offered here as well as on the row, because the sheet is where
+// someone works out WHY it failed — and having decided, they should not have to
+// close it and find the row again (FR-026, FR-028).
+const canRetry = computed(() => props.download?.state === 'failed');
 
 const isVideo = computed(() => props.download?.mode === 'music-video');
 
@@ -96,6 +101,15 @@ const attemptsLabel = computed(() => {
     <ion-header :translucent="true">
       <ion-toolbar>
         <ion-title>Download details</ion-title>
+        <ion-buttons slot="start">
+          <ion-button
+            v-if="canRetry && download"
+            data-testid="ytdl-detail-retry"
+            @click="$emit('retry', download.requestId)"
+          >
+            Retry
+          </ion-button>
+        </ion-buttons>
         <ion-buttons slot="end">
           <ion-button data-testid="ytdl-detail-close" @click="$emit('dismiss')">Close</ion-button>
         </ion-buttons>

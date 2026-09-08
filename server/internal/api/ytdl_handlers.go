@@ -174,26 +174,21 @@ func handleYtdlSubmit(d Deps) http.Handler {
 			return
 		}
 
-		// FR-023. Two workers writing one folder concurrently is the failure this
-		// prevents; the check is per (link, mode) because audio and video live in
-		// different libraries and do not collide.
-		live, listErr := d.Jobs.ListJobs(r.Context(), ytdl.Selector)
-		if listErr == nil {
-			for _, j := range live {
-				if j.Metadata.Labels[ytdl.LabelMode] != string(mode) {
-					continue
-				}
-				if j.Metadata.Annotations[ytdl.AnnSourceURL] != target.URL {
-					continue
-				}
-				if !ytdl.StateOf(j).Terminal() {
-					httpx.JSON(w, http.StatusConflict, map[string]string{
-						"error":     "that link is already downloading",
-						"requestId": j.Metadata.Labels[ytdl.LabelRequestID],
-					})
-					return
-				}
-			}
+		// 0012 FR-023, kept. Two workers writing one folder concurrently is the
+		// failure this prevents, and the check is per (item, mode) because audio
+		// and video live in different libraries and do not collide.
+		//
+		// It reads the STORE, not the orchestrator's jobs, and that changed when
+		// the queue arrived: a download waiting for a slot has no job at all, so
+		// a job listing would miss it and the same link could be queued over and
+		// over. Matched on the item's identity rather than on URL text, so the
+		// several spellings of one video cannot each get their own download.
+		if existing, found, err := d.Store.FindYtdlInFlight(target.VideoID(), string(mode)); err == nil && found {
+			httpx.JSON(w, http.StatusConflict, map[string]string{
+				"error":     "that link is already downloading",
+				"requestId": existing,
+			})
+			return
 		}
 
 		// Ask what this is, briefly. A failure here costs a nicer row and nothing
@@ -201,7 +196,12 @@ func handleYtdlSubmit(d Deps) http.Handler {
 		desc := d.Describer.Describe(r.Context(), target)
 
 		requestID := newRequestID()
-		job, err := ytdl.BuildJob(ytdl.JobConfig{
+		// Built here only to VALIDATE that this request could become a worker —
+		// a mode with no library configured, or a missing image, must be a 503
+		// now rather than a download that sits queued forever and then fails for
+		// reasons the user cannot act on. The job itself is created by the
+		// reconciler when a slot frees.
+		_, err = ytdl.BuildJob(ytdl.JobConfig{
 			Namespace:          d.Cfg.YtdlNamespace,
 			Image:              d.Cfg.YtdlImage,
 			RequestID:          requestID,
@@ -220,11 +220,11 @@ func handleYtdlSubmit(d Deps) http.Handler {
 			return
 		}
 
-		// The record is written BEFORE the job exists (FR-001). If the two ever
-		// disagree, the version that leaves a download visible-but-unstarted is
-		// far better than the one that leaves a worker running with nothing to
-		// show it — the first is recoverable by the user, the second is not
-		// recoverable at all.
+		// Accepting a download is now recording it and QUEUING it — no worker is
+		// created here (FR-021, FR-022). The reconciler admits it when a slot
+		// frees, which is what keeps an uncapped channel expansion from dropping
+		// several hundred jobs on the orchestrator at once, and what makes the
+		// wait visible instead of hidden inside the cluster.
 		if err := d.Store.CreateYtdlDownload(store.YtdlDownload{
 			RequestID: requestID,
 			Kind:      store.YtdlKindSingle,
@@ -233,7 +233,7 @@ func handleYtdlSubmit(d Deps) http.Handler {
 			VideoID:   target.VideoID(),
 			Mode:      string(mode),
 			Scope:     string(target.Scope),
-			State:     string(ytdl.StateScheduled),
+			State:     string(ytdl.StateQueued),
 			Title:     desc.Title,
 			Uploader:  desc.Uploader,
 			Artwork:   desc.Artwork,
@@ -243,21 +243,17 @@ func handleYtdlSubmit(d Deps) http.Handler {
 			return
 		}
 
-		// Concurrency is still the cluster's to bound at this point; the durable
-		// queue arrives with the admission work and takes this over.
-		if _, err := d.Jobs.CreateJob(r.Context(), job); err != nil {
-			// The record would otherwise describe a download that never
-			// started, with nothing to move it out of that state.
-			_, _ = d.Store.DeleteYtdlDownload(requestID, u.ID, false)
-			httpx.Error(w, http.StatusBadGateway, "could not start the download")
-			return
-		}
+		// Deliberately NOT admitted here. Admission is the reconciler's job, on
+		// its own clock, and doing it in the handler too would mean two things
+		// racing to claim the same slot — for the sake of a few seconds. It also
+		// keeps the answer honest: the download IS queued at this moment, and
+		// saying so is better than reporting a state it might reach shortly.
 
 		httpx.JSON(w, http.StatusAccepted, ytdlSubmitView{
 			RequestID: requestID,
 			Scope:     string(target.Scope),
 			Mode:      string(mode),
-			State:     string(ytdl.StateScheduled),
+			State:     string(ytdl.StateQueued),
 		})
 	})
 }

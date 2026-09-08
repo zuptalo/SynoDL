@@ -822,6 +822,20 @@ export const api = {
   // Dismisses the RECORD of a finished download. Never deletes what it saved.
   ytdlDismiss: (requestId: string) =>
     request<void>(`/v1/ytdl/${encodeURIComponent(requestId)}`, { method: 'DELETE' }),
+  /**
+   * Send a failed download back to the queue (spec 0013). Only ever called
+   * because a person asked — nothing retries on its own.
+   */
+  ytdlRetry: (requestId: string) =>
+    request<{ requestId: string; state: YtdlState; attempts: number; requeued?: number }>(
+      `/v1/ytdl/${encodeURIComponent(requestId)}/retry`,
+      { method: 'POST' },
+    ),
+  /** A group's items, plus how the group as a whole is getting on. */
+  ytdlItems: (requestId: string, cursor?: string) =>
+    request<{ group: YtdlDownload; items: YtdlDownload[]; nextCursor?: string }>(
+      `/v1/ytdl/${encodeURIComponent(requestId)}/items${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ''}`,
+    ),
 
   createTaskURIs: (
     uris: string[],
