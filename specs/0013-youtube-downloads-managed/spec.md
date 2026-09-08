@@ -371,6 +371,12 @@ playlist names, with embedded cover art, in both music and music-video modes.
 - **One user, nothing but bulk work.** Where a single user is the only one with
   anything queued, fair-share must not idle slots — the limit is a ceiling, not a
   reservation.
+- **A source that names itself something hostile.** A playlist or channel whose
+  title contains path separators, parent-directory references, or thousands of
+  characters must not be able to place a file outside the mounted library or
+  produce an unusable path (FR-038a, FR-038b).
+- **The state volume fills.** A download that saved its files but whose record
+  could not be written must not be reported as failed (FR-006b).
 - **Clock and locale.** The date and time format is fixed by this spec and does
   not follow the viewer's device locale.
 
@@ -408,6 +414,17 @@ playlist names, with embedded cover art, in both music and music-video modes.
 - **FR-006a**: Because history is unbounded, listing downloads MUST stay
   responsive at thousands of records — the list MUST NOT require loading the
   whole history to show the current page of it.
+- **FR-006b**: Because history is unbounded and the state volume is finite,
+  System MUST fail safely if that volume cannot be written: a download record that
+  cannot be stored MUST NOT cause a download already saved to be reported as
+  failed, and the operator MUST be able to tell that this happened.
+- **FR-006c**: Extending the store MUST be reversible in the sense that a failed
+  or partial schema change leaves the existing data intact and the application
+  able to report the problem rather than starting against a half-changed store.
+- **FR-006d**: When a user is deleted, their download records MUST be removed with
+  them, their queued downloads MUST leave the queue and never start, and any of
+  their workers already running MUST be left to finish rather than stranded —
+  matching what dismissal already does (FR-005b).
 
 **Ownership and visibility**
 
@@ -418,6 +435,18 @@ playlist names, with embedded cover art, in both music and music-video modes.
   an admin, and MUST NOT disclose that download's existence or content.
 - **FR-009**: The submitter's name MUST remain visible only to admins, as it
   already is for NAS tasks.
+- **FR-009a**: An admin MAY view, retry and dismiss any user's download, stated
+  here positively so the permission is a decision rather than an inference from
+  FR-008's exception.
+- **FR-009b**: Dismissing a group MUST be permitted only to its owner and to an
+  admin, since it cancels queued work; an admin doing so MUST be subject to the
+  same rules as the owner (FR-005b).
+- **FR-009c**: The queue and its fair-share ordering MUST NOT reveal anything
+  about another user's downloads to a non-admin. A user may see where their own
+  downloads stand; they MUST NOT learn what else is queued or by whom.
+- **FR-009d**: The artwork proxy MUST be reachable only by a signed-in user and
+  MUST NOT be usable to fetch anything other than artwork for a download, so
+  making downloads private does not leave their artwork publicly addressable.
 
 **Progress and what the worker did**
 
@@ -431,6 +460,19 @@ playlist names, with embedded cover art, in both music and music-video modes.
 - **FR-013**: Where progress cannot be determined, System MUST still report the
   download's correct life state and MUST NOT display an invented or stale
   percentage. Losing progress MUST NOT cause a download to be reported as failed.
+- **FR-013e**: Reading a worker's output MUST be bounded in size, so a worker that
+  produces far more output than expected cannot become a memory problem for the
+  server.
+- **FR-013f**: Reading a worker's output MUST be bounded in frequency and MUST NOT
+  scale with the number of viewers watching. A download's progress is read because
+  the download is running, not because someone is looking at it.
+- **FR-013g**: Facts that outlive the worker — whether a lyrics file was written,
+  in which language, and the final progress — MUST be captured into the durable
+  record while the worker's output is still readable. The record is durable; the
+  output it came from is not.
+- **FR-013h**: A worker's output MUST be treated as untrusted external input
+  wherever it is read, including the output of an expansion worker, which carries
+  many titles and links at once.
 
 **The states a download moves through**
 
@@ -460,6 +502,14 @@ playlist names, with embedded cover art, in both music and music-video modes.
   spec 0012 cannot express it.
 - **FR-016**: Resolving a link MUST happen outside the SynoDL server process, in
   the same short-lived-worker model as a download, and MUST be bounded in time.
+- **FR-016a**: Every link that reaches a worker MUST pass the host allowlist,
+  including one produced by expansion rather than typed by a user. Spec 0012
+  validated only what a user submitted; expansion introduces links SynoDL derived
+  from an external source, and those are not more trustworthy for having come from
+  a link that was itself allowed.
+- **FR-016b**: An expanded item MUST be identified by a stable identity derived
+  from its link rather than by the link's text, so two spellings of the same item
+  cannot defeat the already-held check of FR-020 or the duplicate check.
 - **FR-017**: System MUST NOT impose a ceiling on how many items a playlist or
   channel expands into.
 - **FR-018**: A single item failing MUST NOT prevent the remaining items of the
@@ -535,7 +585,16 @@ playlist names, with embedded cover art, in both music and music-video modes.
   of the viewer's device locale.
 - **FR-032**: A failure reason shown to a user MUST remain plain language and
   MUST NOT contain a command line, a file path, a library path, or raw worker
-  output.
+  output. This applies to EVERY failure this feature can produce — a download's,
+  an expansion's, a queue admission's, and a retry's — not only a download's.
+- **FR-032a**: The values this feature newly handles that MUST stay out of logs,
+  metrics and error payloads are: raw worker output, expansion results, saved file
+  paths, library paths, source links, and playlist or channel names. Progress
+  figures, state names and language codes are safe to expose.
+- **FR-032b**: A failure of SynoDL's own machinery — the orchestrator being
+  unreachable, or a worker's output being unreadable — MUST be reported to the
+  user as distinct from the download itself having failed, so an infrastructure
+  problem is never mistaken for a broken link.
 - **FR-033**: An absent fact MUST be shown as absent rather than as an empty
   value or a placeholder — including a final-state timestamp on a download that
   has not finished.
@@ -556,6 +615,17 @@ playlist names, with embedded cover art, in both music and music-video modes.
 - **FR-038**: Any value derived from a playlist or channel name and passed to a
   worker MUST reach it as a discrete argument, never assembled into a command
   string.
+- **FR-038a**: A source-derived name is also used as a FOLDER name inside the
+  mounted library. It MUST NOT be able to place a file outside that library,
+  whatever the source called itself. Discrete-argument passing (FR-038) prevents a
+  command being injected; it does nothing about a path, and both MUST be prevented.
+- **FR-038b**: A source-derived value passed to a worker MUST be bounded in length
+  and constrained in the characters it may contain, so a pathological title cannot
+  produce an unusable path or an oversized argument list.
+- **FR-038c**: The full set of user- or source-influenced values that reach a
+  worker MUST be enumerated in the plan, so each can be checked against FR-038,
+  FR-038a and FR-038b individually. As of this spec they are: the submitted link,
+  and the playlist or channel name.
 
 ### Key Entities
 
@@ -605,7 +675,10 @@ playlist names, with embedded cover art, in both music and music-video modes.
 - **SC-006a**: A history of several thousand downloads opens as quickly as a
   history of ten.
 - **SC-007**: No user can see, open, retry or dismiss a download submitted by
-  another user unless they are an admin.
+  another user unless they are an admin, and no non-admin can learn from the queue
+  what another user has queued.
+- **SC-007a**: No source-controlled value can cause a file to be written outside
+  the media library the download was aimed at.
 - **SC-008**: 100% of saved items are shelved by the media server under a named
   artist and a named album with cover art, with no unknown-artist or
   unknown-album placeholders, in both modes.
@@ -651,8 +724,12 @@ playlist names, with embedded cover art, in both music and music-video modes.
 bullet and the least-privilege worker-orchestration rule both need amending to
 admit (a) a durable record of requested and finished work including successes,
 (b) a durable pre-admission queue, and (c) reading a worker's own output. The
-amendment is part of this work, not an afterthought, and a checklist is required
-because this spec touches worker and cluster credentials.
+amendment MUST land before or with the first implementation task that depends on
+it — Principle I makes code without an approved constitutional basis a defect, so
+it cannot follow the work. It is a MINOR bump (2.1.0 → 2.2.0): no principle is
+removed or reversed, and Principle III's custody rules are widened rather than
+relaxed. A checklist is required because this spec touches worker and cluster
+credentials; it is `checklists/security.md`.
 
 ## Assumptions
 
