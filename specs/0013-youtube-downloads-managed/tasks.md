@@ -35,7 +35,7 @@ Monorepo: client at repository root (`src/`, `e2e/`), Go service under `server/`
 below may start before T001 — Principle I makes code without an approved
 constitutional basis a defect.
 
-- [ ] T001 Amend `.specify/memory/constitution.md` 2.1.0 → 2.2.0: Principle III gains (a) durable pre-admission work is not a mirror because no worker exists, (b) a durable record of requested and finished work including successes, (c) reading a worker's own output as a permitted least-privilege capability that still excludes secrets, exec and attach. Add the Sync Impact Report entry at the top in the existing style.
+- [X] T001 Amend `.specify/memory/constitution.md` 2.1.0 → 2.2.0: Principle III gains (a) durable pre-admission work is not a mirror because no worker exists, (b) a durable record of requested and finished work including successes, (c) reading a worker's own output as a permitted least-privilege capability that still excludes secrets, exec and attach. Add the Sync Impact Report entry at the top in the existing style.
 - [ ] T002 [P] Add `YtdlMaxParallel` to `server/internal/config/config.go` reading `YTDL_MAX_PARALLEL`, defaulting to 4, and document it beside the other `Ytdl*` fields.
 - [ ] T003 [P] [TEST] Add a config case in `server/internal/config/config_test.go` covering the default, an operator override, and a non-numeric value falling back to the default.
 - [ ] T004 [P] Add `YTDL_MAX_PARALLEL` to `deploy/k8s/10-synodl.yaml` and to the `Makefile` dev defaults so `make start` exercises the same knob.
