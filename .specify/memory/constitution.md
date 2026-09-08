@@ -16,11 +16,12 @@ Sync Impact Report
   Governance complexity clause (adds least-privilege worker orchestration).
 - Templates / docs to review for sync (follow-up in the spec 0012 PR):
   .specify/templates/*.md — ✅ no change needed (gates are referenced generically,
-  never enumerated); deploy/k8s — ⚠ pending (ServiceAccount + namespaced Role +
-  RoleBinding, and the two worker-only media volumes); CLAUDE.md — ⚠ pending, and
-  note it is ALSO still stale from v2.0.0: lines 13 and 145 describe the server as a
-  "stateless, credential-free proxy" that "persists nothing", which v2.0.0
-  superseded. Fix both the stale framing and the worker model in the spec 0012 PR.
+  never enumerated); deploy/k8s — ✅ done (30-rbac.yaml: ServiceAccount +
+  namespaced Role + RoleBinding; 40-media.yaml: the two worker-only RWX media
+  volumes); CLAUDE.md — ✅ done, including the v2.0.0 drift it had carried since
+  then: it described the server as a "stateless, credential-free proxy" that
+  "persists nothing", which v2.0.0 had superseded. It now describes the
+  custodial-state model that actually ships, plus the worker model and ports.
 - Prior version (2.0.0): Version: 1.1.0 → 2.0.0 (MAJOR: Principle III redefined — the NON-NEGOTIABLE
   "Stateless, Credential-Free Proxy" becomes "Custodial State & Credential Safety".
   SynoDL gains its own user accounts, a single encrypted SQLite volume, stored NAS
