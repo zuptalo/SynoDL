@@ -8,6 +8,10 @@ description: "Task list for spec 0013 — YouTube downloads you can watch, keep,
 
 **Prerequisites**: plan.md, spec.md, research.md, data-model.md, contracts/http-api.md
 
+**Count**: 113 tasks, 44 of them tests. Six were added by the `/speckit-analyze`
+gate (T061a, T061b, T066a, T079a, T079b, T105a) to close coverage gaps — the
+lettered ids keep execution order readable without renumbering.
+
 **Tests**: REQUIRED, not optional. Constitution Principle II mandates that failing
 tests are ordered before the implementation that satisfies them (Red → Green →
 Refactor), that new handler logic ships unit tests, and that new user-facing
@@ -103,7 +107,7 @@ is still listed with title, artwork, link and both timestamps.
 **Depends on**: Phase 1. Uses Phase 2's reconciler for capture (T033).
 
 - [ ] T025 [US2] [TEST] Add `server/internal/store/ytdl_repos_test.go` cases for the `ytdl_downloads` table: insert, read back, page by cursor, the `(video_id, mode)` already-held lookup, group aggregate counts, and that a deleted user leaves the row with a NULL `user_id` rather than deleting it.
-- [ ] T026 [US2] [TEST] Add a case in `server/internal/store/migrations_golden_test.go` and assert the new migration runs twice without error — the spec 1031 drift repair rewinds and replays, so a migration that cannot run twice is a boot failure.
+- [ ] T026 [US2] [TEST] Add a case in `server/internal/store/migrations_golden_test.go` asserting the new migration runs twice without error — the spec 1031 drift repair rewinds and replays, so a migration that cannot run twice is a boot failure. Add a second case for FR-006c: a migration that fails part-way leaves the existing data intact and the failure reportable, rather than starting against a half-changed store.
 - [ ] T027 [US2] Append the migration to `server/internal/store/schema.go` creating `ytdl_downloads` per `data-model.md`, every statement `IF NOT EXISTS`, with the backfill from `ytdl_failures` as `INSERT OR IGNORE`. `user_id` is `ON DELETE SET NULL`, matching the existing convention. Do not drop `ytdl_failures`.
 - [ ] T028 [US2] Add the `Download` type and its repository functions to `server/internal/store/ytdl_repos.go`: create, get, list-by-user paged, list-by-parent, update-state, already-held, delete-with-children.
 - [ ] T029 [US2] [TEST] Add cases to `server/internal/api/ytdl_handlers_test.go` asserting submit creates a durable record before anything else, and that the list merges live Jobs with stored records without duplicating a request id.
@@ -156,7 +160,7 @@ fact is present and correctly formatted.
 - [ ] T048 [P] [US4] Add the fixed formatter to `src/utils/format.ts`. Do not reuse the existing `toLocaleString(undefined, …)` path, which is locale-following by design.
 - [ ] T049 [US4] [TEST] Add `server/internal/api/ytdl_detail_test.go` for `GET /v1/ytdl/{requestId}`: every field per the contract; `finishedAt` omitted rather than zero while unfinished (FR-033); `submittedBy` for admins only; 404 for another user's download.
 - [ ] T050 [US4] Create `server/internal/api/ytdl_detail.go` with the detail handler, and register the route in `server/internal/api/router.go`.
-- [ ] T051 [P] [US4] Create `src/components/YtdlDetailModal.vue` following the `TaskDetailModal.vue` convention — a stock-Ionic sheet with `data-testid="ytdl-detail"` and `ytdl-detail-*` field ids. Not a route; the router has no per-item routes.
+- [ ] T051 [P] [US4] Create `src/components/YtdlDetailModal.vue` following the `TaskDetailModal.vue` convention — a stock-Ionic sheet with `data-testid="ytdl-detail"` and `ytdl-detail-*` field ids, including the playlist or channel an expanded item came from (FR-019c), which is only visible here when an item is viewed on its own. Not a route; the router has no per-item routes.
 - [ ] T052 [US4] Open the detail modal from `src/components/YtdlItem.vue` on tap.
 - [ ] T053 [US4] [TEST] In `server/internal/api/ytdl_detail_test.go`, add a case asserting a failure reason contains no command line, path or raw worker output (FR-032).
 - [ ] T054 [US4] Add `e2e/stateful/ytdl-detail.spec.ts` asserting the full field set and both timestamp formats.
@@ -178,7 +182,9 @@ the next; a restart resumes rather than losing the queue.
 - [ ] T058 [US7] Add admission to `server/internal/api/ytdl_reconcile.go`: count running, take that many from the ordering, create their Jobs. Single replica means one admitter and no distributed lock — record that in a comment.
 - [ ] T059 [US7] [TEST] In `server/internal/api/ytdl_reconcile_test.go`, add a case asserting a restart with work in flight resumes the queue and double-admits nothing (FR-023).
 - [ ] T060 [US7] Surface `queued` distinctly from `scheduled` in `src/components/YtdlItem.vue` (FR-013b) — "waiting its turn" must not read as "starting now".
-- [ ] T061 [US7] [TEST] In `server/internal/api/ytdl_handlers_test.go`, add cases asserting dismissing a queued download removes it from the queue so it never starts, and dismissing a running one does not strand its worker (FR-005b, FR-005c).
+- [ ] T061 [US7] [TEST] In `server/internal/api/ytdl_handlers_test.go`, add cases asserting dismissing a queued download removes it from the queue so it never starts, and dismissing a running one does not strand its worker (FR-005b, FR-005c). Add a case for FR-009b: a group may be dismissed only by its owner or an admin, and an admin doing so is bound by the same rules — dismissal cancels another user's queued work, so it is not a read-only admin power.
+- [ ] T061a [US7] [TEST] In `server/internal/api/ytdl_reconcile_test.go`, add a case for the other half of FR-006d: when a user is deleted, their queued downloads leave the queue and never start, and a worker already running is left to finish. T025 covers only the record surviving with a NULL `user_id`.
+- [ ] T061b [US7] Handle user deletion in `server/internal/api/ytdl_reconcile.go` — admission must skip rows whose owner is gone, so a deleted account cannot keep consuming slots.
 - [ ] T062 [US7] Change `handleYtdlDismiss` in `server/internal/api/ytdl_handlers.go` to stop refusing while running, and to cascade to a group's items (FR-005a).
 - [ ] T063 [US7] Add `e2e/stateful/ytdl-queue.spec.ts`: queue more than the limit, assert exactly the limit run and the rest show as queued, and that a finish starts the next.
 
@@ -196,6 +202,7 @@ against the same link and mode as one row, not two.
 - [ ] T064 [US5] [TEST] Add `server/internal/api/ytdl_retry_test.go`: retry moves a failed row to `queued`, increments `attempts`, clears `reason` and `finishedAt`, and keeps it one row (FR-029); retry of a non-failed download is 409; retry of another user's is 404.
 - [ ] T065 [US5] Create `server/internal/api/ytdl_retry.go` and register `POST /v1/ytdl/{requestId}/retry` in `server/internal/api/router.go`.
 - [ ] T066 [US5] [TEST] In `server/internal/api/ytdl_retry_test.go`, add a case asserting retrying a group re-queues only its failed items, not the whole group.
+- [ ] T066a [US5] [TEST] In `server/internal/api/ytdl_reconcile_test.go`, add a case asserting **nothing retries automatically** (FR-027): a failed download stays `failed` across many reconciler ticks and is never re-admitted without an explicit retry. The queue re-admits by design and `BackoffLimit` is 0, so this regression would otherwise be silent.
 - [ ] T067 [P] [US5] Add a retry action to `src/components/YtdlItem.vue` and `src/components/YtdlDetailModal.vue`, offered only in the `failed` state (FR-028).
 - [ ] T068 [P] [US5] Add `ytdlRetry` to `src/services/api.ts` and `src/composables/useYtdl.ts`.
 - [ ] T069 [US5] Show the attempt count in `src/components/YtdlDetailModal.vue` so a repeat attempt is visible as such (US5 scenario 3).
@@ -221,6 +228,8 @@ each independently trackable and retryable.
 - [ ] T077 [US6] Add expansion to `server/internal/api/ytdl_reconcile.go`: run the listing Job for a `resolving` request, read its entries, skip items already held (FR-020), and insert the rest in one transaction.
 - [ ] T078 [US6] [TEST] In `server/internal/api/ytdl_reconcile_test.go`, add a case asserting a dismissed record means an item is no longer held and is fetched again (FR-020a).
 - [ ] T079 [US6] [TEST] In `server/internal/api/ytdl_reconcile_test.go`, add a case asserting a `resolving` request whose expansion worker vanishes reaches `failed` rather than waiting forever (FR-013d).
+- [ ] T079a [US6] [TEST] In `server/internal/ytdl/expand_test.go`, add a case asserting **no ceiling** on expansion (FR-017): a large entry list yields one record per entry with no truncation, no cap constant, and no silent drop. This was an explicit product decision and nothing else guards it.
+- [ ] T079b [US6] [TEST] In `server/internal/api/ytdl_reconcile_test.go`, extend T079's coverage to the other way a download can sit forever (FR-013d): a `scheduled` download whose pod never appears must reach `failed` rather than waiting indefinitely.
 - [ ] T080 [US6] Add group state derivation and aggregate counts to `server/internal/store/ytdl_repos.go`.
 - [ ] T081 [US6] [TEST] Add `server/internal/api/ytdl_detail_test.go` cases for `GET /v1/ytdl/{requestId}/items` — paged items plus the group aggregate; 404 for a group the caller may not see.
 - [ ] T082 [US6] Add the group-items handler to `server/internal/api/ytdl_detail.go` and register the route.
@@ -243,7 +252,7 @@ both modes.
 
 - [ ] T087 [P] [US8] [TEST] Add `server/internal/ytdl/sanitize_test.go` — table-driven and adversarial: path separators, parent-directory references, absolute paths, leading dots, control characters, an over-long name, an empty result after stripping. **No input may produce a value that escapes the mounted library** (FR-038a).
 - [ ] T088 [US8] Create `server/internal/ytdl/sanitize.go`. This is defence in depth by intent — the extractor's own filename sanitising stays, and neither alone is the argument.
-- [ ] T089 [US8] [TEST] Add `server/internal/ytdl/command_test.go` cases asserting the group name reaches the worker as a discrete argument, never concatenated (FR-038), that album falls back playlist/channel → generic (FR-036), and that the folder template and the tag template remain the same expression.
+- [ ] T089 [US8] [TEST] Add `server/internal/ytdl/command_test.go` cases asserting the group name reaches the worker as a discrete argument, never concatenated (FR-038), that album falls back playlist/channel → generic (FR-036), and that the folder template and the tag template remain the same expression. Also assert artist still falls back to the uploader (FR-035) — that works today and has no test, and T090 edits the very same expression.
 - [ ] T090 [US8] Change `tmplAlbum` and the metadata arguments in `server/internal/ytdl/command.go` to take the sanitised group name, preserving the folder/tag identity that keeps a track from being foldered as one thing and tagged as another.
 - [ ] T091 [US8] Pass the group name through `JobConfig` in `server/internal/ytdl/job.go` for expanded items (FR-037).
 - [ ] T092 [US8] **Experiment (R9)**: run the music-video path against the pinned `jauderho/yt-dlp:2026.08.19` and inspect the output file for embedded cover art. Record the result in `research.md`.
@@ -274,6 +283,7 @@ both modes.
 - [ ] T103 [P] Confirm the list stays responsive at several thousand records (SC-006a) — seed the store and measure; the page query must not load the whole history.
 - [ ] T104 [P] Update `CLAUDE.md`: the six states, the reconciler, the queue, `pods/log`, and `YTDL_MAX_PARALLEL`. The existing text describes spec 0012's four states and "no server-side queue".
 - [ ] T105 [P] Update `docs/UPGRADING.md` with the operator-facing change: a new environment variable and a widened Role.
+- [ ] T105a [P] Review `e2e/stateful/ytdl-fab.spec.ts` and `e2e/stateful/ytdl.spec.ts` against the changed submit response and the new states, and update any assertion that encoded spec 0012's four-state model.
 - [ ] T106 Run the full gate: `npm run build`, `npm run test:unit:coverage`, `cd server && go build ./... && go vet ./... && go test ./...`, `npm run test:e2e`.
 - [ ] T107 Set the spec `Status:` to `in-review` and run `make roadmap`.
 

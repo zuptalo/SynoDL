@@ -28,9 +28,11 @@ Changed behaviour:
   playlist or channel) and the reconciler admits it (FR-021, FR-022).
 - Duplicate in-flight for the same `(video_id, mode)` is still refused `409`
   (0012 FR-023, unchanged).
+- The status stays **`202 Accepted`**, as the shipped handler already returns.
+  Nothing in this spec asks for it to change, and the client checks it.
 
 ```json
-201 { "requestId": "…", "kind": "single"|"group", "scope": "…", "mode": "…", "state": "queued"|"resolving" }
+202 { "requestId": "…", "kind": "single"|"group", "scope": "…", "mode": "…", "state": "queued"|"resolving" }
 409 { "error": "that link is already downloading", "requestId": "…" }
 400 { "error": "that link is not a supported YouTube address" }
 503 { "error": "downloading from YouTube is not set up on this server" }

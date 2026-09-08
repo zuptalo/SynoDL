@@ -44,17 +44,19 @@ reversed:
 
 | 0012 decision | Superseded by | Why it changes |
 |---|---|---|
-| **FR-017** — exactly four states, no progress, no rate, no estimate | FR-010, FR-011 | 0012 noted the worker "has no channel back to us". It does: a worker's own output is readable, and that output can be a format SynoDL defines rather than text it scrapes. |
+| **0012 FR-017** — exactly four states, no progress, no rate, no estimate | FR-010, FR-011 | 0012 noted the worker "has no channel back to us". It does: a worker's own output is readable, and that output can be a format SynoDL defines rather than text it scrapes. |
 | **Assumption** — "concurrency is bounded by a small operator-invisible limit, tuned in code", with no server-side queue | FR-021 – FR-025 | A cluster-bounded limit means excess requests sit Pending as far as the cluster is concerned, which the user cannot see or reorder. An explicit, durable queue of 4 is visible, survives restart, and is the operator's to tune. |
-| **FR-024** — only *failures* get a durable record; a success fades with the orchestrator's cleanup window | FR-001 – FR-005 | "The saved files are its record" holds for the media server, but not for the user asking what they downloaded last Tuesday. |
-| **FR-014 / FR-015** — a channel or playlist is one bulk request, deduplicated by the library's own archive file | FR-014 – FR-020 | A single bulk row cannot show which item is downloading, cannot report which item failed, and cannot be retried at item granularity. |
-| **FR-024a** as implemented — dismissal is refused while a download is running | FR-005a – FR-005c | With a queue and with groups of hundreds, refusing dismissal leaves no way to call off work already started. Dismissal now forgets the record and cancels what has not started, while still never stranding a running worker. |
+| **0012 FR-024** — only *failures* get a durable record; a success fades with the orchestrator's cleanup window | FR-001 – FR-005 | "The saved files are its record" holds for the media server, but not for the user asking what they downloaded last Tuesday. |
+| **0012 FR-014 / FR-015** — a channel or playlist is one bulk request, deduplicated by the library's own archive file | FR-014 – FR-020 | A single bulk row cannot show which item is downloading, cannot report which item failed, and cannot be retried at item granularity. |
+| **0012 FR-024a** as implemented — dismissal is refused while a download is running | FR-005a – FR-005c | With a queue and with groups of hundreds, refusing dismissal leaves no way to call off work already started. Dismissal now forgets the record and cancels what has not started, while still never stranding a running worker. |
 
-Three 0012 decisions explicitly **stand**:
+Three 0012 decisions explicitly **stand**. They are written `0012 FR-nnn`
+throughout, because this spec has its OWN FR-021 and FR-005 meaning entirely
+different things — an unqualified reference here would name the wrong rule:
 
-- **FR-021** — nothing retries automatically. Retry in this spec is always a
+- **0012 FR-021** — nothing retries automatically. Retry in this spec is always a
   deliberate user action.
-- **FR-005** — the download never runs inside the SynoDL server process.
+- **0012 FR-005** — the download never runs inside the SynoDL server process.
 - The Principle III rule that in-flight worker state is derived from the
   orchestrator, never mirrored. What this spec stores is the **request** and its
   **finished outcome**; while a worker is alive, what it is doing is still read
@@ -462,19 +464,6 @@ playlist names, with embedded cover art, in both music and music-video modes.
 - **FR-013**: Where progress cannot be determined, System MUST still report the
   download's correct life state and MUST NOT display an invented or stale
   percentage. Losing progress MUST NOT cause a download to be reported as failed.
-- **FR-013e**: Reading a worker's output MUST be bounded in size, so a worker that
-  produces far more output than expected cannot become a memory problem for the
-  server.
-- **FR-013f**: Reading a worker's output MUST be bounded in frequency and MUST NOT
-  scale with the number of viewers watching. A download's progress is read because
-  the download is running, not because someone is looking at it.
-- **FR-013g**: Facts that outlive the worker — whether a lyrics file was written,
-  in which language, and the final progress — MUST be captured into the durable
-  record while the worker's output is still readable. The record is durable; the
-  output it came from is not.
-- **FR-013h**: A worker's output MUST be treated as untrusted external input
-  wherever it is read, including the output of an expansion worker, which carries
-  many titles and links at once.
 
 **The states a download moves through**
 
@@ -493,6 +482,22 @@ playlist names, with embedded cover art, in both music and music-video modes.
 - **FR-013d**: *Completed* and *failed* are final. Every other state MUST be able
   to reach a final state without user intervention, so nothing can sit forever in
   *resolving*, *queued*, or *scheduled*.
+
+**Reading a worker's output**
+
+- **FR-013e**: Reading a worker's output MUST be bounded in size, so a worker that
+  produces far more output than expected cannot become a memory problem for the
+  server.
+- **FR-013f**: Reading a worker's output MUST be bounded in frequency and MUST NOT
+  scale with the number of viewers watching. A download's progress is read because
+  the download is running, not because someone is looking at it.
+- **FR-013g**: Facts that outlive the worker — whether a lyrics file was written,
+  in which language, and the final progress — MUST be captured into the durable
+  record while the worker's output is still readable. The record is durable; the
+  output it came from is not.
+- **FR-013h**: A worker's output MUST be treated as untrusted external input
+  wherever it is read, including the output of an expansion worker, which carries
+  many titles and links at once.
 
 **Playlists and channels become individual items**
 
@@ -550,8 +555,9 @@ playlist names, with embedded cover art, in both music and music-video modes.
   pasted link is an immediate want, a bulk expansion is background work.
 - **FR-023**: The queue MUST survive a restart of the SynoDL server, resuming
   rather than stranding or duplicating waiting work.
-- **FR-024**: A *queued* download MUST leave the queue and never start when its
-  owner dismisses it (FR-005b).
+- **FR-024**: Dismissal of a *queued* download is governed by FR-005b — it leaves
+  the queue and never starts. Stated here only so the queue requirements read
+  completely; FR-005b is the rule.
 - **FR-025**: The parallel limit MUST be configurable by the operator.
 
 **Notifications**

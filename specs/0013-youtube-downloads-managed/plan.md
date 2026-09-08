@@ -50,8 +50,8 @@ download (SC-005a).
 history; single replica, so one admitter and no distributed lock; the server
 never mounts a media library.
 
-**Scale/Scope**: one channel may expand to thousands of records. ~8 server
-packages touched, 1 migration, 6 endpoints, 3 client surfaces.
+**Scale/Scope**: one channel may expand to thousands of records. 7 server
+packages touched, 1 migration, 7 endpoints, 3 client surfaces.
 
 ## Constitution Check
 
