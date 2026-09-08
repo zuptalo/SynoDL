@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -318,7 +319,7 @@ func TestYtdlSubmit_RefusesADuplicateInFlight(t *testing.T) {
 	}
 }
 
-func TestYtdlList_ReportsTheFourStates(t *testing.T) {
+func TestYtdlList_ReportsTheLifecycleStates(t *testing.T) {
 	jobs := &fakeJobs{}
 	h, _ := newYtdlRouter(t, jobs, ytdlCfg())
 	admin := adminAfterSetup(t, h)
@@ -339,14 +340,23 @@ func TestYtdlList_ReportsTheFourStates(t *testing.T) {
 	}
 	check("scheduled")
 	jobs.setStatus(t, sub.RequestID, k8s.JobStatus{Active: 1})
-	check("started")
+	// "downloading", not spec 0012's "started": the six-state model renamed it
+	// so the state that carries progress says what it is (FR-013a).
+	check("downloading")
 	jobs.setStatus(t, sub.RequestID, k8s.JobStatus{Succeeded: 1})
 	check("completed")
 }
 
-// FR-017: absent from the contract, not present-and-zero, so nothing can
-// quietly begin populating them.
-func TestYtdlList_CarriesNoProgressFields(t *testing.T) {
+// A YouTube download is not a NAS transfer, and its shape must not pretend to
+// be one. Spec 0012 excluded progress along with everything else because the
+// worker had no channel back to us; spec 0013 reads the worker's own output, so
+// progress belongs here — but the transfer-shaped fields still do not, because
+// nothing produces them and a zero-valued field is an invitation to start.
+//
+// Progress itself must be ABSENT rather than 0 until something is known, which
+// is the same rule stated from the other side (FR-013): an unreadable log must
+// not render as a download stuck at the start.
+func TestYtdlList_CarriesNoTransferFields(t *testing.T) {
 	jobs := &fakeJobs{}
 	h, _ := newYtdlRouter(t, jobs, ytdlCfg())
 	admin := adminAfterSetup(t, h)
@@ -357,10 +367,16 @@ func TestYtdlList_CarriesNoProgressFields(t *testing.T) {
 		Downloads []map[string]any `json:"downloads"`
 	}
 	_ = json.Unmarshal(rec.Body.Bytes(), &raw)
-	for _, forbidden := range []string{"size", "downloaded", "uploaded", "downloadSpeed", "uploadSpeed", "progress", "eta", "peers", "seeders"} {
+	for _, forbidden := range []string{"size", "downloaded", "uploaded", "downloadSpeed", "uploadSpeed", "eta", "peers", "seeders"} {
 		if _, ok := raw.Downloads[0][forbidden]; ok {
-			t.Errorf("field %q must not exist in the ytdl shape (FR-017)", forbidden)
+			t.Errorf("field %q must not exist in the ytdl shape — nothing produces it", forbidden)
 		}
+	}
+	if _, ok := raw.Downloads[0]["progress"]; ok {
+		t.Error("progress must be absent while nothing is known, never 0 (FR-013)")
+	}
+	if _, ok := raw.Downloads[0]["finishedAt"]; ok {
+		t.Error("finishedAt must be absent until the download is final, never 0 (FR-033)")
 	}
 }
 
@@ -383,9 +399,8 @@ func TestYtdlList_AVanishedJobIsNotCompleted(t *testing.T) {
 	if got.Downloads[0].State != "failed" {
 		t.Fatalf("state = %q, want failed", got.Downloads[0].State)
 	}
-	stored, _ := st.ListYtdlFailures()
-	if len(stored) != 1 {
-		t.Fatalf("a failure must be recorded durably, got %d rows", len(stored))
+	if rec, err := st.GetYtdlDownload(sub.RequestID); err != nil || rec.State != "failed" {
+		t.Fatalf("a failure must be recorded durably, got %+v (%v)", rec, err)
 	}
 
 	_ = jobs.DeleteJob(context.Background(), ytdl.JobName(sub.RequestID))
@@ -410,9 +425,16 @@ func TestYtdlList_RepeatedObservationDoesNotDuplicate(t *testing.T) {
 	for i := 0; i < 4; i++ {
 		listYtdl(t, h, admin)
 	}
-	stored, _ := st.ListYtdlFailures()
-	if len(stored) != 1 {
-		t.Fatalf("polling created %d failure rows, want 1", len(stored))
+	// Polling must not keep rewriting the record: the FIRST sighting is when it
+	// failed, and a moving timestamp would make the history meaningless.
+	first, err := st.GetYtdlDownload(sub.RequestID)
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	listYtdl(t, h, admin)
+	again, _ := st.GetYtdlDownload(sub.RequestID)
+	if first.FinishedAt == nil || again.FinishedAt == nil || *first.FinishedAt != *again.FinishedAt {
+		t.Fatalf("re-observing moved finishedAt: %v then %v", first.FinishedAt, again.FinishedAt)
 	}
 	got := listYtdl(t, h, admin)
 	if len(got.Downloads) != 1 {
@@ -426,9 +448,10 @@ func TestYtdlList_DegradesWhenTheOrchestratorIsDown(t *testing.T) {
 	jobs := &fakeJobs{}
 	h, st := newYtdlRouter(t, jobs, ytdlCfg())
 	admin := adminAfterSetup(t, h)
-	if err := st.RecordYtdlFailure(store.YtdlFailure{
-		RequestID: "old", SourceURL: "https://youtu.be/old", Mode: "music", Scope: "single",
-		Reason: "the download did not complete", FailedAt: 1757000000,
+	if err := st.CreateYtdlDownload(store.YtdlDownload{
+		RequestID: "old", Kind: store.YtdlKindSingle,
+		SourceURL: "https://youtu.be/old", VideoID: "old", Mode: "music", Scope: "single",
+		State: "failed", Reason: "the download did not complete", CreatedAt: 1757000000,
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -452,20 +475,19 @@ func TestYtdlDismiss(t *testing.T) {
 	var sub ytdlSubmitResp
 	_ = json.Unmarshal(rec.Body.Bytes(), &sub)
 
-	// While it is still running, dismissing would strand the worker.
+	// FR-005c. Spec 0012 refused this while a download was running; spec 0013
+	// allows it, because with a queue and with groups of hundreds there has to
+	// be a way to call off work already started. The record goes; the worker is
+	// left to finish rather than stranded mid-write.
 	jobs.setStatus(t, sub.RequestID, k8s.JobStatus{Active: 1})
-	if r := do(t, h, "DELETE", "/v1/ytdl/"+sub.RequestID, "", admin); r.Code != http.StatusConflict {
-		t.Fatalf("dismiss while running = %d, want 409", r.Code)
-	}
-
-	jobs.setStatus(t, sub.RequestID, k8s.JobStatus{Failed: 1})
-	listYtdl(t, h, admin) // observe, so the failure is recorded
 	if r := do(t, h, "DELETE", "/v1/ytdl/"+sub.RequestID, "", admin); r.Code != http.StatusNoContent {
-		t.Fatalf("dismiss = %d, want 204", r.Code)
+		t.Fatalf("dismiss while running = %d, want 204", r.Code)
 	}
-	stored, _ := st.ListYtdlFailures()
-	if len(stored) != 0 {
-		t.Errorf("dismiss should remove the stored failure, got %+v", stored)
+	if _, err := st.GetYtdlDownload(sub.RequestID); !errors.Is(err, store.ErrNotFound) {
+		t.Errorf("dismiss should remove the record, got %v", err)
+	}
+	if len(jobs.deleted) != 0 {
+		t.Errorf("a running worker was deleted mid-write: %v", jobs.deleted)
 	}
 	if r := do(t, h, "DELETE", "/v1/ytdl/nope", "", admin); r.Code != http.StatusNotFound {
 		t.Errorf("dismissing an unknown id = %d, want 404", r.Code)
@@ -648,4 +670,14 @@ func TestYtdlDismiss_AdminMayDismissAnothersDownload(t *testing.T) {
 	if rec := do(t, h, "DELETE", "/v1/ytdl/"+out.RequestID, "", admin); rec.Code != http.StatusNoContent {
 		t.Fatalf("admin dismiss = %d %s, want 204", rec.Code, rec.Body.String())
 	}
+}
+
+// listYtdl2 lists without failing the test on a non-200, for the cases where a
+// degraded answer is the thing under test.
+func listYtdl2(t *testing.T, h http.Handler, auth map[string]string) ytdlListResp {
+	t.Helper()
+	rec := do(t, h, "GET", "/v1/ytdl", "", auth)
+	var out ytdlListResp
+	_ = json.Unmarshal(rec.Body.Bytes(), &out)
+	return out
 }

@@ -54,11 +54,18 @@ const linkLabel = computed(() => {
   }
 });
 
+// Six states (spec 0013). `queued` and `scheduled` read differently on purpose:
+// "waiting its turn" is SynoDL holding it behind the parallel limit, which can
+// be a long wait and is nobody's fault, while "starting" means the worker is
+// coming up now. Collapsing them would make the first look like the second was
+// hanging.
 const stateLabel = computed(
   () =>
     ({
-      scheduled: 'queued',
-      started: 'downloading',
+      resolving: 'reading contents',
+      queued: 'waiting its turn',
+      scheduled: 'starting',
+      downloading: 'downloading',
       completed: 'saved',
       failed: 'failed',
     })[props.download.state],
@@ -67,8 +74,10 @@ const stateLabel = computed(
 const stateColorVar = computed(
   () =>
     ({
+      resolving: 'var(--ion-color-medium)',
+      queued: 'var(--ion-color-medium)',
       scheduled: 'var(--ion-color-medium)',
-      started: 'var(--ion-color-primary)',
+      downloading: 'var(--ion-color-primary)',
       completed: 'var(--ion-color-success)',
       failed: 'var(--ion-color-danger)',
     })[props.download.state],
@@ -77,8 +86,10 @@ const stateColorVar = computed(
 const stateIcon = computed(
   () =>
     ({
+      resolving: hourglassOutline,
+      queued: hourglassOutline,
       scheduled: hourglassOutline,
-      started: isVideo.value ? videocamOutline : musicalNotesOutline,
+      downloading: isVideo.value ? videocamOutline : musicalNotesOutline,
       completed: checkmarkCircleOutline,
       failed: warningOutline,
     })[props.download.state],
@@ -97,11 +108,12 @@ const artworkSrc = computed(() =>
 // A thumbnail that 404s must leave the icon behind, not a hole (FR-007).
 const artworkFailed = ref(false);
 
-// Only a finished download can be dismissed. Removing a running one would
-// strand its worker mid-write, so the action is not offered at all.
-const canDismiss = computed(
-  () => props.download.state === 'completed' || props.download.state === 'failed',
-);
+// Any download can be dismissed (spec 0013, FR-005c). Spec 0012 offered this
+// only on a finished one, because dismissing a running download would have
+// stranded its worker. It no longer does: the record goes at once and the worker
+// is left to finish, so there is no reason to make someone wait out a channel
+// they started by mistake.
+const canDismiss = computed(() => true);
 </script>
 
 <template>

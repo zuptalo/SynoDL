@@ -85,7 +85,70 @@ func (d Deps) reconcileYtdlOnce(ctx context.Context) {
 		return
 	}
 
+	live := make(map[string]k8s.Job, len(jobs))
+	for _, j := range jobs {
+		if id := j.Metadata.Labels[ytdl.LabelRequestID]; id != "" {
+			live[id] = j
+		}
+	}
+
 	d.readWorkerOutput(ctx, jobs)
+	d.captureFinished(live)
+	d.sweepDismissed(ctx, jobs)
+}
+
+// captureFinished writes the outcome of anything that has just become final.
+//
+// This is what makes a download's history survive the orchestrator sweeping its
+// job — and it runs on the clock rather than only when somebody looks, so a
+// download that finishes overnight is recorded overnight (FR-002, FR-003).
+//
+// A write that fails is deliberately swallowed. FR-006b: a download that has
+// already saved its files must never be REPORTED as failed because the server
+// could not write a row about it. The files exist either way, and the next cycle
+// tries again.
+func (d Deps) captureFinished(live map[string]k8s.Job) {
+	if d.Store == nil {
+		return
+	}
+	for id, j := range live {
+		state := ytdl.StateOf(j)
+		if !state.Terminal() {
+			continue
+		}
+		rec, err := d.Store.GetYtdlDownload(id)
+		if err != nil {
+			// No record: a job this server did not create, or one whose record
+			// the user has already dismissed. Neither is ours to invent a row for.
+			continue
+		}
+		reason := ""
+		if state == ytdl.StateFailed {
+			reason = ytdl.FailureReason(j)
+		}
+		d.captureTerminal(rec, string(state), reason)
+	}
+}
+
+// sweepDismissed deletes jobs whose record the user has dismissed.
+//
+// Dismissing removes the record at once, but a RUNNING worker is left to finish
+// rather than stranded mid-write (FR-005b). This is what clears up after it: once
+// that worker is done, its job has no record left to belong to, so it goes.
+func (d Deps) sweepDismissed(ctx context.Context, jobs []k8s.Job) {
+	if d.Store == nil {
+		return
+	}
+	for _, j := range jobs {
+		id := j.Metadata.Labels[ytdl.LabelRequestID]
+		if id == "" || !ytdl.StateOf(j).Terminal() {
+			continue
+		}
+		if _, err := d.Store.GetYtdlDownload(id); err == nil {
+			continue // still wanted
+		}
+		_ = d.Jobs.DeleteJob(ctx, j.Metadata.Name)
+	}
 }
 
 // readWorkerOutput reads what each RUNNING worker says about itself.
@@ -96,7 +159,7 @@ func (d Deps) reconcileYtdlOnce(ctx context.Context) {
 func (d Deps) readWorkerOutput(ctx context.Context, jobs []k8s.Job) {
 	var running []k8s.Job
 	for _, j := range jobs {
-		if ytdl.StateOf(j) == ytdl.StateStarted {
+		if ytdl.StateOf(j) == ytdl.StateDownloading {
 			running = append(running, j)
 		}
 	}

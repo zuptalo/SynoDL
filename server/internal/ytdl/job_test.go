@@ -200,7 +200,7 @@ func TestStateOf(t *testing.T) {
 		want State
 	}{
 		{"created, nothing running yet", k8s.JobStatus{}, StateScheduled},
-		{"pod running", k8s.JobStatus{Active: 1}, StateStarted},
+		{"pod running", k8s.JobStatus{Active: 1}, StateDownloading},
 		{"succeeded count", k8s.JobStatus{Succeeded: 1}, StateCompleted},
 		{"complete condition", cond("Complete", "True", ""), StateCompleted},
 		{"failed count", k8s.JobStatus{Failed: 1}, StateFailed},
@@ -224,7 +224,48 @@ func TestState_Terminal(t *testing.T) {
 	if !StateCompleted.Terminal() || !StateFailed.Terminal() {
 		t.Error("completed and failed are terminal")
 	}
-	if StateScheduled.Terminal() || StateStarted.Terminal() {
+	if StateScheduled.Terminal() || StateDownloading.Terminal() {
 		t.Error("scheduled and started are not terminal")
+	}
+}
+
+// The six states and the transitions between them (spec 0013, FR-013a/c).
+func TestStateTransitions(t *testing.T) {
+	for _, tc := range []struct {
+		from, to State
+		want     bool
+		why      string
+	}{
+		{StateQueued, StateScheduled, true, "a queued download is admitted"},
+		{StateScheduled, StateDownloading, true, "the worker starts"},
+		{StateDownloading, StateCompleted, true, "it finishes"},
+		{StateDownloading, StateFailed, true, "or it does not"},
+		{StateResolving, StateQueued, true, "expansion produces items, each queued"},
+		{StateResolving, StateFailed, true, "expansion can fail outright"},
+		{StateFailed, StateQueued, true, "an explicit retry, the only way out of a final state"},
+
+		{StateCompleted, StateQueued, false, "a completed download is never re-run"},
+		{StateCompleted, StateDownloading, false, "nor resumed"},
+		{StateFailed, StateDownloading, false, "a retry goes through the queue, never straight to a worker"},
+		{StateQueued, StateDownloading, false, "nothing skips admission"},
+		{StateDownloading, StateQueued, false, "a running download does not go back to waiting"},
+		{StateScheduled, StateQueued, false, "once handed over, it is not un-handed"},
+	} {
+		if got := tc.from.CanTransitionTo(tc.to); got != tc.want {
+			t.Errorf("%s → %s = %v, want %v (%s)", tc.from, tc.to, got, tc.want, tc.why)
+		}
+	}
+}
+
+func TestStateValid(t *testing.T) {
+	for _, s := range []State{StateResolving, StateQueued, StateScheduled, StateDownloading, StateCompleted, StateFailed} {
+		if !s.Valid() {
+			t.Errorf("%q should be a valid state", s)
+		}
+	}
+	for _, s := range []State{"", "started", "pending", "running"} {
+		if State(s).Valid() {
+			t.Errorf("%q should NOT be a valid state — 'started' in particular was spec 0012's name for downloading", s)
+		}
 	}
 }

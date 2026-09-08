@@ -11,7 +11,7 @@
  * that harder to read.
  */
 import { expect, test } from '@playwright/test';
-import { ADMIN, apiToken } from './helpers';
+import { ADMIN, apiToken, clearYtdl } from './helpers';
 
 const SF_PORT = Number(process.env.SYNODL_E2E_SF_PORT) || 8283;
 const K8S = `http://localhost:${process.env.SYNODL_E2E_SF_K8S_PORT || 8296}`;
@@ -56,6 +56,9 @@ async function secondUser(adminToken: string, username: string): Promise<string>
 
 test.beforeEach(async () => {
   await fetch(`${K8S}/__mock/reset`, { method: 'POST' });
+  // Download records are durable (spec 0013), so a previous test's history
+  // would otherwise be counted by this one's assertions.
+  await clearYtdl(await apiToken());
 });
 
 test('a user sees their own YouTube downloads and nobody else’s', async () => {

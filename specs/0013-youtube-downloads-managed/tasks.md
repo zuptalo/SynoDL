@@ -106,16 +106,16 @@ is still listed with title, artwork, link and both timestamps.
 
 **Depends on**: Phase 1. Uses Phase 2's reconciler for capture (T033).
 
-- [ ] T025 [US2] [TEST] Add `server/internal/store/ytdl_repos_test.go` cases for the `ytdl_downloads` table: insert, read back, page by cursor, the `(video_id, mode)` already-held lookup, group aggregate counts, and that a deleted user leaves the row with a NULL `user_id` rather than deleting it.
-- [ ] T026 [US2] [TEST] Add a case in `server/internal/store/migrations_golden_test.go` asserting the new migration runs twice without error — the spec 1031 drift repair rewinds and replays, so a migration that cannot run twice is a boot failure. Add a second case for FR-006c: a migration that fails part-way leaves the existing data intact and the failure reportable, rather than starting against a half-changed store.
-- [ ] T027 [US2] Append the migration to `server/internal/store/schema.go` creating `ytdl_downloads` per `data-model.md`, every statement `IF NOT EXISTS`, with the backfill from `ytdl_failures` as `INSERT OR IGNORE`. `user_id` is `ON DELETE SET NULL`, matching the existing convention. Do not drop `ytdl_failures`.
-- [ ] T028 [US2] Add the `Download` type and its repository functions to `server/internal/store/ytdl_repos.go`: create, get, list-by-user paged, list-by-parent, update-state, already-held, delete-with-children.
-- [ ] T029 [US2] [TEST] Add cases to `server/internal/api/ytdl_handlers_test.go` asserting submit creates a durable record before anything else, and that the list merges live Jobs with stored records without duplicating a request id.
-- [ ] T030 [US2] Change `handleYtdlSubmit` in `server/internal/api/ytdl_handlers.go` to persist the record first and return `201` with the record's state, per `contracts/http-api.md`.
-- [ ] T031 [US2] In `server/internal/api/ytdl_handlers.go`, change `handleYtdlList` to read from `ytdl_downloads`, paged by cursor (FR-006a), returning `nextCursor`.
-- [ ] T032 [US2] [TEST] In `server/internal/api/ytdl_handlers_test.go`, add a case asserting a record that cannot be written never causes an already-saved download to be reported as failed (FR-006b).
-- [ ] T033 [US2] Add terminal-fact capture to `server/internal/api/ytdl_reconcile.go`: when a download reaches a final state, write outcome, reason and `finished_at` durably **while the worker's output is still readable** (FR-013g).
-- [ ] T034 [US2] [TEST] Extend `e2e/stateful/ytdl.spec.ts` to delete the Job via `/__mock/*` and assert the download is still listed with its title, artwork and link.
+- [X] T025 [US2] [TEST] Add `server/internal/store/ytdl_repos_test.go` cases for the `ytdl_downloads` table: insert, read back, page by cursor, the `(video_id, mode)` already-held lookup, group aggregate counts, and that a deleted user leaves the row with a NULL `user_id` rather than deleting it.
+- [X] T026 [US2] [TEST] Add a case in `server/internal/store/migrations_golden_test.go` asserting the new migration runs twice without error — the spec 1031 drift repair rewinds and replays, so a migration that cannot run twice is a boot failure. Add a second case for FR-006c: a migration that fails part-way leaves the existing data intact and the failure reportable, rather than starting against a half-changed store.
+- [X] T027 [US2] Append the migration to `server/internal/store/schema.go` creating `ytdl_downloads` per `data-model.md`, every statement `IF NOT EXISTS`, with the backfill from `ytdl_failures` as `INSERT OR IGNORE`. `user_id` is `ON DELETE SET NULL`, matching the existing convention. Do not drop `ytdl_failures`.
+- [X] T028 [US2] Add the `Download` type and its repository functions to `server/internal/store/ytdl_repos.go`: create, get, list-by-user paged, list-by-parent, update-state, already-held, delete-with-children.
+- [X] T029 [US2] [TEST] Add cases to `server/internal/api/ytdl_handlers_test.go` asserting submit creates a durable record before anything else, and that the list merges live Jobs with stored records without duplicating a request id.
+- [X] T030 [US2] Change `handleYtdlSubmit` in `server/internal/api/ytdl_handlers.go` to persist the record first and return `201` with the record's state, per `contracts/http-api.md`.
+- [X] T031 [US2] In `server/internal/api/ytdl_handlers.go`, change `handleYtdlList` to read from `ytdl_downloads`, paged by cursor (FR-006a), returning `nextCursor`.
+- [X] T032 [US2] [TEST] In `server/internal/api/ytdl_handlers_test.go`, add a case asserting a record that cannot be written never causes an already-saved download to be reported as failed (FR-006b).
+- [X] T033 [US2] Add terminal-fact capture to `server/internal/api/ytdl_reconcile.go`: when a download reaches a final state, write outcome, reason and `finished_at` durably **while the worker's output is still readable** (FR-013g).
+- [X] T034 [US2] [TEST] Extend `e2e/stateful/ytdl.spec.ts` to delete the Job via `/__mock/*` and assert the download is still listed with its title, artwork and link.
 
 **Checkpoint**: history survives the sweep; US1 + US2 are a coherent shippable increment.
 
@@ -223,7 +223,7 @@ each independently trackable and retryable.
 - [ ] T072 [US6] Create `server/internal/ytdl/expand.go`: the listing-mode argv, the entry-line template constant, and the parser. Pure.
 - [ ] T073 [US6] [TEST] Add `server/internal/ytdl/job_test.go` cases for the expansion Job: it mounts **no** media library, carries its own deadline, and is labelled so the selector finds it.
 - [ ] T074 [US6] Add `BuildExpansionJob` to `server/internal/ytdl/job.go`.
-- [ ] T075 [US6] Add the six-state model to `server/internal/ytdl/job.go` — `resolving`, `queued`, `scheduled`, `downloading`, `completed`, `failed` — replacing the four of spec 0012, with failure still checked before success everywhere.
+- [X] T075 [US6] *(brought forward into Phase 4 — the client could not express the record's states without it.)* Add the six-state model to `server/internal/ytdl/job.go` — `resolving`, `queued`, `scheduled`, `downloading`, `completed`, `failed` — replacing the four of spec 0012, with failure still checked before success everywhere.
 - [ ] T076 [US6] [TEST] Add cases for the legal transitions of `data-model.md`, including that `failed → queued` is the only edge out of a final state and only on an explicit action.
 - [ ] T077 [US6] Add expansion to `server/internal/api/ytdl_reconcile.go`: run the listing Job for a `resolving` request, read its entries, skip items already held (FR-020), and insert the rest in one transaction.
 - [ ] T078 [US6] [TEST] In `server/internal/api/ytdl_reconcile_test.go`, add a case asserting a dismissed record means an item is no longer held and is fetched again (FR-020a).

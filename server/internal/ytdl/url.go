@@ -153,6 +153,32 @@ func channelVideosPath(path string) string {
 	return "/" + strings.Join(base, "/") + "/videos"
 }
 
+// VideoID is the stable identity of a single item, used to tell whether we
+// already hold it (spec 0013, FR-016b, FR-020).
+//
+// Derived from the normalised URL rather than from the URL text, because the
+// same video has several spellings — youtu.be/X, youtube.com/watch?v=X,
+// m.youtube.com/watch?v=X, /shorts/X — and a text comparison would let any two
+// of them defeat both the already-held check and the duplicate check. Classify
+// has already collapsed the host differences; this collapses the path ones.
+//
+// Empty for a playlist or channel: those are not items and are never "held".
+func (t Target) VideoID() string {
+	if t.Scope != ScopeSingle {
+		return ""
+	}
+	u, err := url.Parse(t.URL)
+	if err != nil {
+		return ""
+	}
+	if v := u.Query().Get("v"); v != "" {
+		return v
+	}
+	// youtu.be/<id> and /shorts/<id> both put the id in the last path segment.
+	segs := strings.Split(strings.Trim(u.Path, "/"), "/")
+	return segs[len(segs)-1]
+}
+
 // Describe renders a target for a log line or an error message. It deliberately
 // never includes anything else about the request.
 func (t Target) Describe() string { return fmt.Sprintf("%s (%s)", t.URL, t.Scope) }

@@ -7,7 +7,7 @@
  * rather than waited for.
  */
 import { expect, test, type Page } from '@playwright/test';
-import { apiToken, login } from './helpers';
+import { apiToken, clearYtdl, login } from './helpers';
 
 const SF_PORT = Number(process.env.SYNODL_E2E_SF_PORT) || 8283;
 const K8S = `http://localhost:${process.env.SYNODL_E2E_SF_K8S_PORT || 8296}`;
@@ -55,14 +55,20 @@ let token = '';
 test.beforeEach(async () => {
   token = await apiToken();
   await resetJobs();
+  // Records outlive the cluster now (spec 0013), so resetting the mock is no
+  // longer enough to give a test a clean slate.
+  await clearYtdl(token);
 });
 
-test('a submitted song walks queued → downloading → saved', async ({ page }) => {
+test('a submitted song walks starting → downloading → saved', async ({ page }) => {
   const { status, requestId } = await submit(token, 'https://youtu.be/zSGhyrF7YVo', 'music');
   expect(status).toBe(202);
 
   await gotoTasks(page);
-  expect(await rowState(page)).toBe('queued');
+  // "starting" rather than "queued": a submitted download is handed to the
+  // orchestrator immediately, and `queued` now means something narrower —
+  // SynoDL holding it behind the parallel limit (spec 0013, FR-013b).
+  expect(await rowState(page)).toBe('starting');
 
   await drive(requestId, 'start');
   await expect.poll(() => rowState(page), { timeout: 20_000 }).toBe('downloading');
@@ -209,4 +215,46 @@ test('a channel with no metadata still reads sensibly', async ({ page }) => {
   await expect(row).toBeVisible({ timeout: 15_000 });
   await expect(row.getByTestId('ytdl-name')).toContainText('@someartist');
   await expect(row.getByTestId('ytdl-uploader')).toHaveCount(0);
+});
+
+/**
+ * History (spec 0013, US2). The record outlives the worker: a download that has
+ * finished stays visible with everything known about it long after the cluster
+ * has swept the job that did it.
+ */
+test('a finished download survives its job being swept away', async ({ page }) => {
+  const token = await apiToken();
+  const { requestId } = await submit(token, 'https://youtu.be/zSGhyrF7YVo', 'music');
+
+  await drive(requestId, 'start');
+  await drive(requestId, 'succeed');
+  await gotoTasks(page);
+  await expect(page.getByTestId('ytdl-status')).toHaveText('saved');
+
+  // The cluster sweeps the job. Under spec 0012 a successful download vanished
+  // with it, because the files were considered its only record.
+  await drive(requestId, 'vanish');
+
+  // Already signed in, so navigate rather than logging in again.
+  await page.goto('/tabs/tasks');
+  await expect(page.getByTestId('task-list').or(page.getByTestId('tasks-empty'))).toBeVisible();
+  const row = page.getByTestId('ytdl-item').first();
+  await expect(row).toBeVisible();
+  await expect(page.getByTestId('ytdl-status')).toHaveText('saved');
+  // And it still knows what it was, not just that something happened.
+  await expect(page.getByTestId('ytdl-name')).not.toHaveText('');
+});
+
+test('a queued download reads differently from one that is starting', async ({ page }) => {
+  // FR-013b. "SynoDL is holding this behind others" and "the worker is coming
+  // up now" are different waits, and a user who cannot tell them apart reads the
+  // first as the second hanging.
+  const token = await apiToken();
+  const { requestId } = await submit(token, 'https://youtu.be/zSGhyrF7YVo', 'music');
+
+  await gotoTasks(page);
+  await expect(page.getByTestId('ytdl-status')).toHaveText('starting');
+
+  await drive(requestId, 'start');
+  await expect(page.getByTestId('ytdl-status')).toHaveText('downloading');
 });

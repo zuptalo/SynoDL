@@ -306,3 +306,29 @@ export function folderNameFor(title: string): string {
     .slice(0, 120)
     .trim();
 }
+
+/**
+ * Forget every YouTube download this instance knows about.
+ *
+ * Needed since spec 0013: download records are DURABLE, so resetting the mock
+ * cluster clears the jobs and leaves the records behind. Without this, each test
+ * inherits the previous one's history and any assertion about how many rows
+ * exist becomes order-dependent.
+ */
+export async function clearYtdl(token: string): Promise<void> {
+  const base = `http://localhost:${Number(process.env.SYNODL_E2E_SF_PORT) || 8283}`;
+  for (;;) {
+    const res = await fetch(`${base}/v1/ytdl?limit=200`, {
+      headers: { 'X-SynoDL-Session': token },
+    });
+    if (!res.ok) return;
+    const { downloads } = (await res.json()) as { downloads: { requestId: string }[] };
+    if (downloads.length === 0) return;
+    for (const d of downloads) {
+      await fetch(`${base}/v1/ytdl/${d.requestId}`, {
+        method: 'DELETE',
+        headers: { 'X-SynoDL-Session': token },
+      });
+    }
+  }
+}

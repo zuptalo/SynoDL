@@ -199,19 +199,74 @@ func JobName(requestID string) string {
 	return n
 }
 
-// State is what the app shows. There are four, deliberately: no progress, no
-// rate, no estimate (FR-017).
+// State is what the app shows. There are six (spec 0013, FR-013a), where spec
+// 0012 had four.
+//
+// The two additions are both about waiting, and keeping them apart is the point.
+// A download can be waiting because SynoDL is holding it behind the parallel
+// limit, or because the orchestrator has accepted it and has not started a
+// worker yet. Those are different waits with very different expected durations,
+// and collapsing them would make the first look like the second was taking
+// forever (FR-013b).
+//
+// Resolving is the state spec 0012 could not express at all: working out what a
+// playlist or channel link CONTAINS is neither waiting nor downloading.
 type State string
 
 const (
+	// StateResolving: an expansion worker is listing what a link contains.
+	StateResolving State = "resolving"
+	// StateQueued: accepted, recorded, and waiting for a slot. No worker exists,
+	// which is why this state is durable without mirroring anything.
+	StateQueued State = "queued"
+	// StateScheduled: admitted; the orchestrator has the job but no pod is
+	// running yet.
 	StateScheduled State = "scheduled"
-	StateStarted   State = "started"
-	StateCompleted State = "completed"
-	StateFailed    State = "failed"
+	// StateDownloading: a worker is fetching. The ONLY state that carries
+	// progress.
+	StateDownloading State = "downloading"
+	StateCompleted   State = "completed"
+	StateFailed      State = "failed"
 )
 
 // Terminal reports whether the state can still change.
 func (s State) Terminal() bool { return s == StateCompleted || s == StateFailed }
+
+// Valid reports whether s is one of the six.
+func (s State) Valid() bool {
+	switch s {
+	case StateResolving, StateQueued, StateScheduled, StateDownloading, StateCompleted, StateFailed:
+		return true
+	}
+	return false
+}
+
+// CanTransitionTo reports whether moving from s to next is legal (FR-013c).
+//
+// The only edge out of a final state is failed → queued, and only a deliberate
+// user retry may take it — nothing here retries on its own (0012 FR-021, which
+// spec 0013 explicitly keeps).
+func (s State) CanTransitionTo(next State) bool {
+	if !s.Valid() || !next.Valid() {
+		return false
+	}
+	switch s {
+	case StateResolving:
+		// Expansion either fails, or produces items that each start queued.
+		return next == StateFailed || next == StateQueued
+	case StateQueued:
+		return next == StateScheduled || next == StateFailed
+	case StateScheduled:
+		return next == StateDownloading || next == StateCompleted || next == StateFailed
+	case StateDownloading:
+		return next == StateCompleted || next == StateFailed
+	case StateFailed:
+		return next == StateQueued // retry, and only ever explicitly
+	case StateCompleted:
+		return false
+	}
+	return false
+}
 
 // StateOf maps a Job's status onto the four states.
 //
@@ -242,9 +297,12 @@ func StateOf(j k8s.Job) State {
 		return StateCompleted
 	}
 	if j.Status.Active > 0 {
-		return StateStarted
+		return StateDownloading
 	}
 	// Created, but nothing is running yet — the cluster has not scheduled a pod.
+	// Note that a job EXISTS here, so this is never `queued`: queued means
+	// SynoDL has not handed it over at all, which is a fact about the record
+	// rather than about any job.
 	return StateScheduled
 }
 

@@ -35,29 +35,56 @@ type JobRunner interface {
 
 // ytdlDownloadView is the wire shape of one download.
 //
-// Note what is NOT here: no size, no downloaded, no speed, no percentage, no
-// estimate. Their ABSENCE is the requirement (FR-017) — a zero-valued field
-// would be an invitation to start populating it later.
+// Spec 0012 deliberately carried no progress here, on the grounds that the
+// worker had no channel back to us. It does (spec 0013), so Progress exists —
+// but only while a download is actually running. It is a pointer so that
+// "nothing is known" is an ABSENT field rather than a confident 0%, which is
+// what FR-013 is about: an unreadable log must not look like a stalled download.
 type ytdlDownloadView struct {
 	RequestID string `json:"requestId"`
+	ParentID  string `json:"parentId,omitempty"`
+	Kind      string `json:"kind"`
 	URL       string `json:"url"`
 	// What it is, when the source would say (spec 1034). Omitted rather than
 	// empty, so the client renders its fallback on absence instead of on "".
-	Title       string `json:"title,omitempty"`
-	Uploader    string `json:"uploader,omitempty"`
-	Artwork     string `json:"artwork,omitempty"`
-	Mode        string `json:"mode"`
-	Scope       string `json:"scope"`
-	State       string `json:"state"`
-	SubmittedBy string `json:"submittedBy,omitempty"`
-	SubmittedAt int64  `json:"submittedAt,omitempty"`
-	Reason      string `json:"reason,omitempty"`
+	Title    string `json:"title,omitempty"`
+	Uploader string `json:"uploader,omitempty"`
+	Artwork  string `json:"artwork,omitempty"`
+	Mode     string `json:"mode"`
+	Scope    string `json:"scope"`
+	State    string `json:"state"`
+	// GroupName is the playlist or channel an expanded item came from (FR-019c).
+	GroupName   string   `json:"groupName,omitempty"`
+	Progress    *float64 `json:"progress,omitempty"`
+	HasLyrics   *bool    `json:"hasLyrics,omitempty"`
+	LyricsLang  string   `json:"lyricsLang,omitempty"`
+	Attempts    int      `json:"attempts,omitempty"`
+	SubmittedBy string   `json:"submittedBy,omitempty"`
+	SubmittedAt int64    `json:"submittedAt,omitempty"`
+	// FinishedAt is a POINTER for the same reason Progress is: a download that
+	// has not finished has no final timestamp, and 0 would render as 1970.
+	FinishedAt *int64 `json:"finishedAt,omitempty"`
+	Reason     string `json:"reason,omitempty"`
+	// Counts is a group's aggregate — how its items are getting on (FR-019).
+	Counts *ytdlCountsView `json:"counts,omitempty"`
+}
+
+type ytdlCountsView struct {
+	Total     int `json:"total"`
+	Completed int `json:"completed"`
+	Failed    int `json:"failed"`
+	Remaining int `json:"remaining"`
 }
 
 type ytdlListView struct {
 	Downloads []ytdlDownloadView `json:"downloads"`
-	// Degraded means the live half could not be read. Stored failures are still
-	// returned: a partial answer beats an error page.
+	// NextCursor is absent on the last page. History is unbounded (FR-006), so
+	// the list is paged rather than returned whole (FR-006a).
+	NextCursor string `json:"nextCursor,omitempty"`
+	// Degraded means the live half could not be read. Stored records are still
+	// returned: a partial answer beats an error page, and this is how an
+	// infrastructure problem stays distinguishable from a failed download
+	// (FR-032b).
 	Degraded bool `json:"degraded"`
 }
 
@@ -193,10 +220,35 @@ func handleYtdlSubmit(d Deps) http.Handler {
 			return
 		}
 
-		// There is deliberately no server-side queue. Concurrency is bounded by
-		// the cluster: a job beyond available resources stays Pending, which is
-		// exactly "waiting rather than failing", and it needs no state here.
+		// The record is written BEFORE the job exists (FR-001). If the two ever
+		// disagree, the version that leaves a download visible-but-unstarted is
+		// far better than the one that leaves a worker running with nothing to
+		// show it — the first is recoverable by the user, the second is not
+		// recoverable at all.
+		if err := d.Store.CreateYtdlDownload(store.YtdlDownload{
+			RequestID: requestID,
+			Kind:      store.YtdlKindSingle,
+			UserID:    &u.ID,
+			SourceURL: target.URL,
+			VideoID:   target.VideoID(),
+			Mode:      string(mode),
+			Scope:     string(target.Scope),
+			State:     string(ytdl.StateScheduled),
+			Title:     desc.Title,
+			Uploader:  desc.Uploader,
+			Artwork:   desc.Artwork,
+			Origin:    store.YtdlOriginDirect,
+		}); err != nil {
+			httpx.Error(w, http.StatusInternalServerError, "could not record the download")
+			return
+		}
+
+		// Concurrency is still the cluster's to bound at this point; the durable
+		// queue arrives with the admission work and takes this over.
 		if _, err := d.Jobs.CreateJob(r.Context(), job); err != nil {
+			// The record would otherwise describe a download that never
+			// started, with nothing to move it out of that state.
+			_, _ = d.Store.DeleteYtdlDownload(requestID, u.ID, false)
 			httpx.Error(w, http.StatusBadGateway, "could not start the download")
 			return
 		}
@@ -217,102 +269,97 @@ type ytdlSubmitView struct {
 	State     string `json:"state"`
 }
 
-// handleYtdlList returns live downloads merged with unresolved failures.
+// handleYtdlList returns a page of the caller's downloads.
 //
-// The live half is ONE label-selector LIST, whatever the history size — which
-// is what makes a server restart a non-event (FR-019): there is no bookkeeping
-// to reload, because there is no bookkeeping.
+// Reads the durable record and dresses each row in whatever the orchestrator
+// says about it right now. That order matters: the record is what exists, and
+// the live job is a fact about it — not the other way round. A download whose
+// job was swept an hour ago is therefore an ordinary row rather than a gap.
 func handleYtdlList(d Deps) http.Handler {
 	return d.requireUser(func(w http.ResponseWriter, r *http.Request, u *store.User) {
-		var (
-			views    []ytdlDownloadView
-			seen     = map[string]bool{}
-			degraded bool
-		)
-
-		if d.Jobs != nil {
-			jobs, err := d.Jobs.ListJobs(r.Context(), ytdl.Selector)
-			if err != nil {
-				degraded = true
-			}
-			for _, j := range jobs {
-				v := d.ytdlViewOf(j, u)
-				// Marked seen whoever is asking, so a stored failure is never
-				// listed twice just because the live job belongs to someone
-				// else.
-				seen[v.RequestID] = true
-				if v.State == string(ytdl.StateFailed) {
-					// Record on observation. Polling means we see the same
-					// failure repeatedly, so this MUST be idempotent — it is,
-					// by request id.
-					_ = d.Store.RecordYtdlFailure(store.YtdlFailure{
-						RequestID: v.RequestID,
-						UserID:    ytdlUserID(j),
-						SourceURL: v.URL,
-						Mode:      v.Mode,
-						Scope:     v.Scope,
-						Reason:    v.Reason,
-					})
-				}
-				// Recording a failure is the server's own bookkeeping and
-				// happens for every job observed — a failure must be durable
-				// whoever happened to trigger the poll. Only the VIEW is
-				// filtered (FR-007).
-				if !ytdlVisibleTo(u, ytdlUserID(j)) {
-					continue
-				}
-				views = append(views, v)
-			}
+		limit := 50
+		if n, err := strconv.Atoi(r.URL.Query().Get("limit")); err == nil && n > 0 {
+			limit = n
 		}
 
-		// Failures whose job has already been swept. A success needs no such
-		// row: the files it wrote are its record.
-		stored, err := d.Store.ListYtdlFailuresFor(u.ID, u.IsAdmin)
-		if err == nil {
-			for _, f := range stored {
-				if seen[f.RequestID] {
-					continue
-				}
-				views = append(views, ytdlDownloadView{
-					RequestID:   f.RequestID,
-					URL:         f.SourceURL,
-					Mode:        f.Mode,
-					Scope:       f.Scope,
-					State:       string(ytdl.StateFailed),
-					SubmittedAt: f.FailedAt,
-					Reason:      f.Reason,
-				})
-			}
+		records, next, err := d.Store.ListYtdlDownloads(u.ID, u.IsAdmin, r.URL.Query().Get("cursor"), limit)
+		if err != nil {
+			httpx.Error(w, http.StatusInternalServerError, "server")
+			return
 		}
 
-		if views == nil {
-			views = []ytdlDownloadView{}
+		live, degraded := d.ytdlLiveJobs(r.Context())
+
+		views := make([]ytdlDownloadView, 0, len(records))
+		for _, rec := range records {
+			state, reason := liveStateOf(rec, live)
+			// Recorded on observation, so a download that finishes while nobody
+			// is watching is still remembered the moment somebody looks. The
+			// write is idempotent and only fires on the transition.
+			d.captureTerminal(rec, state, reason)
+			views = append(views, d.ytdlViewOf(rec, state, reason, u))
 		}
-		httpx.JSON(w, http.StatusOK, ytdlListView{Downloads: views, Degraded: degraded})
+
+		httpx.JSON(w, http.StatusOK, ytdlListView{Downloads: views, NextCursor: next, Degraded: degraded})
 	})
 }
 
-func (d Deps) ytdlViewOf(j k8s.Job, u *store.User) ytdlDownloadView {
-	state := ytdl.StateOf(j)
+// ytdlViewOf projects one durable record, wearing whatever state was derived
+// for it, onto the wire.
+//
+// The record supplies everything about WHAT the download is; the derived state
+// supplies where it is now. Fields that may genuinely be unknown are pointers,
+// so absent stays absent rather than becoming a confident zero (FR-033).
+func (d Deps) ytdlViewOf(rec store.YtdlDownload, state, reason string, u *store.User) ytdlDownloadView {
 	v := ytdlDownloadView{
-		RequestID: j.Metadata.Labels[ytdl.LabelRequestID],
-		URL:       j.Metadata.Annotations[ytdl.AnnSourceURL],
-		Mode:      j.Metadata.Labels[ytdl.LabelMode],
-		Scope:     j.Metadata.Labels[ytdl.LabelScope],
-		State:     string(state),
-		Title:     j.Metadata.Annotations[ytdl.AnnTitle],
-		Uploader:  j.Metadata.Annotations[ytdl.AnnUploader],
-		Artwork:   j.Metadata.Annotations[ytdl.AnnArtwork],
+		RequestID:   rec.RequestID,
+		ParentID:    rec.ParentID,
+		Kind:        string(rec.Kind),
+		URL:         rec.SourceURL,
+		Title:       rec.Title,
+		Uploader:    rec.Uploader,
+		Artwork:     rec.Artwork,
+		Mode:        rec.Mode,
+		Scope:       rec.Scope,
+		State:       state,
+		GroupName:   rec.GroupName,
+		HasLyrics:   rec.HasLyrics,
+		LyricsLang:  rec.LyricsLang,
+		Attempts:    rec.Attempts,
+		SubmittedAt: rec.CreatedAt,
+		FinishedAt:  rec.FinishedAt,
+		Reason:      reason,
 	}
-	if state == ytdl.StateFailed {
-		v.Reason = ytdl.FailureReason(j)
+	// A group's own row reports how its items are getting on rather than a state
+	// of its own (FR-019).
+	if rec.Kind == store.YtdlKindGroup {
+		if c, err := d.Store.YtdlCounts(rec.RequestID); err == nil {
+			v.Counts = &ytdlCountsView{
+				Total: c.Total, Completed: c.Completed, Failed: c.Failed, Remaining: c.Remaining,
+			}
+		}
 	}
 	// Who sent it is shown to admins only, matching the existing rule for NAS
 	// tasks.
 	if u != nil && u.IsAdmin {
-		v.SubmittedBy = j.Metadata.Annotations[ytdl.AnnSubmittedByName]
+		v.SubmittedBy = d.ytdlSubmitterName(rec)
 	}
 	return v
+}
+
+// ytdlSubmitterName resolves the display name for a record's owner.
+//
+// An unattributed record — the account was deleted (FR-006d) — has no name to
+// show, and says so rather than inventing one.
+func (d Deps) ytdlSubmitterName(rec store.YtdlDownload) string {
+	if rec.UserID == nil {
+		return ""
+	}
+	u, err := d.Store.GetUserByID(*rec.UserID)
+	if err != nil {
+		return ""
+	}
+	return u.Username
 }
 
 func ytdlUserID(j k8s.Job) *int64 {
@@ -330,10 +377,16 @@ func ytdlUserID(j k8s.Job) *int64 {
 	return &id
 }
 
-// handleYtdlDismiss removes the RECORD of a finished download.
+// handleYtdlDismiss removes the RECORD of a download.
 //
 // It never touches the media library: dismissing forgets that a download
 // happened, it does not delete what the download produced.
+//
+// Spec 0012 refused while a download was still running. Spec 0013 does not
+// (FR-005c): with a queue, and with groups that can hold hundreds of items,
+// refusing would leave no way to call off work already started. The record goes
+// at once; a worker already running is left to FINISH rather than being killed
+// mid-write, and the reconciler removes what it leaves behind.
 func handleYtdlDismiss(d Deps) http.Handler {
 	return d.requireUser(func(w http.ResponseWriter, r *http.Request, u *store.User) {
 		requestID := r.PathValue("requestId")
@@ -342,46 +395,34 @@ func handleYtdlDismiss(d Deps) http.Handler {
 			return
 		}
 
-		var found bool
+		// Ownership lives in the DELETE's WHERE clause, so "not yours" and "not
+		// there" are the same answer and cannot be told apart (FR-008).
+		removed, err := d.Store.DeleteYtdlDownload(requestID, u.ID, u.IsAdmin)
+		if err != nil {
+			httpx.Error(w, http.StatusInternalServerError, "server")
+			return
+		}
+		if !removed {
+			httpx.Error(w, http.StatusNotFound, "not found")
+			return
+		}
+
+		// A finished job can be swept now. A running one is deliberately left
+		// alone: deleting it would strand its worker mid-write, and the files it
+		// has already produced are the user's, not ours to abandon halfway.
 		if d.Jobs != nil {
-			jobs, err := d.Jobs.ListJobs(r.Context(), ytdl.Selector)
-			if err == nil {
+			if jobs, err := d.Jobs.ListJobs(r.Context(), ytdl.Selector); err == nil {
 				for _, j := range jobs {
 					if j.Metadata.Labels[ytdl.LabelRequestID] != requestID {
 						continue
 					}
-					// A download the caller may not see must answer exactly as
-					// one that does not exist (FR-008). Returning 403 here would
-					// confirm it exists, which is the disclosure the rule is
-					// about — so this leaves `found` false and falls through to
-					// the same 404 an unknown id gets.
-					if !ytdlVisibleTo(u, ytdlUserID(j)) {
-						continue
-					}
-					found = true
-					if !ytdl.StateOf(j).Terminal() {
-						// Deleting a running job would strand its worker
-						// mid-write. Cancellation is deliberately out of scope.
-						httpx.Error(w, http.StatusConflict, "that download is still running")
-						return
-					}
-					if err := d.Jobs.DeleteJob(r.Context(), j.Metadata.Name); err != nil {
-						httpx.Error(w, http.StatusBadGateway, "could not dismiss the download")
-						return
+					if ytdl.StateOf(j).Terminal() {
+						_ = d.Jobs.DeleteJob(r.Context(), j.Metadata.Name)
 					}
 				}
 			}
 		}
 
-		removed, err := d.Store.DeleteYtdlFailureFor(requestID, u.ID, u.IsAdmin)
-		if err != nil {
-			httpx.Error(w, http.StatusInternalServerError, "server")
-			return
-		}
-		if !found && !removed {
-			httpx.Error(w, http.StatusNotFound, "not found")
-			return
-		}
 		w.WriteHeader(http.StatusNoContent)
 	})
 }

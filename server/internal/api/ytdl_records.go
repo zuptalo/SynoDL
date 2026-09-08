@@ -1,0 +1,80 @@
+package api
+
+import (
+	"context"
+	"time"
+
+	"synodl/server/internal/k8s"
+	"synodl/server/internal/store"
+	"synodl/server/internal/ytdl"
+)
+
+// Reconciling the durable record with what the orchestrator says (spec 0013).
+//
+// This is the Principle III split made concrete. The store holds what was ASKED
+// FOR and how it ENDED. The orchestrator holds what is happening RIGHT NOW.
+// Neither is derived from the other: a live job's state is read from the job,
+// and a finished download's state is read from the record, and the moment
+// between them — a download that has just become final — is the only time
+// anything is written.
+
+// liveStateOf returns the state to SHOW for a stored download, given the live
+// jobs the orchestrator reported.
+//
+// A record with a live job reports the job's state, because the job is the truth
+// while it exists. A record without one reports its own, because the job has
+// been swept and the record is all that is left. That ordering is why a restart
+// cannot desynchronise anything: there is no third place to disagree.
+func liveStateOf(d store.YtdlDownload, live map[string]k8s.Job) (state string, reason string) {
+	j, ok := live[d.RequestID]
+	if !ok {
+		return d.State, d.Reason
+	}
+	s := ytdl.StateOf(j)
+	if s == ytdl.StateFailed {
+		return string(s), ytdl.FailureReason(j)
+	}
+	return string(s), ""
+}
+
+// captureTerminal writes a download's outcome the first time it is seen final.
+//
+// Idempotent, and deliberately so: state is polled, so the same finished job is
+// observed on every cycle until the orchestrator sweeps it. Writing on every
+// sighting would keep moving the timestamp, and the first sighting is the one
+// that means anything.
+func (d Deps) captureTerminal(rec store.YtdlDownload, state, reason string) {
+	if rec.State == state {
+		return
+	}
+	if state != string(ytdl.StateCompleted) && state != string(ytdl.StateFailed) {
+		// Not final: state that is still moving belongs to the orchestrator, and
+		// writing it here would be the mirror Principle III forbids.
+		return
+	}
+	now := time.Now().Unix()
+	_ = d.Store.SetYtdlState(rec.RequestID, state, reason, &now)
+}
+
+// ytdlLiveJobs indexes the orchestrator's jobs by request id.
+//
+// Returns degraded=true when the orchestrator could not be reached. A partial
+// answer beats an error page: stored records are still worth showing, and the
+// client is told the live half is missing rather than being shown stale state as
+// though it were current (FR-032b).
+func (d Deps) ytdlLiveJobs(ctx context.Context) (map[string]k8s.Job, bool) {
+	if d.Jobs == nil {
+		return nil, false
+	}
+	jobs, err := d.Jobs.ListJobs(ctx, ytdl.Selector)
+	if err != nil {
+		return nil, true
+	}
+	out := make(map[string]k8s.Job, len(jobs))
+	for _, j := range jobs {
+		if id := j.Metadata.Labels[ytdl.LabelRequestID]; id != "" {
+			out[id] = j
+		}
+	}
+	return out, false
+}
