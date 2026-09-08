@@ -8,8 +8,8 @@ description: "Task list for spec 0013 — YouTube downloads you can watch, keep,
 
 **Prerequisites**: plan.md, spec.md, research.md, data-model.md, contracts/http-api.md
 
-**Count**: 113 tasks, 44 of them tests. Six were added by the `/speckit-analyze`
-gate (T061a, T061b, T066a, T079a, T079b, T105a) to close coverage gaps — the
+**Count**: 114 tasks, 42 of them tests. Seven were added by the `/speckit-analyze`
+gate (T061a, T061b, T066a, T079a, T079b, T100a, T105a) to close coverage gaps — the
 lettered ids keep execution order readable without renumbering.
 
 **Tests**: REQUIRED, not optional. Constitution Principle II mandates that failing
@@ -176,7 +176,7 @@ the next; a restart resumes rather than losing the queue.
 
 **Depends on**: Phase 2, Phase 4.
 
-- [ ] T055 [P] [US7] [TEST] Add `server/internal/ytdl/queue_test.go` — table-driven over the fair-share ordering: one user's large group never starves another's single link (FR-022b); a direct submission outranks the same user's expanded items (FR-022c); with only one user having work, no slot idles; submission order is the tiebreak.
+- [ ] T055 [P] [US7] [TEST] Add `server/internal/ytdl/queue_test.go` — table-driven over the fair-share ordering: one user's large group never starves another's single link (FR-022b); a direct submission outranks the same user's expanded items (FR-022c); with only one user having work, no slot idles; submission order is the tiebreak. Assert SC-005a directly: with one user's channel occupying the queue, a second user's link is next to be admitted, so it waits for at most one running download.
 - [ ] T056 [US7] Create `server/internal/ytdl/queue.go` with the admission ordering as a pure function over the queued set. No I/O, no clock.
 - [ ] T057 [US7] [TEST] In `server/internal/api/ytdl_reconcile_test.go`, add cases asserting never more than the limit run, that a finish in either terminal state admits the next, and that the operator's limit is what is enforced.
 - [ ] T058 [US7] Add admission to `server/internal/api/ytdl_reconcile.go`: count running, take that many from the ordering, create their Jobs. Single replica means one admitter and no distributed lock — record that in a comment.
@@ -278,6 +278,7 @@ both modes.
 ## Phase 12: Polish & Cross-Cutting
 
 - [ ] T100 [P] Verify no source link, saved path, library path, playlist name, or raw worker output appears in any log, metric or error payload (FR-032a). Grep the new code and add a test where a handler builds an error string.
+- [ ] T100a [P] Confirm `specs/0013-youtube-downloads-managed/contracts/http-api.md` still enumerates every user- or source-influenced value that reaches a worker (FR-038c), and that each is covered by the FR-038 / FR-038a / FR-038b tests. If implementation added a value the list does not name, add it in both places.
 - [ ] T101 [P] [TEST] In `server/internal/api/ytdl_handlers_test.go`, add cases asserting an orchestrator or log-read failure is reported distinctly from a download having failed (FR-032b), and that `degraded` keeps its spec 0012 meaning.
 - [ ] T102 [P] [TEST] In `server/internal/api/ytdl_handlers_test.go`, add a case asserting the queue reveals nothing cross-user to a non-admin (FR-009c).
 - [ ] T103 [P] Confirm the list stays responsive at several thousand records (SC-006a) — seed the store and measure; the page query must not load the whole history.
