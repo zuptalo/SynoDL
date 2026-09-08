@@ -15,14 +15,22 @@ import (
 	"synodl/server/internal/ytdl"
 )
 
-// JobRunner is the slice of the orchestrator these handlers need — three calls,
-// no more. Handlers depend on this rather than on *k8s.Client so tests pass a
-// fake, exactly as every other handler here depends on the small syno.Client
-// interface.
+// JobRunner is the slice of the orchestrator this feature needs — five calls,
+// no more. Handlers and the reconciler depend on this rather than on *k8s.Client
+// so tests pass a fake, exactly as every other handler here depends on the small
+// syno.Client interface.
+//
+// The two pod calls are what make a progress bar possible at all: progress, and
+// whether a lyrics file was written, exist only in the worker's own output
+// (spec 0013). They are used by the reconciler, never by a request handler —
+// reading a worker's output must not scale with the number of people looking at
+// the page (FR-013f).
 type JobRunner interface {
 	CreateJob(ctx context.Context, j *k8s.Job) (*k8s.Job, error)
 	ListJobs(ctx context.Context, selector string) ([]k8s.Job, error)
 	DeleteJob(ctx context.Context, name string) error
+	ListPods(ctx context.Context, selector string) ([]k8s.Pod, error)
+	PodLog(ctx context.Context, name string, opts k8s.PodLogOptions) ([]byte, error)
 }
 
 // ytdlDownloadView is the wire shape of one download.

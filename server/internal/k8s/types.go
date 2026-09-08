@@ -1,14 +1,25 @@
 // Package k8s is a deliberately tiny Kubernetes client: enough to create, list,
-// and delete Jobs in ONE namespace, and nothing else.
+// and delete Jobs in ONE namespace, plus read the output of the pods those Jobs
+// create — and nothing else.
 //
-// Why not client-go? The server needs exactly three API calls. client-go would
+// The two pod calls arrived with spec 0013 and are worth explaining, because
+// "and nothing else" is the point of this package. Progress, and the fact that
+// a lyrics file was written in a given language, exist only in a worker's own
+// output: the Job object does not carry them, and the server never mounts the
+// media library, so it cannot look at the produced files either. Listing pods
+// needed no new permission — spec 0012 already granted `pods: get, list` so a
+// Job's state could be reported accurately — and reading their output needed
+// exactly one more RBAC verb, `pods/log: get`. See pods.go.
+//
+// Why not client-go? The server needs five API calls. client-go would
 // be, by an order of magnitude, the largest dependency in a repository whose Go
 // module list is a spec-level decision (see CLAUDE.md), and it would bring a
 // scheme/codec/informer machinery none of which this uses plus a version-skew
 // policy tied to cluster releases. The Jobs API is JSON over HTTPS; in-cluster
 // config is two environment variables and three files. This package is small
 // enough to read in one sitting and is tested against an httptest fake API
-// server, exactly as internal/syno is tested against a fake DSM.
+// server, exactly as internal/syno is tested against a fake DSM. Two more calls
+// did not change that arithmetic.
 //
 // The types below are hand-written subsets of the real API objects. They carry
 // only the fields SynoDL sets or reads. Unknown fields on the wire are ignored
@@ -131,3 +142,22 @@ type JobList struct {
 func int32p(v int32) *int32 { return &v }
 func int64p(v int64) *int64 { return &v }
 func boolp(v bool) *bool    { return &v }
+
+// Pod is the subset SynoDL reads. It never CREATES a pod — pods arrive only as
+// a consequence of a Job, which is what makes "workers are ephemeral"
+// enforceable — so there are no spec fields here worth carrying.
+type Pod struct {
+	Metadata ObjectMeta `json:"metadata"`
+	Status   PodStatus  `json:"status,omitempty"`
+}
+
+// PodStatus carries only what is needed to decide whether a pod's output is
+// worth asking for: a pod that has not started has nothing to say.
+type PodStatus struct {
+	Phase string `json:"phase,omitempty"` // Pending | Running | Succeeded | Failed | Unknown
+}
+
+// PodList is the LIST response.
+type PodList struct {
+	Items []Pod `json:"items"`
+}

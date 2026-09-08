@@ -37,6 +37,11 @@ type Deps struct {
 	// libraryIndex treats as "know nothing".
 	lib *libraryCache
 
+	// ytdlOnTick is a test seam: the reconciler calls it at the end of every
+	// cycle so a test can observe that the loop is still running without
+	// reaching into its internals. Nil in production.
+	ytdlOnTick func()
+
 	// caps remembers what each source says it can filter and sort by, so browsing
 	// does not re-ask on every request. A POINTER for the same reason lib is.
 	caps *capsCache

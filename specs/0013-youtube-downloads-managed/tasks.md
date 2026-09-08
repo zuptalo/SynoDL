@@ -36,9 +36,9 @@ below may start before T001 — Principle I makes code without an approved
 constitutional basis a defect.
 
 - [X] T001 Amend `.specify/memory/constitution.md` 2.1.0 → 2.2.0: Principle III gains (a) durable pre-admission work is not a mirror because no worker exists, (b) a durable record of requested and finished work including successes, (c) reading a worker's own output as a permitted least-privilege capability that still excludes secrets, exec and attach. Add the Sync Impact Report entry at the top in the existing style.
-- [ ] T002 [P] Add `YtdlMaxParallel` to `server/internal/config/config.go` reading `YTDL_MAX_PARALLEL`, defaulting to 4, and document it beside the other `Ytdl*` fields.
-- [ ] T003 [P] [TEST] Add a config case in `server/internal/config/config_test.go` covering the default, an operator override, and a non-numeric value falling back to the default.
-- [ ] T004 [P] Add `YTDL_MAX_PARALLEL` to `deploy/k8s/10-synodl.yaml` and to the `Makefile` dev defaults so `make start` exercises the same knob.
+- [X] T002 [P] Add `YtdlMaxParallel` to `server/internal/config/config.go` reading `YTDL_MAX_PARALLEL`, defaulting to 4, and document it beside the other `Ytdl*` fields.
+- [X] T003 [P] [TEST] Add a config case in `server/internal/config/config_test.go` covering the default, an operator override, and a non-numeric value falling back to the default.
+- [X] T004 [P] Add `YTDL_MAX_PARALLEL` to `deploy/k8s/10-synodl.yaml` and to the `Makefile` dev defaults so `make start` exercises the same knob.
 
 ---
 
@@ -51,24 +51,24 @@ owns — reading worker output, and the loop that does everything periodic.
 
 ### Reading a worker's output
 
-- [ ] T005 [P] [TEST] Add `server/internal/k8s/pods_test.go` covering `ListPods` by selector and `PodLog` against an `httptest` fake API server: text/plain response, `tailLines` and `container` passed through, a 404 surfacing as `IsNotFound`, and a body larger than the cap being truncated rather than read whole.
-- [ ] T006 Add `Pod` and `PodList` to `server/internal/k8s/types.go` as hand-written subsets carrying only the fields SynoDL reads.
-- [ ] T007 Add `ListPods(ctx, selector)` and `PodLog(ctx, name, opts)` to `server/internal/k8s/jobs.go`. `PodLog` returns bytes, not JSON — `do()` decodes JSON and cannot be reused as-is. Bound the read (FR-013e).
-- [ ] T008 Update the package doc in `server/internal/k8s/types.go`: it no longer describes "Jobs in ONE namespace, and nothing else". Say what the two pod calls are for and why they need no new client dependency.
-- [ ] T009 Add `pods/log` with verb `get` to the Role in `deploy/k8s/30-rbac.yaml`, and extend the existing "note what is deliberately ABSENT" comment to record that reading a worker's output is not the same permission as controlling one.
-- [ ] T010 Extend `JobRunner` in `server/internal/api/ytdl_handlers.go` with the two pod calls, and update the fake in `server/internal/api/fake_test.go`.
+- [X] T005 [P] [TEST] Add `server/internal/k8s/pods_test.go` covering `ListPods` by selector and `PodLog` against an `httptest` fake API server: text/plain response, `tailLines` and `container` passed through, a 404 surfacing as `IsNotFound`, and a body larger than the cap being truncated rather than read whole.
+- [X] T006 Add `Pod` and `PodList` to `server/internal/k8s/types.go` as hand-written subsets carrying only the fields SynoDL reads.
+- [X] T007 Add `ListPods(ctx, selector)` and `PodLog(ctx, name, opts)` to `server/internal/k8s/jobs.go`. `PodLog` returns bytes, not JSON — `do()` decodes JSON and cannot be reused as-is. Bound the read (FR-013e).
+- [X] T008 Update the package doc in `server/internal/k8s/types.go`: it no longer describes "Jobs in ONE namespace, and nothing else". Say what the two pod calls are for and why they need no new client dependency.
+- [X] T009 Add `pods/log` with verb `get` to the Role in `deploy/k8s/30-rbac.yaml`, and extend the existing "note what is deliberately ABSENT" comment to record that reading a worker's output is not the same permission as controlling one.
+- [X] T010 Extend `JobRunner` in `server/internal/api/ytdl_handlers.go` with the two pod calls, and update the fake in `server/internal/api/fake_test.go`.
 
 ### The mock orchestrator
 
-- [ ] T011 [P] Add pod listing and `GET /api/v1/namespaces/{ns}/pods/{name}/log` to `server/internal/k8smock/k8smock.go`, so the wire format and the selector are exercised rather than faked at the Go boundary.
-- [ ] T012 [P] Add `/__mock/jobs/{name}/emit` to `server/internal/k8smock/k8smock.go` to append arbitrary lines to a job's pod log, so tests drive progress, lyrics and expansion output deterministically.
-- [ ] T013 [P] [TEST] Extend `server/internal/k8smock/k8smock_test.go` for pod listing, log reading, and the emit control.
+- [X] T011 [P] Add pod listing and `GET /api/v1/namespaces/{ns}/pods/{name}/log` to `server/internal/k8smock/k8smock.go`, so the wire format and the selector are exercised rather than faked at the Go boundary.
+- [X] T012 [P] Add `/__mock/jobs/{name}/emit` to `server/internal/k8smock/k8smock.go` to append arbitrary lines to a job's pod log, so tests drive progress, lyrics and expansion output deterministically.
+- [X] T013 [P] [TEST] Extend `server/internal/k8smock/k8smock_test.go` for pod listing, log reading, and the emit control.
 
 ### The reconciler
 
-- [ ] T014 [TEST] Add `server/internal/api/ytdl_reconcile_test.go` asserting the loop runs on its ticker, is driven by running downloads rather than by request handlers (FR-013f), and survives a `ListJobs` error without exiting.
-- [ ] T015 Create `server/internal/api/ytdl_reconcile.go` with the ticker skeleton — list this feature's Jobs once per tick, and expose seams for the per-story responsibilities added in later phases. Follow the `library_scan.go` / `source_keepalive.go` shape.
-- [ ] T016 Start the reconciler from `server/cmd/synodl/main.go`, guarded so a deployment without an orchestrator never starts it.
+- [X] T014 [TEST] Add `server/internal/api/ytdl_reconcile_test.go` asserting the loop runs on its ticker, is driven by running downloads rather than by request handlers (FR-013f), and survives a `ListJobs` error without exiting.
+- [X] T015 Create `server/internal/api/ytdl_reconcile.go` with the ticker skeleton — list this feature's Jobs once per tick, and expose seams for the per-story responsibilities added in later phases. Follow the `library_scan.go` / `source_keepalive.go` shape.
+- [X] T016 Start the reconciler from `server/cmd/synodl/main.go`, guarded so a deployment without an orchestrator never starts it.
 
 **Checkpoint**: worker output is readable, the mock can produce it, and one loop exists to consume it.
 

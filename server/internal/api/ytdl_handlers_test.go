@@ -29,6 +29,12 @@ type fakeJobs struct {
 	deleted   []string
 	listErr   error
 	createErr error
+	// pods and logs stand in for the worker output the reconciler reads. Keyed
+	// by pod name; a request id's pod is named after its job.
+	pods    []k8s.Pod
+	logs    map[string]string
+	logErr  error
+	logReqs []string
 }
 
 func (f *fakeJobs) CreateJob(_ context.Context, j *k8s.Job) (*k8s.Job, error) {
@@ -62,6 +68,47 @@ func (f *fakeJobs) DeleteJob(_ context.Context, name string) error {
 		}
 	}
 	return nil
+}
+
+func (f *fakeJobs) ListPods(_ context.Context, _ string) ([]k8s.Pod, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.listErr != nil {
+		return nil, f.listErr
+	}
+	return append([]k8s.Pod{}, f.pods...), nil
+}
+
+func (f *fakeJobs) PodLog(_ context.Context, name string, _ k8s.PodLogOptions) ([]byte, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	// Recorded so a test can assert output is read because a download is
+	// running, not because someone asked for the list (FR-013f).
+	f.logReqs = append(f.logReqs, name)
+	if f.logErr != nil {
+		return nil, f.logErr
+	}
+	out, ok := f.logs[name]
+	if !ok {
+		// A swept pod is the ordinary case, not a fault.
+		return nil, &k8s.APIError{Status: 404, Message: "not found"}
+	}
+	return []byte(out), nil
+}
+
+// emit gives a running download some worker output to be read, the way the
+// cluster would.
+func (f *fakeJobs) emit(podName, output string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.logs == nil {
+		f.logs = map[string]string{}
+	}
+	f.logs[podName] = output
+	f.pods = append(f.pods, k8s.Pod{
+		Metadata: k8s.ObjectMeta{Name: podName},
+		Status:   k8s.PodStatus{Phase: "Running"},
+	})
 }
 
 // setStatus drives a created job to a lifecycle state, the way the cluster would.

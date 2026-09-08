@@ -152,6 +152,15 @@ func main() {
 		// so it survives a restart, survives the NAS being briefly unreachable, and
 		// is never built on the request path (spec 0011).
 		go deps.RunLibraryScan(context.Background(), api.LibraryScanInterval)
+		// Everything periodic about YouTube downloads happens in ONE loop
+		// (spec 0013): read what running workers say about themselves, capture
+		// the facts that will not outlive them, and admit from the queue. It is
+		// guarded on there being an orchestrator at all, so a Compose or bare
+		// container install starts nothing and is unaffected by the feature
+		// existing. Single replica means this is also the single admitter.
+		if deps.Jobs != nil {
+			go deps.RunYtdlReconcile(context.Background(), api.YtdlReconcileInterval)
+		}
 		slog.Info("synodl stateful mode", "dataDir", cfg.DataDir)
 	} else {
 		deps.Syno = syno.NewHTTPClient(cfg.SynoURL, cfg.SynoTLSInsecure)

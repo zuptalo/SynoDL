@@ -76,6 +76,12 @@ data:
   # Below this, an item in a playlist or channel is a clip rather than a track.
   # A lower bound only: long compilations are legitimate content.
   YTDL_MIN_DURATION_SECONDS: "90"
+  # How many downloads run at once, for the WHOLE instance rather than per user,
+  # so total load on the cluster and on the source does not grow with the number
+  # of accounts. Everything beyond it waits in a queue that survives a restart —
+  # which is what makes expanding a channel of any size safe. Raise it if the
+  # cluster has room; the source's own rate limiting is usually the real ceiling.
+  YTDL_MAX_PARALLEL: "4"
   # STATIC_DIR (=/app/web, single-container mode) is baked into the image; no need
   # to repeat it here.
 ---
