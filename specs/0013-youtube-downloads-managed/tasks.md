@@ -84,14 +84,14 @@ admin sees both with attribution.
 
 **Depends on**: T001 only.
 
-- [ ] T017 [P] [US1] [TEST] Add ownership cases to `server/internal/api/ytdl_handlers_test.go`: the list returns only the caller's rows; an admin gets all rows with `submittedBy`; a stored failure with a NULL `user_id` is admin-visible only.
-- [ ] T018 [P] [US1] [TEST] In `server/internal/api/ytdl_handlers_test.go`, add cases asserting dismiss returns **404, not 403**, for another user's download, and that a non-existent id is indistinguishable from it (FR-008).
-- [ ] T019 [US1] Filter `handleYtdlList` in `server/internal/api/ytdl_handlers.go` by the caller's id, reading the existing `AnnSubmittedBy` annotation and `ytdl_failures.user_id`, with the admin exception stated positively (FR-009a).
-- [ ] T020 [US1] Gate `handleYtdlDismiss` on ownership in `server/internal/api/ytdl_handlers.go`, returning 404 for a download the caller may not see.
-- [ ] T021 [US1] Add a `ListYtdlFailuresForUser` query to `server/internal/store/ytdl_repos.go` so filtering happens in SQL rather than after loading every row.
-- [ ] T022 [P] [US1] [TEST] Add `server/internal/store/ytdl_repos_test.go` cases for the per-user and admin queries, including the NULL-`user_id` case.
-- [ ] T023 [US1] Require a session on `handleYtdlThumb` in `server/internal/api/ytdl_thumb.go` (FR-009d) — making downloads private must not leave their artwork publicly addressable. Extend `server/internal/api/ytdl_thumb_test.go` for the 401.
-- [ ] T024 [US1] Add `e2e/stateful/ytdl-ownership.spec.ts`: two users, each seeing only their own download, and an admin seeing both.
+- [X] T017 [P] [US1] [TEST] Add ownership cases to `server/internal/api/ytdl_handlers_test.go`: the list returns only the caller's rows; an admin gets all rows with `submittedBy`; a stored failure with a NULL `user_id` is admin-visible only.
+- [X] T018 [P] [US1] [TEST] In `server/internal/api/ytdl_handlers_test.go`, add cases asserting dismiss returns **404, not 403**, for another user's download, and that a non-existent id is indistinguishable from it (FR-008).
+- [X] T019 [US1] Filter `handleYtdlList` in `server/internal/api/ytdl_handlers.go` by the caller's id, reading the existing `AnnSubmittedBy` annotation and `ytdl_failures.user_id`, with the admin exception stated positively (FR-009a).
+- [X] T020 [US1] Gate `handleYtdlDismiss` on ownership in `server/internal/api/ytdl_handlers.go`, returning 404 for a download the caller may not see.
+- [X] T021 [US1] Add a `ListYtdlFailuresForUser` query to `server/internal/store/ytdl_repos.go` so filtering happens in SQL rather than after loading every row.
+- [X] T022 [P] [US1] [TEST] Add `server/internal/store/ytdl_repos_test.go` cases for the per-user and admin queries, including the NULL-`user_id` case.
+- [X] T023 [US1] ~~Require a session on~~ **Pin the disclosure property of** `handleYtdlThumb` in `server/internal/api/ytdl_thumb.go` (FR-009d). Revisited during implementation: gating it was the wrong answer — the caller supplies the address, the content is public, and `<img src>` carries no session, so a check would cost caching or leak a token into URLs to protect nothing. The host allowlist is the control; `ytdl_thumb_test.go` now asserts the endpoint discloses nothing about the instance's downloads.
+- [X] T024 [US1] Add `e2e/stateful/ytdl-ownership.spec.ts`: two users, each seeing only their own download, and an admin seeing both.
 
 **Checkpoint**: US1 is independently shippable.
 

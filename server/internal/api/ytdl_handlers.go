@@ -82,6 +82,26 @@ func (d Deps) ytdlLibraries() map[ytdl.Mode]ytdl.Library {
 // container install is unaffected by the feature existing.
 func (d Deps) ytdlAvailable() bool { return d.Jobs != nil && d.Cfg.YtdlConfigured() }
 
+// ytdlVisibleTo reports whether u may see this download.
+//
+// The rule is the one NAS tasks already follow: your own, unless you are an
+// admin (FR-007, FR-009a). Stated as a single function rather than inline in
+// three handlers, so "every action on a single download" (FR-008) cannot drift
+// apart action by action.
+//
+// A download with NO owner — the account was deleted, so the record survives
+// unattributed (FR-006d) — is visible to admins only. There is nobody left for
+// it to belong to.
+func ytdlVisibleTo(u *store.User, ownerID *int64) bool {
+	if u == nil {
+		return false
+	}
+	if u.IsAdmin {
+		return true
+	}
+	return ownerID != nil && *ownerID == u.ID
+}
+
 func newRequestID() string {
 	var b [8]byte
 	if _, err := rand.Read(b[:]); err != nil {
@@ -217,6 +237,9 @@ func handleYtdlList(d Deps) http.Handler {
 			}
 			for _, j := range jobs {
 				v := d.ytdlViewOf(j, u)
+				// Marked seen whoever is asking, so a stored failure is never
+				// listed twice just because the live job belongs to someone
+				// else.
 				seen[v.RequestID] = true
 				if v.State == string(ytdl.StateFailed) {
 					// Record on observation. Polling means we see the same
@@ -231,13 +254,20 @@ func handleYtdlList(d Deps) http.Handler {
 						Reason:    v.Reason,
 					})
 				}
+				// Recording a failure is the server's own bookkeeping and
+				// happens for every job observed — a failure must be durable
+				// whoever happened to trigger the poll. Only the VIEW is
+				// filtered (FR-007).
+				if !ytdlVisibleTo(u, ytdlUserID(j)) {
+					continue
+				}
 				views = append(views, v)
 			}
 		}
 
 		// Failures whose job has already been swept. A success needs no such
 		// row: the files it wrote are its record.
-		stored, err := d.Store.ListYtdlFailures()
+		stored, err := d.Store.ListYtdlFailuresFor(u.ID, u.IsAdmin)
 		if err == nil {
 			for _, f := range stored {
 				if seen[f.RequestID] {
@@ -320,6 +350,14 @@ func handleYtdlDismiss(d Deps) http.Handler {
 					if j.Metadata.Labels[ytdl.LabelRequestID] != requestID {
 						continue
 					}
+					// A download the caller may not see must answer exactly as
+					// one that does not exist (FR-008). Returning 403 here would
+					// confirm it exists, which is the disclosure the rule is
+					// about — so this leaves `found` false and falls through to
+					// the same 404 an unknown id gets.
+					if !ytdlVisibleTo(u, ytdlUserID(j)) {
+						continue
+					}
 					found = true
 					if !ytdl.StateOf(j).Terminal() {
 						// Deleting a running job would strand its worker
@@ -335,7 +373,7 @@ func handleYtdlDismiss(d Deps) http.Handler {
 			}
 		}
 
-		removed, err := d.Store.DeleteYtdlFailure(requestID)
+		removed, err := d.Store.DeleteYtdlFailureFor(requestID, u.ID, u.IsAdmin)
 		if err != nil {
 			httpx.Error(w, http.StatusInternalServerError, "server")
 			return

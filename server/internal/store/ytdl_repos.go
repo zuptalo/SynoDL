@@ -85,3 +85,56 @@ func (s *Store) DeleteYtdlFailure(requestID string) (bool, error) {
 	n, err := res.RowsAffected()
 	return n > 0, err
 }
+
+// Ownership-scoped variants (spec 0013, FR-007/FR-008).
+//
+// The filtering happens in SQL rather than after loading every row, for the same
+// reason the list is paged: history is unbounded, so "load it all and discard
+// most of it" gets slower forever. It is also the safer shape — a row the caller
+// may not see never enters the process at all, so it cannot leak through a count
+// or a log line on the way past.
+//
+// A row whose user_id is NULL belonged to a deleted account (FR-006d). It is
+// visible to admins only: there is nobody left for it to belong to.
+
+// ListYtdlFailuresFor returns stored failures the given user may see.
+func (s *Store) ListYtdlFailuresFor(userID int64, isAdmin bool) ([]YtdlFailure, error) {
+	if isAdmin {
+		return s.ListYtdlFailures()
+	}
+	rows, err := s.db.Query(
+		`SELECT request_id, user_id, source_url, mode, scope, reason, failed_at
+		   FROM ytdl_failures WHERE user_id = ? ORDER BY failed_at DESC, rowid DESC`, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []YtdlFailure
+	for rows.Next() {
+		var f YtdlFailure
+		if err := rows.Scan(&f.RequestID, &f.UserID, &f.SourceURL, &f.Mode, &f.Scope, &f.Reason, &f.FailedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, f)
+	}
+	return out, rows.Err()
+}
+
+// DeleteYtdlFailureFor dismisses one stored failure, if the user may see it.
+//
+// Ownership is part of the WHERE clause rather than a check before it: that way
+// "not yours" and "not there" produce the same answer — no rows affected — and
+// the handler cannot accidentally distinguish them (FR-008).
+func (s *Store) DeleteYtdlFailureFor(requestID string, userID int64, isAdmin bool) (bool, error) {
+	if isAdmin {
+		return s.DeleteYtdlFailure(requestID)
+	}
+	res, err := s.db.Exec(
+		`DELETE FROM ytdl_failures WHERE request_id = ? AND user_id = ?`, requestID, userID)
+	if err != nil {
+		return false, err
+	}
+	n, err := res.RowsAffected()
+	return n > 0, err
+}

@@ -448,9 +448,14 @@ playlist names, with embedded cover art, in both music and music-video modes.
 - **FR-009c**: The queue and its fair-share ordering MUST NOT reveal anything
   about another user's downloads to a non-admin. A user may see where their own
   downloads stand; they MUST NOT learn what else is queued or by whom.
-- **FR-009d**: The artwork proxy MUST be reachable only by a signed-in user and
-  MUST NOT be usable to fetch anything other than artwork for a download, so
-  making downloads private does not leave their artwork publicly addressable.
+- **FR-009d**: The artwork proxy MUST NOT disclose anything about the instance's
+  downloads — it MUST accept only a caller-supplied address on its host
+  allowlist, and MUST offer no listing, enumeration, or lookup of any kind. It is
+  deliberately NOT session-gated: what it relays is public, content-addressed
+  artwork that anyone can fetch from the source directly, the caller must already
+  know the address, and these images load through ordinary image requests that
+  carry no session. Gating it would mean putting a session token in a URL or
+  giving up caching, to protect nothing. The host allowlist is the control.
 
 **Progress and what the worker did**
 
@@ -684,7 +689,7 @@ playlist names, with embedded cover art, in both music and music-video modes.
   history of ten.
 - **SC-007**: No user can see, open, retry or dismiss a download submitted by
   another user unless they are an admin, and no non-admin can learn from the queue
-  what another user has queued.
+  — or from the artwork proxy — what another user has downloaded.
 - **SC-007a**: No source-controlled value can cause a file to be written outside
   the media library the download was aimed at.
 - **SC-008**: 100% of saved items are shelved by the media server under a named

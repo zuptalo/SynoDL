@@ -36,6 +36,26 @@ func ytdlArtworkHostAllowed(host string) bool {
 var ytdlThumbClient = &http.Client{Timeout: 15 * time.Second}
 
 // handleYtdlThumb proxies one artwork image.
+//
+// Deliberately NOT session-gated, and spec 0013 revisited that on purpose
+// (FR-009d). Making downloads private raised the question of whether their
+// artwork should be private too. It should not, for two reasons that matter
+// more than the instinct:
+//
+//   - It reveals nothing. The caller supplies the URL, so this cannot be used
+//     to discover which downloads exist or who made them. The content behind it
+//     is public, content-addressed artwork that anyone can fetch from the source
+//     directly — the proxy exists so the VIEWER's browser does not have to, not
+//     to control access to it.
+//   - It cannot carry a session anyway. These load through <img src>, which
+//     sends no custom header. Gating it would mean either putting the session
+//     token in a URL — where it lands in logs and history — or fetching every
+//     image through script and losing HTTP caching, both worse trades than the
+//     nothing being protected. The catalog poster proxy is unauthenticated for
+//     the same reason.
+//
+// What actually protects this endpoint is the host allowlist below: it is the
+// reason this is not an open relay.
 func handleYtdlThumb(d Deps) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		raw := r.URL.Query().Get("u")

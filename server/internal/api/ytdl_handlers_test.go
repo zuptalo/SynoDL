@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -528,5 +529,123 @@ func TestYtdlSubmit_CarriesTheDescriptionOntoTheJob(t *testing.T) {
 	got := listYtdl(t, h, admin)
 	if got.Downloads[0].Title != "A Song" || got.Downloads[0].Uploader != "An Artist" {
 		t.Errorf("description not surfaced on the view: %+v", got.Downloads[0])
+	}
+}
+
+// Ownership (spec 0013, US1). Until this landed, every signed-in user saw every
+// other user's YouTube downloads — the list filtered nothing and gated only the
+// "added by" name behind admin. These tests pin the rule that NAS tasks already
+// follow: your own, unless you are an admin.
+
+// ytdlSecondUser creates a non-admin and returns their auth header.
+func ytdlSecondUser(t *testing.T, h http.Handler, admin map[string]string, name string) map[string]string {
+	t.Helper()
+	rec := do(t, h, "POST", "/v1/users",
+		`{"username":"`+name+`","password":"example-`+name+`-pw","isAdmin":false}`, admin)
+	if rec.Code != http.StatusOK && rec.Code != http.StatusCreated {
+		t.Fatalf("create user %s = %d %s", name, rec.Code, rec.Body.String())
+	}
+	rec = do(t, h, "POST", "/v1/session",
+		`{"username":"`+name+`","password":"example-`+name+`-pw"}`, nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("login %s = %d %s", name, rec.Code, rec.Body.String())
+	}
+	var login struct {
+		Token string `json:"token"`
+	}
+	_ = json.Unmarshal(rec.Body.Bytes(), &login)
+	return map[string]string{"X-SynoDL-Session": login.Token}
+}
+
+func TestYtdlList_ShowsOnlyYourOwn(t *testing.T) {
+	jobs := &fakeJobs{}
+	h, _ := newYtdlRouter(t, jobs, ytdlCfg())
+	admin := adminAfterSetup(t, h)
+	bo := ytdlSecondUser(t, h, admin, "bo")
+
+	if rec := submit(t, h, admin, `{"url":"https://youtu.be/adminSong","mode":"music"}`); rec.Code != http.StatusAccepted {
+		t.Fatalf("admin submit = %d %s", rec.Code, rec.Body.String())
+	}
+	if rec := submit(t, h, bo, `{"url":"https://youtu.be/boSong","mode":"music"}`); rec.Code != http.StatusAccepted {
+		t.Fatalf("bo submit = %d %s", rec.Code, rec.Body.String())
+	}
+
+	boList := listYtdl(t, h, bo)
+	if len(boList.Downloads) != 1 {
+		t.Fatalf("bo sees %d downloads, want only their own", len(boList.Downloads))
+	}
+	if !strings.Contains(boList.Downloads[0].URL, "boSong") {
+		t.Fatalf("bo sees %q, want their own download", boList.Downloads[0].URL)
+	}
+	// And nothing about the other user's download leaks through attribution.
+	if boList.Downloads[0].SubmittedBy != "" {
+		t.Errorf("non-admin sees submittedBy = %q, want it withheld", boList.Downloads[0].SubmittedBy)
+	}
+}
+
+func TestYtdlList_AdminSeesEveryoneAttributed(t *testing.T) {
+	jobs := &fakeJobs{}
+	h, _ := newYtdlRouter(t, jobs, ytdlCfg())
+	admin := adminAfterSetup(t, h)
+	bo := ytdlSecondUser(t, h, admin, "bo")
+
+	_ = submit(t, h, admin, `{"url":"https://youtu.be/adminSong","mode":"music"}`)
+	_ = submit(t, h, bo, `{"url":"https://youtu.be/boSong","mode":"music"}`)
+
+	got := listYtdl(t, h, admin)
+	if len(got.Downloads) != 2 {
+		t.Fatalf("admin sees %d downloads, want everyone's", len(got.Downloads))
+	}
+	for _, d := range got.Downloads {
+		if d.SubmittedBy == "" {
+			t.Errorf("admin sees %s with no submittedBy, want attribution", d.URL)
+		}
+	}
+}
+
+// FR-008: a refusal must not confirm that a download exists. 404 — never 403 —
+// so another user's download and a request id that never existed are
+// indistinguishable from outside.
+func TestYtdlDismiss_AnotherUsersIsNotFound(t *testing.T) {
+	jobs := &fakeJobs{}
+	h, _ := newYtdlRouter(t, jobs, ytdlCfg())
+	admin := adminAfterSetup(t, h)
+	bo := ytdlSecondUser(t, h, admin, "bo")
+
+	rec := submit(t, h, admin, `{"url":"https://youtu.be/adminSong","mode":"music"}`)
+	var out ytdlSubmitResp
+	_ = json.Unmarshal(rec.Body.Bytes(), &out)
+	jobs.setStatus(t, out.RequestID, k8s.JobStatus{Succeeded: 1})
+
+	theirs := do(t, h, "DELETE", "/v1/ytdl/"+out.RequestID, "", bo)
+	imaginary := do(t, h, "DELETE", "/v1/ytdl/does-not-exist", "", bo)
+
+	if theirs.Code != http.StatusNotFound {
+		t.Errorf("dismissing another user's download = %d, want 404 (403 would confirm it exists)", theirs.Code)
+	}
+	if imaginary.Code != theirs.Code {
+		t.Errorf("a nonexistent id answers %d but another user's answers %d — the two must be indistinguishable",
+			imaginary.Code, theirs.Code)
+	}
+	if len(jobs.deleted) != 0 {
+		t.Errorf("a refused dismissal still deleted %v", jobs.deleted)
+	}
+}
+
+func TestYtdlDismiss_AdminMayDismissAnothersDownload(t *testing.T) {
+	// FR-009a, stated positively: an admin's ability to act on any download is a
+	// decision, not an accident of how FR-008's exception is phrased.
+	jobs := &fakeJobs{}
+	h, _ := newYtdlRouter(t, jobs, ytdlCfg())
+	admin := adminAfterSetup(t, h)
+	bo := ytdlSecondUser(t, h, admin, "bo")
+
+	rec := submit(t, h, bo, `{"url":"https://youtu.be/boSong","mode":"music"}`)
+	var out ytdlSubmitResp
+	_ = json.Unmarshal(rec.Body.Bytes(), &out)
+	jobs.setStatus(t, out.RequestID, k8s.JobStatus{Succeeded: 1})
+
+	if rec := do(t, h, "DELETE", "/v1/ytdl/"+out.RequestID, "", admin); rec.Code != http.StatusNoContent {
+		t.Fatalf("admin dismiss = %d %s, want 204", rec.Code, rec.Body.String())
 	}
 }
