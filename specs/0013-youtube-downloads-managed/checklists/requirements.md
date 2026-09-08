@@ -40,6 +40,13 @@
   - **FR-020** — "already holds" means SynoDL's own completed record for that item
     in that mode, checked at expansion before anything is queued. FR-020a makes a
     dismissed record mean the item is no longer held.
+- **Clarify session complete (2026-09-08)**: five further questions asked and
+  integrated — the six-state lifecycle (FR-013a–d), one row per expanded group
+  with items behind it (FR-019–FR-019c), an instance-wide limit of four with
+  fair-share between users (FR-022a–c), notifications under the existing per-user
+  preferences at group granularity (FR-025a–d), and dismissal removing a group
+  with its items (FR-005a–c). The spec now carries 59 functional requirements and
+  14 success criteria.
 - A **separate checklist is still required** (constitution gate): this spec
   touches worker/cluster credentials via the widened worker-output read. Run
   `/speckit-checklist` before `/speckit-plan` completes.

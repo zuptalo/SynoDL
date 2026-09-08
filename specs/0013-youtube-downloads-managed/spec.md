@@ -48,6 +48,7 @@ reversed:
 | **Assumption** — "concurrency is bounded by a small operator-invisible limit, tuned in code", with no server-side queue | FR-021 – FR-025 | A cluster-bounded limit means excess requests sit Pending as far as the cluster is concerned, which the user cannot see or reorder. An explicit, durable queue of 4 is visible, survives restart, and is the operator's to tune. |
 | **FR-024** — only *failures* get a durable record; a success fades with the orchestrator's cleanup window | FR-001 – FR-005 | "The saved files are its record" holds for the media server, but not for the user asking what they downloaded last Tuesday. |
 | **FR-014 / FR-015** — a channel or playlist is one bulk request, deduplicated by the library's own archive file | FR-014 – FR-020 | A single bulk row cannot show which item is downloading, cannot report which item failed, and cannot be retried at item granularity. |
+| **FR-024a** as implemented — dismissal is refused while a download is running | FR-005a – FR-005c | With a queue and with groups of hundreds, refusing dismissal leaves no way to call off work already started. Dismissal now forgets the record and cancels what has not started, while still never stranding a running worker. |
 
 Three 0012 decisions explicitly **stand**:
 
@@ -115,6 +116,10 @@ and both timestamps intact.
    running one still reports its real state.
 4. **Given** a download record, **When** the user dismisses it, **Then** it is
    removed from their history and the files it saved are untouched.
+5. **Given** an expanded group with items saved, queued and running, **When** the
+   user dismisses the group, **Then** the group and all its item records go, the
+   queued items never start, the running ones are left to finish, and every file
+   already saved remains on the NAS.
 
 ---
 
@@ -239,8 +244,15 @@ download per entry, each independently trackable and independently retryable.
 4. **Given** an expansion that cannot be completed at all, **When** it fails,
    **Then** the original request is reported as failed with a plain reason, and
    no partial set of items is left behind in an unclear state.
-5. **Given** an expanded set, **When** the user looks at the list, **Then** it is
-   clear which playlist or channel the items came from.
+5. **Given** an expanded set, **When** the user looks at the Tasks list, **Then**
+   it appears as one row for the playlist or channel reporting how many of its
+   items are saved, failed and remaining — not as one row per item.
+6. **Given** that row, **When** the user opens it, **Then** every item is listed
+   with its own state and progress, and each can be opened, retried and dismissed
+   on its own.
+7. **Given** a channel of several hundred items, **When** it is expanded, **Then**
+   the user's other downloads remain visible in the Tasks list without scrolling
+   past the channel's contents.
 
 ---
 
@@ -260,7 +272,7 @@ at a time, the rest show as waiting, and each finish starts the next.
 
 1. **Given** more downloads queued than the limit allows, **When** the user
    looks, **Then** exactly the limit are running and the rest are shown as
-   waiting their turn.
+   *queued*, visibly distinct from one that is *scheduled* and starting.
 2. **Given** a running download reaches any final state, **When** a waiting one
    exists, **Then** that one starts without the user doing anything.
 3. **Given** downloads are queued and running, **When** the server restarts,
@@ -270,6 +282,12 @@ at a time, the rest show as waiting, and each finish starts the next.
    leaves the queue and never starts.
 5. **Given** the operator has changed the limit, **When** downloads are queued,
    **Then** the new limit is what is enforced.
+6. **Given** one user has expanded a channel of hundreds of items, **When**
+   another user submits a single link, **Then** that link starts without waiting
+   for the channel to finish.
+7. **Given** a user has a channel expanding and then pastes a single link of
+   their own, **When** a slot frees, **Then** their pasted link is admitted before
+   the remaining channel items.
 
 ---
 
@@ -317,6 +335,9 @@ playlist names, with embedded cover art, in both music and music-video modes.
 - **Worker output is unavailable.** A worker that has not started, whose output
   cannot be read, or that produced nothing parseable must still yield a correct
   life state — the download simply shows no percentage.
+- **A state that never resolves.** A *resolving* request whose expansion worker
+  vanishes, or a *scheduled* download the orchestrator never starts, must reach a
+  final state rather than sitting indefinitely (FR-013d).
 - **Progress that goes backwards or exceeds completion.** A worker fetching a
   video's picture and sound as separate streams reports two runs of 0–100%. The
   displayed progress must not appear to restart or exceed completion.
@@ -327,13 +348,29 @@ playlist names, with embedded cover art, in both music and music-video modes.
   error in the retry.
 - **Expansion of a link that turns out to contain exactly one item.** It becomes
   one ordinary download rather than a group of one.
-- **Dismissing a parent while its items are still running.** Dismissing must
-  never strand a running worker.
+- **Dismissing a group while its items are still running.** The records go at
+  once, but a running worker is left to finish rather than stranded mid-write; its
+  record is removed when it does.
+- **Dismissing then re-submitting the same channel.** Because a dismissed record
+  means the item is no longer held (FR-020a), every item is fetched again — the
+  library's own already-downloaded check is what keeps that cheap rather than
+  wasteful.
+- **A group whose every item is already held.** Re-submitting a channel that has
+  nothing new must say so plainly rather than presenting an empty group.
+- **A group of one.** A playlist that contains a single item should not force the
+  user through a group view to reach it (see the expansion edge case above).
 - **The server restarts mid-expansion.** An expansion that was in flight must
   either complete or be reported as failed; it must not leave a request stuck
   forever in "working out what this contains".
 - **Two users submit the same channel.** The second must not silently inherit or
-  duplicate the first's items.
+  duplicate the first's items, and fair-share must not let the pair of them
+  monopolise every slot.
+- **A group that never fully finishes.** A group notification fires only once
+  every item is final; a group with one item stuck must still reach that point
+  (FR-013d) or it would never notify at all.
+- **One user, nothing but bulk work.** Where a single user is the only one with
+  anything queued, fair-share must not idle slots — the limit is a ceiling, not a
+  reservation.
 - **Clock and locale.** The date and time format is fixed by this spec and does
   not follow the viewer's device locale.
 
@@ -356,6 +393,15 @@ playlist names, with embedded cover art, in both music and music-video modes.
   cannot desynchronise a running download.
 - **FR-005**: A download record MUST be removable by the user who owns it, and
   removing it MUST NOT delete anything the download saved.
+- **FR-005a**: Dismissing an expanded playlist or channel MUST remove the group
+  and every one of its item records together — a group is one thing to the user
+  and must behave as one when discarded.
+- **FR-005b**: Dismissing a group MUST remove its queued items from the queue so
+  they never start, MUST leave any already-running item to finish rather than
+  stranding its worker, and MUST remove each running item's record once it
+  finishes.
+- **FR-005c**: Dismissal MUST NOT be refused because a download is queued or
+  running; calling off work already started is the point of it.
 - **FR-006**: Download history MUST be kept until its owner dismisses it. There
   is no age limit and no row cap: with no ceiling on expansion, a complete record
   is the point, and the user is the one who decides what to forget.
@@ -386,6 +432,24 @@ playlist names, with embedded cover art, in both music and music-video modes.
   download's correct life state and MUST NOT display an invented or stale
   percentage. Losing progress MUST NOT cause a download to be reported as failed.
 
+**The states a download moves through**
+
+- **FR-013a**: A download MUST be in exactly one of six states: *resolving*
+  (working out what a playlist or channel link contains), *queued* (SynoDL is
+  holding it behind the parallel limit), *scheduled* (admitted; the orchestrator
+  is starting its worker), *downloading* (the worker is fetching, and progress
+  applies), *completed*, or *failed*.
+- **FR-013b**: *Queued* and *scheduled* MUST be distinguishable to the user, so
+  "SynoDL is holding this behind others" is never confused with "this is starting
+  now". Only *downloading* carries progress.
+- **FR-013c**: Legal transitions are: *resolving* → *failed*, or *resolving* →
+  the group's items each entering *queued*; *queued* → *scheduled* → *downloading*
+  → *completed* or *failed*; and *failed* → *queued* on an explicit retry. A
+  download MUST NOT leave a final state by any other route.
+- **FR-013d**: *Completed* and *failed* are final. Every other state MUST be able
+  to reach a final state without user intervention, so nothing can sit forever in
+  *resolving*, *queued*, or *scheduled*.
+
 **Playlists and channels become individual items**
 
 - **FR-014**: A playlist or channel link MUST be resolved into the individual
@@ -400,8 +464,15 @@ playlist names, with embedded cover art, in both music and music-video modes.
   channel expands into.
 - **FR-018**: A single item failing MUST NOT prevent the remaining items of the
   same playlist or channel from downloading.
-- **FR-019**: System MUST make clear which playlist or channel an expanded item
-  came from.
+- **FR-019**: An expanded playlist or channel MUST remain a single row in the
+  Tasks list, showing what it is and how its items are progressing as a whole —
+  how many are saved, how many failed, how many remain.
+- **FR-019a**: Opening that row MUST show the group's items, each as a download in
+  its own right with its own artwork, title, state, progress, retry and detail.
+- **FR-019b**: An expanded item MUST NOT appear as a top-level row in the Tasks
+  list, so a large channel cannot crowd out a user's other downloads.
+- **FR-019c**: An expanded item MUST make clear which playlist or channel it came
+  from when viewed on its own.
 - **FR-020**: Re-submitting a playlist or channel MUST NOT re-download items it
   already holds. "Already holds" means SynoDL has a completed record for that
   item in that mode: such items MUST be skipped at expansion, before any download
@@ -418,10 +489,30 @@ playlist names, with embedded cover art, in both music and music-video modes.
 - **FR-022**: A request beyond that limit MUST wait in a queue that is visible to
   its owner, and MUST start automatically when a running download reaches any
   final state.
+- **FR-022a**: The limit is instance-wide, not per user, so total load on the
+  cluster and on the source does not grow with the number of users.
+- **FR-022b**: Slots MUST be shared fairly between users: no user's queued
+  downloads may be starved by another user's, however many that user has queued.
+- **FR-022c**: Within one user's own queue, a directly submitted link MUST be
+  admitted ahead of that user's items from an expanded playlist or channel — a
+  pasted link is an immediate want, a bulk expansion is background work.
 - **FR-023**: The queue MUST survive a restart of the SynoDL server, resuming
   rather than stranding or duplicating waiting work.
-- **FR-024**: A waiting download MUST be removable by its owner before it starts.
+- **FR-024**: A *queued* download MUST leave the queue and never start when its
+  owner dismisses it (FR-005b).
 - **FR-025**: The parallel limit MUST be configurable by the operator.
+
+**Notifications**
+
+- **FR-025a**: YouTube downloads MUST honour each user's existing notification
+  preferences — added, completed, failed — rather than introducing a separate set
+  of switches.
+- **FR-025b**: A directly submitted link MUST notify as one download.
+- **FR-025c**: An expanded playlist or channel MUST notify at most once for the
+  group as a whole, when every item has reached a final state, summarising how
+  many were saved and how many failed. It MUST NOT notify per item.
+- **FR-025d**: Notification MUST respect ownership: a user is notified only about
+  downloads they can see (FR-007), under their existing notification scope.
 
 **Retry**
 
@@ -474,9 +565,12 @@ playlist names, with embedded cover art, in both music and music-video modes.
   what companion files it produced, both timestamps, and how many attempts it has
   had. This is the durable record; the running worker, when there is one, is not.
 - **Download group**: A playlist or channel request and the items it resolved
-  into. Gives an expanded item its origin and its playlist-derived naming.
+  into. It is itself a row in the Tasks list, carrying the playlist's or channel's
+  own title and artwork and an aggregate of its items' outcomes; it gives each
+  expanded item its origin and its playlist-derived naming. Its items live behind
+  it rather than beside it in the list.
 - **Queue position**: Where a download sits relative to the parallel limit —
-  waiting, admitted, or finished. Durable, so a restart resumes rather than
+  *queued*, *scheduled*, or past both. Durable, so a restart resumes rather than
   restarts.
 - **Worker report**: What a running worker says about its own progress and about
   the files it wrote. Read while the worker lives; never a mirror, and never the
@@ -495,8 +589,17 @@ playlist names, with embedded cover art, in both music and music-video modes.
   finding or re-entering the original link.
 - **SC-004**: Submitting a playlist of 20 items produces 20 independently
   trackable downloads, and one failing entry leaves the other 19 unaffected.
+- **SC-004a**: Expanding a channel of any size adds exactly one row to the Tasks
+  list, and the user can still see their other downloads without scrolling.
 - **SC-005**: With any number of downloads queued, never more than the configured
   limit run at once, and the queue drains without user intervention.
+- **SC-005a**: A user who submits a single link while another user's large channel
+  is downloading waits for at most one running download to finish, not for the
+  channel.
+- **SC-005b**: Expanding a channel of any size produces at most one notification
+  per user who asked to be notified.
+- **SC-005c**: A user can call off an expanded channel of any size in one action,
+  and no queued item of it starts afterwards.
 - **SC-006**: A server restart with work in flight loses no queued download and
   misreports no running one.
 - **SC-006a**: A history of several thousand downloads opens as quickly as a
@@ -564,6 +667,9 @@ because this spec touches worker and cluster credentials.
   and verifying which is required is part of the work.
 - **A single admitter.** SynoDL runs as one replica, so exactly one thing decides
   what to admit from the queue. A multi-replica deployment is out of scope.
+- **Fair-share is between users, not between groups.** Two channels expanded by
+  the same user take that user's share between them in submission order; the spec
+  does not promise to interleave them.
 - **Expansion does not count against the parallel limit.** Working out what a link
   contains is short and cheap; the limit governs downloads.
 - **A duplicate in-flight request is still refused, not queued** behind the first,
@@ -598,10 +704,44 @@ because this spec touches worker and cluster credentials.
   hundreds of simultaneous requests — is answered by the parallel limit (FR-021)
   rather than by a cap, and the risk to the list is answered by FR-006a. Carried
   into FR-017.
+- Q: After a playlist or channel expands, what appears in the Tasks list? → A: One
+  row for the group, showing aggregate progress; the items live behind it and are
+  reached by opening it. The Tasks list is a mixed list that also carries NAS
+  downloads, and with no ceiling on expansion a flat layout would let one channel
+  push everything else off the screen. Each item is still a full download in its
+  own right once opened. Carried into FR-019–FR-019c, User Story 6, SC-004a, and
+  Key Entities.
+- Q: How are the four parallel slots allocated when several downloads are waiting?
+  → A: One instance-wide limit of four, shared fairly between users, with a
+  directly submitted link admitted ahead of the same user's bulk-expanded items.
+  Strict first-in-first-out would let a single 500-item channel block every other
+  user for hours, and a per-user limit would let total cluster load grow without
+  bound. Fair-share is a small addition to a queue this spec requires anyway.
+  Carried into FR-022a–FR-022c, User Story 7, SC-005a, Edge Cases and Assumptions.
+- Q: Do YouTube downloads send push notifications, and at what granularity? → A:
+  Yes, under each user's existing notification preferences from spec 1004 — a
+  pasted link notifies as one download, and an expanded playlist or channel
+  notifies once for the group when every item is final, summarising saved and
+  failed counts. Introducing a separate set of switches would surprise a user who
+  has already chosen to be notified, and notifying per item would send hundreds of
+  pushes from one paste. Carried into FR-025a–FR-025d, SC-005b and Edge Cases.
+- Q: What happens when a user dismisses an expanded playlist or channel? → A: The
+  group and every item record go together; queued items leave the queue, running
+  ones are left to finish and are then removed, and nothing already saved is
+  touched. A group is one row to the user, so it must be discardable as one thing
+  — and refusing dismissal until a 340-item channel finished would leave no way to
+  call off a mistake. Carried into FR-005a–FR-005c, User Story 2, SC-005c and Edge
+  Cases.
 - Q: How long is download history kept, given that decision? → A: Until its owner
   dismisses it. No age limit, no row cap. A complete record of a complete channel
   is the point of having no ceiling; the consequence is that listing must stay
   responsive at thousands of rows. Carried into FR-006, FR-006a and SC-006a.
+- Q: What is the full set of lifecycle states a download can be in? → A: Six —
+  resolving, queued, scheduled, downloading, completed, failed. Queued and
+  scheduled stay visibly separate so "SynoDL is holding this behind others" is not
+  confused with "the worker is starting now", which are different waits with
+  different expected durations. Carried into FR-013a–FR-013d, Key Entities, and
+  User Story 7.
 - Q: When a channel or playlist is re-submitted, what counts as already having an
   item? → A: SynoDL's own completed record for that item in that mode. Skipping
   happens at expansion, before anything is queued, so a re-run does not create
