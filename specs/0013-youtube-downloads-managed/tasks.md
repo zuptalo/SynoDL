@@ -285,8 +285,8 @@ both modes.
 - [X] T104 [P] Update `CLAUDE.md`: the six states, the reconciler, the queue, `pods/log`, and `YTDL_MAX_PARALLEL`. The existing text describes spec 0012's four states and "no server-side queue".
 - [X] T105 [P] Update `docs/UPGRADING.md` with the operator-facing change: a new environment variable and a widened Role.
 - [X] T105a [P] Review `e2e/stateful/ytdl-fab.spec.ts` and `e2e/stateful/ytdl.spec.ts` against the changed submit response and the new states, and update any assertion that encoded spec 0012's four-state model.
-- [ ] T106 Run the full gate: `npm run build`, `npm run test:unit:coverage`, `cd server && go build ./... && go vet ./... && go test ./...`, `npm run test:e2e`.
-- [ ] T107 Set the spec `Status:` to `in-review` and run `make roadmap`.
+- [X] T106 Run the full gate: `npm run build`, `npm run test:unit:coverage`, `cd server && go build ./... && go vet ./... && go test ./...`, `npm run test:e2e`.
+- [X] T107 Set the spec `Status:` to `in-review` and run `make roadmap`.
 
 ---
 
