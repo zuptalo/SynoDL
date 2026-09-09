@@ -140,11 +140,15 @@ const errorReason = computed(() =>
           <span v-if="active">{{ eta }}</span>
           <span v-if="task.addedBy" class="added-by" data-testid="task-added-by">added by {{ task.addedBy }}</span>
         </div>
-        <ion-progress-bar
-          v-if="task.status !== 'finished'"
-          :value="progressOf(task.downloaded, task.size)"
-          :style="{ '--progress-background': statusColorVar }"
-        />
+        <!-- A finished download shows no bar, but still reserves its space: a
+             bar that vanishes on completion shifts every row beneath it. -->
+        <div class="bar-slot">
+          <ion-progress-bar
+            v-if="task.status !== 'finished'"
+            :value="progressOf(task.downloaded, task.size)"
+            :style="{ '--progress-background': statusColorVar }"
+          />
+        </div>
       </ion-label>
     </ion-item>
     <ion-item-options side="end">
@@ -252,6 +256,12 @@ const errorReason = computed(() =>
   color: var(--app-status-error);
 }
 
+/* The bar's slot is its own height, so the row measures the same with or
+   without it. YtdlItem and UploadItem reserve the same slot, which is what
+   keeps a mixed list flush. */
+.bar-slot {
+  height: 3px;
+}
 ion-progress-bar {
   height: 3px;
   border-radius: 2px;

@@ -114,13 +114,15 @@ const statusColorVar = computed(() => {
         <!-- Indeterminate once the device is done: the remaining work is real
              but its duration is unknown to us, and a bar pinned at 100% would
              read as finished while the NAS is still writing. -->
-        <ion-progress-bar
-          v-if="job.state !== 'done'"
-          :type="finishing ? 'indeterminate' : 'determinate'"
-          :value="job.progress"
-          :style="{ '--progress-background': statusColorVar }"
-          data-testid="upload-progress"
-        />
+        <div class="bar-slot">
+          <ion-progress-bar
+            v-if="job.state !== 'done'"
+            :type="finishing ? 'indeterminate' : 'determinate'"
+            :value="job.progress"
+            :style="{ '--progress-background': statusColorVar }"
+            data-testid="upload-progress"
+          />
+        </div>
       </ion-label>
     </ion-item>
 
@@ -220,6 +222,11 @@ const statusColorVar = computed(() => {
 .dest {
   font-size: 0.75rem;
   color: var(--app-text-dim);
+}
+/* Reserved whether or not the bar is in it, so a row does not shrink the
+   moment its upload finishes. Same slot as TaskItem and YtdlItem. */
+.bar-slot {
+  height: 3px;
 }
 ion-progress-bar {
   height: 3px;
