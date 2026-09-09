@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 )
 
 // Fake download sources (spec 0007).
@@ -37,10 +38,25 @@ type SourceState struct {
 	pages      int
 	perPage    int
 	titlePrefx string
+	// delay makes the fake site answer slowly. A real source sometimes does, and
+	// that is the case worth being able to reproduce: it is the only way to have
+	// a search still running when a test wants to call it off (spec 1041).
+	delay time.Duration
 }
 
 func newSourceState(prefix string) *SourceState {
 	return &SourceState{pages: 5, perPage: 6, titlePrefx: prefix}
+}
+
+// wait holds the response for however long the fake site has been told to take.
+// A no-op unless a test asked for it.
+func (s *SourceState) wait() {
+	s.mu.Lock()
+	d := s.delay
+	s.mu.Unlock()
+	if d > 0 {
+		time.Sleep(d)
+	}
 }
 
 func (s *SourceState) snapshot() (loggedOut, paywalled bool, pages, perPage int, prefix string) {
@@ -67,12 +83,17 @@ func (s *Server) registerSources(mux *http.ServeMux) {
 //	POST /__mock/source/zar/logged-out
 //	POST /__mock/source/zar/paywalled
 //	POST /__mock/source/tn/pages?n=2
+//	POST /__mock/source/zar/slow?ms=3000
 //	POST /__mock/source/reset
 func (s *Server) handleSourceControl(w http.ResponseWriter, r *http.Request) {
 	rest := strings.TrimPrefix(r.URL.Path, "/__mock/source/")
 	if rest == "reset" {
-		s.zarSrc.set(func(st *SourceState) { st.loggedOut, st.paywalled, st.pages, st.perPage = false, false, 5, 6 })
-		s.tnSrc.set(func(st *SourceState) { st.loggedOut, st.paywalled, st.pages, st.perPage = false, false, 5, 6 })
+		s.zarSrc.set(func(st *SourceState) {
+			st.loggedOut, st.paywalled, st.pages, st.perPage, st.delay = false, false, 5, 6, 0
+		})
+		s.tnSrc.set(func(st *SourceState) {
+			st.loggedOut, st.paywalled, st.pages, st.perPage, st.delay = false, false, 5, 6, 0
+		})
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}
@@ -96,6 +117,12 @@ func (s *Server) handleSourceControl(w http.ResponseWriter, r *http.Request) {
 			n = 0
 		}
 		target.set(func(st *SourceState) { st.pages = n })
+	case "slow":
+		ms, _ := strconv.Atoi(r.URL.Query().Get("ms"))
+		if ms < 0 {
+			ms = 0
+		}
+		target.set(func(st *SourceState) { st.delay = time.Duration(ms) * time.Millisecond })
 	default:
 		http.Error(w, "unknown source control", http.StatusNotFound)
 		return
@@ -144,6 +171,7 @@ func zarMockPanelHTML(base string) string {
 }
 
 func (s *Server) handleZarMock(w http.ResponseWriter, r *http.Request) {
+	s.zarSrc.wait()
 	loggedOut, paywalled, pages, perPage, prefix := s.zarSrc.snapshot()
 	path := strings.TrimPrefix(r.URL.Path, "/mocksrc/zar")
 	path = "/" + strings.Trim(path, "/")
@@ -397,6 +425,7 @@ func zarSeriesHTML(base string, paywalled bool) string {
 // ---------- the JSON-shaped fake site ----------
 
 func (s *Server) handleTNMock(w http.ResponseWriter, r *http.Request) {
+	s.tnSrc.wait()
 	loggedOut, _, pages, perPage, prefix := s.tnSrc.snapshot()
 	w.Header().Set("Content-Type", "application/json")
 	if loggedOut {

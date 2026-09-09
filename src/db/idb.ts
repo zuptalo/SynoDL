@@ -14,14 +14,22 @@ export const STORES = [
   // Reserved for the in-app browser spec: favorite sites + visit history.
   'favorites',
   'history',
+  // The last Discover view that produced results, so opening the app shows what
+  // was last on screen rather than spending requests on a shared, rate-limited
+  // source before anyone has asked for anything (spec 1041). A cache, kept apart
+  // from `settings` because it is derived data that may be dropped at any time —
+  // losing it costs one search, losing a setting costs a preference.
+  'catalog',
 ] as const;
 export type StoreName = (typeof STORES)[number];
 
 const DB_NAME = 'synodl';
-// v1: initial schema — all three stores, keyPath 'id'. Adding or altering a
-// store MUST bump this and extend the upgrade below with a forward migration
-// that preserves existing data (constitution Principle IV).
-const DB_VERSION = 1;
+// v1: initial schema — settings, favorites, history, keyPath 'id'.
+// v2: + 'catalog' (spec 1041). Adding or altering a store MUST bump this and
+// extend the upgrade below with a forward migration that preserves existing data
+// (constitution Principle IV). The loop below only CREATES what is missing, so
+// every existing store and everything in it survives untouched.
+const DB_VERSION = 2;
 
 let dbPromise: Promise<IDBDatabase> | null = null;
 
