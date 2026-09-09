@@ -65,12 +65,12 @@ Specs are grouped by category band; status moves
 | [1034](specs/1034-make-youtube-downloads/spec.md) | Make YouTube downloads readable in the task list | 🟢 shipped |
 | [1035](specs/1035-card-captions-read/spec.md) | Card captions read like the detail sheet | 🟢 shipped |
 | [1036](specs/1036-telegram-intake-architect-reports/spec.md) | Telegram intake architect reports | ⚪ planned |
-| [1037](specs/1037-item-rows-and-polish/spec.md) | A track inside a playlist looks like any other download | 🔵 in-review |
-| [1038](specs/1038-ytdl-live-updates/spec.md) | YouTube downloads update as they happen | 🔵 in-review |
-| [1039](specs/1039-youtube-rows-match/spec.md) | YouTube downloads look like the downloads they sit next to | 🔵 in-review |
-| [1040](specs/1040-upload-music/spec.md) | Uploading music and music videos into the library | 🔵 in-review |
-| [1041](specs/1041-discover-resume/spec.md) | Discover opens where you left it, and a search can be called off | 🔵 in-review |
-| [1042](specs/1042-tasks-list-sections/spec.md) | Every task says where it came from, and an upload says what it is | 🔵 in-review |
+| [1037](specs/1037-item-rows-and-polish/spec.md) | A track inside a playlist looks like any other download | 🟢 shipped |
+| [1038](specs/1038-ytdl-live-updates/spec.md) | YouTube downloads update as they happen | 🟢 shipped |
+| [1039](specs/1039-youtube-rows-match/spec.md) | YouTube downloads look like the downloads they sit next to | 🟢 shipped |
+| [1040](specs/1040-upload-music/spec.md) | Uploading music and music videos into the library | 🟢 shipped |
+| [1041](specs/1041-discover-resume/spec.md) | Discover opens where you left it, and a search can be called off | 🟢 shipped |
+| [1042](specs/1042-tasks-list-sections/spec.md) | Every task says where it came from, and an upload says what it is | 🟢 shipped |
 
 ## 🐛 Hotfixes & Bug Fixes (2001+)
 
@@ -94,9 +94,9 @@ Specs are grouped by category band; status moves
 | [2017](specs/2017-hide-owned-migration-skipped/spec.md) | "Hide what I have" never saved, and every view save answered 500 | 🟢 shipped |
 | [2019](specs/2019-orphaned-rows-sweep/spec.md) | Remove rows the cascades should have taken with them | 🟢 shipped |
 | [2020](specs/2020-download-without-lyrics/spec.md) | A download without lyrics is not a failure | 🟢 shipped |
-| [2021](specs/2021-ytdl-flag-arity/spec.md) | Progress reporting and the traversal guard, actually switched on | 🔵 in-review |
-| [2022](specs/2022-expand-job-identity/spec.md) | A group's enumeration job is not the group finishing | 🔵 in-review |
-| [2023](specs/2023-podlog-accept/spec.md) | Reading a worker's output, actually permitted by the API | 🔵 in-review |
-| [2024](specs/2024-group-sheet-refetch/spec.md) | A group's items stop reloading on every poll | 🔵 in-review |
-| [2025](specs/2025-item-detail-lookup/spec.md) | An item's details, actually reachable | 🔵 in-review |
-| [2026](specs/2026-steady-row-height/spec.md) | A row that stays the height it was | 🔵 in-review |
+| [2021](specs/2021-ytdl-flag-arity/spec.md) | Progress reporting and the traversal guard, actually switched on | 🟢 shipped |
+| [2022](specs/2022-expand-job-identity/spec.md) | A group's enumeration job is not the group finishing | 🟢 shipped |
+| [2023](specs/2023-podlog-accept/spec.md) | Reading a worker's output, actually permitted by the API | 🟢 shipped |
+| [2024](specs/2024-group-sheet-refetch/spec.md) | A group's items stop reloading on every poll | 🟢 shipped |
+| [2025](specs/2025-item-detail-lookup/spec.md) | An item's details, actually reachable | 🟢 shipped |
+| [2026](specs/2026-steady-row-height/spec.md) | A row that stays the height it was | 🟢 shipped |
