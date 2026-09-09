@@ -100,3 +100,4 @@ Specs are grouped by category band; status moves
 | [2024](specs/2024-group-sheet-refetch/spec.md) | A group's items stop reloading on every poll | 🟢 shipped |
 | [2025](specs/2025-item-detail-lookup/spec.md) | An item's details, actually reachable | 🟢 shipped |
 | [2026](specs/2026-steady-row-height/spec.md) | A row that stays the height it was | 🟢 shipped |
+| [2027](specs/2027-cancel-pill-position/spec.md) | The cancel pill, clear of the controls it covered | 🔵 in-review |

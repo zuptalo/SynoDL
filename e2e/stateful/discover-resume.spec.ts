@@ -133,6 +133,21 @@ test('a search in progress offers to be called off, and nothing moves when it ap
   expect(gridDuring?.y, 'the grid moved when the cancel pill appeared').toBe(gridBefore?.y);
   await expect(pill).toHaveCSS('position', 'fixed');
 
+  // And it sits BELOW the refresher's spinner, measured from the real header.
+  //
+  // Asserting merely "not overlapping the header" is not enough, and that is not
+  // a guess: the pill was previously placed at a hard-coded 108px offset, which
+  // clears this viewport's short header and so passed such a test — while
+  // landing squarely on the search box on a phone. This checks the clearance the
+  // design actually asks for, which is what the fallback could never satisfy.
+  const header = await page.locator('ion-header').first().boundingBox();
+  const headerBottom = (header?.y ?? 0) + (header?.height ?? 0);
+  const box = await pill.boundingBox();
+  expect(
+    box?.y ?? 0,
+    'the cancel pill is not clear of the header and the refresher spinner',
+  ).toBeGreaterThanOrEqual(headerBottom + 80);
+
   await pill.click();
   await expect(pill).toHaveCount(0, { timeout: 10_000 });
   // FR-010: usable again immediately, rather than waiting out the request.
