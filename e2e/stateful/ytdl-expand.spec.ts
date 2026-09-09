@@ -165,3 +165,42 @@ test('re-submitting a channel queues only what is new', async () => {
   const fresh = await items(token, second.requestId);
   expect(fresh[0].title).toContain('zzzzzzzzzzz');
 });
+
+test('an open group sheet does not refetch its items on every poll', async ({ page }) => {
+  // The sheet used to clear and refetch its items every few seconds: its
+  // watcher's getter returned a fresh array each run, so Vue's reference
+  // comparison fired on every re-render of the polled list.
+  //
+  // Counting REQUESTS is the instrument, not sampling the rendered rows —
+  // the clear-and-refetch window is milliseconds wide, so watching for an
+  // empty list misses it and the test passes with the bug present.
+  const { requestId } = await submit(token, 'https://www.youtube.com/playlist?list=PLtest');
+  await emitEntries(requestId, ['aaaaaaaaaaa', 'bbbbbbbbbbb', 'ccccccccccc']);
+  await expect.poll(() => items(token, requestId).then((i) => i.length), { timeout: 30_000 }).toBe(3);
+
+  await gotoTasks(page);
+
+  let itemFetches = 0;
+  page.on('request', (r) => {
+    if (/\/v1\/ytdl\/[^/]+\/items/.test(r.url())) itemFetches += 1;
+  });
+
+  await page.getByTestId('ytdl-item').first().click();
+  await expect(page.getByTestId('ytdl-group-items')).toBeVisible();
+  await expect(page.getByTestId('ytdl-group-item')).toHaveCount(3);
+
+  const afterOpen = itemFetches;
+  expect(afterOpen, 'opening the sheet should fetch the items once').toBeGreaterThan(0);
+
+  // Nothing about the group changes for the next 15s — no item finishes, no
+  // count moves — so there is nothing to re-read.
+  await page.waitForTimeout(15_000);
+
+  const extra = itemFetches - afterOpen;
+  expect(
+    extra,
+    `items were refetched ${extra} more times while nothing changed; the sheet is reloading on every poll`,
+  ).toBeLessThanOrEqual(1);
+
+  await expect(page.getByTestId('ytdl-group-item')).toHaveCount(3);
+});
