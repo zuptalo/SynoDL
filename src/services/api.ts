@@ -193,17 +193,55 @@ export interface SetupPayload {
 }
 
 /**
- * A YouTube download (spec 0012). Deliberately tiny: four states and nothing
- * else. There is no size, no progress, no speed and no estimate here — the
- * server does not send them, and their absence is the requirement rather than
- * an omission to be filled in later.
+ * The six states a download can be in (spec 0013, FR-013a).
+ *
+ * `queued` and `scheduled` are kept apart on purpose: "SynoDL is holding this
+ * behind others" and "the worker is starting now" are different waits with very
+ * different expected durations, and collapsing them would make the first look
+ * like the second was taking forever.
  */
+export type YtdlState =
+  | 'resolving'
+  | 'queued'
+  | 'scheduled'
+  | 'downloading'
+  | 'completed'
+  | 'failed';
+
+/** A group's aggregate — how a playlist or channel's items are getting on. */
+export interface YtdlCounts {
+  total: number;
+  completed: number;
+  failed: number;
+  remaining: number;
+}
+
 export interface YtdlDownload {
   requestId: string;
+  /** Set on an item; absent on a directly submitted download and on a group. */
+  parentId?: string;
+  kind: 'single' | 'group' | 'item';
   url: string;
   mode: 'music' | 'music-video';
   scope: 'single' | 'playlist' | 'channel';
-  state: 'scheduled' | 'started' | 'completed' | 'failed';
+  state: YtdlState;
+  /**
+   * How far along, 0–1, and ABSENT rather than 0 whenever nothing is known —
+   * an unreadable worker log must not render as a download stuck at the start
+   * (FR-013). Present only while downloading.
+   */
+  progress?: number;
+  /** Whether a lyrics file was saved, and in what language (FR-011). */
+  hasLyrics?: boolean;
+  lyricsLang?: string;
+  /** The playlist or channel an expanded item came from (FR-019c). */
+  groupName?: string;
+  /** A group's item counts; absent on anything that is not a group. */
+  counts?: YtdlCounts;
+  /** How many times this has been attempted. Above 1 means it was retried. */
+  attempts?: number;
+  /** Absent until the download is final — never 0, which would render as 1970. */
+  finishedAt?: number;
   /**
    * What the download IS, learned once at submission (spec 1034). All three are
    * best-effort and ABSENT more often than empty — a channel has no metadata
@@ -221,7 +259,13 @@ export interface YtdlDownload {
 
 export interface YtdlSnapshot {
   downloads: YtdlDownload[];
-  /** The live half could not be read; stored failures are still present. */
+  /** Absent on the last page. History is unbounded, so the list is paged. */
+  nextCursor?: string;
+  /**
+   * The live half could not be read; stored records are still present. This is
+   * how "the orchestrator is unreachable" stays distinguishable from "this
+   * download failed" (FR-032b).
+   */
   degraded: boolean;
 }
 
@@ -758,7 +802,12 @@ export const api = {
   // YouTube downloads (spec 0012). A separate feed from /v1/tasks on purpose:
   // the NAS task path is the app's most load-bearing endpoint and this feature
   // does not touch it — the two are merged here in the client instead.
-  ytdl: () => request<YtdlSnapshot>('/v1/ytdl'),
+  /**
+   * One page of the caller's downloads. History is unbounded (spec 0013), so
+   * this is paged — pass the previous response's `nextCursor` to continue.
+   */
+  ytdl: (cursor?: string) =>
+    request<YtdlSnapshot>(`/v1/ytdl${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ''}`),
   ytdlSubmit: (url: string, mode: 'music' | 'music-video') =>
     request<{ requestId: string; scope: string; mode: string; state: string }>(
       '/v1/ytdl',
@@ -767,6 +816,20 @@ export const api = {
   // Dismisses the RECORD of a finished download. Never deletes what it saved.
   ytdlDismiss: (requestId: string) =>
     request<void>(`/v1/ytdl/${encodeURIComponent(requestId)}`, { method: 'DELETE' }),
+  /**
+   * Send a failed download back to the queue (spec 0013). Only ever called
+   * because a person asked — nothing retries on its own.
+   */
+  ytdlRetry: (requestId: string) =>
+    request<{ requestId: string; state: YtdlState; attempts: number; requeued?: number }>(
+      `/v1/ytdl/${encodeURIComponent(requestId)}/retry`,
+      { method: 'POST' },
+    ),
+  /** A group's items, plus how the group as a whole is getting on. */
+  ytdlItems: (requestId: string, cursor?: string) =>
+    request<{ group: YtdlDownload; items: YtdlDownload[]; nextCursor?: string }>(
+      `/v1/ytdl/${encodeURIComponent(requestId)}/items${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ''}`,
+    ),
 
   createTaskURIs: (
     uris: string[],

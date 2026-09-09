@@ -1,6 +1,7 @@
 package k8smock
 
 import (
+	"bytes"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -166,5 +167,110 @@ func TestDeleteAndReset(t *testing.T) {
 	r2.Body.Close()
 	if len(list(t, srv, "")) != 0 {
 		t.Error("reset should clear every job")
+	}
+}
+
+// Pods and their output (spec 0013). The reason these are tested here rather
+// than faked at the Go boundary is the same reason the package exists at all:
+// the wire format and the selector are where the bugs live.
+
+func TestListPodsAndLog(t *testing.T) {
+	srv := New(0)
+	h := srv.Handler()
+
+	createTestJob(t, h, "synodl-ytdl-abc", map[string]string{
+		"app.kubernetes.io/managed-by": "synodl",
+		"synodl.io/kind":               "ytdl",
+	})
+
+	// A pod exists for the job and carries its labels, so one selector finds both.
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/namespaces/synodl/pods?labelSelector=synodl.io/kind=ytdl", nil)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("list pods = %d, want 200", rec.Code)
+	}
+	var pods k8s.PodList
+	if err := json.NewDecoder(rec.Body).Decode(&pods); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(pods.Items) != 1 {
+		t.Fatalf("pods = %d, want 1", len(pods.Items))
+	}
+	podName := pods.Items[0].Metadata.Name
+
+	// A pod with no output yet is a 404, which is an ordinary outcome.
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/v1/namespaces/synodl/pods/"+podName+"/log", nil))
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("log before emit = %d, want 404", rec.Code)
+	}
+
+	// emit gives it something to say.
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/__mock/jobs/synodl-ytdl-abc/emit", strings.NewReader("hello")))
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("emit = %d, want 204", rec.Code)
+	}
+
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/v1/namespaces/synodl/pods/"+podName+"/log", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("log = %d, want 200", rec.Code)
+	}
+	if got := rec.Header().Get("Content-Type"); got != "text/plain" {
+		t.Errorf("Content-Type = %q, want text/plain — the real endpoint is not JSON", got)
+	}
+	if rec.Body.String() != "hello\n" {
+		t.Errorf("body = %q, want the emitted line", rec.Body.String())
+	}
+}
+
+func TestPodLog_TailLines(t *testing.T) {
+	srv := New(0)
+	h := srv.Handler()
+	createTestJob(t, h, "synodl-ytdl-tail", map[string]string{"synodl.io/kind": "ytdl"})
+	for _, l := range []string{"one", "two", "three"} {
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/__mock/jobs/synodl-ytdl-tail/emit", strings.NewReader(l)))
+	}
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/v1/namespaces/synodl/pods/synodl-ytdl-tail-worker/log?tailLines=2", nil))
+	if rec.Body.String() != "two\nthree\n" {
+		t.Fatalf("body = %q, want only the last two lines", rec.Body.String())
+	}
+}
+
+func TestDeleteJob_SweepsPodOutput(t *testing.T) {
+	// A swept Job takes its output with it. This is why facts that must outlive
+	// the worker are captured while it still exists (FR-013g) — and a test that
+	// did not reproduce the sweep would let that bug through.
+	srv := New(0)
+	h := srv.Handler()
+	createTestJob(t, h, "synodl-ytdl-gone", map[string]string{"synodl.io/kind": "ytdl"})
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/__mock/jobs/synodl-ytdl-gone/emit", strings.NewReader("progress")))
+
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodDelete, "/apis/batch/v1/namespaces/synodl/jobs/synodl-ytdl-gone", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("delete = %d, want 200", rec.Code)
+	}
+
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/v1/namespaces/synodl/pods/synodl-ytdl-gone-worker/log", nil))
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("log after sweep = %d, want 404", rec.Code)
+	}
+}
+
+// createTestJob posts a minimal Job with the given labels.
+func createTestJob(t *testing.T, h http.Handler, name string, labels map[string]string) {
+	t.Helper()
+	body, _ := json.Marshal(k8s.Job{Metadata: k8s.ObjectMeta{Name: name, Namespace: "synodl", Labels: labels}})
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/apis/batch/v1/namespaces/synodl/jobs", bytes.NewReader(body)))
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create job = %d, want 201", rec.Code)
 	}
 }

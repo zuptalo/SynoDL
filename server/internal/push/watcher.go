@@ -353,6 +353,17 @@ func (w *Watcher) notifyEvent(ctx context.Context, event string, ownerUserID int
 	}
 }
 
+// NotifyDownload announces a YouTube download's outcome (spec 0013, FR-025a).
+//
+// Exported so the ytdl reconciler can reuse the whole of notifyEvent — the
+// per-user preferences, the role-aware scope, and the attribution suffix — as it
+// stands. Introducing a second set of switches for YouTube downloads would
+// surprise anyone who has already chosen to be told when a download finishes;
+// they asked about DOWNLOADS, not about which subsystem performed one.
+func (w *Watcher) NotifyDownload(ctx context.Context, event string, ownerUserID int64, id, title, body string) {
+	w.notifyEvent(ctx, event, ownerUserID, id, title, body)
+}
+
 func prefEnabled(p store.NotificationPrefs, event string) bool {
 	switch event {
 	case "added":

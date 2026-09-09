@@ -191,3 +191,36 @@ func TestAllowBrowserAccess(t *testing.T) {
 		}
 	}
 }
+
+// The parallel limit is the one ytdl knob an operator is likely to touch, so it
+// gets the same treatment as the other bounds: a default that works, an override
+// that is honoured, and nonsense that is refused rather than obeyed (spec 0013).
+func TestLoad_YtdlMaxParallel(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		set  string
+		want int
+	}{
+		{name: "unset falls back to four", set: "", want: 4},
+		{name: "operator override is honoured", set: "8", want: 8},
+		{name: "one is a legitimate choice", set: "1", want: 1},
+		{name: "zero would admit nothing, so it is refused", set: "0", want: 4},
+		{name: "negative is refused", set: "-3", want: 4},
+		{name: "non-numeric falls back", set: "lots", want: 4},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if tc.set == "" {
+				t.Setenv("YTDL_MAX_PARALLEL", "")
+			} else {
+				t.Setenv("YTDL_MAX_PARALLEL", tc.set)
+			}
+			cfg, err := Load()
+			if err != nil {
+				t.Fatalf("Load: %v", err)
+			}
+			if cfg.YtdlMaxParallel != tc.want {
+				t.Fatalf("YtdlMaxParallel = %d, want %d", cfg.YtdlMaxParallel, tc.want)
+			}
+		})
+	}
+}

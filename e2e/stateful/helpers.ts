@@ -16,6 +16,48 @@ const MOCK = `https://localhost:${SF_MOCK_PORT}`;
 
 export const ADMIN = { username: 'e2eadmin', password: 'e2e-admin-password' };
 
+/**
+ * Credentials for an extra, non-admin account a test needs.
+ *
+ * Kept here beside ADMIN rather than inlined in a spec, so every throwaway
+ * account this suite creates is described in one place. These authenticate
+ * against nothing: the stateful stack is built from scratch on each run and
+ * torn down after it, so the value is a fixture in the same sense the mock
+ * NAS's `admin`/`secret` is.
+ */
+export function testAccount(username: string): { username: string; password: string } {
+  return { username, password: `${ADMIN.password}-${username}` };
+}
+
+/**
+ * Create a non-admin account and sign it in, returning its session token.
+ *
+ * Several specs need a second user to check that one person cannot see
+ * another's downloads (spec 0013, FR-007), so it lives here rather than being
+ * copied into each of them.
+ */
+export async function createSecondUser(adminToken: string, username: string): Promise<string> {
+  const account = testAccount(username);
+  const base = `http://localhost:${Number(process.env.SYNODL_E2E_SF_PORT) || 8283}`;
+
+  const created = await fetch(`${base}/v1/users`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-SynoDL-Session': adminToken },
+    body: JSON.stringify({ ...account, isAdmin: false }),
+  });
+  if (![200, 201].includes(created.status)) {
+    throw new Error(`create ${username}: ${created.status}`);
+  }
+
+  const session = await fetch(`${base}/v1/session`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(account),
+  });
+  if (!session.ok) throw new Error(`sign in ${username}: ${session.status}`);
+  return ((await session.json()) as { token: string }).token;
+}
+
 /** The mock speaks TLS with a per-run self-signed certificate, like a NAS. */
 async function mockFetch(path: string, init?: RequestInit): Promise<Response> {
   const prev = process.env.NODE_TLS_REJECT_UNAUTHORIZED;
@@ -305,4 +347,30 @@ export function folderNameFor(title: string): string {
     .replace(/^[ .]+|[ .]+$/g, '')
     .slice(0, 120)
     .trim();
+}
+
+/**
+ * Forget every YouTube download this instance knows about.
+ *
+ * Needed since spec 0013: download records are DURABLE, so resetting the mock
+ * cluster clears the jobs and leaves the records behind. Without this, each test
+ * inherits the previous one's history and any assertion about how many rows
+ * exist becomes order-dependent.
+ */
+export async function clearYtdl(token: string): Promise<void> {
+  const base = `http://localhost:${Number(process.env.SYNODL_E2E_SF_PORT) || 8283}`;
+  for (;;) {
+    const res = await fetch(`${base}/v1/ytdl?limit=200`, {
+      headers: { 'X-SynoDL-Session': token },
+    });
+    if (!res.ok) return;
+    const { downloads } = (await res.json()) as { downloads: { requestId: string }[] };
+    if (downloads.length === 0) return;
+    for (const d of downloads) {
+      await fetch(`${base}/v1/ytdl/${d.requestId}`, {
+        method: 'DELETE',
+        headers: { 'X-SynoDL-Session': token },
+      });
+    }
+  }
 }

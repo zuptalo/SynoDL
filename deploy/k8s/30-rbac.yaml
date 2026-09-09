@@ -10,12 +10,23 @@
 #   - No `secrets`. A compromised synodl must not be able to read the cluster's
 #     secrets — including its own SECRETS_KEY.
 #   - No `pods/exec` or `pods/attach`. Creating a workload is not the same
-#     permission as getting a shell inside one.
+#     permission as getting a shell inside one — and neither is READING a
+#     worker's output, below. That a worker's stdout is legible here is not an
+#     argument that a shell inside it should be.
 #   - No `create`/`delete` on pods directly. Pods arrive only as a consequence of
 #     a Job, which is what makes "workers are ephemeral" enforceable.
 #
 # The `pods` read is what lets a Job's state be reported accurately; the Job
 # object alone does not always say why something failed.
+#
+# `pods/log` (spec 0013) is what lets a download report real progress, and
+# report whether a lyrics file was written and in which language. Those facts
+# exist NOWHERE else: the Job object does not carry them, and the server never
+# mounts the media library, so it cannot inspect the files a worker produced.
+# It is a subresource with its own RBAC entry, so granting it grants reading
+# output and precisely nothing more. Constitution v2.2.0 admits it as part of
+# what orchestration needs and is explicit that it stays namespaced, stays
+# scoped to workloads SynoDL created, and is never widened into exec or attach.
 apiVersion: v1
 kind: ServiceAccount
 metadata:
@@ -34,6 +45,9 @@ rules:
   - apiGroups: [""]
     resources: ["pods"]
     verbs: ["get", "list"]
+  - apiGroups: [""]
+    resources: ["pods/log"]
+    verbs: ["get"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding

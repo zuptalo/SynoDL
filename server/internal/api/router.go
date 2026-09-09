@@ -3,6 +3,7 @@
 package api
 
 import (
+	"context"
 	"log/slog"
 	"net/http"
 
@@ -36,6 +37,28 @@ type Deps struct {
 	// cache. Built by NewRouter; nil in tests that do not need it, which
 	// libraryIndex treats as "know nothing".
 	lib *libraryCache
+
+	// ytdlProgress holds the latest reading for each running YouTube download.
+	// A POINTER for the same reason lib and caps are: Deps is copied by value
+	// into every handler closure, and a value field would give each handler its
+	// own cache. Built by NewRouter; nil in tests that do not need it, which the
+	// accessors treat as "know nothing".
+	ytdlProgress *progressCache
+
+	// Notifier announces a download's outcome, when the user asked to be told.
+	// A small interface rather than *push.Watcher so tests can observe what
+	// would have been sent without a push endpoint anywhere in sight. Nil in a
+	// deployment without push, which simply means nothing is announced.
+	Notifier DownloadNotifier
+
+	// ytdlMissing counts consecutive cycles in which a supposedly-running
+	// download had no job. A POINTER for the same reason ytdlProgress is.
+	ytdlMissing *missingJobs
+
+	// ytdlOnTick is a test seam: the reconciler calls it at the end of every
+	// cycle so a test can observe that the loop is still running without
+	// reaching into its internals. Nil in production.
+	ytdlOnTick func()
 
 	// caps remembers what each source says it can filter and sort by, so browsing
 	// does not re-ask on every request. A POINTER for the same reason lib is.
@@ -83,7 +106,18 @@ func InitCaches(d Deps) Deps {
 	if d.caps == nil {
 		d.caps = &capsCache{}
 	}
+	if d.ytdlProgress == nil {
+		d.ytdlProgress = newProgressCache()
+	}
+	if d.ytdlMissing == nil {
+		d.ytdlMissing = newMissingJobs()
+	}
 	return d
+}
+
+// DownloadNotifier is the slice of the push watcher this feature needs.
+type DownloadNotifier interface {
+	NotifyDownload(ctx context.Context, event string, ownerUserID int64, id, title, body string)
 }
 
 // NewRouter builds the full handler tree with the recover → log → CORS
@@ -162,6 +196,9 @@ func NewRouter(d Deps) http.Handler {
 		// and this feature does not touch it — the client merges the two feeds.
 		mux.Handle("POST /v1/ytdl", handleYtdlSubmit(d))
 		mux.Handle("GET /v1/ytdl", handleYtdlList(d))
+		mux.Handle("GET /v1/ytdl/{requestId}", handleYtdlDetail(d))
+		mux.Handle("GET /v1/ytdl/{requestId}/items", handleYtdlItems(d))
+		mux.Handle("POST /v1/ytdl/{requestId}/retry", handleYtdlRetry(d))
 		mux.Handle("DELETE /v1/ytdl/{requestId}", handleYtdlDismiss(d))
 		// Artwork, so a viewer's browser never contacts Google directly. Its own
 		// host rule, deliberately not the catalog poster proxy's (spec 1034).

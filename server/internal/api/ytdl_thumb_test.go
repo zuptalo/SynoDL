@@ -3,6 +3,7 @@ package api
 import (
 	"net/http"
 	"net/url"
+	"strings"
 	"testing"
 )
 
@@ -67,5 +68,33 @@ func TestYtdlThumb_RefusesBadTargets(t *testing.T) {
 		if rec.Code != http.StatusBadRequest {
 			t.Errorf("u=%q gave %d, want 400", raw, rec.Code)
 		}
+	}
+}
+
+// FR-009d, as revisited. Making downloads private raised the question of whether
+// their artwork should be gated too. It must NOT be: the caller supplies the
+// URL, so this endpoint cannot be used to discover which downloads exist or who
+// made them, and what it relays is public content-addressed artwork. What
+// protects it is the host allowlist, which the test above exercises.
+//
+// This test pins the property that matters — that the endpoint discloses nothing
+// about the instance's downloads — rather than the session check it does not have.
+func TestYtdlThumb_DisclosesNothingAboutDownloads(t *testing.T) {
+	jobs := &fakeJobs{}
+	h, _ := newYtdlRouter(t, jobs, ytdlCfg())
+	admin := adminAfterSetup(t, h)
+	if rec := submit(t, h, admin, `{"url":"https://youtu.be/privateSong","mode":"music"}`); rec.Code != http.StatusAccepted {
+		t.Fatalf("submit = %d", rec.Code)
+	}
+
+	// An anonymous caller can reach the endpoint, and learns nothing from it:
+	// with no URL supplied there is nothing to return, and no listing of any
+	// kind is offered here.
+	rec := do(t, h, "GET", "/v1/ytdl/thumb", "", nil)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("artwork with no target = %d, want 400", rec.Code)
+	}
+	if strings.Contains(rec.Body.String(), "privateSong") {
+		t.Fatalf("artwork endpoint leaked a download: %s", rec.Body.String())
 	}
 }

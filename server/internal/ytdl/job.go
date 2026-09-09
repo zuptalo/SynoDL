@@ -72,6 +72,9 @@ type JobConfig struct {
 	DeadlineSeconds    int64
 	TTLSeconds         int32
 	MinDurationSeconds int
+	// GroupName is the playlist or channel an expanded item came from, already
+	// sanitised. Empty for a directly submitted link.
+	GroupName string
 
 	CPURequest, MemRequest string
 	CPULimit, MemLimit     string
@@ -102,6 +105,7 @@ func BuildJob(c JobConfig) (*k8s.Job, error) {
 	labels := map[string]string{
 		LabelManagedBy: "synodl",
 		LabelKind:      "ytdl",
+		LabelJobKind:   JobKindDownload,
 		LabelRequestID: c.RequestID,
 		LabelMode:      string(c.Mode),
 		LabelScope:     string(c.Target.Scope),
@@ -146,6 +150,7 @@ func BuildJob(c JobConfig) (*k8s.Job, error) {
 							Target:             c.Target,
 							OutDir:             MountPath,
 							MinDurationSeconds: c.MinDurationSeconds,
+							GroupName:          c.GroupName,
 						}),
 						Env: []k8s.EnvVar{
 							// No writable home directory exists in the pod.
@@ -160,6 +165,96 @@ func BuildJob(c JobConfig) (*k8s.Job, error) {
 						Name:                  "library",
 						PersistentVolumeClaim: &k8s.PVCVolumeSource{ClaimName: lib.ClaimName},
 					}},
+				},
+			},
+		},
+	}, nil
+}
+
+// LabelJobKind distinguishes an enumeration worker from a download worker, so
+// one label selector still finds everything this feature owns while the
+// reconciler can tell the two apart.
+const LabelJobKind = "synodl.io/job"
+
+const (
+	JobKindDownload = "download"
+	JobKindExpand   = "expand"
+)
+
+// ExpandJobName is the enumeration worker's name for a request.
+//
+// Distinct from the download job's name because a group's expansion and a
+// group's items are different work under the same request id family; sharing a
+// name would make the second create a 409 against the first.
+func ExpandJobName(requestID string) string { return JobName(requestID) + "-expand" }
+
+// BuildExpansionJob assembles the worker that lists what a link contains.
+//
+// It is the same short-lived-worker model as a download doing a different job,
+// with two differences that matter:
+//
+//   - It mounts NO media library. It writes nothing, and a worker mounts a
+//     library only when it needs one — so the constitution's "media volumes are
+//     worker-only" rule is satisfied here by there being no volume at all.
+//   - Its deadline is much shorter. Listing a channel is seconds of work; a
+//     listing that hangs should give up long before a download would.
+func BuildExpansionJob(c JobConfig) (*k8s.Job, error) {
+	if strings.TrimSpace(c.Image) == "" {
+		return nil, errors.New("no worker image configured")
+	}
+	if c.Target.Scope == ScopeSingle {
+		return nil, errors.New("a single item has nothing to expand")
+	}
+	deadline := c.DeadlineSeconds
+	if deadline <= 0 || deadline > 900 {
+		deadline = 900
+	}
+	ttl := c.TTLSeconds
+	if ttl <= 0 {
+		ttl = 3600
+	}
+
+	labels := map[string]string{
+		LabelManagedBy: "synodl",
+		LabelKind:      "ytdl",
+		LabelJobKind:   JobKindExpand,
+		LabelRequestID: c.RequestID,
+		LabelMode:      string(c.Mode),
+		LabelScope:     string(c.Target.Scope),
+	}
+
+	return &k8s.Job{
+		APIVersion: "batch/v1",
+		Kind:       "Job",
+		Metadata: k8s.ObjectMeta{
+			Name:        ExpandJobName(c.RequestID),
+			Namespace:   c.Namespace,
+			Labels:      labels,
+			Annotations: annotationsFor(c),
+		},
+		Spec: k8s.JobSpec{
+			BackoffLimit:            int32p(0),
+			ActiveDeadlineSeconds:   int64p(deadline),
+			TTLSecondsAfterFinished: int32p(ttl),
+			Template: k8s.PodTemplateSpec{
+				Metadata: k8s.ObjectMeta{Labels: labels},
+				Spec: k8s.PodSpec{
+					RestartPolicy:                "Never",
+					AutomountServiceAccountToken: boolp(false),
+					Containers: []k8s.Container{{
+						Name:    "downloader",
+						Image:   c.Image,
+						Command: []string{WorkerBinary},
+						Args:    ExpandArgs(c.Target),
+						Env: []k8s.EnvVar{
+							{Name: "XDG_CACHE_HOME", Value: "/tmp"},
+						},
+						Resources: &k8s.Resources{
+							Requests: map[string]string{"cpu": "50m", "memory": "128Mi"},
+							Limits:   map[string]string{"cpu": "500m", "memory": "256Mi"},
+						},
+					}},
+					// No Volumes at all. Nothing is written, so nothing is mounted.
 				},
 			},
 		},
@@ -199,19 +294,74 @@ func JobName(requestID string) string {
 	return n
 }
 
-// State is what the app shows. There are four, deliberately: no progress, no
-// rate, no estimate (FR-017).
+// State is what the app shows. There are six (spec 0013, FR-013a), where spec
+// 0012 had four.
+//
+// The two additions are both about waiting, and keeping them apart is the point.
+// A download can be waiting because SynoDL is holding it behind the parallel
+// limit, or because the orchestrator has accepted it and has not started a
+// worker yet. Those are different waits with very different expected durations,
+// and collapsing them would make the first look like the second was taking
+// forever (FR-013b).
+//
+// Resolving is the state spec 0012 could not express at all: working out what a
+// playlist or channel link CONTAINS is neither waiting nor downloading.
 type State string
 
 const (
+	// StateResolving: an expansion worker is listing what a link contains.
+	StateResolving State = "resolving"
+	// StateQueued: accepted, recorded, and waiting for a slot. No worker exists,
+	// which is why this state is durable without mirroring anything.
+	StateQueued State = "queued"
+	// StateScheduled: admitted; the orchestrator has the job but no pod is
+	// running yet.
 	StateScheduled State = "scheduled"
-	StateStarted   State = "started"
-	StateCompleted State = "completed"
-	StateFailed    State = "failed"
+	// StateDownloading: a worker is fetching. The ONLY state that carries
+	// progress.
+	StateDownloading State = "downloading"
+	StateCompleted   State = "completed"
+	StateFailed      State = "failed"
 )
 
 // Terminal reports whether the state can still change.
 func (s State) Terminal() bool { return s == StateCompleted || s == StateFailed }
+
+// Valid reports whether s is one of the six.
+func (s State) Valid() bool {
+	switch s {
+	case StateResolving, StateQueued, StateScheduled, StateDownloading, StateCompleted, StateFailed:
+		return true
+	}
+	return false
+}
+
+// CanTransitionTo reports whether moving from s to next is legal (FR-013c).
+//
+// The only edge out of a final state is failed → queued, and only a deliberate
+// user retry may take it — nothing here retries on its own (0012 FR-021, which
+// spec 0013 explicitly keeps).
+func (s State) CanTransitionTo(next State) bool {
+	if !s.Valid() || !next.Valid() {
+		return false
+	}
+	switch s {
+	case StateResolving:
+		// Expansion either fails, or produces items that each start queued.
+		return next == StateFailed || next == StateQueued
+	case StateQueued:
+		return next == StateScheduled || next == StateFailed
+	case StateScheduled:
+		return next == StateDownloading || next == StateCompleted || next == StateFailed
+	case StateDownloading:
+		return next == StateCompleted || next == StateFailed
+	case StateFailed:
+		return next == StateQueued // retry, and only ever explicitly
+	case StateCompleted:
+		return false
+	}
+	return false
+}
 
 // StateOf maps a Job's status onto the four states.
 //
@@ -242,9 +392,12 @@ func StateOf(j k8s.Job) State {
 		return StateCompleted
 	}
 	if j.Status.Active > 0 {
-		return StateStarted
+		return StateDownloading
 	}
 	// Created, but nothing is running yet — the cluster has not scheduled a pod.
+	// Note that a job EXISTS here, so this is never `queued`: queued means
+	// SynoDL has not handed it over at all, which is a fact about the record
+	// rather than about any job.
 	return StateScheduled
 }
 

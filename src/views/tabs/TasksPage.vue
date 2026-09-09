@@ -34,7 +34,7 @@ import { computed, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useTasks } from '@/composables/useTasks';
 import { useTaskFilter } from '@/composables/useTaskFilter';
-import { api } from '@/services/api';
+import { api, type YtdlDownload } from '@/services/api';
 import { ALL_STATUSES, applyTaskFilter, type TaskFilterState } from '@/services/task-sort';
 import { formatSpeed } from '@/utils/format';
 import type { Task } from '@/types/task';
@@ -46,6 +46,8 @@ import { useUploads } from '@/composables/useUploads';
 import UploadItem from '@/components/UploadItem.vue';
 import { useYtdl } from '@/composables/useYtdl';
 import YtdlItem from '@/components/YtdlItem.vue';
+import YtdlDetailModal from '@/components/YtdlDetailModal.vue';
+import YtdlGroupModal from '@/components/YtdlGroupModal.vue';
 import YoutubeDownloadModal from '@/components/YoutubeDownloadModal.vue';
 import TaskDetailModal from '@/components/TaskDetailModal.vue';
 import type { RefresherCustomEvent } from '@ionic/vue';
@@ -60,6 +62,14 @@ const uploadOpen = ref(false);
 // sheet leads with a destination picker which means nothing for a library
 // download, and led with it while still looking interactive.
 const ytdlOpen = ref(false);
+// Bound BY ID rather than by object, matching how the task detail sheet works:
+// the sheet then follows the live download, so a progress bar keeps moving while
+// it is open and a download that is dismissed elsewhere shows a gone state
+// instead of stale data.
+const ytdlDetailId = ref<string | null>(null);
+// A group opens its CONTENTS rather than a detail sheet: what someone wants
+// from a channel row is the list of what it is doing (FR-019a).
+const ytdlGroupId = ref<string | null>(null);
 
 // Uploads report HERE as well as in the sheet, so dismissing the sheet is a UI
 // choice rather than losing sight of a transfer that is still running. A job
@@ -76,6 +86,7 @@ const {
   downloads: ytdlDownloads,
   available: ytdlAvailable,
   dismiss: dismissYtdl,
+  retry: retryYtdl,
 } = useYtdl();
 
 // A status filter names NAS statuses ("downloading", "seeding", …) that a
@@ -102,6 +113,14 @@ async function onDismissYtdl(requestId: string): Promise<void> {
     // The next poll is the source of truth; a failed dismiss simply reappears.
   }
 }
+async function onRetryYtdl(requestId: string): Promise<void> {
+  try {
+    await retryYtdl(requestId);
+  } catch {
+    // Same reasoning: the row reflects whatever the server says next. A retry
+    // the server refused (it had already been retried, say) simply stays failed.
+  }
+}
 // The warning only belongs on screen while something is actually in flight.
 const uploadRunning = computed(() =>
   uploads.value.some((j) => j.state === 'sending' || j.state === 'waiting'),
@@ -118,6 +137,20 @@ const detailTask = computed<Task | null>(
 );
 function openDetail(id: string): void {
   detailId.value = id;
+}
+
+// Looked up from the live collection each render, for the same reason
+// detailTask is: the sheet must follow the download, not a snapshot of it.
+const ytdlDetail = computed<YtdlDownload | null>(
+  () => ytdlDownloads.value.find((d) => d.requestId === ytdlDetailId.value) ?? null,
+);
+const ytdlGroup = computed<YtdlDownload | null>(
+  () => ytdlDownloads.value.find((d) => d.requestId === ytdlGroupId.value) ?? null,
+);
+function onOpenYtdl(requestId: string): void {
+  const row = ytdlDownloads.value.find((d) => d.requestId === requestId);
+  if (row?.kind === 'group') ytdlGroupId.value = requestId;
+  else ytdlDetailId.value = requestId;
 }
 
 // Deep link from a tapped download notification: /tabs/tasks?task=<id> opens
@@ -376,6 +409,8 @@ async function onDelete(id: string): Promise<void> {
           :key="d.requestId"
           :download="d"
           @dismiss="onDismissYtdl"
+          @open="onOpenYtdl"
+          @retry="onRetryYtdl"
         />
       </ion-list>
 
@@ -467,6 +502,19 @@ async function onDelete(id: string): Promise<void> {
       :is-open="detailId !== null"
       :task="detailTask"
       @dismiss="detailId = null"
+    />
+    <YtdlDetailModal
+      :is-open="ytdlDetailId !== null"
+      :download="ytdlDetail"
+      @dismiss="ytdlDetailId = null"
+      @retry="onRetryYtdl"
+    />
+    <YtdlGroupModal
+      :is-open="ytdlGroupId !== null"
+      :group="ytdlGroup"
+      @dismiss="ytdlGroupId = null"
+      @retry="onRetryYtdl"
+      @open="ytdlDetailId = $event"
     />
   </ion-page>
 </template>

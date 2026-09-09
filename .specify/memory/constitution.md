@@ -1,6 +1,23 @@
 <!--
 Sync Impact Report
-- Version: 2.0.0 → 2.1.0 (MINOR: no principle removed or reversed. Principle III
+- Version: 2.1.0 → 2.2.0 (MINOR: no principle removed or reversed. Principle III's
+  "Job state belongs to the orchestrator" bullet gains two carve-outs it did not
+  previously admit — a durable pre-admission queue, and a durable record of
+  requested and finished work INCLUDING successes — and its worker-orchestration
+  bullet names reading a worker's own output as a permitted, narrower capability.
+  Every prohibition is kept: still a namespaced Role, still no secrets, still no
+  exec/attach, and worker output is explicitly user data that must be bounded,
+  unlogged, and never returned raw. Driven by spec 0013, which needs a visible
+  queue, history that survives the orchestrator's sweep, and a real progress bar —
+  none of which the prior text admitted.)
+- Modified in 2.2.0: Principle III ("Worker orchestration is a credential" gains the
+  worker-output paragraph; "Job state belongs to the orchestrator" gains the two
+  carve-outs and the in-memory-reading rule).
+- Templates / docs to review for sync (follow-up in the spec 0013 PR):
+  .specify/templates/*.md — ✅ no change needed (gates referenced generically);
+  deploy/k8s/30-rbac.yaml — pods/log added in the same spec; CLAUDE.md — the four
+  states and "no server-side queue" text is superseded and updated in the same spec.
+- Prior version (2.1.0): Version: 2.0.0 → 2.1.0 (MINOR: no principle removed or reversed. Principle III
   gains three custody rules for worker orchestration, and the "Single image, one
   volume" Domain Constraint is materially expanded to permit ephemeral worker Jobs
   and the media volumes they alone mount (spec 0012). The single-SQLite-volume rule
@@ -143,11 +160,31 @@ allowlist-only NAS access and never leaking secrets — is preserved and extende
   namespace-scoped — a Role, never a ClusterRole — with verbs limited to what job
   orchestration actually needs, and it MUST NOT grant reading secrets, exec/attach
   into pods, or reach workloads outside SynoDL's own namespace.
+  Reading a worker's own OUTPUT is within what orchestration needs, where a spec
+  requires reporting on work only the worker can observe — progress, or which files
+  it produced. It is a distinct, narrower permission than controlling a worker and
+  MUST be granted as such: confined to the same namespace, scoped to workloads
+  SynoDL itself created, and never widened into exec or attach on the argument that
+  output was already readable. Worker output is user data: it MUST be bounded when
+  read, MUST NOT be logged, and MUST NOT reach a client raw.
 - **Job state belongs to the orchestrator.** In-flight worker state is derived by
   listing the orchestrator's own labelled jobs, never mirrored into the SQLite store
-  — a mirror drifts the moment a job outlives a server restart. Where a spec needs a
-  durable record of *finished* work, it lives in the single SQLite store like any
-  other state, under the one-store rule; never in a second datastore.
+  — a mirror drifts the moment a job outlives a server restart. Two things are NOT
+  such a mirror and MAY be durable, under the one-store rule and never in a second
+  datastore:
+  - **Work that has no worker yet.** A request accepted but not yet admitted — a
+    queue — mirrors nothing, because nothing is running to drift from. It MUST be
+    durable where a spec promises the queue survives a restart. Once admitted, that
+    download's live state is derived again, not read back from the store.
+  - **The request, and its finished outcome.** A durable record of what was asked
+    for and how it ended MAY cover work that SUCCEEDED as well as work that failed,
+    where a spec needs the user to see their own history. Facts that exist only in a
+    worker's output MUST be captured while that output is still readable, since the
+    orchestrator sweeps it.
+
+  A live reading — a progress percentage — is neither. It MAY be held in memory as a
+  cache, MUST NOT be stored as though it were state, and losing it MUST NOT change
+  what a download reports.
 - Every spec that touches stored data, the NAS connection, worker orchestration, or
   user auth MUST
   contain a **Credential-Safety Impact** section answering: what is stored and how
@@ -313,4 +350,4 @@ These are project-specific guardrails every relevant spec MUST respect.
 - Runtime engineering guidance that is not constitutional lives in `CLAUDE.md` and
   `CONTRIBUTING.md`; where they conflict with this document, this document wins.
 
-**Version**: 2.1.0 | **Ratified**: 2026-07-26 | **Last Amended**: 2026-09-06
+**Version**: 2.2.0 | **Ratified**: 2026-07-26 | **Last Amended**: 2026-09-08

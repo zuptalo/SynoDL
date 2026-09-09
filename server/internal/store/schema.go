@@ -445,4 +445,66 @@ var migrations = []string{
 	);
 	CREATE INDEX IF NOT EXISTS idx_ytdl_failures_failed_at ON ytdl_failures (failed_at DESC);
 	`,
+
+	// 0036 — every YouTube download, not only the failures (spec 0013).
+	//
+	// Spec 0012 recorded failures alone, on the reasoning that a success leaves
+	// its files as evidence. That holds for the media server and not for the
+	// user asking what they downloaded last Tuesday, so constitution v2.2.0
+	// widened Principle III to admit a durable record of requested and finished
+	// work INCLUDING successes. This is that record.
+	//
+	// What is NOT here is as deliberate as what is. There is no progress column:
+	// a live reading is cached in memory and lost on restart without
+	// consequence, and storing it would be exactly the mirror of in-flight
+	// worker state Principle III still forbids. A download's live state, while
+	// it has a worker, is still derived from the orchestrator.
+	//
+	// A group and its items are all rows here, told apart by `kind` and joined
+	// by `parent_id`. One table rather than two because an item IS a download in
+	// every respect the user cares about — it has its own artwork, progress,
+	// outcome and retry — and splitting them would mean writing every query
+	// twice.
+	//
+	// user_id is SET NULL, matching ytdl_failures and the rest of the app:
+	// deleting an account does not erase the record that a download happened.
+	// An unattributed row is admin-visible only, since it has no owner left.
+	//
+	// IF NOT EXISTS throughout, and the backfill is INSERT OR IGNORE, because
+	// the spec 1031 drift repair rewinds schema_migrations and replays: a
+	// migration that cannot run twice turns that repair into a boot failure.
+	`
+	CREATE TABLE IF NOT EXISTS ytdl_downloads (
+		request_id  TEXT PRIMARY KEY,
+		parent_id   TEXT REFERENCES ytdl_downloads(request_id) ON DELETE CASCADE,
+		kind        TEXT NOT NULL DEFAULT 'single',
+		user_id     INTEGER REFERENCES users(id) ON DELETE SET NULL,
+		source_url  TEXT NOT NULL DEFAULT '',
+		video_id    TEXT NOT NULL DEFAULT '',
+		mode        TEXT NOT NULL DEFAULT '',
+		scope       TEXT NOT NULL DEFAULT '',
+		state       TEXT NOT NULL DEFAULT 'queued',
+		title       TEXT NOT NULL DEFAULT '',
+		uploader    TEXT NOT NULL DEFAULT '',
+		artwork     TEXT NOT NULL DEFAULT '',
+		group_name  TEXT NOT NULL DEFAULT '',
+		origin      TEXT NOT NULL DEFAULT 'direct',
+		has_lyrics  INTEGER,
+		lyrics_lang TEXT NOT NULL DEFAULT '',
+		reason      TEXT NOT NULL DEFAULT '',
+		attempts    INTEGER NOT NULL DEFAULT 1,
+		queue_seq   INTEGER NOT NULL DEFAULT 0,
+		created_at  INTEGER NOT NULL DEFAULT 0,
+		finished_at INTEGER
+	);
+	CREATE INDEX IF NOT EXISTS idx_ytdl_downloads_user ON ytdl_downloads (user_id, created_at DESC);
+	CREATE INDEX IF NOT EXISTS idx_ytdl_downloads_parent ON ytdl_downloads (parent_id);
+	CREATE INDEX IF NOT EXISTS idx_ytdl_downloads_state ON ytdl_downloads (state);
+	CREATE INDEX IF NOT EXISTS idx_ytdl_downloads_held ON ytdl_downloads (video_id, mode);
+
+	INSERT OR IGNORE INTO ytdl_downloads
+		(request_id, kind, user_id, source_url, mode, scope, state, reason, created_at, finished_at)
+	SELECT request_id, 'single', user_id, source_url, mode, scope, 'failed', reason, failed_at, failed_at
+	  FROM ytdl_failures;
+	`,
 }

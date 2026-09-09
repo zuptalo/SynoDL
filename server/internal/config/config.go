@@ -106,6 +106,12 @@ type Config struct {
 	// YtdlMinDurationSeconds separates a track from a clip in bulk runs. A
 	// LOWER bound only — a long compilation is legitimate content.
 	YtdlMinDurationSeconds int
+	// YtdlMaxParallel bounds how many downloads run at once, instance-wide
+	// rather than per user (spec 0013, FR-021/FR-022a) — so total load on the
+	// cluster and on the source does not grow with the number of accounts.
+	// Requests beyond it wait in a durable queue instead of piling onto the
+	// cluster, which is what makes an uncapped channel expansion safe.
+	YtdlMaxParallel int
 }
 
 // YtdlConfigured reports whether the operator has set this feature up. When it
@@ -144,6 +150,7 @@ func Load() (Config, error) {
 		YtdlDeadlineSeconds:    int64(envInt("YTDL_DEADLINE_SECONDS", 7200)),
 		YtdlTTLSeconds:         int32(envInt("YTDL_TTL_SECONDS", 86400)),
 		YtdlMinDurationSeconds: envInt("YTDL_MIN_DURATION_SECONDS", 90),
+		YtdlMaxParallel:        ytdlMaxParallel(envInt("YTDL_MAX_PARALLEL", defaultYtdlMaxParallel)),
 	}
 
 	if cfg.Env == "dev" && cfg.SynoURL == "" {
@@ -206,6 +213,22 @@ func envBool(key string, def bool) bool {
 		return def
 	}
 	return b
+}
+
+// defaultYtdlMaxParallel is four because that is what the feature was specified
+// with; it is a knob rather than a constant so an operator with a bigger cluster
+// — or a slower link — can say otherwise.
+const defaultYtdlMaxParallel = 4
+
+// ytdlMaxParallel refuses a nonsensical limit rather than honouring it. Zero or
+// negative would mean "admit nothing", which reads as the feature being broken
+// rather than as a configuration choice, and there is no way to tell the two
+// apart from inside the app.
+func ytdlMaxParallel(n int) int {
+	if n < 1 {
+		return defaultYtdlMaxParallel
+	}
+	return n
 }
 
 func envInt(key string, def int) int {

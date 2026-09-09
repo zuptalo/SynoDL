@@ -50,6 +50,7 @@ DEV_BACKEND_ENV = cd $(SERVER_DIR) && set -a && { [ -f .env ] && . ./.env; }; \
 	: $${YTDL_IMAGE:=jauderho/yt-dlp:2026.08.19}; \
 	: $${YTDL_MUSIC_CLAIM:=synodl-music}; \
 	: $${YTDL_MUSIC_VIDEO_CLAIM:=synodl-music-video}; \
+	: $${YTDL_MAX_PARALLEL:=4}; \
 	mkdir -p "$$DATA_DIR"; set +a;
 
 start: tools

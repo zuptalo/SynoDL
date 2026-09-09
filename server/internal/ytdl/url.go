@@ -9,7 +9,6 @@ package ytdl
 
 import (
 	"errors"
-	"fmt"
 	"net/url"
 	"strings"
 )
@@ -153,6 +152,37 @@ func channelVideosPath(path string) string {
 	return "/" + strings.Join(base, "/") + "/videos"
 }
 
-// Describe renders a target for a log line or an error message. It deliberately
-// never includes anything else about the request.
-func (t Target) Describe() string { return fmt.Sprintf("%s (%s)", t.URL, t.Scope) }
+// VideoID is the stable identity of a single item, used to tell whether we
+// already hold it (spec 0013, FR-016b, FR-020).
+//
+// Derived from the normalised URL rather than from the URL text, because the
+// same video has several spellings — youtu.be/X, youtube.com/watch?v=X,
+// m.youtube.com/watch?v=X, /shorts/X — and a text comparison would let any two
+// of them defeat both the already-held check and the duplicate check. Classify
+// has already collapsed the host differences; this collapses the path ones.
+//
+// Empty for a playlist or channel: those are not items and are never "held".
+func (t Target) VideoID() string {
+	if t.Scope != ScopeSingle {
+		return ""
+	}
+	u, err := url.Parse(t.URL)
+	if err != nil {
+		return ""
+	}
+	if v := u.Query().Get("v"); v != "" {
+		return v
+	}
+	// youtu.be/<id> and /shorts/<id> both put the id in the last path segment.
+	segs := strings.Split(strings.Trim(u.Path, "/"), "/")
+	return segs[len(segs)-1]
+}
+
+// Deliberately no Describe() here any more.
+//
+// Spec 0012 had one — "renders a target for a log line or an error message" —
+// and by spec 0013 it had no callers at all. A helper whose whole purpose is to
+// put a source link into a log, sitting unused next to a rule that says source
+// links stay out of logs (FR-032a), is an invitation rather than a convenience.
+// If a future caller genuinely needs to describe a target, the scope alone is
+// almost always what they want.

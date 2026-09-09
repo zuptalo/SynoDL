@@ -364,3 +364,191 @@ func TestExecSnippets_StillRenameTheCompanionFile(t *testing.T) {
 		}
 	})
 }
+
+// Progress reporting (spec 0013). The recipe gained two flags, and both are
+// about making the worker's output a format SynoDL defined rather than one it
+// guesses at.
+func TestArgs_AsksForMachineReadableProgress(t *testing.T) {
+	for _, mode := range []Mode{ModeMusic, ModeMusicVideo} {
+		args := Args(Options{Mode: mode, Target: Target{URL: "https://youtu.be/a", Scope: ScopeSingle}})
+		joined := strings.Join(args, " ")
+
+		if !contains(args, "--newline") {
+			t.Errorf("%s: --newline missing; without it progress is one line rewritten with carriage returns", mode)
+		}
+		if !contains(args, "--progress-template") {
+			t.Errorf("%s: --progress-template missing", mode)
+		}
+		if !strings.Contains(joined, ProgressSentinel) {
+			t.Errorf("%s: the progress template must carry the sentinel, or its lines cannot be told from the extractor's own chatter", mode)
+		}
+	}
+}
+
+// The template is OURS: a constant, with no user input anywhere in it. Same
+// property the --exec snippets rely on.
+func TestProgressTemplate_ContainsNoUserInput(t *testing.T) {
+	target := Target{URL: "https://youtu.be/EVIL-MARKER", Scope: ScopeSingle}
+	args := Args(Options{Mode: ModeMusic, Target: target})
+	for i, a := range args {
+		if a != ProgressTemplate {
+			continue
+		}
+		if strings.Contains(args[i], "EVIL-MARKER") {
+			t.Fatal("the progress template carries the submitted URL")
+		}
+	}
+	// And the URL still appears exactly once, as the final element after --.
+	var n int
+	for _, a := range args {
+		if a == target.URL {
+			n++
+		}
+	}
+	if n != 1 {
+		t.Fatalf("URL appears %d times, want exactly once", n)
+	}
+	if args[len(args)-1] != target.URL || args[len(args)-2] != "--" {
+		t.Fatalf("args do not end with `-- <url>`: %v", args[len(args)-3:])
+	}
+}
+
+func contains(args []string, want string) bool {
+	for _, a := range args {
+		if a == want {
+			return true
+		}
+	}
+	return false
+}
+
+// FR-038c. The set of values that reach a worker must stay enumerated, because
+// each one has to be checked against the argv rule (FR-038), the path rule
+// (FR-038a) and the length rule (FR-038b) individually.
+//
+// A prose list in the contract goes stale the first time somebody adds a third
+// value. This does not: every argv element is either a constant this package
+// authored, or one of the two known source-influenced values. A new one fails
+// here and has to be justified rather than merely typed.
+func TestArgs_OnlyTwoSourceInfluencedValuesReachTheWorker(t *testing.T) {
+	const (
+		url   = "https://www.youtube.com/watch?v=SOURCEURL"
+		group = "SOURCEGROUP"
+	)
+	args := Args(Options{
+		Mode:      ModeMusic,
+		Target:    Target{URL: url, Scope: ScopeSingle},
+		OutDir:    "/out",
+		GroupName: group,
+	})
+
+	var sourceInfluenced []string
+	for _, a := range args {
+		switch {
+		case a == url:
+			sourceInfluenced = append(sourceInfluenced, "url")
+		case strings.Contains(a, group):
+			sourceInfluenced = append(sourceInfluenced, "groupName")
+		}
+	}
+
+	// The URL once, and the group name in the two places that must agree: the
+	// output path and the album tag.
+	want := map[string]int{"url": 1, "groupName": 2}
+	got := map[string]int{}
+	for _, s := range sourceInfluenced {
+		got[s]++
+	}
+	for k, n := range want {
+		if got[k] != n {
+			t.Errorf("%s appears %d times, want %d", k, got[k], n)
+		}
+	}
+	for k := range got {
+		if _, known := want[k]; !known {
+			t.Errorf("unexpected source-influenced value %q reaches the worker — add it to "+
+				"contracts/http-api.md and check it against FR-038/038a/038b", k)
+		}
+	}
+
+	// And neither is ever part of a larger composed string with the other, or
+	// with a flag: the URL stands alone, and the group name is a path/tag
+	// component rather than something glued onto an option.
+	for _, a := range args {
+		if a != url && strings.Contains(a, url) {
+			t.Errorf("the URL is embedded in %q rather than standing alone", a)
+		}
+		if strings.Contains(a, group) && strings.Contains(a, url) {
+			t.Errorf("the group name and the URL are concatenated in %q", a)
+		}
+	}
+}
+
+// The group name becomes a FOLDER, so it goes through the sanitiser on the way
+// into the command — not merely on the way into the database.
+func TestArgs_GroupNameIsSanitisedAtTheCommand(t *testing.T) {
+	args := Args(Options{
+		Mode:      ModeMusic,
+		Target:    Target{URL: "https://youtu.be/abc", Scope: ScopeSingle},
+		GroupName: "../../../etc",
+	})
+	for _, a := range args {
+		if strings.Contains(a, "..") {
+			t.Fatalf("a traversal survived into the command: %q", a)
+		}
+	}
+}
+
+// FR-038a, the half the argv rule does not cover.
+//
+// The artist and album become DIRECTORY names, and both come from the source
+// rather than from SynoDL — so SanitizeName never sees them. Verified against
+// the pinned image: the extractor replaces separators with lookalikes, so
+// "../../etc" is harmless, but a BARE ".." passes through untouched and renders
+// as a real parent-directory component:
+//
+//	album ".."  ->  /out/Someone/../Track.mp3   (escapes the album folder)
+//	artist ".." ->  /A/T.mp3                    (escapes the LIBRARY)
+func TestArgs_GuardsSourceFieldsThatBecomeDirectories(t *testing.T) {
+	args := Args(Options{Mode: ModeMusic, Target: Target{URL: "https://youtu.be/abc", Scope: ScopeSingle}})
+
+	guarded := map[string]bool{}
+	for _, v := range values(args, "--replace-in-metadata") {
+		field, rest, ok := strings.Cut(v, " ")
+		if !ok {
+			t.Fatalf("malformed --replace-in-metadata %q", v)
+		}
+		guarded[field] = true
+		if !strings.HasPrefix(rest, dotOnlyPattern+" ") {
+			t.Errorf("guard for %q uses %q, want the dot-only pattern", field, rest)
+		}
+	}
+
+	for _, want := range []string{"artist", "uploader", "album"} {
+		if !guarded[want] {
+			t.Errorf("%q becomes a directory name and is unguarded — a bare \"..\" there escapes the library", want)
+		}
+	}
+	// 0012 FR-008: the published title must survive VERBATIM so the item can be
+	// found back at its source. It is a filename component, always followed by
+	// an extension, so ".." there is "...mp3" — a file, not a traversal.
+	for _, mustNot := range []string{"title", "track"} {
+		if guarded[mustNot] {
+			t.Errorf("%q is rewritten; the published title must stay verbatim (0012 FR-008)", mustNot)
+		}
+	}
+}
+
+// The guard is a constant containing no user input, like the --exec snippets.
+func TestDotOnlyGuard_ContainsNoUserInput(t *testing.T) {
+	args := Args(Options{
+		Mode:      ModeMusic,
+		Target:    Target{URL: "https://youtu.be/EVILMARKER", Scope: ScopeSingle},
+		GroupName: "GROUPMARKER",
+	})
+	for _, v := range values(args, "--replace-in-metadata") {
+		if strings.Contains(v, "EVILMARKER") || strings.Contains(v, "GROUPMARKER") {
+			t.Fatalf("the guard carries caller input: %q", v)
+		}
+	}
+}
