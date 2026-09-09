@@ -166,3 +166,32 @@ func idFor(n int) string {
 	}
 	return string(out)
 }
+
+// FR-001/FR-002. A track's artwork is a function of its id, so expanding a
+// channel of any size costs no extra requests to illustrate it.
+func TestThumbnailFor(t *testing.T) {
+	got := ThumbnailFor("aaaaaaaaaaa")
+	if got != "https://i.ytimg.com/vi/aaaaaaaaaaa/hqdefault.jpg" {
+		t.Fatalf("ThumbnailFor = %q", got)
+	}
+	// The host must already be one the artwork proxy allows, or the image would
+	// be refused on the way back out.
+	if !strings.HasPrefix(got, "https://i.ytimg.com/") {
+		t.Fatalf("%q is not on the artwork proxy's allowlist", got)
+	}
+	// Anything that is not an id gets no address rather than a broken one.
+	for _, bad := range []string{"", "  ", "../../etc", "https://evil.example/x.jpg", "a/b"} {
+		if u := ThumbnailFor(bad); u != "" {
+			t.Errorf("ThumbnailFor(%q) = %q, want empty", bad, u)
+		}
+	}
+}
+
+func TestParseEntries_EveryEntryCanBeIllustrated(t *testing.T) {
+	raw := entryLine("aaaaaaaaaaa", "One") + "\n" + entryLine("bbbbbbbbbbb", "Two")
+	for _, e := range ParseEntries([]byte(raw)) {
+		if ThumbnailFor(e.ID) == "" {
+			t.Errorf("entry %q has no derivable artwork", e.ID)
+		}
+	}
+}

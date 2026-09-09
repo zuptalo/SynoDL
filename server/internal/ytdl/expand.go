@@ -121,6 +121,28 @@ func ParseEntries(raw []byte) []Entry {
 	return out
 }
 
+// ThumbnailFor returns the artwork address for an item id.
+//
+// DERIVED rather than fetched (spec 1037, FR-002). The metadata lookup that
+// gives a single submitted link its artwork is one request; doing that per entry
+// would turn expanding a large channel into hundreds of requests, and the source
+// would rate-limit long before the last one. The address is a function of the
+// id, so no request is needed at all.
+//
+// hqdefault is chosen over maxresdefault because every video has one: maxres
+// exists only for videos uploaded above a certain resolution, so it 404s often
+// enough to be the wrong default. The row falls back to an icon if even this is
+// missing.
+//
+// The host is already on the artwork proxy's allowlist, so nothing about where
+// images may be fetched from changes.
+func ThumbnailFor(id string) string {
+	if !validEntryID(id) {
+		return ""
+	}
+	return "https://i.ytimg.com/vi/" + id + "/hqdefault.jpg"
+}
+
 // validEntryID accepts only something shaped like an item id.
 //
 // The allowlist below is what stops a malformed entry becoming a download at

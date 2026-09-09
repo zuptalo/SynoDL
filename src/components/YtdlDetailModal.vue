@@ -24,12 +24,15 @@ import {
   IonLabel,
   IonList,
   IonModal,
+  IonIcon,
   IonProgressBar,
   IonTitle,
   IonToolbar,
 } from '@ionic/vue';
+import { copyOutline } from 'ionicons/icons';
 import { computed, onUnmounted, ref, watch } from 'vue';
 import { api, type YtdlDownload } from '@/services/api';
+import { appToast } from '@/services/toast';
 import { formatTimestamp } from '@/utils/format';
 
 /**
@@ -94,6 +97,25 @@ watch(
   { immediate: true },
 );
 onUnmounted(stopPolling);
+
+/**
+ * Copy the link (FR-005). Matches how a NAS task's source link already behaves,
+ * so the same gesture works wherever a link is shown.
+ *
+ * A refusal is reported rather than swallowed: a copy that silently did nothing
+ * is worse than one that says it could not, because the reader only finds out
+ * when they paste (FR-006).
+ */
+async function copyLink(): Promise<void> {
+  const url = resolved.value?.url;
+  if (!url) return;
+  try {
+    await navigator.clipboard.writeText(url);
+    await appToast({ message: 'Link copied.', duration: 1600 });
+  } catch {
+    await appToast({ message: 'Could not copy the link.', color: 'danger', duration: 2200 });
+  }
+}
 
 const isVideo = computed(() => resolved.value?.mode === 'music-video');
 
@@ -262,11 +284,12 @@ const attemptsLabel = computed(() => {
             <h2 data-testid="ytdl-detail-added-by">{{ resolved.submittedBy }}</h2>
           </ion-label>
         </ion-item>
-        <ion-item>
+        <ion-item button :detail="false" data-testid="ytdl-detail-url-row" @click="copyLink">
           <ion-label class="ion-text-wrap">
             <p>Link</p>
             <h2 class="link" data-testid="ytdl-detail-url">{{ resolved.url }}</h2>
           </ion-label>
+          <ion-icon slot="end" :icon="copyOutline" aria-hidden="true" />
         </ion-item>
       </ion-list>
     </ion-content>
@@ -274,6 +297,18 @@ const attemptsLabel = computed(() => {
 </template>
 
 <style scoped>
+/* Room to breathe (spec 1037, FR-008).
+   Ionic's list items sit flush to the edge on a full-screen sheet, which on a
+   phone puts text hard against the bezel. The inset is applied to the CONTENT
+   rather than to each item so every row lines up, and the bottom clears the home
+   indicator via the safe-area inset rather than a guessed constant. */
+ion-content {
+  --padding-start: 8px;
+  --padding-end: 8px;
+  --padding-top: 4px;
+  --padding-bottom: calc(16px + var(--ion-safe-area-bottom, 0px));
+}
+
 .gone {
   padding: 24px;
   text-align: center;

@@ -426,6 +426,10 @@ func (d Deps) expandInto(ctx context.Context, g store.YtdlDownload, j k8s.Job) {
 			Scope:     string(ytdl.ScopeSingle),
 			State:     string(ytdl.StateQueued),
 			Title:     e.Title,
+			// Artwork is derived from the item's id, so a channel of any size
+			// costs no extra requests to illustrate (FR-002).
+			Artwork:   ytdl.ThumbnailFor(e.ID),
+			Uploader:  e.Uploader,
 			GroupName: groupName,
 			Origin:    store.YtdlOriginExpanded,
 		})
