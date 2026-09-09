@@ -95,7 +95,17 @@ func (c *Client) PodLog(ctx context.Context, name string, opts PodLogOptions) ([
 		return nil, fmt.Errorf("k8s: build request: %w", err)
 	}
 	req.Header.Set("Authorization", "Bearer "+c.cfg.Token)
-	req.Header.Set("Accept", "text/plain")
+	// Deliberately NO Accept header.
+	//
+	// The response body is plain text, so `Accept: text/plain` is the obvious
+	// thing to send — and the API server answers 406 for it:
+	//
+	//	only the following media types are accepted: application/json,
+	//	application/yaml, application/vnd.kubernetes.protobuf
+	//
+	// Content negotiation is on the API's own media types, not on the body this
+	// particular subresource happens to return. kubectl sends no text/plain
+	// either. Sending nothing lets the server return the log as it always does.
 
 	resp, err := c.http.Do(req)
 	if err != nil {
