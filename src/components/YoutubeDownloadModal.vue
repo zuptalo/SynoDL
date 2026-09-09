@@ -17,6 +17,7 @@ import { computed, ref, watch } from 'vue';
 import {
   IonButton,
   IonButtons,
+  IonIcon,
   IonContent,
   IonHeader,
   IonItem,
@@ -31,6 +32,7 @@ import {
   IonTitle,
   IonToolbar,
 } from '@ionic/vue';
+import { clipboardOutline } from 'ionicons/icons';
 import { ApiError } from '@/services/api';
 import { extractUrls } from '@/services/url-detect';
 import { useYtdl } from '@/composables/useYtdl';
@@ -66,6 +68,28 @@ watch(
     progress.value = '';
   },
 );
+
+/**
+ * Append the clipboard to the link box (spec 1037, FR-007).
+ *
+ * Same shape as the general new-task sheet's paste: a fresh line each time, so
+ * a second paste can never glue onto the first and make two links read as one.
+ * Reading the clipboard is restricted on iOS, so a refusal says so and points at
+ * long-press rather than failing silently.
+ */
+async function pasteFromClipboard(): Promise<void> {
+  error.value = '';
+  let clip = '';
+  try {
+    clip = (await navigator.clipboard.readText()).trim();
+  } catch {
+    error.value = 'Could not read the clipboard — long-press the box and paste manually.';
+    return;
+  }
+  if (!clip) return;
+  const base = text.value.replace(/\s+$/, '');
+  text.value = base ? `${base}\n${clip}` : clip;
+}
 
 async function submit(): Promise<void> {
   busy.value = true;
@@ -127,6 +151,10 @@ async function submit(): Promise<void> {
           />
         </ion-item>
         <ion-item lines="none">
+          <ion-button fill="clear" size="small" data-testid="ytdl-paste" @click="pasteFromClipboard">
+            <ion-icon slot="start" :icon="clipboardOutline" />
+            Paste
+          </ion-button>
           <ion-note slot="end" data-testid="ytdl-count">
             {{ urls.length }} link{{ urls.length === 1 ? '' : 's' }} detected
           </ion-note>
@@ -172,3 +200,17 @@ async function submit(): Promise<void> {
     </ion-content>
   </ion-modal>
 </template>
+
+<style scoped>
+/* Room to breathe (spec 1037, FR-008).
+   Ionic's list items sit flush to the edge on a full-screen sheet, which on a
+   phone puts text hard against the bezel. The inset is applied to the CONTENT
+   rather than to each item so every row lines up, and the bottom clears the home
+   indicator via the safe-area inset rather than a guessed constant. */
+ion-content {
+  --padding-start: 8px;
+  --padding-end: 8px;
+  --padding-top: 4px;
+  --padding-bottom: calc(16px + var(--ion-safe-area-bottom, 0px));
+}
+</style>

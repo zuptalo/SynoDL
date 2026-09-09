@@ -122,3 +122,20 @@ test('a failed download explains itself in plain language', async ({ page }) => 
     expect(reason, `reason must not leak ${forbidden}`).not.toContain(forbidden);
   }
 });
+
+test('tapping the link copies it', async ({ page, context }) => {
+  // Spec 1037, FR-005. Same gesture a NAS task's source link already offers.
+  await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+  const requestId = await submit(token, 'https://youtu.be/zSGhyrF7YVo');
+  await drive(requestId, 'start');
+  await drive(requestId, 'succeed');
+
+  await gotoTasks(page);
+  await page.getByTestId('ytdl-item').first().click();
+  await expect(page.getByTestId('ytdl-detail')).toBeVisible();
+
+  await page.getByTestId('ytdl-detail-url-row').click();
+
+  const copied = await page.evaluate(() => navigator.clipboard.readText());
+  expect(copied).toContain('zSGhyrF7YVo');
+});

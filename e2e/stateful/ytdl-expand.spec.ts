@@ -226,3 +226,40 @@ test('tapping an item inside a group opens its details, not a gone message', asy
   await expect(page.getByTestId('ytdl-detail-url')).toContainText('youtube.com/watch');
   await expect(page.getByTestId('ytdl-detail-group')).toBeVisible();
 });
+
+test('a track inside a playlist is rendered like any other download', async ({ page }) => {
+  // Spec 1037. The tracks used to be a thinner copy of the row they came from:
+  // a title and a state, with no artwork, no source marker, no artist, no mode.
+  // They are now rendered by the SAME component, so the two cannot drift apart.
+  const { requestId } = await submit(token, 'https://www.youtube.com/playlist?list=PLtest');
+  await emitEntries(requestId, ['aaaaaaaaaaa', 'bbbbbbbbbbb']);
+  await expect.poll(() => items(token, requestId).then((i) => i.length), { timeout: 30_000 }).toBe(2);
+
+  await gotoTasks(page);
+  await page.getByTestId('ytdl-item').first().click();
+  await expect(page.getByTestId('ytdl-group-items')).toBeVisible();
+
+  const row = page.getByTestId('ytdl-group-item').first();
+  await expect(row).toBeVisible();
+  // The same fields the top-level row carries.
+  await expect(row.getByTestId('ytdl-source')).toHaveText('YouTube');
+  await expect(row.getByTestId('ytdl-name')).not.toHaveText('');
+  await expect(row.getByTestId('ytdl-status')).toBeVisible();
+  // Artwork is asserted at the DATA level in the next test, not here: the row
+  // falls back to an icon when an image fails to load, and this harness has no
+  // route to the thumbnail host — so a rendered <img> would be testing the
+  // network rather than the feature.
+});
+
+test('every track carries artwork without a request per item', async () => {
+  // FR-002: expansion has no ceiling, so the address is derived from the id.
+  const { requestId } = await submit(token, 'https://www.youtube.com/playlist?list=PLtest');
+  await emitEntries(requestId, ['aaaaaaaaaaa', 'bbbbbbbbbbb', 'ccccccccccc']);
+  await expect.poll(() => items(token, requestId).then((i) => i.length), { timeout: 30_000 }).toBe(3);
+
+  for (const it of await items(token, requestId)) {
+    const row = it as unknown as { artwork?: string; requestId: string };
+    expect(row.artwork, `${row.requestId} has no artwork`).toBeTruthy();
+    expect(row.artwork).toContain('i.ytimg.com');
+  }
+});

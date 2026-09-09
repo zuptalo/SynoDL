@@ -122,3 +122,19 @@ test('a non-YouTube link in the general sheet is untouched by any of this', asyn
   await expect(page.getByTestId('ytdl-mode')).toHaveCount(0);
   await expect(page.locator('ion-modal:visible')).toContainText('Destination');
 });
+
+test('the YouTube sheet can paste a link from the clipboard', async ({ page, context }) => {
+  // Spec 1037, FR-007. The general new-task sheet already offers this; the
+  // YouTube one is where links actually get pasted.
+  await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+  await gotoTasks(page);
+  await page.evaluate(() => navigator.clipboard.writeText('https://youtu.be/zSGhyrF7YVo'));
+
+  await openFab(page);
+  await page.getByTestId('ytdl-open').click();
+  await expect(page.getByTestId('ytdl-url')).toBeVisible();
+
+  await page.getByTestId('ytdl-paste').click();
+
+  await expect(page.getByTestId('ytdl-count')).toContainText('1 link detected');
+});

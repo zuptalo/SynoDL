@@ -515,6 +515,7 @@ async function onDelete(id: string): Promise<void> {
       :group="ytdlGroup"
       @dismiss="ytdlGroupId = null"
       @retry="onRetryYtdl"
+      @remove="onDismissYtdl"
       @open="ytdlDetailId = $event"
     />
   </ion-page>

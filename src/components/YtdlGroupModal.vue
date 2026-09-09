@@ -16,27 +16,24 @@ import {
   IonButtons,
   IonContent,
   IonHeader,
-  IonIcon,
   IonInfiniteScroll,
   IonInfiniteScrollContent,
-  IonItem,
-  IonLabel,
   IonList,
   IonModal,
-  IonProgressBar,
   IonSpinner,
   IonTitle,
   IonToolbar,
 } from '@ionic/vue';
-import { refreshOutline, trashOutline } from 'ionicons/icons';
 import { computed, ref, watch } from 'vue';
 import { api, type YtdlDownload } from '@/services/api';
+import YtdlItem from '@/components/YtdlItem.vue';
 
 const props = defineProps<{ isOpen: boolean; group: YtdlDownload | null }>();
 const emit = defineEmits<{
   (e: 'dismiss'): void;
   (e: 'retry', requestId: string): void;
   (e: 'open', requestId: string): void;
+  (e: 'remove', requestId: string): void;
 }>();
 
 const items = ref<YtdlDownload[]>([]);
@@ -136,27 +133,10 @@ const summary = computed(() => {
   return parts.join(' · ');
 });
 
-const stateLabels: Record<string, string> = {
-  resolving: 'reading contents',
-  queued: 'waiting its turn',
-  scheduled: 'starting',
-  downloading: 'downloading',
-  completed: 'saved',
-  failed: 'failed',
-};
-
-const stateColors: Record<string, string> = {
-  resolving: 'var(--ion-color-medium)',
-  queued: 'var(--ion-color-medium)',
-  scheduled: 'var(--ion-color-medium)',
-  downloading: 'var(--ion-color-primary)',
-  completed: 'var(--ion-color-success)',
-  failed: 'var(--ion-color-danger)',
-};
-
-function progressOf(d: YtdlDownload): number | undefined {
-  return d.state === 'downloading' && d.progress !== undefined ? d.progress : undefined;
-}
+// No label, colour or progress maps here on purpose: a track is rendered by the
+// SAME row component as a top-level download (FR-003), so the two cannot drift
+// apart the way they already had — the tracks had lost artwork, the source
+// marker, the artist and the mode.
 </script>
 
 <template>
@@ -173,38 +153,18 @@ function progressOf(d: YtdlDownload): number | undefined {
       <div v-if="summary" class="summary" data-testid="ytdl-group-summary-header">{{ summary }}</div>
 
       <ion-list data-testid="ytdl-group-items">
-        <ion-item
+        <!-- The SAME row as the Tasks list. A track is a download in every
+             respect the reader cares about, so it is rendered by the same
+             component rather than by a thinner copy of it (FR-003, FR-004). -->
+        <YtdlItem
           v-for="item in items"
           :key="item.requestId"
-          button
-          :detail="false"
+          :download="item"
           data-testid="ytdl-group-item"
-          @click="emit('open', item.requestId)"
-        >
-          <ion-label class="ion-text-wrap">
-            <h2 class="name">{{ item.title || item.url }}</h2>
-            <div class="meta">
-              <span :style="{ color: stateColors[item.state] }" data-testid="ytdl-group-item-status">
-                {{ stateLabels[item.state] }}
-              </span>
-              <span v-if="item.reason" class="reason">{{ item.reason }}</span>
-            </div>
-            <ion-progress-bar
-              v-if="progressOf(item) !== undefined"
-              :value="progressOf(item)"
-              :style="{ '--progress-background': stateColors[item.state] }"
-            />
-          </ion-label>
-          <ion-button
-            v-if="item.state === 'failed'"
-            slot="end"
-            fill="clear"
-            data-testid="ytdl-group-item-retry"
-            @click.stop="emit('retry', item.requestId)"
-          >
-            <ion-icon slot="icon-only" :icon="refreshOutline" />
-          </ion-button>
-        </ion-item>
+          @open="emit('open', $event)"
+          @retry="emit('retry', $event)"
+          @dismiss="emit('remove', $event)"
+        />
       </ion-list>
 
       <div v-if="loading && items.length === 0" class="center"><ion-spinner name="crescent" /></div>
@@ -225,6 +185,18 @@ function progressOf(d: YtdlDownload): number | undefined {
 </template>
 
 <style scoped>
+/* Room to breathe (spec 1037, FR-008).
+   Ionic's list items sit flush to the edge on a full-screen sheet, which on a
+   phone puts text hard against the bezel. The inset is applied to the CONTENT
+   rather than to each item so every row lines up, and the bottom clears the home
+   indicator via the safe-area inset rather than a guessed constant. */
+ion-content {
+  --padding-start: 8px;
+  --padding-end: 8px;
+  --padding-top: 4px;
+  --padding-bottom: calc(16px + var(--ion-safe-area-bottom, 0px));
+}
+
 .summary {
   padding: 12px 16px;
   color: var(--ion-color-medium);
