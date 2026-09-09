@@ -70,6 +70,7 @@ Specs are grouped by category band; status moves
 | [1039](specs/1039-youtube-rows-match/spec.md) | YouTube downloads look like the downloads they sit next to | 🔵 in-review |
 | [1040](specs/1040-upload-music/spec.md) | Uploading music and music videos into the library | 🔵 in-review |
 | [1041](specs/1041-discover-resume/spec.md) | Discover opens where you left it, and a search can be called off | 🔵 in-review |
+| [1042](specs/1042-tasks-list-sections/spec.md) | Every task says where it came from, and an upload says what it is | 🔵 in-review |
 
 ## 🐛 Hotfixes & Bug Fixes (2001+)
 
