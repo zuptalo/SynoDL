@@ -507,4 +507,16 @@ var migrations = []string{
 	SELECT request_id, 'single', user_id, source_url, mode, scope, 'failed', reason, failed_at, failed_at
 	  FROM ytdl_failures;
 	`,
+	// 0037 — where music lives ON THE NAS (spec 1040).
+	//
+	// The music libraries were known only as Kubernetes PVC claim names, which a
+	// download worker mounts and the server never does. A claim name is not a NAS
+	// path, so an upload had nowhere to be written. These two are that path, and
+	// they sit on operator_config because they are one instance-wide operator
+	// decision — the same place the download size cap lives.
+	//
+	// Empty means "not configured", which is what hides the option rather than
+	// offering it and then failing.
+	`ALTER TABLE operator_config ADD COLUMN music_parent TEXT NOT NULL DEFAULT '';`,
+	`ALTER TABLE operator_config ADD COLUMN music_video_parent TEXT NOT NULL DEFAULT '';`,
 }

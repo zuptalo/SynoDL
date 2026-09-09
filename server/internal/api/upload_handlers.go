@@ -2,15 +2,19 @@ package api
 
 import (
 	"io"
+	"log"
 	"mime/multipart"
 	"net/http"
+	"path"
 	"strconv"
 	"strings"
 
 	"synodl/server/internal/httpx"
+	"synodl/server/internal/k8s"
 	"synodl/server/internal/library"
 	"synodl/server/internal/store"
 	"synodl/server/internal/syno"
+	"synodl/server/internal/ytdl"
 )
 
 // Direct upload into the library (spec 1022).
@@ -61,6 +65,10 @@ func handleUpload(d Deps) http.Handler {
 		}
 
 		var kind, title, season, size, overwrite string
+		// Music (spec 1040). Three more client strings that become path
+		// segments; every one of them goes through the same sanitise-or-refuse
+		// rule the file name already gets.
+		var track, artist, album string
 		for {
 			part, err := mr.NextPart()
 			if err == io.EOF {
@@ -72,7 +80,10 @@ func handleUpload(d Deps) http.Handler {
 				return
 			}
 			if part.FormName() == "file" {
-				d.streamUploadedFile(w, r, u, kind, title, season, size, overwrite, part)
+				d.streamUploadedFile(w, r, u, uploadRequest{
+					Kind: kind, Title: title, Season: season, Size: size,
+					Overwrite: overwrite, Track: track, Artist: artist, Album: album,
+				}, part)
 				return
 			}
 			val, err := io.ReadAll(io.LimitReader(part, uploadField))
@@ -96,17 +107,42 @@ func handleUpload(d Deps) http.Handler {
 				// Sent ahead of the file so the NAS request can declare an exact
 				// Content-Length (DSM rejects a chunked upload body).
 				size = string(val)
+			case "track":
+				track = string(val)
+			case "artist":
+				artist = string(val)
+			case "album":
+				album = string(val)
 			}
 		}
 	})
+}
+
+// uploadRequest is everything the fields before the file said.
+//
+// A struct rather than eight positional strings: the music fields (spec 1040)
+// took the count past the point where a caller could be trusted to keep the
+// order, and a silently swapped title and artist is a file in the wrong folder
+// rather than a compile error.
+type uploadRequest struct {
+	Kind      string
+	Title     string
+	Season    string
+	Size      string
+	Overwrite string
+	// Music only.
+	Track  string
+	Artist string
+	Album  string
 }
 
 // streamUploadedFile validates everything, makes the folders, and pipes the part
 // to the NAS. Nothing here is buffered.
 func (d Deps) streamUploadedFile(
 	w http.ResponseWriter, r *http.Request, u *store.User,
-	kind, title, season, size, overwrite string, part *multipart.Part,
+	req uploadRequest, part *multipart.Part,
 ) {
+	kind, title, season, size, overwrite := req.Kind, req.Title, req.Season, req.Size, req.Overwrite
 	name := strings.TrimSpace(part.FileName())
 	// The file name is client-supplied text that ends up in a path on the NAS,
 	// and it is guarded in two layers. Go's multipart reader has already based
@@ -119,10 +155,12 @@ func (d Deps) streamUploadedFile(
 		return
 	}
 	// Restricting the types is what keeps this a media upload rather than a
-	// general write-anything-to-the-NAS capability.
-	if !library.AllowedUploadType(name) {
+	// general write-anything-to-the-NAS capability. Checked PER KIND (spec 1040):
+	// a film upload has no business accepting an .mp3, and a music upload none
+	// accepting an .mkv, so each library keeps holding what it is for.
+	if !library.AllowedUploadTypeFor(library.UploadKind(kind), name) {
 		httpx.Error(w, http.StatusUnsupportedMediaType,
-			"only video, subtitle, artwork and .nfo files can be uploaded")
+			"that kind of file cannot be uploaded here")
 		return
 	}
 
@@ -131,17 +169,45 @@ func (d Deps) streamUploadedFile(
 		httpx.JSON(w, http.StatusConflict, map[string]any{"error": "parent_unset"})
 		return
 	}
-	// The same naming a download produces, so an uploaded title and a downloaded
-	// one are indistinguishable afterwards.
-	folder := sanitizeFolderName(library.PlexName(title))
-	if !validFolderName(folder) {
-		httpx.Error(w, http.StatusBadRequest, "a title is required")
-		return
+
+	// Two shapes, one rule: the SERVER composes the destination from a parent it
+	// already holds plus values it has sanitised itself. A client supplies no
+	// path in either case.
+	var folder, seasonFolder string
+	if library.IsMusicKind(library.UploadKind(kind)) {
+		// Artist / Album / Track.ext — the same layout spec 0012's download
+		// recipe produces, so an uploaded track and a downloaded one sit together
+		// rather than in two parallel shapes (FR-005).
+		artistFolder, albumFolder, valid := library.MusicFolders(req.Artist, req.Album)
+		if !valid {
+			httpx.Error(w, http.StatusBadRequest, "an artist is required")
+			return
+		}
+		stored, valid := library.MusicFileName(req.Track, name)
+		if !valid {
+			httpx.Error(w, http.StatusBadRequest, "a track name is required")
+			return
+		}
+		// The file takes the TRACK's name, not the one the phone happened to give
+		// it: a media server pairs a .lrc to its audio by identical base name, so
+		// uploading them under two different names is the same as not uploading
+		// the lyrics at all (FR-008).
+		name = stored
+		folder, seasonFolder = artistFolder, albumFolder
+	} else {
+		// The same naming a download produces, so an uploaded title and a
+		// downloaded one are indistinguishable afterwards.
+		folder = sanitizeFolderName(library.PlexName(title))
+		if !validFolderName(folder) {
+			httpx.Error(w, http.StatusBadRequest, "a title is required")
+			return
+		}
+		if n, err := strconv.Atoi(strings.TrimSpace(season)); err == nil && n >= 0 {
+			seasonFolder = sanitizeFolderName(library.SeasonFolder(n))
+		}
 	}
 	dest := parent + "/" + folder
-	seasonFolder := ""
-	if n, err := strconv.Atoi(strings.TrimSpace(season)); err == nil && n >= 0 {
-		seasonFolder = sanitizeFolderName(library.SeasonFolder(n))
+	if seasonFolder != "" {
 		dest += "/" + seasonFolder
 	}
 	// The finished path passes the same grant check a download does.
@@ -192,14 +258,42 @@ func (d Deps) streamUploadedFile(
 		writeNASError(w, err)
 		return
 	}
+	// The details go into the file itself, afterwards, in a short-lived worker
+	// (spec 1040, FR-012). It cannot happen on the way past: the upload is
+	// streamed and never held here, and rewriting tags needs the whole file.
+	//
+	// BEST EFFORT, and the call says so by ignoring what it returns. A track
+	// filed correctly is already usable — folders and names are what a media
+	// server matches on — so an upload that landed must never be reported as
+	// failed because a cosmetic step could not run (FR-013).
+	if library.IsMusicKind(library.UploadKind(kind)) {
+		d.tagUploadedTrack(r, kind, folder, seasonFolder, name, req)
+	}
+
 	// The final name is returned because it is not always the one that was sent:
 	// Go's multipart reader bases the filename, so "a/b.mkv" arrives as "b.mkv".
 	httpx.JSON(w, http.StatusOK, map[string]any{"destination": dest, "file": name, "uploaded": true})
 }
 
-// uploadParent resolves "movie" or "tv" to the folder SynoDL is configured to
-// use. A client can name only these two; it can never supply a path.
+// uploadParent resolves an upload kind to the folder SynoDL is configured to
+// use. A client can name only a kind; it can never supply a path.
+//
+// The two music parents come from the operator config rather than from a
+// download source (spec 1040): music has no source to inherit a parent from, and
+// the worker's PVC claim name is not something the server can write to.
 func (d Deps) uploadParent(kind string) (string, bool) {
+	if library.IsMusicKind(library.UploadKind(kind)) {
+		m, err := d.Store.GetMusicParents()
+		if err != nil {
+			return "", false
+		}
+		p := m.Music
+		if kind == string(library.KindMusicVideo) {
+			p = m.MusicVideo
+		}
+		p = strings.Trim(strings.TrimSpace(p), "/")
+		return p, p != ""
+	}
 	providers, err := d.Store.ListProviders()
 	if err != nil {
 		return "", false
@@ -213,4 +307,61 @@ func (d Deps) uploadParent(kind string) (string, bool) {
 		}
 	}
 	return "", false
+}
+
+// tagUploadedTrack starts the worker that writes the details into the file.
+//
+// Everything about this is deliberately quiet. There is no orchestrator on a
+// Compose install and there may be none reachable on a cluster; there is no
+// record to update and nothing to tell the user, because the upload has already
+// succeeded and the file is already where it belongs. A failure here is a
+// cosmetic loss, logged for an operator and invisible to everyone else.
+//
+// Artwork tags nothing: the cover IS the thing being embedded, and lyrics are a
+// sidecar a media server reads from beside the file rather than from inside it.
+func (d Deps) tagUploadedTrack(r *http.Request, kind, artistFolder, albumFolder, name string, req uploadRequest) {
+	if d.Jobs == nil || !d.Cfg.YtdlConfigured() {
+		return
+	}
+	if library.IsArtwork(name) || strings.EqualFold(path.Ext(name), ".lrc") {
+		return
+	}
+
+	mode := ytdl.ModeMusic
+	if kind == string(library.KindMusicVideo) {
+		mode = ytdl.ModeMusicVideo
+	}
+	libs := d.ytdlLibraries()
+	if _, ok := libs[mode]; !ok {
+		return // no volume to mount, so nothing to tag
+	}
+
+	rel := path.Join(artistFolder, albumFolder, name)
+	// The cover is named by the server, so this asks for it by the name it would
+	// have been given rather than by looking: a worker that finds no cover simply
+	// tags without one.
+	cover := path.Join(artistFolder, albumFolder, "cover.jpg")
+
+	job, err := ytdl.BuildTagJob(ytdl.JobConfig{
+		Namespace: d.Cfg.YtdlNamespace,
+		Image:     d.Cfg.YtdlImage,
+		// Its own id, not a download's: an upload has no ytdl_downloads record
+		// and must not collide with one that does.
+		RequestID: newRequestID(),
+		Mode:      mode,
+		Libraries: libs,
+	}, ytdl.TagRequest{
+		RelPath:  rel,
+		CoverRel: cover,
+		Title:    req.Track,
+		Artist:   req.Artist,
+		Album:    req.Album,
+	})
+	if err != nil {
+		log.Printf("upload tagging: could not build a worker: %v", err)
+		return
+	}
+	if _, err := d.Jobs.CreateJob(r.Context(), job); err != nil && !k8s.IsConflict(err) {
+		log.Printf("upload tagging: could not start a worker: %v", err)
+	}
 }

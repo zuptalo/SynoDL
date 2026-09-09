@@ -27,14 +27,19 @@ import {
   IonToolbar,
 } from '@ionic/vue';
 import { cloudUploadOutline, folderOutline } from 'ionicons/icons';
-import { api } from '@/services/api';
+import { api, type UploadKind } from '@/services/api';
 import { useUploads } from '@/composables/useUploads';
 import { isPlexReady, plexName } from '@/services/title-year';
 
 const props = defineProps<{ isOpen: boolean }>();
 const emit = defineEmits<{ (e: 'dismiss'): void; (e: 'uploaded'): void }>();
 
-type Kind = 'movie' | 'tv';
+type Kind = UploadKind;
+
+// Music is filed by artist and album rather than by one title, so the sheet asks
+// different questions for it (spec 1040). Kept as one predicate rather than
+// repeated comparisons, so adding a third music kind cannot half-work.
+const MUSIC_KINDS: Kind[] = ['music', 'music-video'];
 
 // The queue lives in the composable, not here, so dismissing this sheet leaves a
 // running transfer visible in the Tasks list instead of hiding it.
@@ -43,6 +48,11 @@ const { enqueue } = useUploads();
 const kind = ref<Kind>('movie');
 const title = ref('');
 const season = ref('');
+// Music (spec 1040). One set of details for the whole upload: the audio, its
+// lyrics and its artwork all describe the same track.
+const track = ref('');
+const artist = ref('');
+const album = ref('');
 // Files chosen but not yet sent. Pressing Upload hands them to the queue and
 // closes this sheet, so nothing about a running job is tracked here.
 const picked = ref<File[]>([]);
@@ -50,12 +60,18 @@ const loadError = ref('');
 // Titles already on the NAS under the chosen parent. Picking one is what stops
 // a near-duplicate folder being created for a show that is already there.
 const existing = ref<string[]>([]);
-const parents = ref<{ movie: string; tv: string }>({ movie: '', tv: '' });
+const parents = ref<Record<Kind, string>>({ movie: '', tv: '', music: '', 'music-video': '' });
 // Replaced by the server's real limit as soon as the modal opens; this is only
 // what to show for the instant before that lands.
 const maxMB = ref(10240);
 
-const parentPath = computed(() => (kind.value === 'tv' ? parents.value.tv : parents.value.movie));
+const isMusic = computed(() => MUSIC_KINDS.includes(kind.value));
+const parentPath = computed(() => parents.value[kind.value] ?? '');
+// A kind whose library is not configured is not offered at all, rather than
+// offered and then failing at the last step (FR-002).
+const kinds = computed(() =>
+  (['movie', 'tv', 'music', 'music-video'] as Kind[]).filter((k) => parents.value[k] !== ''),
+);
 // "10240 MB" reads as noise; a cap this size belongs in GB. Whole numbers stay
 // whole ("10 GB", not "10.0 GB") and anything under a gigabyte stays in MB.
 const maxLabel = computed(() => {
@@ -67,14 +83,17 @@ const maxLabel = computed(() => {
 const anyFiles = computed(() => picked.value.length > 0);
 // Refused before a byte leaves the device, and named so it is obvious which one.
 const oversized = computed(() => picked.value.filter(tooBig).map((f) => f.name));
-const canSend = computed(
-  () =>
-    anyFiles.value &&
-    isPlexReady(title.value) &&
-    parentPath.value !== '',
-);
+const canSend = computed(() => {
+  if (!anyFiles.value || parentPath.value === '') return false;
+  // A track needs a name and somebody to belong to. The album is optional and
+  // falls back to Singles, exactly as a download with no album does.
+  if (isMusic.value) return track.value.trim() !== '' && artist.value.trim() !== '';
+  return isPlexReady(title.value);
+});
 // Only nag once there is something to judge — an empty field is not yet "wrong".
-const titleNeedsYear = computed(() => title.value.trim() !== '' && !isPlexReady(title.value));
+const titleNeedsYear = computed(
+  () => !isMusic.value && title.value.trim() !== '' && !isPlexReady(title.value),
+);
 
 /**
  * Folders already on the NAS, narrowed by whatever has been typed.
@@ -85,7 +104,7 @@ const titleNeedsYear = computed(() => title.value.trim() !== '' && !isPlexReady(
  * near-duplicate), or keep typing to name something new.
  */
 const filteredExisting = computed(() => {
-  const q = title.value.trim().toLowerCase();
+  const q = (isMusic.value ? artist.value : title.value).trim().toLowerCase();
   if (!existing.value.length) return [];
   const matches = q === '' ? existing.value : existing.value.filter((n) => n.toLowerCase().includes(q));
   // Once the field IS one of the folders, the choice is made — stop suggesting.
@@ -94,8 +113,17 @@ const filteredExisting = computed(() => {
 });
 // Shown so the user can see where this is going before committing to it.
 const preview = computed(() => {
+  if (!parentPath.value) return '';
+  if (isMusic.value) {
+    const a = artist.value.trim();
+    const t = track.value.trim();
+    if (!a || !t) return '';
+    // The same layout a downloaded track gets, Singles and all, so what this
+    // line promises is what the server composes.
+    return `${parentPath.value}/${a}/${album.value.trim() || 'Singles'}/${t}`;
+  }
   const t = title.value.trim();
-  if (!t || !parentPath.value) return '';
+  if (!t) return '';
   const n = Number(season.value);
   const seasonPart =
     kind.value === 'tv' && season.value !== '' && Number.isFinite(n)
@@ -113,9 +141,19 @@ async function loadContext(): Promise<void> {
     const cfg = await api.config();
     if (cfg.uploadMaxMB && cfg.uploadMaxMB > 0) maxMB.value = cfg.uploadMaxMB;
     const st = await api.getSourceStatus();
-    parents.value = { movie: st.moviesParent ?? '', tv: st.tvParent ?? '' };
-    if (!parents.value.movie && !parents.value.tv) {
-      loadError.value = 'No movie or TV folder is configured yet.';
+    // Film and TV parents are inherited from a download source; music has no
+    // source and comes from the operator's own setting (spec 1040).
+    const music = await api.getMusicLibraries().catch(() => ({ music: '', musicVideo: '' }));
+    parents.value = {
+      movie: st.moviesParent ?? '',
+      tv: st.tvParent ?? '',
+      music: music.music ?? '',
+      'music-video': music.musicVideo ?? '',
+    };
+    if (!kinds.value.length) {
+      loadError.value = 'No library folder is configured yet.';
+    } else if (!kinds.value.includes(kind.value)) {
+      kind.value = kinds.value[0];
     }
   } catch {
     loadError.value = 'Could not read the library folders.';
@@ -140,6 +178,9 @@ watch(() => props.isOpen, (open) => {
   kind.value = 'movie';
   title.value = '';
   season.value = '';
+  track.value = '';
+  artist.value = '';
+  album.value = '';
   picked.value = [];
   void loadContext();
 });
@@ -164,6 +205,9 @@ function send(): void {
     kind: kind.value,
     title: title.value.trim(),
     season: season.value,
+    track: track.value.trim(),
+    artist: artist.value.trim(),
+    album: album.value.trim(),
   });
   emit('uploaded');
 }
@@ -184,12 +228,86 @@ function send(): void {
     <ion-content class="ion-padding">
       <ion-note v-if="loadError" color="danger">{{ loadError }}</ion-note>
 
+      <!-- Only the kinds whose library is actually configured (FR-002). An
+           option that cannot work is worse than an absent one: it looks like a
+           capability right up until the last step. -->
       <ion-segment v-model="kind" data-testid="upload-kind">
-        <ion-segment-button value="movie"><ion-label>Movie</ion-label></ion-segment-button>
-        <ion-segment-button value="tv"><ion-label>TV show</ion-label></ion-segment-button>
+        <ion-segment-button v-if="kinds.includes('movie')" value="movie" data-testid="upload-kind-movie">
+          <ion-label>Movie</ion-label>
+        </ion-segment-button>
+        <ion-segment-button v-if="kinds.includes('tv')" value="tv" data-testid="upload-kind-tv">
+          <ion-label>TV show</ion-label>
+        </ion-segment-button>
+        <ion-segment-button v-if="kinds.includes('music')" value="music" data-testid="upload-kind-music">
+          <ion-label>Music</ion-label>
+        </ion-segment-button>
+        <ion-segment-button v-if="kinds.includes('music-video')" value="music-video" data-testid="upload-kind-music-video">
+          <ion-label>Music video</ion-label>
+        </ion-segment-button>
       </ion-segment>
 
-      <ion-list>
+      <!-- Music is filed by artist and album rather than by one title, so it
+           asks different questions (spec 1040). The three answers describe the
+           track, and every file in the upload uses them: the audio, its lyrics
+           and its artwork are all the same track. -->
+      <ion-list v-if="isMusic">
+        <ion-item>
+          <ion-input
+            v-model="track"
+            label="Track name"
+            label-placement="stacked"
+            autocapitalize="words"
+            data-testid="upload-track"
+            placeholder="Lucente"
+          />
+        </ion-item>
+        <ion-item>
+          <ion-input
+            v-model="artist"
+            label="Artist"
+            label-placement="stacked"
+            autocapitalize="words"
+            data-testid="upload-artist"
+            placeholder="Anyma"
+          />
+        </ion-item>
+        <!-- Artists already in the library, filtered as you type, so a new track
+             joins the folder that is there rather than starting a near-duplicate
+             beside it. The same combobox the title field uses. -->
+        <div v-if="filteredExisting.length" class="suggestions">
+          <ion-item
+            v-for="name in filteredExisting"
+            :key="name"
+            button
+            :detail="false"
+            class="suggestion"
+            data-testid="upload-existing"
+            @click="artist = name"
+          >
+            <ion-icon slot="start" :icon="folderOutline" size="small" />
+            <ion-label>{{ name }}</ion-label>
+          </ion-item>
+        </div>
+        <ion-item>
+          <ion-input
+            v-model="album"
+            label="Album (optional)"
+            label-placement="stacked"
+            autocapitalize="words"
+            data-testid="upload-album"
+            placeholder="The End Of Genesys"
+          />
+        </ion-item>
+        <ion-item lines="none">
+          <ion-note data-testid="upload-music-hint">
+            Pick the audio and, if you have them, its lyrics and a thumbnail —
+            they are all named after the track so your media server pairs them.
+            With no album it is filed under <strong>Singles</strong>.
+          </ion-note>
+        </ion-item>
+      </ion-list>
+
+      <ion-list v-else>
         <ion-item>
           <!-- Capitalise each word as it is typed, the way a title is normally
                written. This is the KEYBOARD's default rather than a transform on
@@ -255,8 +373,15 @@ function send(): void {
         Too large for the {{ maxLabel }} limit: {{ oversized.join(', ') }}.
       </ion-note>
       <ion-note class="cap">
-        Video, subtitle, artwork and .nfo files, up to {{ maxLabel }} each. The title is used to
-        name the folder, so it is required.
+        <template v-if="isMusic">
+          {{ kind === 'music' ? 'Audio' : 'Video' }}, lyrics and artwork files, up to
+          {{ maxLabel }} each. The track name and artist are used to name the file and its
+          folders, so both are required.
+        </template>
+        <template v-else>
+          Video, subtitle, artwork and .nfo files, up to {{ maxLabel }} each. The title is used
+          to name the folder, so it is required.
+        </template>
       </ion-note>
 
       <ion-list v-if="anyFiles">

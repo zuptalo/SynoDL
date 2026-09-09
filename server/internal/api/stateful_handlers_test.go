@@ -24,6 +24,27 @@ func newStatefulRouter(t *testing.T) (http.Handler, *store.Store) {
 	return h, st
 }
 
+// newStatefulRouterWithJobs is newStatefulRouter with an orchestrator attached,
+// for the paths that start a worker of their own (spec 1040's tagging).
+func newStatefulRouterWithJobs(t *testing.T, jobs JobRunner) (http.Handler, *store.Store) {
+	t.Helper()
+	c, _ := store.NewCipher("kdf-input-for-tests")
+	st, err := store.Open(filepath.Join(t.TempDir(), "db.sqlite"), c)
+	if err != nil {
+		t.Fatalf("store.Open: %v", err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	mock := httptest.NewServer(synomock.New().Handler())
+	t.Cleanup(mock.Close)
+	factory := func(base string, insecure bool) syno.Client { return syno.NewHTTPClient(mock.URL, false) }
+	cfg := ytdlCfg()
+	cfg.MaxTorrentMB, cfg.LoginPerMinute, cfg.UploadMaxMB = 16, 1000, 8
+	return NewRouter(Deps{
+		Cfg: cfg, Version: "test", Stateful: true, Store: st,
+		NAS: nas.New(st, factory), Jobs: jobs,
+	}), st
+}
+
 // newStatefulRouterWithMock is newStatefulRouter plus the mock DSM's base URL,
 // for tests that need to drive its /__mock/* control endpoints (e.g. seeding a
 // folder tree so Discover's ownership markers have something to find).

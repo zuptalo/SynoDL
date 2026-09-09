@@ -68,6 +68,7 @@ Specs are grouped by category band; status moves
 | [1037](specs/1037-item-rows-and-polish/spec.md) | A track inside a playlist looks like any other download | 🔵 in-review |
 | [1038](specs/1038-ytdl-live-updates/spec.md) | YouTube downloads update as they happen | 🔵 in-review |
 | [1039](specs/1039-youtube-rows-match/spec.md) | YouTube downloads look like the downloads they sit next to | 🔵 in-review |
+| [1040](specs/1040-upload-music/spec.md) | Uploading music and music videos into the library | 🔵 in-review |
 
 ## 🐛 Hotfixes & Bug Fixes (2001+)
 

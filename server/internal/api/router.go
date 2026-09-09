@@ -258,6 +258,11 @@ func NewRouter(d Deps) http.Handler {
 		mux.Handle("POST /v1/source/send", handleSourceSend(d))
 		mux.Handle("GET /v1/source/parameters", handleSourceParameters(d))
 		mux.Handle("GET /v1/source/quota", handleGetSourceQuota(d))
+
+		// Where music lives on the NAS (spec 1040). Readable by anyone signed in
+		// so the upload sheet knows which options to offer; writable by an admin.
+		mux.Handle("GET /v1/library/music", handleGetMusicLibraries(d))
+		mux.Handle("PUT /v1/library/music", handleSetMusicLibraries(d))
 		mux.Handle("GET /v1/source/prefs", handleGetSourcePrefs(d))
 		mux.Handle("PUT /v1/source/prefs", handleSetSourcePrefs(d))
 		mux.Handle("GET /v1/source/view", handleGetSourceView(d))

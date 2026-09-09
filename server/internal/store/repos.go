@@ -329,6 +329,42 @@ func (s *Store) GetMaxDownloadMB() (int, error) {
 	return mb, err
 }
 
+// MusicParents are the NAS folders holding the music and music-video libraries
+// (spec 1040).
+//
+// Empty means not configured, which is what hides an upload option rather than
+// offering it and then failing. They live here rather than being derived from a
+// download source the way the film and TV parents are, because music has no
+// source — and rather than coming from the worker's PVC claim names, because a
+// claim name is not a path the server can write to.
+type MusicParents struct {
+	Music      string
+	MusicVideo string
+}
+
+// GetMusicParents reads them. A missing row yields empties, not an error: an
+// instance before setup simply has none.
+func (s *Store) GetMusicParents() (MusicParents, error) {
+	var m MusicParents
+	err := s.db.QueryRow(
+		`SELECT COALESCE(music_parent, ''), COALESCE(music_video_parent, '')
+		   FROM operator_config LIMIT 1`).Scan(&m.Music, &m.MusicVideo)
+	if errors.Is(err, sql.ErrNoRows) {
+		return MusicParents{}, nil
+	}
+	return m, err
+}
+
+// SetMusicParents writes them. Stored exactly as given — trimming and the
+// leading-slash convention are the caller's business, so that what an operator
+// typed is what comes back.
+func (s *Store) SetMusicParents(m MusicParents) error {
+	_, err := s.db.Exec(
+		`UPDATE operator_config SET music_parent = ?, music_video_parent = ?, updated_at = ?`,
+		m.Music, m.MusicVideo, time.Now().Unix())
+	return err
+}
+
 // SetMaxDownloadMB sets the instance-wide maximum download size (MB).
 func (s *Store) SetMaxDownloadMB(mb int) error {
 	if mb < 0 {
