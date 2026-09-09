@@ -66,6 +66,7 @@ Specs are grouped by category band; status moves
 | [1035](specs/1035-card-captions-read/spec.md) | Card captions read like the detail sheet | 🟢 shipped |
 | [1036](specs/1036-telegram-intake-architect-reports/spec.md) | Telegram intake architect reports | ⚪ planned |
 | [1037](specs/1037-item-rows-and-polish/spec.md) | A track inside a playlist looks like any other download | 🔵 in-review |
+| [1038](specs/1038-ytdl-live-updates/spec.md) | YouTube downloads update as they happen | 🔵 in-review |
 
 ## 🐛 Hotfixes & Bug Fixes (2001+)
 

@@ -55,6 +55,14 @@ type Deps struct {
 	// download had no job. A POINTER for the same reason ytdlProgress is.
 	ytdlMissing *missingJobs
 
+	// ytdlHub fans a change out to whoever is watching (spec 1038), and
+	// ytdlSeen is what was last said about each download so the reconciler can
+	// tell what changed. POINTERS for the same reason ytdlProgress is: Deps is
+	// copied by value into every handler closure, and a value field would give
+	// each connection its own hub — which would fan nothing out to anybody.
+	ytdlHub  *ytdlHub
+	ytdlSeen *ytdlFingerprints
+
 	// ytdlOnTick is a test seam: the reconciler calls it at the end of every
 	// cycle so a test can observe that the loop is still running without
 	// reaching into its internals. Nil in production.
@@ -112,6 +120,12 @@ func InitCaches(d Deps) Deps {
 	if d.ytdlMissing == nil {
 		d.ytdlMissing = newMissingJobs()
 	}
+	if d.ytdlHub == nil {
+		d.ytdlHub = newYtdlHub()
+	}
+	if d.ytdlSeen == nil {
+		d.ytdlSeen = newYtdlFingerprints()
+	}
 	return d
 }
 
@@ -140,6 +154,12 @@ func NewRouter(d Deps) http.Handler {
 	// One global bound on concurrent SSE task streams, shared by whichever mode
 	// is active, so the live-update endpoint can't open unbounded NAS polls.
 	streamLim := newStreamLimiter(d.Cfg.StreamMax)
+	// A SEPARATE bound for the YouTube stream, sized the same (spec 1038). It
+	// could have shared the one above and deliberately does not: the two streams
+	// cost different things — one polls the NAS, the other only forwards what the
+	// reconciler already worked out — and sharing a budget would let viewers of
+	// one starve the other for no reason either of them could see.
+	ytdlStreamLim := newStreamLimiter(d.Cfg.StreamMax)
 
 	if d.Stateful {
 		// Stateful mode (spec 0003): SynoDL accounts, a setup wizard, and NAS
@@ -196,6 +216,10 @@ func NewRouter(d Deps) http.Handler {
 		// and this feature does not touch it — the client merges the two feeds.
 		mux.Handle("POST /v1/ytdl", handleYtdlSubmit(d))
 		mux.Handle("GET /v1/ytdl", handleYtdlList(d))
+		// Live updates (spec 1038). Registered BEFORE the {requestId} pattern is
+		// irrelevant to net/http's matcher — a literal segment always beats a
+		// wildcard — but it is listed here next to the list it makes live.
+		mux.Handle("GET /v1/ytdl/stream", handleYtdlStream(d, ytdlStreamLim))
 		mux.Handle("GET /v1/ytdl/{requestId}", handleYtdlDetail(d))
 		mux.Handle("GET /v1/ytdl/{requestId}/items", handleYtdlItems(d))
 		mux.Handle("POST /v1/ytdl/{requestId}/retry", handleYtdlRetry(d))

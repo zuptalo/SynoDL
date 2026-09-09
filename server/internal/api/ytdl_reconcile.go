@@ -105,6 +105,13 @@ func (d Deps) reconcileYtdlOnce(ctx context.Context) {
 	d.refreshGroups(ctx)
 	d.sweepDismissed(ctx, jobs)
 	d.admitQueued(ctx)
+
+	// LAST, deliberately: everything above may have changed what a download
+	// shows, so announcing before them would announce the previous cycle's
+	// picture. This is also the moment FR-012 is about — the server has just
+	// finished learning, and the update leaves now rather than waiting for
+	// somebody to ask (spec 1038).
+	d.watchYtdl(live)
 }
 
 // resolveVanished fails downloads whose worker the orchestrator has lost.

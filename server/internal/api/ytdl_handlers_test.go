@@ -37,11 +37,24 @@ type fakeJobs struct {
 	logs    map[string]string
 	logErr  error
 	logReqs []string
+	// nCalls counts every call the orchestrator receives, whatever it was.
+	// Spec 1038 needs this: no number of watching clients may change how often
+	// the cluster is asked (FR-010, SC-004), and a count is the only way to
+	// assert "none" rather than "not many".
+	nCalls int
+}
+
+// calls is how many times the orchestrator has been asked anything.
+func (f *fakeJobs) calls() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.nCalls
 }
 
 func (f *fakeJobs) CreateJob(_ context.Context, j *k8s.Job) (*k8s.Job, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	f.nCalls++
 	if f.createErr != nil {
 		return nil, f.createErr
 	}
@@ -53,6 +66,7 @@ func (f *fakeJobs) CreateJob(_ context.Context, j *k8s.Job) (*k8s.Job, error) {
 func (f *fakeJobs) ListJobs(_ context.Context, _ string) ([]k8s.Job, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	f.nCalls++
 	if f.listErr != nil {
 		return nil, f.listErr
 	}
@@ -62,6 +76,7 @@ func (f *fakeJobs) ListJobs(_ context.Context, _ string) ([]k8s.Job, error) {
 func (f *fakeJobs) DeleteJob(_ context.Context, name string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	f.nCalls++
 	f.deleted = append(f.deleted, name)
 	for i, j := range f.jobs {
 		if j.Metadata.Name == name {
@@ -75,6 +90,7 @@ func (f *fakeJobs) DeleteJob(_ context.Context, name string) error {
 func (f *fakeJobs) ListPods(_ context.Context, _ string) ([]k8s.Pod, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	f.nCalls++
 	if f.listErr != nil {
 		return nil, f.listErr
 	}
@@ -84,6 +100,7 @@ func (f *fakeJobs) ListPods(_ context.Context, _ string) ([]k8s.Pod, error) {
 func (f *fakeJobs) PodLog(_ context.Context, name string, _ k8s.PodLogOptions) ([]byte, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	f.nCalls++
 	// Recorded so a test can assert output is read because a download is
 	// running, not because someone asked for the list (FR-013f).
 	f.logReqs = append(f.logReqs, name)
