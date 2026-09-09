@@ -67,6 +67,7 @@ Specs are grouped by category band; status moves
 | [1036](specs/1036-telegram-intake-architect-reports/spec.md) | Telegram intake architect reports | ⚪ planned |
 | [1037](specs/1037-item-rows-and-polish/spec.md) | A track inside a playlist looks like any other download | 🔵 in-review |
 | [1038](specs/1038-ytdl-live-updates/spec.md) | YouTube downloads update as they happen | 🔵 in-review |
+| [1039](specs/1039-youtube-rows-match/spec.md) | YouTube downloads look like the downloads they sit next to | 🔵 in-review |
 
 ## 🐛 Hotfixes & Bug Fixes (2001+)
 

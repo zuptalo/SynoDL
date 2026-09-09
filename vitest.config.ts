@@ -47,6 +47,10 @@ export default defineConfig({
         'src/services/source-logo.ts',
         // What a client does with a live update (spec 1038).
         'src/services/ytdl-merge.ts',
+        // Sorting/searching YouTube rows, and which thumbnail size to ask for
+        // (spec 1039).
+        'src/services/ytdl-sort.ts',
+        'src/services/ytdl-thumb.ts',
       ],
       thresholds: { lines: 80, functions: 80, statements: 80, branches: 80 },
     },

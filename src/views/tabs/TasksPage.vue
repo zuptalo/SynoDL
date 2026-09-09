@@ -36,6 +36,7 @@ import { useTasks } from '@/composables/useTasks';
 import { useTaskFilter } from '@/composables/useTaskFilter';
 import { api, type YtdlDownload } from '@/services/api';
 import { ALL_STATUSES, applyTaskFilter, type TaskFilterState } from '@/services/task-sort';
+import { applyYtdlFilter } from '@/services/ytdl-sort';
 import { formatSpeed } from '@/utils/format';
 import type { Task } from '@/types/task';
 import TaskItem from '@/components/TaskItem.vue';
@@ -98,12 +99,15 @@ const {
 const statusFilterNarrowed = computed(
   () => filter.value.statuses.length > 0 && filter.value.statuses.length < ALL_STATUSES.length,
 );
+// The SAME filter state the NAS list uses, applied by this section's own
+// function (spec 1039). It used to be hand-filtered here — search matched the
+// URL only, and nothing was ever sorted — so the filter sheet appeared to do
+// nothing to half the screen, and searching for a title a row was visibly
+// showing found nothing.
 const visibleYtdl = computed(() => {
   if (!ytdlAvailable.value) return [];
   if (statusFilterNarrowed.value) return [];
-  const term = (filter.value.term ?? '').trim().toLowerCase();
-  if (!term) return ytdlDownloads.value;
-  return ytdlDownloads.value.filter((d) => d.url.toLowerCase().includes(term));
+  return applyYtdlFilter(ytdlDownloads.value, filter.value);
 });
 
 async function onDismissYtdl(requestId: string): Promise<void> {
