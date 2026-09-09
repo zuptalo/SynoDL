@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue';
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import {
   onIonViewWillEnter,
@@ -438,6 +438,44 @@ const showTop = ref(false);
  * One genuine scroll is enough to mean "show me more", and any search clears the
  * restored flag anyway.
  */
+/**
+ * Where the cancel pill sits, measured from the real header.
+ *
+ * It used to be placed with `calc(var(--app-header-h, 108px) + 10px)` and that
+ * variable is defined NOWHERE — so it always took the fallback, which is shorter
+ * than this header actually is, and the pill landed on top of the search box and
+ * the sort control.
+ *
+ * Measured rather than guessed, then dropped clear of the refresher's spinner:
+ * during a pull-to-refresh that spinner occupies the space directly under the
+ * header, and a pill overlapping it would be two things saying "working" in one
+ * place. Below it, the pill reads as belonging to the search rather than to any
+ * one control.
+ */
+const headerRef = ref<{ $el?: HTMLElement } | null>(null);
+const headerBottom = ref(0);
+const SPINNER_CLEARANCE = 96;
+const pillTop = computed(() => `${headerBottom.value + SPINNER_CLEARANCE}px`);
+
+function measureHeader(): void {
+  const el = headerRef.value?.$el;
+  if (el) headerBottom.value = el.getBoundingClientRect().bottom;
+}
+onMounted(() => {
+  measureHeader();
+  window.addEventListener('resize', measureHeader);
+  window.addEventListener('orientationchange', measureHeader);
+});
+onUnmounted(() => {
+  window.removeEventListener('resize', measureHeader);
+  window.removeEventListener('orientationchange', measureHeader);
+});
+// The header grows and shrinks with the sort hint and the source picker, so it
+// is re-measured whenever the pill is about to be shown rather than only once.
+watch(cancellable, (on) => {
+  if (on) void nextTick(measureHeader);
+});
+
 const scrolledSinceRestore = ref(false);
 const holdInfinite = computed(() => restored.value && !scrolledSinceRestore.value);
 
@@ -487,7 +525,7 @@ function goSettings(): void {
 
 <template>
   <ion-page>
-    <ion-header :translucent="true">
+    <ion-header ref="headerRef" :translucent="true">
       <ion-toolbar>
         <ion-title>Discover</ion-title>
         <ion-buttons slot="end">
@@ -603,6 +641,7 @@ function goSettings(): void {
         v-if="cancellable"
         type="button"
         class="cancel-pill"
+        :style="{ top: pillTop }"
         data-testid="search-cancel"
         @click="onCancelSearch"
       >
@@ -1209,7 +1248,6 @@ function goSettings(): void {
    search that is running rather than to any one control. */
 .cancel-pill {
   position: fixed;
-  top: calc(var(--app-header-h, 108px) + 10px);
   left: 50%;
   transform: translateX(-50%);
   z-index: 20;
