@@ -11,7 +11,7 @@
  * that harder to read.
  */
 import { expect, test } from '@playwright/test';
-import { ADMIN, apiToken, clearYtdl } from './helpers';
+import { ADMIN, apiToken, clearYtdl, createSecondUser } from './helpers';
 
 const SF_PORT = Number(process.env.SYNODL_E2E_SF_PORT) || 8283;
 const K8S = `http://localhost:${process.env.SYNODL_E2E_SF_K8S_PORT || 8296}`;
@@ -35,25 +35,6 @@ async function listAs(token: string): Promise<Download[]> {
   return ((await res.json()) as { downloads: Download[] }).downloads;
 }
 
-/** Create a non-admin and sign them in, returning their token. */
-async function secondUser(adminToken: string, username: string): Promise<string> {
-  const password = `e2e-${username}-password`;
-  const created = await fetch(`${API}/v1/users`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'X-SynoDL-Session': adminToken },
-    body: JSON.stringify({ username, password, isAdmin: false }),
-  });
-  expect([200, 201], `create ${username}`).toContain(created.status);
-
-  const session = await fetch(`${API}/v1/session`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ username, password }),
-  });
-  expect(session.ok, `sign in ${username}`).toBe(true);
-  return ((await session.json()) as { token: string }).token;
-}
-
 test.beforeEach(async () => {
   await fetch(`${K8S}/__mock/reset`, { method: 'POST' });
   // Download records are durable (spec 0013), so a previous test's history
@@ -63,7 +44,7 @@ test.beforeEach(async () => {
 
 test('a user sees their own YouTube downloads and nobody else’s', async () => {
   const admin = await apiToken();
-  const bo = await secondUser(admin, 'e2ebo');
+  const bo = await createSecondUser(admin, 'e2ebo');
 
   await submitAs(admin, 'https://youtu.be/adminOwnedSong');
   await submitAs(bo, 'https://youtu.be/boOwnedSong');
@@ -78,7 +59,7 @@ test('a user sees their own YouTube downloads and nobody else’s', async () => 
 
 test('an admin sees everyone’s, each attributed', async () => {
   const admin = await apiToken();
-  const bo = await secondUser(admin, 'e2ebo2');
+  const bo = await createSecondUser(admin, 'e2ebo2');
 
   await submitAs(admin, 'https://youtu.be/adminOwnedSong');
   await submitAs(bo, 'https://youtu.be/boOwnedSong');
@@ -95,7 +76,7 @@ test('another user’s download answers exactly as one that does not exist', asy
   // 404 rather than 403: a 403 would confirm the download exists, which is the
   // disclosure the rule is about.
   const admin = await apiToken();
-  const bo = await secondUser(admin, 'e2ebo3');
+  const bo = await createSecondUser(admin, 'e2ebo3');
 
   const requestId = await submitAs(admin, 'https://youtu.be/adminOwnedSong');
 
