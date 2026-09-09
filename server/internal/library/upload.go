@@ -34,6 +34,20 @@ var uploadExt = func() map[string]bool {
 	return m
 }()
 
+// audioExt is what a MUSIC library is made of (spec 1040).
+//
+// Its own set rather than more entries in uploadExt, because the check is
+// per-kind: a film upload has no business accepting an .mp3, and a music upload
+// none accepting an .mkv. Narrow is the whole point of having an allowlist.
+var audioExt = map[string]bool{
+	"mp3": true, "m4a": true, "flac": true, "opus": true, "ogg": true,
+	"oga": true, "wav": true, "aac": true, "alac": true, "wma": true, "aiff": true,
+}
+
+// lyricsExt is the sidecar a track has and a film does not. It is matched to its
+// audio by identical base name, which is why MusicFileName renames it.
+var lyricsExt = map[string]bool{"lrc": true, "txt": true}
+
 // sidecarExt belongs beside content without being content.
 var sidecarExt = []string{
 	// Subtitles.
@@ -68,6 +82,53 @@ func ValidUploadName(name string) bool {
 	// itself, or it was describing a path rather than a name.
 	return path.Base(n) == n
 }
+
+// UploadKind is what an upload says it is. The kind decides which file types
+// are acceptable, which is what keeps each library holding what it is for.
+type UploadKind string
+
+const (
+	KindMovie      UploadKind = "movie"
+	KindTV         UploadKind = "tv"
+	KindMusic      UploadKind = "music"
+	KindMusicVideo UploadKind = "music-video"
+)
+
+// IsMusicKind reports whether an upload is going to a music library.
+func IsMusicKind(k UploadKind) bool { return k == KindMusic || k == KindMusicVideo }
+
+// AllowedUploadTypeFor reports whether a file belongs in this KIND of upload
+// (spec 1040).
+//
+// Every kind takes the sidecars — subtitles, artwork, metadata belong beside any
+// content — and then exactly one kind of content: audio for music, video for
+// everything else. A music upload additionally takes lyrics, which a film has no
+// use for.
+func AllowedUploadTypeFor(kind UploadKind, name string) bool {
+	ext := strings.ToLower(strings.TrimPrefix(path.Ext(strings.TrimSpace(name)), "."))
+	if ext == "" {
+		return false
+	}
+	if sidecarSet[ext] {
+		return true
+	}
+	if kind == KindMusic {
+		return audioExt[ext] || lyricsExt[ext]
+	}
+	if kind == KindMusicVideo {
+		return videoExt[ext] || lyricsExt[ext]
+	}
+	return videoExt[ext]
+}
+
+// sidecarSet is sidecarExt as a lookup.
+var sidecarSet = func() map[string]bool {
+	m := map[string]bool{}
+	for _, e := range sidecarExt {
+		m[e] = true
+	}
+	return m
+}()
 
 // AllowedUploadType reports whether a file's extension is one a media library
 // is made of. Compared lower-case, and an extension-less name is refused —

@@ -39,4 +39,6 @@ var migrationGolden = []string{
 	"755fca4ae4b6b045", // version 34
 	"1ea5bb4f6c9a6c8c", // version 35 — ytdl_failures (spec 0012)
 	"56061a53b14e37e0", // version 36 — ytdl_downloads (spec 0013)
+	"6b40e7127e7ae0cb", // version 37 — music_parent (spec 1040)
+	"43ed51923855f785", // version 38 — music_video_parent (spec 1040)
 }

@@ -498,8 +498,9 @@ func (d Deps) captureFinished(live map[string]k8s.Job) {
 	}
 	for id, j := range live {
 		// A group's own state is derived from its items, never from a job — the
-		// enumeration worker is not the group.
-		if j.Metadata.Labels[ytdl.LabelJobKind] == ytdl.JobKindExpand {
+		// enumeration worker is not the group. A tagging worker (spec 1040)
+		// belongs to an upload, which has no record here at all.
+		if ytdlNotADownload(j) {
 			continue
 		}
 		state := ytdl.StateOf(j)
@@ -555,10 +556,10 @@ func (d Deps) sweepDismissed(ctx context.Context, jobs []k8s.Job) {
 func (d Deps) readWorkerOutput(ctx context.Context, jobs []k8s.Job) {
 	var running []k8s.Job
 	for _, j := range jobs {
-		// An enumeration worker is not a download: it prints entries, not
-		// progress, and reading it as one would attribute a group's own
-		// enumeration to a download that does not exist.
-		if j.Metadata.Labels[ytdl.LabelJobKind] == ytdl.JobKindExpand {
+		// Only a DOWNLOAD worker reports progress. An enumeration prints entries
+		// and a tagging worker (spec 1040) prints almost nothing; reading either
+		// as a download would attribute their output to something else.
+		if ytdlNotADownload(j) {
 			continue
 		}
 		if ytdl.StateOf(j) == ytdl.StateDownloading {
@@ -618,5 +619,25 @@ func (d Deps) readWorkerOutput(ctx context.Context, jobs []k8s.Job) {
 				_ = d.Store.SetYtdlCompanion(id, true, reading.LyricsLang)
 			}
 		}
+	}
+}
+
+// ytdlNotADownload reports whether a Job is one of this feature's OTHER workers.
+//
+// Stated as its own function rather than repeated as a label comparison, because
+// each new kind of worker has to be excluded in several places at once and the
+// cost of missing one is silent: spec 2022 was exactly that — an enumeration
+// worker left in the live map made a playlist report itself finished the moment
+// it had been read.
+//
+// Deliberately an allow-by-exception rather than "is it a download": an older
+// Job created before a kind label existed carries none, and must still be read
+// as the download it is.
+func ytdlNotADownload(j k8s.Job) bool {
+	switch j.Metadata.Labels[ytdl.LabelJobKind] {
+	case ytdl.JobKindExpand, ytdl.JobKindTag:
+		return true
+	default:
+		return false
 	}
 }

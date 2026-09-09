@@ -30,6 +30,7 @@ import PushOptIn from '@/components/PushOptIn.vue';
 import NasConnectionModal from '@/components/NasConnectionModal.vue';
 import ChangePasswordModal from '@/components/ChangePasswordModal.vue';
 import SourceProviderAdmin from '@/components/SourceProviderAdmin.vue';
+import MusicLibraryModal from '@/components/MusicLibraryModal.vue';
 
 const router = useRouter();
 const { account, logout, isAdmin, mode, user } = useSession();
@@ -56,6 +57,7 @@ const pwOpen = ref(false);
 const usersOpen = ref(false);
 const statsOpen = ref(false);
 const sourceOpen = ref(false);
+const musicLibsOpen = ref(false);
 
 async function loadHost(): Promise<void> {
   try {
@@ -187,6 +189,22 @@ async function onLogout(): Promise<void> {
         </ion-item>
       </ion-list>
 
+      <!-- Admin-only: where music lives on the NAS (spec 1040). Its own entry
+           rather than a field under Download sources, because music has no
+           source to belong to. -->
+      <ion-list v-if="stateful && isAdmin" inset>
+        <ion-list-header>Music libraries</ion-list-header>
+        <ion-item
+          button
+          :detail="false"
+          data-testid="settings-music-libs"
+          @click="musicLibsOpen = true"
+        >
+          <ion-label>Where music is uploaded</ion-label>
+          <ion-icon slot="end" :icon="chevronForward" color="medium" />
+        </ion-item>
+      </ion-list>
+
       <div class="logout">
         <ion-button
           expand="block"
@@ -204,6 +222,11 @@ async function onLogout(): Promise<void> {
       <StatisticsModal :is-open="statsOpen" :is-admin="isAdmin" @dismiss="statsOpen = false" />
       <UserManagementModal v-if="isAdmin" :is-open="usersOpen" @dismiss="usersOpen = false" />
       <SourceProviderAdmin v-if="isAdmin" :is-open="sourceOpen" @dismiss="sourceOpen = false" />
+      <MusicLibraryModal
+        v-if="isAdmin"
+        :is-open="musicLibsOpen"
+        @dismiss="musicLibsOpen = false"
+      />
       <NasConnectionModal :is-open="nasOpen" @dismiss="nasOpen = false" @saved="loadHost" />
       <ChangePasswordModal
         v-if="user"

@@ -95,7 +95,7 @@ func (d Deps) ytdlLiveJobs(ctx context.Context) (map[string]k8s.Job, bool) {
 		// straight to "saved" having downloaded nothing.
 		//
 		// A group's state comes from its items, never from a job.
-		if j.Metadata.Labels[ytdl.LabelJobKind] == ytdl.JobKindExpand {
+		if ytdlNotADownload(j) {
 			continue
 		}
 		if id := j.Metadata.Labels[ytdl.LabelRequestID]; id != "" {

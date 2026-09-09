@@ -246,7 +246,11 @@ func TestUploadCannotTargetAnArbitraryParent(t *testing.T) {
 	admin := adminAfterSetup(t, h)
 	configureFake(t, h, admin, "movie")
 
-	for _, kind := range []string{"home", "/home", "../home", "music", ""} {
+	// "music" used to be in this list as an example of a name that is not a
+	// kind. It is one now (spec 1040), so a real non-kind takes its place — and
+	// what happens when a REAL kind has no parent configured is asserted on its
+	// own below.
+	for _, kind := range []string{"home", "/home", "../home", "photos", ""} {
 		rec := upload(t, h, admin, kind, "Dune 2021", "", "d.mkv", "x")
 		if rec.Code != http.StatusConflict {
 			t.Errorf("upload to parent %q = %d, want 409", kind, rec.Code)

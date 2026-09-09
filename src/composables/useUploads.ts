@@ -13,7 +13,7 @@
  * the app open rather than promising something it cannot deliver.
  */
 import { computed, ref } from 'vue';
-import { ApiError, api, type UploadResult } from '@/services/api';
+import { ApiError, api, type UploadKind, type UploadResult } from '@/services/api';
 
 export type UploadState = 'waiting' | 'sending' | 'done' | 'failed' | 'cancelled';
 
@@ -21,9 +21,16 @@ export interface UploadJob {
   id: number;
   file: File;
   name: string;
-  kind: 'movie' | 'tv';
+  kind: UploadKind;
   title: string;
   season: string;
+  /**
+   * Music only (spec 1040). ONE set of details per upload, applied to every file
+   * in it — the audio, its lyrics and its artwork all describe the same track.
+   */
+  track: string;
+  artist: string;
+  album: string;
   state: UploadState;
   /** 0–1, driven by the request's own progress events. */
   progress: number;
@@ -102,7 +109,16 @@ async function runJob(job: UploadJob, overwrite: boolean): Promise<void> {
   }
 
   const { promise, cancel } = api.uploadFile(
-    { kind: job.kind, title: job.title, season: job.season, file: job.file, overwrite },
+    {
+      kind: job.kind,
+      title: job.title,
+      season: job.season,
+      track: job.track,
+      artist: job.artist,
+      album: job.album,
+      file: job.file,
+      overwrite,
+    },
     (fraction) => {
       job.progress = fraction;
       const sent = fraction * job.size;
@@ -158,7 +174,14 @@ export function useUploads() {
 
   function enqueue(
     files: File[],
-    meta: { kind: 'movie' | 'tv'; title: string; season: string },
+    meta: {
+      kind: UploadKind;
+      title: string;
+      season: string;
+      track?: string;
+      artist?: string;
+      album?: string;
+    },
   ): UploadJob[] {
     const added = files.map((file) => ({
       id: nextId++,
@@ -167,6 +190,9 @@ export function useUploads() {
       kind: meta.kind,
       title: meta.title,
       season: meta.season,
+      track: meta.track ?? '',
+      artist: meta.artist ?? '',
+      album: meta.album ?? '',
       state: 'waiting' as UploadState,
       progress: 0,
       size: file.size,

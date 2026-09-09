@@ -646,8 +646,13 @@ func (s *Server) resetFolderTreeLocked() {
 		"":         {"home", "movie", "music", "music-video", "rated-video", "tv-show"},
 		"/tv-show": {"Friends", "The Wire"},
 		"/movie":   {"4K", "Kids"},
-		"/music":   {},
-		"/home":    {"Downloads"},
+		// Both music shares exist as FOLDERS, not merely as names at the root.
+		// They were advertised at the top level without a key of their own, so
+		// creating anything under them answered "no such parent" — which spec
+		// 1040's uploads need, and which a real NAS would not do.
+		"/music":       {},
+		"/music-video": {},
+		"/home":        {"Downloads"},
 	}
 }
 

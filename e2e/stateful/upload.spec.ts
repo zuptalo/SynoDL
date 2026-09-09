@@ -72,8 +72,11 @@ test('only media and sidecar files are accepted', async () => {
 });
 
 test('a file cannot be placed outside the configured parents', async () => {
-  // No request shape names a path: the parent is one of two words.
-  for (const kind of ['home', '/home', '../home', 'music', '']) {
+  // No request shape names a path: the parent is one of a handful of words, and
+  // anything else has no parent to resolve to. ("music" used to stand in for a
+  // name that is not a kind. It is one now — spec 1040 — so a real non-kind
+  // takes its place.)
+  for (const kind of ['home', '/home', '../home', 'photos', '']) {
     expect((await upload({ kind, title: 'X 2020' }, 'a.mkv')).status).toBe(409);
   }
   // A hostile file name never escapes the folder the server composed.

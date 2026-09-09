@@ -464,6 +464,21 @@ export async function streamYtdl(
 
 // Download-source catalog (spec 0005). Session material is write-only: the
 // server never returns it, so there is no "get session" — only status.
+/**
+ * What an upload says it is (spec 1022, extended by 1040).
+ *
+ * The kind is all the client supplies about WHERE the file goes — never a path.
+ * The server holds a parent for each one and composes the rest itself.
+ */
+export type UploadKind = 'movie' | 'tv' | 'music' | 'music-video';
+
+/** Where music lives on the NAS. Empty means that upload kind is not offered. */
+export interface MusicLibraries {
+  music: string;
+  musicVideo: string;
+  canManage: boolean;
+}
+
 /** What a completed upload landed as (spec 1022). */
 export interface UploadResult {
   /** The folder the SERVER composed — never one the client asked for. */
@@ -969,11 +984,22 @@ export const api = {
    * The fields go BEFORE the file so the server can refuse a bad title without
    * reading the body at all.
    */
+  /** Where music lives on the NAS (spec 1040). Readable by anyone signed in. */
+  getMusicLibraries: () => request<MusicLibraries>('/v1/library/music'),
+  setMusicLibraries: (music: string, musicVideo: string) =>
+    request<MusicLibraries>('/v1/library/music', {
+      method: 'PUT',
+      body: JSON.stringify({ music, musicVideo }),
+    }),
   uploadFile: (
     input: {
-      kind: 'movie' | 'tv';
+      kind: UploadKind;
       title: string;
       season?: string;
+      /** Music only (spec 1040): one set of details for every file in the upload. */
+      track?: string;
+      artist?: string;
+      album?: string;
       file: File;
       /** Replace a file of the same name. Only ever set from an explicit user choice. */
       overwrite?: boolean;
@@ -984,6 +1010,9 @@ export const api = {
     form.append('kind', input.kind);
     form.append('title', input.title);
     if (input.season) form.append('season', input.season);
+    if (input.track) form.append('track', input.track);
+    if (input.artist) form.append('artist', input.artist);
+    if (input.album) form.append('album', input.album);
     // Sent BEFORE the file, and read as a field by the server before it reaches
     // the file part: the NAS needs an exact Content-Length up front (DSM refuses
     // a chunked upload body), and the size cannot be recovered once the file is
