@@ -200,13 +200,22 @@ const canDismiss = computed(() => true);
           </span>
         </div>
         <!-- No bar at all when nothing is known: a bar pinned at zero reads as a
-             stalled download, which is exactly the wrong thing to say. -->
-        <ion-progress-bar
-          v-if="progress !== undefined"
-          :value="progress"
-          data-testid="ytdl-progress"
-          :style="{ '--progress-background': stateColorVar }"
-        />
+             stalled download, which is exactly the wrong thing to say.
+
+             The SPACE it would occupy is reserved even so. A bar that appears
+             and disappears as a download starts and finishes otherwise makes
+             every row below it jump, which is most visible on an expanded
+             playlist where items finish one after another under the eye. The
+             slot is the bar's own height, so a row measures the same whether
+             the bar is in it or not. -->
+        <div class="bar-slot">
+          <ion-progress-bar
+            v-if="progress !== undefined"
+            :value="progress"
+            data-testid="ytdl-progress"
+            :style="{ '--progress-background': stateColorVar }"
+          />
+        </div>
       </ion-label>
     </ion-item>
     <ion-item-options side="end">
@@ -291,7 +300,12 @@ const canDismiss = computed(() => true);
   font-weight: 600;
 }
 
-/* Matches TaskItem's bar exactly, for the same reason the row metrics do. */
+/* Matches TaskItem's bar exactly, for the same reason the row metrics do —
+   including the reserved slot, so a mixed list stays flush whichever kind of
+   row is currently showing a bar. */
+.bar-slot {
+  height: 3px;
+}
 ion-progress-bar {
   height: 3px;
   border-radius: 2px;

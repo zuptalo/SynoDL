@@ -159,3 +159,29 @@ test('a finished download reports whether lyrics were saved, and in what languag
     )
     .toBe('true/en');
 });
+
+test('a row is the same height with the bar as without it', async ({ page }) => {
+  // The bar appears when a reading arrives and goes again when the download
+  // finishes. If it took its space with it, every row below would jump each
+  // time — which on an expanded playlist happens over and over as items finish
+  // one after another under the eye.
+  //
+  // Measured on ONE row across the transition rather than on two rows side by
+  // side, so nothing but the bar can differ.
+  const requestId = await submit(token, 'https://youtu.be/zSGhyrF7YVo');
+  await drive(requestId, 'start'); // running, nothing printed yet: no bar
+
+  await gotoTasks(page);
+  const row = page.getByTestId('ytdl-item').first();
+  await expect(page.getByTestId('ytdl-status')).toHaveText('downloading', { timeout: 20_000 });
+  await expect(page.getByTestId('ytdl-progress')).toHaveCount(0);
+  const withoutBar = (await row.boundingBox())?.height;
+  expect(withoutBar).toBeGreaterThan(0);
+
+  await emit(requestId, `${SENTINEL} status=downloading downloaded=40 total=100`);
+  await expect(page.getByTestId('ytdl-progress')).toBeVisible({ timeout: 20_000 });
+  await expect.poll(() => shownPercent(page), { timeout: 20_000 }).toBe(40);
+  const withBar = (await row.boundingBox())?.height;
+
+  expect(withBar, 'the bar must not change the row height').toBe(withoutBar);
+});
