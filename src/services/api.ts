@@ -66,6 +66,12 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   try {
     resp = await fetch(path, { ...init, headers });
   } catch (e) {
+    // An abort is the CALLER hanging up, not the server failing to answer.
+    // Reporting it as unreachable would put the whole app into its offline state
+    // because somebody cancelled a search (spec 1041, FR-012).
+    if (init.signal?.aborted || (e instanceof DOMException && e.name === 'AbortError')) {
+      throw new ApiError('aborted', 0);
+    }
     // fetch only rejects on a network-level failure (server unreachable) — an
     // HTTP error still resolves. Surface it as a connectivity signal.
     reportReachable(false);
@@ -820,7 +826,13 @@ export const api = {
     sort: string,
     order: string,
     source = '',
-  ) => request<SourceSearchResult>('/v1/source/search', json({ query, filters, page, sort, order, source })),
+    /** Lets a search be called off while it is running (spec 1041). */
+    signal?: AbortSignal,
+  ) =>
+    request<SourceSearchResult>('/v1/source/search', {
+      ...json({ query, filters, page, sort, order, source }),
+      signal,
+    }),
   getSourceTitle: (id: string) =>
     request<TitleDetail>(`/v1/source/title/${encodeURIComponent(id)}`),
   // episodes (1-based) narrow a series to specific episodes; omit for a movie or

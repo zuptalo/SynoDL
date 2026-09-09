@@ -32,6 +32,14 @@ import {
   typeOptions,
   type Option,
 } from '@/services/facet-labels';
+import {
+  buildSession,
+  isRestorable,
+  viewFingerprint,
+  type CatalogSession,
+  type CatalogView,
+} from '@/services/catalog-session';
+import { get, put } from '@/db/idb';
 
 const status = ref<SourceStatus | null>(null);
 const items = ref<CatalogTitle[]>([]);
@@ -65,6 +73,50 @@ const order = ref(DEFAULT_ORDER);
 // title_type) — so the UI disables the sort control and the non-type filters
 // while this is true, rather than letting them silently no-op (spec 2002).
 const searchActive = computed(() => query.value.trim() !== '');
+
+// ---- remembering the last view that produced results (spec 1041) -----------
+//
+// One snapshot serves two jobs, and that is the point rather than a saving. It
+// is what a cold start restores instead of searching, and it is what a cancelled
+// search goes back to. Both are the same question — "what was last actually on
+// screen?" — so answering it once means the two can never disagree.
+//
+// It is only ever written when a search SUCCEEDS. A view that failed, or was
+// abandoned, is not somewhere to return to.
+let committed: CatalogSession | null = null;
+/** True while a restored session is on screen and nothing has been fetched. */
+const restored = ref(false);
+
+function currentView(): CatalogView {
+  return {
+    filters: filters.value,
+    sort: sort.value,
+    order: order.value,
+    query: query.value,
+    source: selectedSource.value,
+    hideOwned: hideOwned.value,
+  };
+}
+
+function applyView(v: CatalogView): void {
+  filters.value = v.filters ?? {};
+  sort.value = v.sort;
+  order.value = v.order;
+  query.value = v.query;
+  selectedSource.value = v.source;
+  hideOwned.value = v.hideOwned;
+}
+
+/**
+ * Remember what is on screen. Best effort, and deliberately not awaited: a
+ * device that refuses to store this must change nothing else about browsing
+ * (FR-006).
+ */
+function remember(): void {
+  const snap = buildSession(currentView(), items.value, page.value, pages.value);
+  committed = snap;
+  void put('catalog', snap).catch(() => undefined);
+}
 // True when a search is active AND the user has a selection the source will
 // ignore for text search: any non-type facet filter, or a non-default sort/order.
 // Drives the "these selections do nothing right now" affordances — the strike-through
@@ -360,6 +412,7 @@ async function fetchPage(reset: boolean): Promise<void> {
     sort.value,
     order.value,
     selectedSource.value,
+    searchAbort?.signal,
   );
   needsRefresh.value = false;
   unavailable.value = false;
@@ -398,8 +451,57 @@ async function fetchWithRetry(reset: boolean): Promise<void> {
 // keep hitting the provider for a filter combo the user already moved past.
 let searchGen = 0;
 
+/**
+ * The in-flight request, so it can be called off (spec 1041).
+ *
+ * One per search rather than one per page: cancelling means abandoning the whole
+ * combination, not just whichever page happens to be in the air.
+ */
+let searchAbort: AbortController | null = null;
+
+/** Whether there is something running that a reader could call off. */
+const cancellable = computed(() => loading.value);
+
+/**
+ * Call off the search in progress and put things back as they were.
+ *
+ * "Cancel" here means take it back, not stop half way. Leaving the new sort on a
+ * control above the old results would make the screen describe a view it is not
+ * showing — the one outcome worth avoiding, because nothing about it looks
+ * wrong (FR-009).
+ *
+ * The saved view goes back too, so this device and the next agree about what the
+ * reader is looking at.
+ */
+function cancelSearch(): void {
+  if (!loading.value) return;
+  searchGen += 1; // anything still paginating bails at its next checkpoint
+  searchAbort?.abort();
+  searchAbort = null;
+  loading.value = false;
+  errorMsg.value = '';
+
+  if (committed) {
+    applyView(committed.view);
+    items.value = [...committed.items];
+    itemsSource.value = committed.view.source;
+    page.value = committed.page;
+    pages.value = committed.pages;
+    void saveView();
+    return;
+  }
+  // Nothing was ever on screen, so there is nothing to go back to. Saying so is
+  // better than restoring emptiness as though it were a result.
+  items.value = [];
+  pages.value = 0;
+}
+
 async function runSearch(reset = true): Promise<void> {
   const gen = reset ? ++searchGen : searchGen;
+  if (reset) {
+    searchAbort?.abort(); // a new search supersedes the one in flight
+    searchAbort = new AbortController();
+  }
   loading.value = true;
   errorMsg.value = '';
   if (reset) {
@@ -421,7 +523,13 @@ async function runSearch(reset = true): Promise<void> {
       await fetchPage(false);
       if (gen !== searchGen) return; // superseded mid-pagination — stop calling the provider
     }
+    // Only a search that actually finished is somewhere to come back to.
+    restored.value = false;
+    remember();
   } catch (e) {
+    // A cancel is not a failure and must not be reported as one: the reader
+    // asked for it, and cancelSearch has already put the screen back.
+    if (e instanceof ApiError && e.code === 'aborted') return;
     if (gen === searchGen) {
       // Never leave one source's catalog on screen under another source's name.
       // Keeping stale results through a failure is right for a refresh of the
@@ -497,6 +605,56 @@ async function setHideOwned(on: boolean): Promise<void> {
 async function setQuery(q: string): Promise<void> {
   query.value = q;
   await runSearch(true);
+}
+
+/**
+ * Put the last session back on screen, without asking the source anything.
+ *
+ * Returns whether it managed to. False means there is nothing to restore — a
+ * first run, a cleared device, storage that refuses — and the caller searches
+ * instead, which is the behaviour Discover has always had (FR-002).
+ *
+ * The source check is the one that matters: a remembered view whose source has
+ * since been removed or disabled is DISCARDED, because showing one catalog under
+ * another's name is worse than spending a request (FR-004).
+ */
+async function restoreLastSession(): Promise<boolean> {
+  let saved: CatalogSession | undefined;
+  try {
+    saved = await get<CatalogSession>('catalog', 'last');
+  } catch {
+    return false; // private browsing, or storage that refuses — behave as before
+  }
+  const available = sources.value.map((x) => String(x.id));
+  if (!isRestorable(saved, available)) return false;
+
+  // The SERVER's saved view has already been loaded and is what the reader last
+  // chose, from whichever device they chose it on. Remembered results are only
+  // worth showing if they are results FOR that view: restoring under a view
+  // changed on another device would silently undo the change, which is worse
+  // than the search it saved (FR-003).
+  if (viewFingerprint(currentView()) !== viewFingerprint(saved.view)) return false;
+
+  items.value = [...saved.items];
+  itemsSource.value = saved.view.source;
+  page.value = saved.page;
+  pages.value = saved.pages;
+  committed = saved;
+  restored.value = true;
+  errorMsg.value = '';
+  return true;
+}
+
+/**
+ * Whether what is on screen still matches what the controls say.
+ *
+ * This is what lets a restored session survive re-entering the tab: the saved
+ * view is re-read from the server on every entry, and only a genuine difference
+ * is worth throwing away results for.
+ */
+function viewMatchesResults(): boolean {
+  if (!committed) return false;
+  return viewFingerprint(currentView()) === viewFingerprint(committed.view);
 }
 
 // Persist the current facet filters + sort to the server so the view follows the
@@ -686,5 +844,11 @@ export function useSourceCatalog() {
     yearBounds,
     optionLabel,
     loadParameters,
+    // Opening where you left it, and calling a search off (spec 1041).
+    restoreLastSession,
+    viewMatchesResults,
+    restored,
+    cancellable,
+    cancelSearch,
   };
 }

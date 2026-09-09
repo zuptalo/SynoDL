@@ -23,6 +23,7 @@ import {
   IonSelect,
   IonSelectOption,
   IonSkeletonText,
+  IonSpinner,
   IonToast,
   IonTitle,
   IonToolbar,
@@ -73,6 +74,11 @@ const {
   pendingSearch,
   loadStatus,
   runSearch,
+  restoreLastSession,
+  viewMatchesResults,
+  restored,
+  cancellable,
+  cancelSearch,
   loadMore,
   setQuery,
   applyFilters,
@@ -276,11 +282,15 @@ async function refreshView(): Promise<void> {
   await loadStatus();
   // The source list feeds the selector and decides whether it is shown at all.
   void loadSources();
-  const before = viewKey();
   await loadView();
   if (unavailable.value || needsRefresh.value) return;
   void loadParameters(); // refresh the filter facets from the source (non-blocking)
-  if (items.value.length > 0 && viewKey() === before) return; // keep the user's place
+  // Keep what is on screen when it still matches what the controls say. Asked of
+  // the results themselves rather than of a before/after comparison (spec 1041),
+  // so a session RESTORED from the last launch is kept for the same reason a
+  // freshly searched one is — there is only one rule, and it is about whether the
+  // screen is honest.
+  if (items.value.length > 0 && viewMatchesResults()) return;
   await search(true);
   // The view genuinely changed, so this is a different result set — the old
   // scroll offset would drop the user into the middle of it.
@@ -304,15 +314,58 @@ async function consumePendingOpen(): Promise<void> {
   }
 }
 
-onMounted(async () => {
+/**
+ * Opening the app (spec 1041).
+ *
+ * Deliberately NOT refreshView(). Discover used to search on every launch —
+ * page one, plus however many more it took to fill the grid — against a source
+ * that is shared and rate-limited, for a reader who may not have come here at
+ * all. Now the last session comes back and nothing is asked.
+ *
+ * Only when there is nothing to come back to does it search, using the filter
+ * and sort as they are set, default or not.
+ */
+/**
+ * Whether the first load has happened.
+ *
+ * Ionic fires ionViewWillEnter BEFORE onMounted — measured, not assumed, and the
+ * opposite of what an earlier version of this guard supposed. So on a cold start
+ * the enter hook ran first, found nothing on screen and searched, and the mount
+ * then restored the session into a grid that had already been fetched: the
+ * restore worked and the request was made anyway.
+ *
+ * The mount owns the first pass. The enter hook does nothing until it has run,
+ * and takes over from the second entry onwards (spec 1041).
+ */
+let initialised = false;
+
+onMounted(() => firstLoad());
+
+async function firstLoad(): Promise<void> {
   await loadPrefs();
-  await refreshView();
+  await loadStatus();
+  // The source list has to be in hand BEFORE restoring: a remembered view whose
+  // source has since gone is discarded rather than shown under another's name.
+  await loadSources();
+  await loadView();
+  if (unavailable.value || needsRefresh.value) {
+    await consumePendingOpen();
+    initialised = true;
+    return;
+  }
+  void loadParameters();
+  if (!(await restoreLastSession())) {
+    await search(true);
+  }
   await consumePendingOpen();
-});
+  initialised = true;
+}
 // Re-entering the Discover tab, and bringing the app to the foreground while on
 // it, both re-sync the saved view from the server; entering also honours any
 // pending "Open in Discover" request from the Tasks tab.
 onIonViewWillEnter(async () => {
+  // The first entry is the mount's to handle; this hook runs before it.
+  if (!initialised) return;
   await refreshView();
   await consumePendingOpen();
 });
@@ -323,6 +376,17 @@ function onForeground(): void {
 }
 onMounted(() => document.addEventListener('visibilitychange', onForeground));
 onUnmounted(() => document.removeEventListener('visibilitychange', onForeground));
+
+/**
+ * Take the search back.
+ *
+ * The grid keeps the scroll position it had — the results being restored are the
+ * ones that were on screen a moment ago, so moving the reader would be the
+ * jarring part rather than the fix.
+ */
+function onCancelSearch(): void {
+  cancelSearch();
+}
 
 async function onSearch(e: CustomEvent): Promise<void> {
   await setQuery(((e.detail as { value?: string }).value ?? '').trim());
@@ -368,8 +432,18 @@ async function onRefresh(e: RefresherCustomEvent): Promise<void> {
 
 // Show a jump-to-top button once the list is scrolled down a screenful or so.
 const showTop = ref(false);
+/**
+ * True while a restored session is on screen and the reader has not moved yet.
+ *
+ * One genuine scroll is enough to mean "show me more", and any search clears the
+ * restored flag anyway.
+ */
+const scrolledSinceRestore = ref(false);
+const holdInfinite = computed(() => restored.value && !scrolledSinceRestore.value);
+
 function onScroll(e: CustomEvent<ScrollDetail>): void {
   showTop.value = e.detail.scrollTop > 500;
+  if (e.detail.scrollTop > 0) scrolledSinceRestore.value = true;
 }
 async function scrollTop(): Promise<void> {
   const el = await contentRef.value?.$el?.getScrollElement?.();
@@ -446,6 +520,7 @@ function goSettings(): void {
           :debounce="450"
           placeholder="Search"
           :value="query"
+          data-testid="discover-search"
           @ionInput="onSearch"
         />
         <!-- Source selector, shown only once more than one source is configured:
@@ -516,6 +591,27 @@ function goSettings(): void {
         data-testid="search-loading"
       />
     </ion-header>
+
+    <!-- Calling a search off (spec 1041).
+         OUTSIDE the header and positioned over the content, so it costs no
+         layout: the header keeps exactly the height it had, and nothing on
+         screen moves as this appears or goes (FR-011). The same reason the
+         progress bar above holds its row rather than being mounted and
+         unmounted. -->
+    <transition name="cancel-pill">
+      <button
+        v-if="cancellable"
+        type="button"
+        class="cancel-pill"
+        data-testid="search-cancel"
+        @click="onCancelSearch"
+      >
+        <ion-spinner name="crescent" class="pill-spinner" />
+        <span class="pill-text">Searching</span>
+        <ion-icon :icon="closeCircleOutline" class="pill-x" />
+        <span class="pill-action">Cancel</span>
+      </button>
+    </transition>
 
     <ion-content ref="contentRef" :fullscreen="true" :scroll-events="true" @ionScroll="onScroll">
       <ion-refresher slot="fixed" @ionRefresh="onRefresh">
@@ -736,7 +832,17 @@ function goSettings(): void {
              feels continuous: the trigger fires a full viewport early, and each
              one pulls two pages (see PAGES_PER_LOAD), so a fast flick doesn't
              outrun the grid. -->
-        <ion-infinite-scroll v-if="hasMore" threshold="100%" @ionInfinite="onInfinite">
+        <!-- Held back on a session restored from the last launch until the
+             reader actually scrolls (spec 1041).
+             `threshold="100%"` means this fires the moment the grid is shorter
+             than the viewport — which, after restoring, is a page request on
+             open by another name. The whole point is that opening the app asks
+             the source nothing, so it waits for a scroll to say otherwise. -->
+        <ion-infinite-scroll
+          v-if="hasMore && !holdInfinite"
+          threshold="100%"
+          @ionInfinite="onInfinite"
+        >
           <ion-infinite-scroll-content />
         </ion-infinite-scroll>
       </template>
@@ -1094,5 +1200,73 @@ function goSettings(): void {
    sentence would — "Crime · Drama · Thr…" — instead of dropping a whole genre. */
 .meta .genres {
   display: block;
+}
+/* The cancel pill (spec 1041).
+   Fixed rather than in flow, so it costs no layout at all: nothing on screen
+   moves as it appears or goes, which is the same reason the progress bar above
+   it holds its 4px row instead of being mounted and unmounted.
+   Centred under the header and clear of it, so it reads as belonging to the
+   search that is running rather than to any one control. */
+.cancel-pill {
+  position: fixed;
+  top: calc(var(--app-header-h, 108px) + 10px);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 14px 7px 11px;
+  border: none;
+  border-radius: 999px;
+  font: inherit;
+  font-size: 0.82rem;
+  color: var(--ion-text-color);
+  /* Sits over the grid, so it needs to be legible against a poster as well as
+     against the page. A blur plus a border does that in both themes without
+     picking a colour that fights either one. */
+  background: var(--ion-color-step-100, rgba(28, 28, 30, 0.86));
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(var(--ion-text-color-rgb, 255, 255, 255), 0.12);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.28);
+  cursor: pointer;
+}
+.cancel-pill:active {
+  transform: translateX(-50%) scale(0.97);
+}
+.pill-spinner {
+  width: 15px;
+  height: 15px;
+  color: var(--ion-color-primary);
+}
+.pill-text {
+  color: var(--app-text-dim);
+}
+.pill-x {
+  font-size: 15px;
+  color: var(--ion-color-primary);
+  margin-inline-start: 2px;
+}
+.pill-action {
+  font-weight: 600;
+  color: var(--ion-color-primary);
+}
+/* Fades and lifts rather than appearing — a control that offers to undo
+   something should not itself feel abrupt. */
+.cancel-pill-enter-active,
+.cancel-pill-leave-active {
+  transition: opacity 160ms ease, transform 160ms ease;
+}
+.cancel-pill-enter-from,
+.cancel-pill-leave-to {
+  opacity: 0;
+  transform: translateX(-50%) translateY(-6px);
+}
+@media (prefers-reduced-motion: reduce) {
+  .cancel-pill-enter-active,
+  .cancel-pill-leave-active {
+    transition: none;
+  }
 }
 </style>

@@ -60,6 +60,11 @@ describe('idb', () => {
 
   it('upgrade creates all stores', async () => {
     const db = await openDB();
-    expect(Array.from(db.objectStoreNames).sort()).toEqual(['favorites', 'history', 'settings']);
+    expect(Array.from(db.objectStoreNames).sort()).toEqual([
+      'catalog',
+      'favorites',
+      'history',
+      'settings',
+    ]);
   });
 });

@@ -89,10 +89,19 @@ test('one source failing still shows the other, and says which is missing', asyn
   await setSourceState('zar/logged-out');
 
   // A source is only condemned after several CONSECUTIVE failures — a lone blip
-  // is treated as transient on purpose — so drive enough reloads to cross it.
+  // is treated as transient on purpose — so drive enough SEARCHES to cross it.
+  //
+  // Reloads used to be the way to do that, and are not any more: opening the app
+  // restores the last session rather than searching (spec 1041), so a reload
+  // loop now accumulates no failures at all. Pull-to-refresh is the gesture that
+  // still asks, which is what this test actually needs.
   for (let i = 0; i < 6; i += 1) {
-    await page.reload();
-    await page.waitForTimeout(400);
+    await page.evaluate(() => {
+      document.querySelector('ion-refresher')?.dispatchEvent(
+        new CustomEvent('ionRefresh', { detail: { complete: () => undefined }, bubbles: true }),
+      );
+    });
+    await page.waitForTimeout(600);
   }
 
   // FR-012: the healthy source's results are still on screen...

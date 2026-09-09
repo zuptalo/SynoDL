@@ -51,6 +51,8 @@ export default defineConfig({
         // (spec 1039).
         'src/services/ytdl-sort.ts',
         'src/services/ytdl-thumb.ts',
+        // What Discover remembers between launches (spec 1041).
+        'src/services/catalog-session.ts',
       ],
       thresholds: { lines: 80, functions: 80, statements: 80, branches: 80 },
     },
