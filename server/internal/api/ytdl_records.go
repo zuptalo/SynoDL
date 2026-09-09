@@ -26,6 +26,14 @@ import (
 // been swept and the record is all that is left. That ordering is why a restart
 // cannot desynchronise anything: there is no third place to disagree.
 func liveStateOf(d store.YtdlDownload, live map[string]k8s.Job) (state string, reason string) {
+	// A GROUP has no worker of its own: its enumeration is a step in resolving
+	// it, and afterwards its state is a function of its items (refreshGroups).
+	// Belt and braces alongside the filter in ytdlLiveJobs — this is the rule,
+	// and stating it here means no future caller can reintroduce the collision
+	// by building a live map some other way.
+	if d.Kind == store.YtdlKindGroup {
+		return d.State, d.Reason
+	}
 	j, ok := live[d.RequestID]
 	if !ok {
 		return d.State, d.Reason
@@ -79,6 +87,17 @@ func (d Deps) ytdlLiveJobs(ctx context.Context) (map[string]k8s.Job, bool) {
 	}
 	out := make(map[string]k8s.Job, len(jobs))
 	for _, j := range jobs {
+		// An ENUMERATION job is not any download's worker. It carries the
+		// GROUP's request id — it has to, that is how the reconciler finds it —
+		// so leaving it in this map made `live[group]` resolve to it, and the
+		// moment it succeeded the group was reported as completed. The group
+		// then left `resolving` and expansion never ran: a playlist went
+		// straight to "saved" having downloaded nothing.
+		//
+		// A group's state comes from its items, never from a job.
+		if j.Metadata.Labels[ytdl.LabelJobKind] == ytdl.JobKindExpand {
+			continue
+		}
 		if id := j.Metadata.Labels[ytdl.LabelRequestID]; id != "" {
 			out[id] = j
 		}

@@ -89,3 +89,4 @@ Specs are grouped by category band; status moves
 | [2019](specs/2019-orphaned-rows-sweep/spec.md) | Remove rows the cascades should have taken with them | 🟢 shipped |
 | [2020](specs/2020-download-without-lyrics/spec.md) | A download without lyrics is not a failure | 🟢 shipped |
 | [2021](specs/2021-ytdl-flag-arity/spec.md) | Progress reporting and the traversal guard, actually switched on | 🔵 in-review |
+| [2022](specs/2022-expand-job-identity/spec.md) | A group's enumeration job is not the group finishing | 🔵 in-review |

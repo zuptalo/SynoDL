@@ -544,6 +544,12 @@ func (d Deps) sweepDismissed(ctx context.Context, jobs []k8s.Job) {
 func (d Deps) readWorkerOutput(ctx context.Context, jobs []k8s.Job) {
 	var running []k8s.Job
 	for _, j := range jobs {
+		// An enumeration worker is not a download: it prints entries, not
+		// progress, and reading it as one would attribute a group's own
+		// enumeration to a download that does not exist.
+		if j.Metadata.Labels[ytdl.LabelJobKind] == ytdl.JobKindExpand {
+			continue
+		}
 		if ytdl.StateOf(j) == ytdl.StateDownloading {
 			running = append(running, j)
 		}

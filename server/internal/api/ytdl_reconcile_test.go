@@ -838,3 +838,76 @@ func TestAdmit_AGroupDoesNotOccupyASlot(t *testing.T) {
 		t.Fatalf("running = %d, want the full limit of 4 — the group must not hold a slot", running)
 	}
 }
+
+// Regression for the bug that shipped in 0.16.0/0.16.1 (spec 2022).
+//
+// A group's EXPANSION job carries the group's own request id — it has to, that
+// is how the reconciler finds it. But the live-job map is keyed by request id,
+// so `live[group]` resolved to the expansion job, and the moment that job
+// succeeded the group was reported as COMPLETED and the outcome written down.
+//
+// The group then left `resolving`, so expansion never ran: a playlist showed its
+// title and artwork, went straight to "saved", and produced nothing. The client
+// polls every few seconds, so it won that race essentially every time.
+func TestExpand_AFinishedExpansionJobIsNotTheGroupFinishing(t *testing.T) {
+	jobs := &fakeJobs{}
+	h, st := newYtdlRouter(t, jobs, ytdlCfg())
+	admin := adminAfterSetup(t, h)
+	gid := submitGroup(t, h, admin, "https://www.youtube.com/playlist?list=PLtest")
+
+	d := InitCaches(Deps{Cfg: ytdlCfg(), Store: st, Jobs: jobs})
+	d.reconcileYtdlOnce(context.Background()) // starts the enumeration worker
+
+	// The enumeration finishes, with entries waiting to be read.
+	expandName := ytdl.ExpandJobName(gid)
+	jobs.setStatusByName(t, expandName, k8s.JobStatus{Succeeded: 1})
+	jobs.attachPodFor(expandName, gid, ytdl.JobKindExpand)
+	jobs.logs[expandName+"-worker"] = expansionOutput("Anyma", "aaaaaaaaaaa", "bbbbbbbbbbb", "ccccccccccc")
+
+	// Somebody looks at the list before the reconciler's next tick — which is
+	// what actually happens, because the client polls constantly.
+	listYtdl(t, h, admin)
+
+	rec, err := st.GetYtdlDownload(gid)
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	if rec.State == "completed" {
+		t.Fatal("the group was marked completed because its ENUMERATION job succeeded; " +
+			"expansion will now never run and the playlist downloads nothing")
+	}
+
+	// And expansion still happens on the next cycle.
+	d.reconcileYtdlOnce(context.Background())
+	items, _, err := st.ListYtdlItems(gid, "", 100)
+	if err != nil {
+		t.Fatalf("items: %v", err)
+	}
+	if len(items) != 3 {
+		t.Fatalf("expanded into %d items, want 3", len(items))
+	}
+}
+
+// The same collision seen from the progress side: an enumeration worker is not
+// a download, so its output must never be read as one.
+func TestReadWorkerOutput_SkipsEnumerationJobs(t *testing.T) {
+	jobs := &fakeJobs{}
+	h, st := newYtdlRouter(t, jobs, ytdlCfg())
+	admin := adminAfterSetup(t, h)
+	gid := submitGroup(t, h, admin, "https://www.youtube.com/playlist?list=PLtest")
+
+	d := InitCaches(Deps{Cfg: ytdlCfg(), Store: st, Jobs: jobs})
+	d.reconcileYtdlOnce(context.Background())
+
+	// An enumeration worker that is RUNNING.
+	expandName := ytdl.ExpandJobName(gid)
+	jobs.setStatusByName(t, expandName, k8s.JobStatus{Active: 1})
+	jobs.attachPodFor(expandName, gid, ytdl.JobKindExpand)
+	jobs.logs[expandName+"-worker"] = expansionOutput("Anyma", "aaaaaaaaaaa")
+
+	d.reconcileYtdlOnce(context.Background())
+
+	if _, ok := d.ytdlProgress.Get(gid); ok {
+		t.Fatal("progress was recorded for a group from its enumeration worker")
+	}
+}
