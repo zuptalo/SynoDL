@@ -131,7 +131,22 @@ test('a search in progress offers to be called off, and nothing moves when it ap
   // over the content rather than in it.
   const gridDuring = await page.getByTestId('catalog-card').first().boundingBox();
   expect(gridDuring?.y, 'the grid moved when the cancel pill appeared').toBe(gridBefore?.y);
-  await expect(pill).toHaveCSS('position', 'fixed');
+
+  // The spinner and the cancel are ONE block (spec 2028): the cancel sits
+  // directly beneath the spinner, and they keep that relationship however the
+  // list moves. Asserted as a relationship rather than two absolute positions —
+  // absolute positions would pass with them anywhere on screen.
+  const block = page.locator('.search-block');
+  await expect(block).toHaveCSS('position', 'fixed');
+  const spinner = await block.locator('.block-spinner').boundingBox();
+  const button = await pill.boundingBox();
+  expect(button?.y ?? 0, 'the cancel is not below the spinner').toBeGreaterThan(
+    (spinner?.y ?? 0) + (spinner?.height ?? 0) - 1,
+  );
+  // Centred on each other, so the pair reads as one thing rather than two.
+  const spinnerMid = (spinner?.x ?? 0) + (spinner?.width ?? 0) / 2;
+  const buttonMid = (button?.x ?? 0) + (button?.width ?? 0) / 2;
+  expect(Math.abs(spinnerMid - buttonMid)).toBeLessThan(2);
 
   // And it sits BELOW the refresher's spinner, measured from the real header.
   //
