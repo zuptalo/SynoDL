@@ -36,6 +36,7 @@ import {
   warningOutline,
 } from 'ionicons/icons';
 import type { YtdlDownload } from '@/services/api';
+import { ytdlThumbSrc } from '@/services/ytdl-thumb';
 
 const props = defineProps<{ download: YtdlDownload }>();
 const emit = defineEmits<{
@@ -82,17 +83,29 @@ const stateLabel = computed(
     })[props.download.state],
 );
 
-const stateColorVar = computed(
-  () =>
-    ({
-      resolving: 'var(--ion-color-medium)',
-      queued: 'var(--ion-color-medium)',
-      scheduled: 'var(--ion-color-medium)',
-      downloading: 'var(--ion-color-primary)',
-      completed: 'var(--ion-color-success)',
-      failed: 'var(--ion-color-danger)',
-    })[props.download.state],
-);
+// Each state's Ionic colour, as BOTH the colour token and its rgb triple. The
+// triple is what lets the chip tint its background from the same colour the text
+// uses — which is exactly how the media-type chip on a NAS row is built, and the
+// reason this reads as the same component rather than a second invention
+// (spec 1039, FR-005).
+const STATE_COLOR: Record<string, { fg: string; rgb: string; fallback: string }> = {
+  resolving: { fg: 'var(--ion-color-medium)', rgb: '--ion-color-medium-rgb', fallback: '146, 148, 156' },
+  queued: { fg: 'var(--ion-color-medium)', rgb: '--ion-color-medium-rgb', fallback: '146, 148, 156' },
+  scheduled: { fg: 'var(--ion-color-medium)', rgb: '--ion-color-medium-rgb', fallback: '146, 148, 156' },
+  downloading: { fg: 'var(--ion-color-primary)', rgb: '--ion-color-primary-rgb', fallback: '16, 185, 129' },
+  completed: { fg: 'var(--ion-color-success)', rgb: '--ion-color-success-rgb', fallback: '45, 211, 111' },
+  failed: { fg: 'var(--ion-color-danger)', rgb: '--ion-color-danger-rgb', fallback: '235, 68, 90' },
+};
+
+const stateColor = computed(() => STATE_COLOR[props.download.state] ?? STATE_COLOR.queued);
+const stateColorVar = computed(() => stateColor.value.fg);
+
+// The chip's own two custom properties, set inline because the colour depends on
+// the state rather than on a class. Alpha 0.14 is the established tint.
+const stateChipStyle = computed(() => ({
+  color: stateColor.value.fg,
+  background: `rgba(var(${stateColor.value.rgb}, ${stateColor.value.fallback}), 0.14)`,
+}));
 
 const stateIcon = computed(
   () =>
@@ -113,9 +126,12 @@ const scopeLabel = computed(
 // Artwork goes through the server so the viewer's browser never contacts
 // Google (spec 1034, FR-008). Its own proxy, not the catalog poster one: those
 // hosts come from the download sources, and YouTube is not one of them.
-const artworkSrc = computed(() =>
-  props.download.artwork ? `/v1/ytdl/thumb?u=${encodeURIComponent(props.download.artwork)}` : '',
-);
+//
+// Asked for at the 16:9 size (spec 1039). Artwork is STORED as `hqdefault`,
+// which is a 4:3 frame with black bands above and below a 16:9 image — so
+// cropping it into this 40×60 slot kept the bands, and the tiles read as dark
+// slivers next to a film poster that fills its slot. Same frame, right shape.
+const artworkSrc = computed(() => ytdlThumbSrc(props.download.artwork, 'mq'));
 // A thumbnail that 404s must leave the icon behind, not a hole (FR-007).
 const artworkFailed = ref(false);
 
@@ -187,7 +203,11 @@ const canDismiss = computed(() => true);
           <span v-if="scopeLabel">{{ scopeLabel }}</span>
         </div>
         <div class="meta">
-          <span class="status" :style="{ color: stateColorVar }" data-testid="ytdl-status">
+          <!-- A chip rather than a coloured word (FR-004): on an expanded
+               playlist of a few dozen tracks, telling which one is running
+               otherwise means reading every row. Same pill the NAS row uses for
+               its media type — the idiom the list already has. -->
+          <span class="status" :style="stateChipStyle" data-testid="ytdl-status">
             {{ stateLabel }}
           </span>
           <span v-if="percentLabel" data-testid="ytdl-percent">{{ percentLabel }}</span>
@@ -296,7 +316,12 @@ const canDismiss = computed(() => true);
   letter-spacing: 0.04em;
   font-weight: 600;
 }
+/* The established chip: same padding, radius, weight and tint alpha as the
+   media-type pill on a NAS row. Only the colour differs, and it comes from the
+   state. */
 .status {
+  padding: 1px 6px;
+  border-radius: 6px;
   font-weight: 600;
 }
 

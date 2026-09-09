@@ -33,6 +33,7 @@ import { copyOutline } from 'ionicons/icons';
 import { computed, onUnmounted, ref, watch } from 'vue';
 import { api, type YtdlDownload } from '@/services/api';
 import { onYtdlUpdate } from '@/composables/useYtdl';
+import { ytdlThumbSrc } from '@/services/ytdl-thumb';
 import { appToast } from '@/services/toast';
 import { formatTimestamp } from '@/utils/format';
 
@@ -183,9 +184,44 @@ const lyricsLabel = computed(() => {
   return '—';
 });
 
+/**
+ * The sheet asks for a SHARPER image than the row does (spec 1039, FR-008).
+ *
+ * The row renders a 40px tile, so the 320×180 size is more than enough there.
+ * Here the image spans the sheet, and enlarging that same small file is what
+ * made the hero look soft.
+ *
+ * `maxresdefault` is not published for every video, which is why the fallback
+ * exists rather than being defensive: when it 404s the sheet drops to the size
+ * the row uses, which always exists, instead of showing a broken image.
+ */
+const artworkTooBig = ref(false);
 const artworkSrc = computed(() =>
-  resolved.value?.artwork ? `/v1/ytdl/thumb?u=${encodeURIComponent(resolved.value.artwork)}` : '',
+  ytdlThumbSrc(resolved.value?.artwork, artworkTooBig.value ? 'mq' : 'maxres'),
 );
+// Reset when the sheet is pointed at a different download: the next one may well
+// publish the larger size even though this one did not.
+watch(
+  () => props.requestId,
+  () => {
+    artworkTooBig.value = false;
+  },
+);
+
+// The state's colour, matching the chip on the row so the two surfaces agree at
+// a glance about what a download is doing.
+const STATE_COLOR: Record<string, { fg: string; rgb: string; fallback: string }> = {
+  resolving: { fg: 'var(--ion-color-medium)', rgb: '--ion-color-medium-rgb', fallback: '146, 148, 156' },
+  queued: { fg: 'var(--ion-color-medium)', rgb: '--ion-color-medium-rgb', fallback: '146, 148, 156' },
+  scheduled: { fg: 'var(--ion-color-medium)', rgb: '--ion-color-medium-rgb', fallback: '146, 148, 156' },
+  downloading: { fg: 'var(--ion-color-primary)', rgb: '--ion-color-primary-rgb', fallback: '16, 185, 129' },
+  completed: { fg: 'var(--ion-color-success)', rgb: '--ion-color-success-rgb', fallback: '45, 211, 111' },
+  failed: { fg: 'var(--ion-color-danger)', rgb: '--ion-color-danger-rgb', fallback: '235, 68, 90' },
+};
+const stateChipStyle = computed(() => {
+  const c = STATE_COLOR[resolved.value?.state ?? 'queued'] ?? STATE_COLOR.queued;
+  return { color: c.fg, background: `rgba(var(${c.rgb}, ${c.fallback}), 0.14)` };
+});
 
 // Above 1 means it has been tried again, which is worth saying plainly.
 const attemptsLabel = computed(() => {
@@ -222,7 +258,13 @@ const attemptsLabel = computed(() => {
       <div v-else-if="!resolved" class="gone"><p>Loading…</p></div>
       <ion-list v-else data-testid="ytdl-detail">
         <ion-item v-if="artworkSrc">
-          <img :src="artworkSrc" alt="" class="art" data-testid="ytdl-detail-artwork" />
+          <img
+            :src="artworkSrc"
+            alt=""
+            class="art"
+            data-testid="ytdl-detail-artwork"
+            @error="artworkTooBig = true"
+          />
         </ion-item>
         <ion-item>
           <ion-label class="ion-text-wrap">
@@ -259,7 +301,11 @@ const attemptsLabel = computed(() => {
         <ion-item>
           <ion-label>
             <p>State</p>
-            <h2 data-testid="ytdl-detail-state">{{ stateLabel }}</h2>
+            <h2>
+              <span class="state-chip" :style="stateChipStyle" data-testid="ytdl-detail-state">
+                {{ stateLabel }}
+              </span>
+            </h2>
             <ion-progress-bar v-if="progress !== undefined" :value="progress" />
           </ion-label>
         </ion-item>
@@ -337,10 +383,23 @@ ion-content {
 }
 /* 16:9, shown whole rather than cover-cropped: here there is room for it, and
    the point of the sheet is to show what the thing IS. */
+/* A 16:9 frame, held whatever the source publishes: the large size and its
+   fallback are different resolutions of the same shape, so fixing the ratio
+   stops the sheet reflowing when one gives way to the other (spec 1039). */
 .art {
   width: 100%;
+  aspect-ratio: 16 / 9;
+  object-fit: cover;
   border-radius: 8px;
   display: block;
+  background: rgba(var(--ion-text-color-rgb, 0, 0, 0), 0.08);
+}
+/* The same pill the row uses, so the two surfaces agree at a glance. */
+.state-chip {
+  display: inline-block;
+  padding: 1px 8px;
+  border-radius: 6px;
+  font-weight: 600;
 }
 .link {
   overflow-wrap: anywhere;
