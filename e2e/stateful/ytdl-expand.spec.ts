@@ -204,3 +204,25 @@ test('an open group sheet does not refetch its items on every poll', async ({ pa
 
   await expect(page.getByTestId('ytdl-group-item')).toHaveCount(3);
 });
+
+test('tapping an item inside a group opens its details, not a gone message', async ({ page }) => {
+  // A group's items are deliberately absent from the top-level list, so the
+  // detail sheet could never resolve one from there — every item, in every
+  // state, reported "This download is no longer available".
+  const { requestId } = await submit(token, 'https://www.youtube.com/playlist?list=PLtest');
+  await emitEntries(requestId, ['aaaaaaaaaaa', 'bbbbbbbbbbb']);
+  await expect.poll(() => items(token, requestId).then((i) => i.length), { timeout: 30_000 }).toBe(2);
+
+  await gotoTasks(page);
+  await page.getByTestId('ytdl-item').first().click();
+  await expect(page.getByTestId('ytdl-group-items')).toBeVisible();
+
+  await page.getByTestId('ytdl-group-item').first().click();
+
+  await expect(page.getByTestId('ytdl-detail')).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByTestId('ytdl-detail-gone')).toHaveCount(0);
+  // And it carries the item's own facts, including where it came from.
+  await expect(page.getByTestId('ytdl-detail-title')).not.toHaveText('—');
+  await expect(page.getByTestId('ytdl-detail-url')).toContainText('youtube.com/watch');
+  await expect(page.getByTestId('ytdl-detail-group')).toBeVisible();
+});

@@ -92,3 +92,4 @@ Specs are grouped by category band; status moves
 | [2022](specs/2022-expand-job-identity/spec.md) | A group's enumeration job is not the group finishing | 🔵 in-review |
 | [2023](specs/2023-podlog-accept/spec.md) | Reading a worker's output, actually permitted by the API | 🔵 in-review |
 | [2024](specs/2024-group-sheet-refetch/spec.md) | A group's items stop reloading on every poll | 🔵 in-review |
+| [2025](specs/2025-item-detail-lookup/spec.md) | An item's details, actually reachable | 🔵 in-review |
