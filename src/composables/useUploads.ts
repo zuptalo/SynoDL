@@ -31,6 +31,20 @@ export interface UploadJob {
   track: string;
   artist: string;
   album: string;
+  /**
+   * The artwork picked with this upload, as something the row can render
+   * (spec 1042).
+   *
+   * It belongs to the BATCH rather than to the file: a music upload is several
+   * files describing one track, so the audio, its lyrics and the picture itself
+   * all show the same image.
+   *
+   * An object URL, so rendering it costs no request and nothing is read back off
+   * the NAS to draw a row. Revoked when the batch leaves the list.
+   */
+  artworkUrl: string;
+  /** Which enqueue this came from, so a batch can be cleaned up as one. */
+  batchId: number;
   state: UploadState;
   /** 0–1, driven by the request's own progress events. */
   progress: number;
@@ -164,6 +178,23 @@ async function drain(): Promise<void> {
   }
 }
 
+/** What counts as artwork when looking for a batch's picture. */
+const IMAGE_TYPES = /\.(jpe?g|png|webp|bmp|tbn)$/i;
+
+let nextBatchId = 1;
+
+/**
+ * Let go of a batch's object URL once no job still needs it.
+ *
+ * Object URLs live until revoked or the page goes, and an upload sheet used
+ * repeatedly would otherwise accumulate one image per use.
+ */
+function releaseArtwork(batchId: number, url: string): void {
+  if (!url) return;
+  if (jobs.value.some((j) => j.batchId === batchId)) return;
+  URL.revokeObjectURL(url);
+}
+
 export function useUploads() {
   const active = computed(() =>
     jobs.value.filter((j) => j.state === 'sending' || j.state === 'waiting'),
@@ -183,8 +214,16 @@ export function useUploads() {
       album?: string;
     },
   ): UploadJob[] {
+    // ONE object URL for the whole batch. The picture is the track's, not any one
+    // file's, and creating a URL per row would leak several for the same image.
+    const art = files.find((f) => IMAGE_TYPES.test(f.name));
+    const artworkUrl = art ? URL.createObjectURL(art) : '';
+    const batchId = nextBatchId++;
+
     const added = files.map((file) => ({
       id: nextId++,
+      batchId,
+      artworkUrl,
       file,
       name: file.name,
       kind: meta.kind,
@@ -224,11 +263,15 @@ export function useUploads() {
 
   /** Drop a finished job from the list; never touches one still running. */
   function dismiss(id: number): void {
+    const going = jobs.value.find((j) => j.id === id);
     jobs.value = jobs.value.filter((j) => j.id !== id || j.state === 'sending' || j.state === 'waiting');
+    if (going) releaseArtwork(going.batchId, going.artworkUrl);
   }
 
   function clearFinished(): void {
+    const going = jobs.value.filter((j) => j.state !== 'sending' && j.state !== 'waiting');
     jobs.value = jobs.value.filter((j) => j.state === 'sending' || j.state === 'waiting');
+    for (const j of going) releaseArtwork(j.batchId, j.artworkUrl);
   }
 
   return { jobs, active, finished, enqueue, retry, cancel, dismiss, clearFinished };

@@ -24,13 +24,14 @@ import {
   refreshOutline,
   swapHorizontalOutline,
 } from 'ionicons/icons';
-import { computed } from 'vue';
+import { computed, ref } from 'vue';
 import type { UploadJob } from '@/composables/useUploads';
 import { formatBytes, formatEta, formatPercent, formatSpeed } from '@/utils/format';
 import { splitYear } from '@/services/title-year';
 
 const props = defineProps<{ job: UploadJob }>();
 const emit = defineEmits<{
+  (e: 'open', id: number): void;
   (e: 'stop', id: number): void;
   (e: 'retry', id: number, overwrite?: boolean): void;
   (e: 'clear', id: number): void;
@@ -39,6 +40,47 @@ const emit = defineEmits<{
 // The title the user typed, not the raw file name: "Coyote vs. Acme 2026" reads
 // as a title, "Coyote_vs_Acme_2026_1080p_WEBRip_AOC_30NAMA.mkv" does not.
 const heading = computed(() => splitYear(props.job.title));
+
+// Music describes itself differently from a film: a track, an artist and an
+// album rather than one title and a year (spec 1040). The row follows suit
+// rather than showing a track's file name under a "Title" heading.
+const isMusic = computed(
+  () => props.job.kind === 'music' || props.job.kind === 'music-video',
+);
+const rowTitle = computed(() =>
+  isMusic.value ? props.job.track || props.job.name : heading.value.title,
+);
+/** The facts under the title, in the order a reader looks for them. */
+const rowFacts = computed(() => {
+  if (!isMusic.value) return heading.value.year ? [heading.value.year] : [];
+  return [props.job.artist, props.job.album].filter((x) => x !== '');
+});
+const kindLabel = computed(
+  () =>
+    ({ movie: 'Movie', tv: 'TV show', music: 'Music', 'music-video': 'Music video' })[
+      props.job.kind
+    ] ?? '',
+);
+
+// Artwork the reader picked, rendered straight off the device — no request, and
+// nothing read back off the NAS to draw a row (FR-010). A file the browser turns
+// out not to be able to show falls back to the icon rather than a hole.
+const artFailed = ref(false);
+const artworkSrc = computed(() => (artFailed.value ? '' : props.job.artworkUrl));
+
+// The same chip every other row uses (spec 1039), so an upload reads like the
+// downloads beside it rather than like a notice.
+const STATE_TINT: Record<string, { rgb: string; fallback: string }> = {
+  'var(--ion-color-primary)': { rgb: '--ion-color-primary-rgb', fallback: '16, 185, 129' },
+  'var(--ion-color-success)': { rgb: '--ion-color-success-rgb', fallback: '45, 211, 111' },
+  'var(--ion-color-danger)': { rgb: '--ion-color-danger-rgb', fallback: '235, 68, 90' },
+  'var(--ion-color-medium)': { rgb: '--ion-color-medium-rgb', fallback: '146, 148, 156' },
+};
+const stateChipStyle = computed(() => {
+  const fg = statusColorVar.value;
+  const tint = STATE_TINT[fg] ?? STATE_TINT['var(--ion-color-medium)'];
+  return { color: fg, background: `rgba(var(${tint.rgb}, ${tint.fallback}), 0.14)` };
+});
 const active = computed(() => props.job.state === 'sending');
 /**
  * The device has sent everything, but the NAS has not confirmed the write.
@@ -85,17 +127,25 @@ const statusColorVar = computed(() => {
 
 <template>
   <ion-item-sliding>
-    <ion-item :detail="false" data-testid="upload-item">
+    <ion-item button :detail="false" data-testid="upload-item" @click="emit('open', job.id)">
       <div slot="start" class="poster" aria-hidden="true">
-        <ion-icon :icon="cloudUploadOutline" class="poster-ph" />
+        <img
+          v-if="artworkSrc"
+          :src="artworkSrc"
+          alt=""
+          data-testid="upload-artwork"
+          @error="artFailed = true"
+        />
+        <ion-icon v-else :icon="cloudUploadOutline" class="poster-ph" />
       </div>
       <ion-label>
-        <h2 class="name">{{ heading.title }}</h2>
-        <div v-if="heading.year" class="media">
-          <span>{{ heading.year }}</span>
+        <h2 class="name" data-testid="upload-name">{{ rowTitle }}</h2>
+        <div v-if="kindLabel || rowFacts.length" class="media">
+          <span v-if="kindLabel" class="type">{{ kindLabel }}</span>
+          <span v-for="f in rowFacts" :key="f" data-testid="upload-fact">{{ f }}</span>
         </div>
         <div class="meta">
-          <span class="status" :style="{ color: statusColorVar }" data-testid="upload-status">
+          <span class="status" :style="stateChipStyle" data-testid="upload-status">
             {{ label }}
           </span>
           <span v-if="job.state === 'failed' || job.state === 'cancelled'" class="reason">
@@ -213,15 +263,34 @@ const statusColorVar = computed(() => {
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.status {
-  font-weight: 600;
-}
 .reason {
   color: var(--app-status-error);
 }
 .dest {
   font-size: 0.75rem;
   color: var(--app-text-dim);
+}
+/* The poster slot matches every other row's, so a mixed list keeps one left
+   edge whatever kind of thing is in it. */
+.poster img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+/* The established chip: same padding, radius and weight as the media-type pill
+   on a NAS row and the state pill on a YouTube one. */
+.status {
+  padding: 1px 6px;
+  border-radius: 6px;
+  font-weight: 600;
+}
+.media .type {
+  padding: 1px 6px;
+  border-radius: 6px;
+  font-weight: 600;
+  color: var(--ion-color-primary);
+  background: rgba(var(--ion-color-primary-rgb, 16, 185, 129), 0.14);
 }
 /* Reserved whether or not the bar is in it, so a row does not shrink the
    moment its upload finishes. Same slot as TaskItem and YtdlItem. */

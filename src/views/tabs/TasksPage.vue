@@ -45,6 +45,8 @@ import NewTaskModal from '@/components/NewTaskModal.vue';
 import UploadModal from '@/components/UploadModal.vue';
 import { useUploads } from '@/composables/useUploads';
 import UploadItem from '@/components/UploadItem.vue';
+import UploadDetailModal from '@/components/UploadDetailModal.vue';
+import { splitByOrigin } from '@/services/task-origin';
 import { useYtdl } from '@/composables/useYtdl';
 import YtdlItem from '@/components/YtdlItem.vue';
 import YtdlDetailModal from '@/components/YtdlDetailModal.vue';
@@ -131,6 +133,19 @@ const uploadRunning = computed(() =>
 );
 
 const visible = computed(() => applyTaskFilter(tasks.value, filter.value));
+
+// Split AFTER filtering and sorting, never before: the filter sheet decides the
+// order and these sections must not quietly apply a second one (spec 1042,
+// FR-004). A section with nothing in it is not rendered at all.
+const sections = computed(() => splitByOrigin(visible.value));
+
+// The open upload, tracked by id so the sheet follows the live job — a bar keeps
+// moving while it is open, and an upload dismissed elsewhere shows its gone
+// state rather than stale data. The same way the task and download sheets work.
+const uploadDetailId = ref<number | null>(null);
+const uploadDetail = computed(
+  () => uploads.value.find((j) => j.id === uploadDetailId.value) ?? null,
+);
 
 // ---- detail view (spec 0002 US3) ------------------------------------------
 // Track the open task by id so the sheet re-reads the live task on every
@@ -397,6 +412,7 @@ async function onDelete(id: string): Promise<void> {
           @stop="cancelUpload"
           @retry="retryUpload"
           @clear="dismissUpload"
+          @open="uploadDetailId = $event"
         />
         <ion-note v-if="uploadRunning" class="upload-hint" color="medium">
           Keep the app open while an upload is running.
@@ -422,20 +438,48 @@ async function onDelete(id: string): Promise<void> {
       <div v-else-if="visible.length === 0" class="center empty" data-testid="tasks-empty">
         <p>{{ tasks.length === 0 ? 'No download tasks.' : 'No tasks match the filters.' }}</p>
       </div>
-      <ion-list v-else data-testid="task-list">
-        <TaskItem
-          v-for="t in visible"
-          :key="t.id"
-          :task="t"
-          :select-mode="selectMode"
-          :selected="selected.has(t.id)"
-          @pause="onPause"
-          @resume="onResume"
-          @delete="onDelete"
-          @toggle="toggleSelect"
-          @open="openDetail"
-        />
-      </ion-list>
+      <template v-else>
+        <!-- Sent from Discover, and added some other way. Uploads and YouTube
+             downloads have said where they came from since they existed; NAS
+             downloads simply began, so a film sat under a YouTube playlist with
+             nothing between them (spec 1042). -->
+        <!-- The two sections sit inside ONE marker. `task-list` means "the
+             downloads rendered" and is used across the suite for that; moving it
+             onto a section would make it mean "there are Discover downloads",
+             which is a different and much narrower claim. -->
+        <div data-testid="task-list">
+        <ion-list v-if="sections.discover.length" data-testid="task-list-discover">
+          <ion-list-header><ion-label>From Discover</ion-label></ion-list-header>
+          <TaskItem
+            v-for="t in sections.discover"
+            :key="t.id"
+            :task="t"
+            :select-mode="selectMode"
+            :selected="selected.has(t.id)"
+            @pause="onPause"
+            @resume="onResume"
+            @delete="onDelete"
+            @toggle="toggleSelect"
+            @open="openDetail"
+          />
+        </ion-list>
+        <ion-list v-if="sections.direct.length" data-testid="task-list-direct">
+          <ion-list-header><ion-label>Added by link</ion-label></ion-list-header>
+          <TaskItem
+            v-for="t in sections.direct"
+            :key="t.id"
+            :task="t"
+            :select-mode="selectMode"
+            :selected="selected.has(t.id)"
+            @pause="onPause"
+            @resume="onResume"
+            @delete="onDelete"
+            @toggle="toggleSelect"
+            @open="openDetail"
+          />
+        </ion-list>
+        </div>
+      </template>
 
       <ion-fab slot="fixed" vertical="bottom" horizontal="end">
         <!-- Selection mode swaps the create button for a confirm checkmark,
@@ -502,6 +546,12 @@ async function onDelete(id: string): Promise<void> {
       @created="ytdlOpen = false"
       @dismiss="ytdlOpen = false"
     />
+    <UploadDetailModal
+      :is-open="uploadDetailId !== null"
+      :job="uploadDetail"
+      @dismiss="uploadDetailId = null"
+    />
+
     <TaskDetailModal
       :is-open="detailId !== null"
       :task="detailTask"

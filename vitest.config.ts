@@ -53,6 +53,8 @@ export default defineConfig({
         'src/services/ytdl-thumb.ts',
         // What Discover remembers between launches (spec 1041).
         'src/services/catalog-session.ts',
+        // Where a NAS download came from (spec 1042).
+        'src/services/task-origin.ts',
       ],
       thresholds: { lines: 80, functions: 80, statements: 80, branches: 80 },
     },
