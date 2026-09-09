@@ -25,7 +25,7 @@ Specs are grouped by category band; status moves
 | [0010](specs/0010-mark-version-you/spec.md) | Mark the version you downloaded, from what we sent | 🟢 shipped |
 | [0011](specs/0011-keep-knowing-what-nas/spec.md) | Keep knowing what is on the NAS | 🟢 shipped |
 | [0012](specs/0012-download-youtube-audio/spec.md) | Save YouTube music and music videos to the library | 🟢 shipped |
-| [0013](specs/0013-youtube-downloads-managed/spec.md) | YouTube downloads you can watch, keep, and retry | 🔵 in-review |
+| [0013](specs/0013-youtube-downloads-managed/spec.md) | YouTube downloads you can watch, keep, and retry | 🟢 shipped |
 
 ## ⚡ Ad-hoc (1001–1999)
 
@@ -64,6 +64,7 @@ Specs are grouped by category band; status moves
 | [1033](specs/1033-give-youtube-downloads/spec.md) | Give YouTube downloads their own button | 🟢 shipped |
 | [1034](specs/1034-make-youtube-downloads/spec.md) | Make YouTube downloads readable in the task list | 🟢 shipped |
 | [1035](specs/1035-card-captions-read/spec.md) | Card captions read like the detail sheet | 🟢 shipped |
+| [1036](specs/1036-telegram-intake-architect-reports/spec.md) | Telegram intake architect reports | ⚪ planned |
 
 ## 🐛 Hotfixes & Bug Fixes (2001+)
 
