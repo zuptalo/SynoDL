@@ -826,6 +826,16 @@ export const api = {
       { method: 'POST' },
     ),
   /** A group's items, plus how the group as a whole is getting on. */
+  /**
+   * One download, by id.
+   *
+   * Needed because a group's ITEMS are deliberately absent from the list
+   * (`GET /v1/ytdl` returns only top-level rows, so an expanded channel cannot
+   * crowd it out). Resolving a detail sheet from the list therefore works for a
+   * single download and never for an item — this is how an item is fetched.
+   */
+  ytdlOne: (requestId: string) =>
+    request<YtdlDownload>(`/v1/ytdl/${encodeURIComponent(requestId)}`),
   ytdlItems: (requestId: string, cursor?: string) =>
     request<{ group: YtdlDownload; items: YtdlDownload[]; nextCursor?: string }>(
       `/v1/ytdl/${encodeURIComponent(requestId)}/items${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ''}`,

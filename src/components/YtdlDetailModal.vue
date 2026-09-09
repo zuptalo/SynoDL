@@ -28,22 +28,77 @@ import {
   IonTitle,
   IonToolbar,
 } from '@ionic/vue';
-import { computed } from 'vue';
-import type { YtdlDownload } from '@/services/api';
+import { computed, onUnmounted, ref, watch } from 'vue';
+import { api, type YtdlDownload } from '@/services/api';
 import { formatTimestamp } from '@/utils/format';
 
-const props = defineProps<{ isOpen: boolean; download: YtdlDownload | null }>();
+/**
+ * `download` is the row from the Tasks list, when there is one — a single
+ * download or a group. It is live: the list re-reads on its own schedule.
+ *
+ * An ITEM of a group has no row in that list (they are excluded so an expanded
+ * channel cannot crowd it out), so the sheet fetches it by id instead. Without
+ * that, tapping any item showed "This download is no longer available",
+ * whatever state it was in.
+ */
+const props = defineProps<{
+  isOpen: boolean;
+  requestId: string | null;
+  download: YtdlDownload | null;
+}>();
 defineEmits<{ (e: 'dismiss'): void; (e: 'retry', requestId: string): void }>();
 
 // Retry is offered here as well as on the row, because the sheet is where
 // someone works out WHY it failed — and having decided, they should not have to
 // close it and find the row again (FR-026, FR-028).
-const canRetry = computed(() => props.download?.state === 'failed');
+const canRetry = computed(() => resolved.value?.state === 'failed');
 
-const isVideo = computed(() => props.download?.mode === 'music-video');
+// What the sheet is showing: the live row when the list has one, otherwise
+// whatever was fetched by id.
+const fetched = ref<YtdlDownload | null>(null);
+const notFound = ref(false);
+const resolved = computed<YtdlDownload | null>(() => props.download ?? fetched.value);
+
+async function loadById(): Promise<void> {
+  const id = props.requestId;
+  if (!id || props.download) return;
+  try {
+    fetched.value = await api.ytdlOne(id);
+    notFound.value = false;
+  } catch {
+    // A download that really is gone — dismissed elsewhere, or never existed.
+    notFound.value = true;
+  }
+}
+
+// Fetched rows do not come from the polled list, so they are refreshed here to
+// keep a progress bar moving. One row, one request, and only while the sheet is
+// open — stopped the moment it closes.
+let timer: ReturnType<typeof setInterval> | null = null;
+function stopPolling(): void {
+  if (timer) {
+    clearInterval(timer);
+    timer = null;
+  }
+}
+watch(
+  [() => props.isOpen, () => props.requestId],
+  ([open]) => {
+    stopPolling();
+    fetched.value = null;
+    notFound.value = false;
+    if (!open) return;
+    void loadById();
+    if (!props.download) timer = setInterval(() => void loadById(), 5000);
+  },
+  { immediate: true },
+);
+onUnmounted(stopPolling);
+
+const isVideo = computed(() => resolved.value?.mode === 'music-video');
 
 const stateLabel = computed(() =>
-  props.download
+  resolved.value
     ? {
         resolving: 'reading contents',
         queued: 'waiting its turn',
@@ -51,20 +106,20 @@ const stateLabel = computed(() =>
         downloading: 'downloading',
         completed: 'saved',
         failed: 'failed',
-      }[props.download.state]
+      }[resolved.value.state]
     : '',
 );
 
 const scopeLabel = computed(() =>
-  props.download
-    ? { single: 'One video', playlist: 'Playlist', channel: 'Channel' }[props.download.scope]
+  resolved.value
+    ? { single: 'One video', playlist: 'Playlist', channel: 'Channel' }[resolved.value.scope]
     : '',
 );
 
 // Present only while running AND only when something is genuinely known.
 const progress = computed(() =>
-  props.download?.state === 'downloading' && props.download.progress !== undefined
-    ? props.download.progress
+  resolved.value?.state === 'downloading' && resolved.value.progress !== undefined
+    ? resolved.value.progress
     : undefined,
 );
 const percentLabel = computed(() =>
@@ -78,7 +133,7 @@ const percentLabel = computed(() =>
  * is still being fetched.
  */
 const lyricsLabel = computed(() => {
-  const d = props.download;
+  const d = resolved.value;
   if (!d) return '—';
   if (d.hasLyrics) return d.lyricsLang ? `Saved (${d.lyricsLang})` : 'Saved';
   if (d.state === 'completed') return 'None published';
@@ -86,12 +141,12 @@ const lyricsLabel = computed(() => {
 });
 
 const artworkSrc = computed(() =>
-  props.download?.artwork ? `/v1/ytdl/thumb?u=${encodeURIComponent(props.download.artwork)}` : '',
+  resolved.value?.artwork ? `/v1/ytdl/thumb?u=${encodeURIComponent(resolved.value.artwork)}` : '',
 );
 
 // Above 1 means it has been tried again, which is worth saying plainly.
 const attemptsLabel = computed(() => {
-  const n = props.download?.attempts ?? 1;
+  const n = resolved.value?.attempts ?? 1;
   return n > 1 ? `${n} attempts` : '';
 });
 </script>
@@ -103,9 +158,9 @@ const attemptsLabel = computed(() => {
         <ion-title>Download details</ion-title>
         <ion-buttons slot="start">
           <ion-button
-            v-if="canRetry && download"
+            v-if="canRetry && resolved"
             data-testid="ytdl-detail-retry"
-            @click="$emit('retry', download.requestId)"
+            @click="$emit('retry', resolved.requestId)"
           >
             Retry
           </ion-button>
@@ -116,9 +171,12 @@ const attemptsLabel = computed(() => {
       </ion-toolbar>
     </ion-header>
     <ion-content>
-      <div v-if="!download" class="gone" data-testid="ytdl-detail-gone">
+      <!-- Only once a lookup has actually concluded: while a fetched row is in
+           flight there is nothing yet, and saying it is gone would be wrong. -->
+      <div v-if="!resolved && notFound" class="gone" data-testid="ytdl-detail-gone">
         <p>This download is no longer available.</p>
       </div>
+      <div v-else-if="!resolved" class="gone"><p>Loading…</p></div>
       <ion-list v-else data-testid="ytdl-detail">
         <ion-item v-if="artworkSrc">
           <img :src="artworkSrc" alt="" class="art" data-testid="ytdl-detail-artwork" />
@@ -126,21 +184,21 @@ const attemptsLabel = computed(() => {
         <ion-item>
           <ion-label class="ion-text-wrap">
             <p>Title</p>
-            <h2 data-testid="ytdl-detail-title">{{ download.title || '—' }}</h2>
+            <h2 data-testid="ytdl-detail-title">{{ resolved.title || '—' }}</h2>
           </ion-label>
         </ion-item>
         <ion-item>
           <ion-label class="ion-text-wrap">
             <p>Artist</p>
-            <h2 data-testid="ytdl-detail-uploader">{{ download.uploader || '—' }}</h2>
+            <h2 data-testid="ytdl-detail-uploader">{{ resolved.uploader || '—' }}</h2>
           </ion-label>
         </ion-item>
         <!-- Only an expanded item has a group, and this is the one place it is
              visible when the item is viewed on its own (FR-019c). -->
-        <ion-item v-if="download.groupName">
+        <ion-item v-if="resolved.groupName">
           <ion-label class="ion-text-wrap">
             <p>From</p>
-            <h2 data-testid="ytdl-detail-group">{{ download.groupName }}</h2>
+            <h2 data-testid="ytdl-detail-group">{{ resolved.groupName }}</h2>
           </ion-label>
         </ion-item>
         <ion-item>
@@ -162,7 +220,7 @@ const attemptsLabel = computed(() => {
             <ion-progress-bar v-if="progress !== undefined" :value="progress" />
           </ion-label>
         </ion-item>
-        <ion-item v-if="download.state === 'downloading'">
+        <ion-item v-if="resolved.state === 'downloading'">
           <ion-label>
             <p>Progress</p>
             <h2 data-testid="ytdl-detail-progress">{{ percentLabel }}</h2>
@@ -174,10 +232,10 @@ const attemptsLabel = computed(() => {
             <h2 data-testid="ytdl-detail-lyrics">{{ lyricsLabel }}</h2>
           </ion-label>
         </ion-item>
-        <ion-item v-if="download.reason">
+        <ion-item v-if="resolved.reason">
           <ion-label class="ion-text-wrap">
             <p>Reason</p>
-            <h2 data-testid="ytdl-detail-reason">{{ download.reason }}</h2>
+            <h2 data-testid="ytdl-detail-reason">{{ resolved.reason }}</h2>
           </ion-label>
         </ion-item>
         <ion-item v-if="attemptsLabel">
@@ -189,25 +247,25 @@ const attemptsLabel = computed(() => {
         <ion-item>
           <ion-label class="ion-text-wrap">
             <p>Created</p>
-            <h2 data-testid="ytdl-detail-created">{{ formatTimestamp(download.submittedAt) }}</h2>
+            <h2 data-testid="ytdl-detail-created">{{ formatTimestamp(resolved.submittedAt) }}</h2>
           </ion-label>
         </ion-item>
         <ion-item>
           <ion-label class="ion-text-wrap">
             <p>Finished</p>
-            <h2 data-testid="ytdl-detail-finished">{{ formatTimestamp(download.finishedAt) }}</h2>
+            <h2 data-testid="ytdl-detail-finished">{{ formatTimestamp(resolved.finishedAt) }}</h2>
           </ion-label>
         </ion-item>
-        <ion-item v-if="download.submittedBy">
+        <ion-item v-if="resolved.submittedBy">
           <ion-label class="ion-text-wrap">
             <p>Added by</p>
-            <h2 data-testid="ytdl-detail-added-by">{{ download.submittedBy }}</h2>
+            <h2 data-testid="ytdl-detail-added-by">{{ resolved.submittedBy }}</h2>
           </ion-label>
         </ion-item>
         <ion-item>
           <ion-label class="ion-text-wrap">
             <p>Link</p>
-            <h2 class="link" data-testid="ytdl-detail-url">{{ download.url }}</h2>
+            <h2 class="link" data-testid="ytdl-detail-url">{{ resolved.url }}</h2>
           </ion-label>
         </ion-item>
       </ion-list>

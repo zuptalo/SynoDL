@@ -505,6 +505,7 @@ async function onDelete(id: string): Promise<void> {
     />
     <YtdlDetailModal
       :is-open="ytdlDetailId !== null"
+      :request-id="ytdlDetailId"
       :download="ytdlDetail"
       @dismiss="ytdlDetailId = null"
       @retry="onRetryYtdl"
