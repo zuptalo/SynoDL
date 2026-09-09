@@ -371,6 +371,97 @@ export async function streamTasks(
   }
 }
 
+/**
+ * One live update for YouTube downloads (spec 1038).
+ *
+ * Three lists rather than one flat set, because a client does three different
+ * things with them and the difference is not something it can work out for
+ * itself: `created` is inserted, `changed` is merged into what is already held,
+ * `removed` is dropped. See `mergeYtdlUpdate`, which is where the rules live.
+ */
+export interface YtdlUpdate {
+  created?: YtdlDownload[];
+  changed?: YtdlDownload[];
+  removed?: string[];
+}
+
+/**
+ * Consume the live YouTube-download stream (GET /v1/ytdl/stream).
+ *
+ * fetch + a ReadableStream reader rather than EventSource, for the same reason
+ * streamTasks does it: EventSource cannot carry a header, so the session would
+ * have to travel in the URL — where it reaches proxy logs and browser history
+ * (constitution Principle III).
+ *
+ * `onReady` fires once the stream is established, and the caller fetches its
+ * list THEN rather than before connecting: a change landing while the
+ * connection is being set up is otherwise carried by neither.
+ *
+ * Resolves when the caller aborts or the server closes cleanly; rejects with an
+ * ApiError otherwise, which is the caller's signal to fall back to polling.
+ */
+export async function streamYtdl(
+  onReady: () => void,
+  onUpdate: (update: YtdlUpdate) => void,
+  signal: AbortSignal,
+): Promise<void> {
+  const headers = new Headers({ Accept: 'text/event-stream' });
+  if (currentToken) headers.set('X-SynoDL-Session', currentToken);
+
+  let resp: Response;
+  try {
+    resp = await fetch('/v1/ytdl/stream', { headers, signal });
+  } catch {
+    if (signal.aborted) return; // caller stopped us — a clean shutdown
+    throw new ApiError('unreachable', 0);
+  }
+
+  if (!resp.ok || !resp.body) {
+    let code = `http_${resp.status}`;
+    try {
+      const body = (await resp.json()) as { error?: string };
+      if (body.error) code = body.error;
+    } catch {
+      /* non-JSON body — keep the status code */
+    }
+    if (resp.status === 401) window.dispatchEvent(new CustomEvent(SESSION_EXPIRED_EVENT));
+    throw new ApiError(code, resp.status);
+  }
+
+  const reader = resp.body.getReader();
+  const decoder = new TextDecoder();
+  let buf = '';
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) return; // server closed the stream
+      buf += decoder.decode(value, { stream: true });
+      let sep: number;
+      while ((sep = buf.indexOf('\n\n')) !== -1) {
+        const frame = buf.slice(0, sep);
+        buf = buf.slice(sep + 2);
+        const evt = parseSSEFrame(frame);
+        if (!evt) continue; // heartbeat / unparseable
+        if (evt.event === 'ready') {
+          onReady();
+          continue;
+        }
+        if (evt.event === 'error') {
+          // The session went away mid-stream: surface it exactly like a 401.
+          window.dispatchEvent(new CustomEvent(SESSION_EXPIRED_EVENT));
+          throw new ApiError('session', 401);
+        }
+        if (evt.data) onUpdate(evt.data as YtdlUpdate);
+      }
+    }
+  } catch (e) {
+    if (signal.aborted) return; // caller aborted mid-read — clean
+    throw e instanceof ApiError ? e : new ApiError('stream', 0);
+  } finally {
+    void reader.cancel().catch(() => undefined);
+  }
+}
+
 // Download-source catalog (spec 0005). Session material is write-only: the
 // server never returns it, so there is no "get session" — only status.
 /** What a completed upload landed as (spec 1022). */

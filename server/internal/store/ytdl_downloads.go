@@ -517,3 +517,19 @@ func (s *Store) SetYtdlGroupName(requestID, name string) error {
 func (s *Store) ListYtdlRunning() ([]YtdlDownload, error) {
 	return s.listYtdlWhere(`state IN ('scheduled','downloading') AND kind != 'group'`)
 }
+
+// ListYtdlUnfinished returns every download, of either kind, that has not
+// reached a terminal state.
+//
+// This is the WATCH set (spec 1038): the rows whose shown state can still
+// change, and therefore the only rows a live update can ever be about. A
+// completed download is final by definition — re-projecting it every three
+// seconds would be work with no answer attached, which is the same reason
+// ListYtdlActiveGroups excludes finished groups.
+//
+// Groups are INCLUDED here, unlike in CountYtdlRunning. A group has no worker,
+// but its counts move as its items finish and that is exactly what a watcher
+// needs to be told about.
+func (s *Store) ListYtdlUnfinished() ([]YtdlDownload, error) {
+	return s.listYtdlWhere(`state NOT IN ('completed','failed')`)
+}

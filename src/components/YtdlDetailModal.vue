@@ -32,6 +32,7 @@ import {
 import { copyOutline } from 'ionicons/icons';
 import { computed, onUnmounted, ref, watch } from 'vue';
 import { api, type YtdlDownload } from '@/services/api';
+import { onYtdlUpdate } from '@/composables/useYtdl';
 import { appToast } from '@/services/toast';
 import { formatTimestamp } from '@/utils/format';
 
@@ -74,29 +75,49 @@ async function loadById(): Promise<void> {
   }
 }
 
-// Fetched rows do not come from the polled list, so they are refreshed here to
-// keep a progress bar moving. One row, one request, and only while the sheet is
-// open — stopped the moment it closes.
-let timer: ReturnType<typeof setInterval> | null = null;
-function stopPolling(): void {
-  if (timer) {
-    clearInterval(timer);
-    timer = null;
+/**
+ * A fetched row follows the live stream rather than re-asking on a timer
+ * (spec 1038).
+ *
+ * It used to re-request itself every five seconds, because a row fetched by id
+ * is not in the polled list and nothing else would have moved its progress bar.
+ * The stream carries it now, so the sheet listens instead of asks — and an item
+ * inside a playlist, which is exactly the case that has to be fetched by id, is
+ * the case that benefits most.
+ *
+ * A row the LIST already holds is untouched here: it is live by definition, and
+ * asking for it again would be a second request for something already at hand.
+ */
+const stopListening = onYtdlUpdate((update) => {
+  const id = props.requestId;
+  if (!props.isOpen || !id || props.download) return;
+  if ((update.removed ?? []).includes(id)) {
+    // Dismissed while the sheet was open. This is the one case the sheet's gone
+    // state is actually for.
+    fetched.value = null;
+    notFound.value = true;
+    return;
   }
-}
+  for (const d of [...(update.changed ?? []), ...(update.created ?? [])]) {
+    if (d.requestId === id) {
+      fetched.value = d;
+      notFound.value = false;
+      return;
+    }
+  }
+});
+onUnmounted(stopListening);
+
 watch(
   [() => props.isOpen, () => props.requestId],
   ([open]) => {
-    stopPolling();
     fetched.value = null;
     notFound.value = false;
     if (!open) return;
     void loadById();
-    if (!props.download) timer = setInterval(() => void loadById(), 5000);
   },
   { immediate: true },
 );
-onUnmounted(stopPolling);
 
 /**
  * Copy the link (FR-005). Matches how a NAS task's source link already behaves,

@@ -45,6 +45,8 @@ export default defineConfig({
         'src/services/imdb-link.ts',
         // Which mark identifies a download source in the grid (spec 1021).
         'src/services/source-logo.ts',
+        // What a client does with a live update (spec 1038).
+        'src/services/ytdl-merge.ts',
       ],
       thresholds: { lines: 80, functions: 80, statements: 80, branches: 80 },
     },

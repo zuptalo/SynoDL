@@ -24,8 +24,10 @@ import {
   IonTitle,
   IonToolbar,
 } from '@ionic/vue';
-import { computed, ref, watch } from 'vue';
+import { computed, onUnmounted, ref, watch } from 'vue';
 import { api, type YtdlDownload } from '@/services/api';
+import { onYtdlUpdate } from '@/composables/useYtdl';
+import { mergeYtdlUpdate, updateTouchesGroup } from '@/services/ytdl-merge';
 import YtdlItem from '@/components/YtdlItem.vue';
 
 const props = defineProps<{ isOpen: boolean; group: YtdlDownload | null }>();
@@ -62,24 +64,36 @@ async function load(reset: boolean): Promise<void> {
 }
 
 /**
- * Update what is already on screen, in place.
+ * Follow the tracks live, without re-reading them (spec 1038, FR-003).
  *
- * Deliberately NOT `load(true)`. Re-reading the first page and assigning it
- * would blank the list and repopulate it — which is visible as a flicker every
- * few seconds, and throws away any further pages the reader has scrolled to.
- * Only the fields that actually move are copied onto the rows already shown.
+ * This used to re-fetch the whole first page every few seconds and copy the
+ * moving fields onto the rows already shown. It worked, and it was the thing
+ * that got noticed: an open playlist visibly refreshing on a timer. Now the
+ * server says what changed and only those rows are touched, so a channel of
+ * several hundred tracks costs nothing while one of them progresses.
+ *
+ * Items are still FETCHED and paged here rather than carried in the list
+ * payload — a group has no ceiling on its size, and sending every track to
+ * everyone looking at the Tasks list would be worse than the poll ever was.
+ * What changed is how they are kept up to date, not how they arrive.
  */
-async function refreshInPlace(): Promise<void> {
+const stopListening = onYtdlUpdate((update) => {
+  if (!props.isOpen) return;
   const id = props.group?.requestId;
-  if (!id || loading.value || items.value.length === 0) return;
-  try {
-    const page = await api.ytdlItems(id);
-    const fresh = new Map(page.items.map((i) => [i.requestId, i]));
-    items.value = items.value.map((existing) => fresh.get(existing.requestId) ?? existing);
-  } catch {
-    // Keep showing what we have.
+  if (!id || !updateTouchesGroup(update, id)) return;
+  if (items.value.length === 0) {
+    // Opened while the group was still working out what it contains: there was
+    // nothing to merge into, and there is now. Fetching once here is what keeps
+    // a sheet opened a second too early from staying empty for good.
+    void load(true);
+    return;
   }
-}
+  // `nested`: a track that arrives for a group nobody has open belongs to
+  // somebody else's sheet, and inserting it here would be showing the wrong
+  // playlist's contents.
+  items.value = mergeYtdlUpdate(items.value, update, true);
+});
+onUnmounted(stopListening);
 
 /**
  * Two SEPARATE sources, not one getter returning an array.
@@ -100,28 +114,6 @@ watch(
     }
   },
   { immediate: true },
-);
-
-/**
- * While the sheet is open, follow the group's own updates.
- *
- * Watched as a STRING, not as the counts object. The parent re-reads the list on
- * its own schedule, so `group.counts` is a brand new object every few seconds
- * even when not one number in it has changed — and an object source, deep or
- * not, fires on that new reference. Comparing a derived string compares by
- * value, so this runs when something actually moved and not merely when the
- * list was polled.
- */
-watch(
-  () => {
-    const g = props.group;
-    if (!g) return '';
-    const c = g.counts;
-    return c ? `${g.state}:${c.total}/${c.completed}/${c.failed}/${c.remaining}` : g.state;
-  },
-  () => {
-    if (props.isOpen) void refreshInPlace();
-  },
 );
 
 const summary = computed(() => {

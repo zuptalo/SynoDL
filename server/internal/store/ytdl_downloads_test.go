@@ -362,3 +362,46 @@ func itoa(n int) string {
 	}
 	return string(b)
 }
+
+// The watch set is what a live update can be about, so what it leaves out
+// matters as much as what it holds: a finished download cannot change again.
+func TestListYtdlUnfinished(t *testing.T) {
+	st := openTestStore(t)
+	anna, _ := st.CreateUser("anna", "h", false)
+
+	mk := func(id string, kind YtdlKind, state string) {
+		t.Helper()
+		d := dl(id, &anna)
+		d.Kind = kind
+		d.State = state
+		if err := st.CreateYtdlDownload(d); err != nil {
+			t.Fatalf("create %s: %v", id, err)
+		}
+	}
+	mk("a", YtdlKindSingle, "queued")
+	mk("b", YtdlKindGroup, "resolving")
+	mk("c", YtdlKindSingle, "scheduled")
+	mk("d", YtdlKindSingle, "downloading")
+	mk("e", YtdlKindGroup, "downloading")
+	mk("f", YtdlKindSingle, "completed")
+	mk("g", YtdlKindSingle, "failed")
+
+	got, err := st.ListYtdlUnfinished()
+	if err != nil {
+		t.Fatalf("ListYtdlUnfinished: %v", err)
+	}
+	ids := map[string]bool{}
+	for _, d := range got {
+		ids[d.RequestID] = true
+	}
+	for _, want := range []string{"a", "b", "c", "d", "e"} {
+		if !ids[want] {
+			t.Errorf("watch set is missing %q — its state can still change", want)
+		}
+	}
+	for _, unwanted := range []string{"f", "g"} {
+		if ids[unwanted] {
+			t.Errorf("watch set holds %q, which is final and cannot change again", unwanted)
+		}
+	}
+}
