@@ -386,6 +386,10 @@ onUnmounted(() => document.removeEventListener('visibilitychange', onForeground)
  */
 function onCancelSearch(): void {
   cancelSearch();
+  // If the search came from a pull, retract the refresher with it: the gesture
+  // is over the moment its search is.
+  void activeRefresher?.complete();
+  activeRefresher = null;
 }
 
 async function onSearch(e: CustomEvent): Promise<void> {
@@ -424,10 +428,34 @@ async function onInfinite(e: InfiniteScrollCustomEvent): Promise<void> {
 }
 
 // Pull-to-refresh: re-check the source and reload the current view.
+/**
+ * True from the moment a pull starts. Only used to keep the droplet's own
+ * transition from playing on the way back up.
+ */
+const pulling = ref(false);
+
+/**
+ * The refresher currently held open, so cancelling can retract it.
+ *
+ * Without this a cancelled pull-to-refresh would leave the refresher pinned open
+ * with nothing running behind it — the one state where the screen would be
+ * saying "working" about nothing at all.
+ */
+let activeRefresher: HTMLIonRefresherElement | null = null;
+
 async function onRefresh(e: RefresherCustomEvent): Promise<void> {
-  await loadStatus();
-  if (!unavailable.value && !needsRefresh.value) await search(true);
-  await e.target.complete();
+  activeRefresher = e.target;
+  pulling.value = false;
+  try {
+    await loadStatus();
+    if (!unavailable.value && !needsRefresh.value) await search(true);
+  } finally {
+    // In a finally, so a search that FAILS — a timeout, an unreachable server —
+    // still retracts it. Leaving it open on an error is how a refresher ends up
+    // spinning forever over a screen that has already given up.
+    activeRefresher = null;
+    await e.target.complete();
+  }
 }
 
 // Show a jump-to-top button once the list is scrolled down a screenful or so.
@@ -636,25 +664,54 @@ function goSettings(): void {
          screen moves as this appears or goes (FR-011). The same reason the
          progress bar above holds its row rather than being mounted and
          unmounted. -->
+    <!-- What a running search looks like, wherever it came from (spec 2028).
+         The spinner and the cancel are ONE block, stacked, so they keep their
+         position relative to each other however the list moves — and it is the
+         same block whether the search began with a pull, a sort or a keystroke,
+         rather than one treatment for the gesture and another for everything
+         else.
+         It sits where the refresher's own spinner would, which is why that one
+         is turned off, and it stays until the search finishes or fails. -->
     <transition name="cancel-pill">
-      <button
-        v-if="cancellable"
-        type="button"
-        class="cancel-pill"
-        :style="{ top: pillTop }"
-        data-testid="search-cancel"
-        @click="onCancelSearch"
-      >
-        <ion-spinner name="crescent" class="pill-spinner" />
-        <span class="pill-text">Searching</span>
-        <ion-icon :icon="closeCircleOutline" class="pill-x" />
-        <span class="pill-action">Cancel</span>
-      </button>
+      <div v-if="cancellable" class="search-block" :style="{ top: pillTop }">
+        <ion-spinner name="crescent" class="block-spinner" />
+        <button
+          type="button"
+          class="cancel-pill"
+          data-testid="search-cancel"
+          @click="onCancelSearch"
+        >
+          <ion-icon :icon="closeCircleOutline" class="pill-x" />
+          <span class="pill-action">Cancel</span>
+        </button>
+      </div>
     </transition>
 
     <ion-content ref="contentRef" :fullscreen="true" :scroll-events="true" @ionScroll="onScroll">
-      <ion-refresher slot="fixed" @ionRefresh="onRefresh">
-        <ion-refresher-content />
+      <!-- Pulling stretches a droplet, which becomes the spinner (spec 2028).
+           The droplet's transform-origin is its TOP, so Ionic's own
+           scale-with-pull extends it downward from a fixed point rather than
+           growing it evenly — the stretch is the gesture's, not an animation
+           playing alongside it.
+           `refreshing-spinner="none"` because the spinner belongs to the block
+           below, with the cancel button: two spinners in the same place would be
+           the app saying "working" twice. -->
+      <ion-refresher
+        slot="fixed"
+        @ionRefresh="onRefresh"
+        @ionStart="pulling = true"
+        @ionPull="pulling = true"
+      >
+        <ion-refresher-content :refreshing-spinner="null" pulling-text="">
+          <div slot="pulling-icon" class="droplet" aria-hidden="true">
+            <svg viewBox="0 0 24 34" width="26" height="34">
+              <path
+                d="M12 0 C12 0 22 14.5 22 22 A10 10 0 0 1 2 22 C2 14.5 12 0 12 0 Z"
+                fill="currentColor"
+              />
+            </svg>
+          </div>
+        </ion-refresher-content>
       </ion-refresher>
 
       <!-- Unavailable: no provider configured (or legacy mode). -->
@@ -1246,15 +1303,41 @@ function goSettings(): void {
    it holds its 4px row instead of being mounted and unmounted.
    Centred under the header and clear of it, so it reads as belonging to the
    search that is running rather than to any one control. */
-.cancel-pill {
+/* The droplet, stretched by the pull itself.
+   Its origin is the TOP, so Ionic's scale-with-pull extends it downward from a
+   fixed point instead of growing it evenly — which is what makes it read as
+   being drawn out rather than merely getting bigger. */
+.droplet {
+  color: var(--ion-color-primary);
+  transform-origin: 50% 0;
+  display: flex;
+  justify-content: center;
+}
+
+/* The spinner and the cancel as ONE block: stacked, centred, and moving
+   together, so their relative position never changes however the list does. */
+.search-block {
   position: fixed;
   left: 50%;
   transform: translateX(-50%);
   z-index: 20;
   display: flex;
+  flex-direction: column;
   align-items: center;
-  gap: 7px;
-  padding: 7px 14px 7px 11px;
+  gap: 10px;
+  pointer-events: none; /* only the button below takes taps */
+}
+.block-spinner {
+  width: 26px;
+  height: 26px;
+  color: var(--ion-color-primary);
+}
+.cancel-pill {
+  pointer-events: auto;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 13px 6px 10px;
   border: none;
   border-radius: 999px;
   font: inherit;
@@ -1271,15 +1354,7 @@ function goSettings(): void {
   cursor: pointer;
 }
 .cancel-pill:active {
-  transform: translateX(-50%) scale(0.97);
-}
-.pill-spinner {
-  width: 15px;
-  height: 15px;
-  color: var(--ion-color-primary);
-}
-.pill-text {
-  color: var(--app-text-dim);
+  transform: scale(0.96);
 }
 .pill-x {
   font-size: 15px;
