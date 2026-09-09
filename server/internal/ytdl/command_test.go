@@ -513,14 +513,13 @@ func TestArgs_GuardsSourceFieldsThatBecomeDirectories(t *testing.T) {
 	args := Args(Options{Mode: ModeMusic, Target: Target{URL: "https://youtu.be/abc", Scope: ScopeSingle}})
 
 	guarded := map[string]bool{}
-	for _, v := range values(args, "--replace-in-metadata") {
-		field, rest, ok := strings.Cut(v, " ")
-		if !ok {
-			t.Fatalf("malformed --replace-in-metadata %q", v)
+	for i, a := range args {
+		if a != "--replace-in-metadata" {
+			continue
 		}
-		guarded[field] = true
-		if !strings.HasPrefix(rest, dotOnlyPattern+" ") {
-			t.Errorf("guard for %q uses %q, want the dot-only pattern", field, rest)
+		guarded[args[i+1]] = true
+		if args[i+2] != dotOnlyPattern {
+			t.Errorf("guard for %q uses pattern %q, want the dot-only pattern", args[i+1], args[i+2])
 		}
 	}
 
@@ -536,6 +535,97 @@ func TestArgs_GuardsSourceFieldsThatBecomeDirectories(t *testing.T) {
 		if guarded[mustNot] {
 			t.Errorf("%q is rewritten; the published title must stay verbatim (0012 FR-008)", mustNot)
 		}
+	}
+}
+
+// The regression test for the bug that shipped in 0.16.0.
+//
+// `--replace-in-metadata` takes THREE arguments (FIELDS REGEX REPLACE, nargs=3).
+// They were passed as ONE space-joined string, so each occurrence of the option
+// ate the two argv elements that followed it. With three guards in a row that
+// consumed `--newline` and `--progress-template`, leaving the progress template
+// itself to be parsed as a positional URL:
+//
+//	ERROR: [generic] '[synodl] status=%(progress.status)s …' is not a valid URL
+//
+// Nothing failed loudly. The download still ran, because the real URL was still
+// the last element — but progress never reported and this guard never applied,
+// so the path-traversal fix it exists for was inert in production.
+//
+// The old test only checked that the option was PRESENT and its value contained
+// the pattern, which a joined string satisfies. This checks arity, which is what
+// actually broke.
+func TestDotOnlyGuard_PassesThreeSeparateArgs(t *testing.T) {
+	args := Args(Options{Mode: ModeMusic, Target: Target{URL: "https://youtu.be/abc", Scope: ScopeSingle}})
+
+	var seen int
+	for i, a := range args {
+		if a != "--replace-in-metadata" {
+			continue
+		}
+		seen++
+		if i+3 >= len(args) {
+			t.Fatalf("--replace-in-metadata at %d has fewer than its three arguments", i)
+		}
+		field, pattern, repl := args[i+1], args[i+2], args[i+3]
+		for label, v := range map[string]string{"FIELDS": field, "REGEX": pattern, "REPLACE": repl} {
+			if strings.HasPrefix(v, "-") {
+				t.Errorf("--replace-in-metadata %s is %q, which is a FLAG — the option is eating it", label, v)
+			}
+			if strings.Contains(strings.TrimSpace(v), " ") {
+				t.Errorf("--replace-in-metadata %s is %q, which joins arguments that must be separate", label, v)
+			}
+		}
+	}
+	if seen != len(directoryFields) {
+		t.Fatalf("found %d guards, want one per directory field (%d)", seen, len(directoryFields))
+	}
+}
+
+// The flags that follow the guard must survive it. This is the other half of
+// the same bug, stated from the consumer's side.
+func TestArgs_ProgressFlagsSurviveTheGuard(t *testing.T) {
+	for _, mode := range []Mode{ModeMusic, ModeMusicVideo} {
+		args := Args(Options{Mode: mode, Target: Target{URL: "https://youtu.be/abc", Scope: ScopeSingle}})
+
+		idx := -1
+		for i, a := range args {
+			if a == "--progress-template" {
+				idx = i
+			}
+		}
+		if idx < 0 {
+			t.Fatalf("[%s] --progress-template missing", mode)
+		}
+		if idx+1 >= len(args) || args[idx+1] != ProgressTemplate {
+			t.Fatalf("[%s] --progress-template is not followed by the template", mode)
+		}
+		if !contains(args, "--newline") {
+			t.Errorf("[%s] --newline missing", mode)
+		}
+	}
+}
+
+// Nothing but the URL may be positional. A flag that takes the wrong number of
+// arguments shows up here as a stray value the extractor would treat as a URL,
+// which is exactly how the 0.16.0 bug manifested.
+func TestArgs_TheURLIsTheOnlyPositional(t *testing.T) {
+	const url = "https://youtu.be/abc"
+	args := Args(Options{Mode: ModeMusic, Target: Target{URL: url, Scope: ScopeSingle}, GroupName: "Some Album"})
+
+	// Everything before the end-of-options marker must be a flag or one of its
+	// arguments; the marker and the URL close the list.
+	end := -1
+	for i, a := range args {
+		if a == "--" {
+			end = i
+		}
+	}
+	if end != len(args)-2 || args[len(args)-1] != url {
+		t.Fatalf("args do not end with `-- <url>`: %v", args[max(0, len(args)-4):])
+	}
+	for _, a := range args[end+1 : len(args)-1] {
+		t.Errorf("stray positional before the URL: %q", a)
 	}
 }
 

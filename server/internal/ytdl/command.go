@@ -107,9 +107,14 @@ const dotOnlyPattern = `^[.\s]+$`
 // guard has to travel with the command, as a constant containing no user input
 // — the same property the --exec snippets rely on.
 func dotOnlyGuardArgs() []string {
-	out := make([]string, 0, len(directoryFields)*2)
+	// THREE separate argv elements, not one joined string: the option takes
+	// FIELDS, REGEX and REPLACE as three arguments (nargs=3). Joining them made
+	// the option eat the two flags that followed it, which silently disabled
+	// both this guard and progress reporting, and pushed the progress template
+	// out to be parsed as a URL. See TestDotOnlyGuard_PassesThreeSeparateArgs.
+	out := make([]string, 0, len(directoryFields)*4)
 	for _, f := range directoryFields {
-		out = append(out, "--replace-in-metadata", f+" "+dotOnlyPattern+" _")
+		out = append(out, "--replace-in-metadata", f, dotOnlyPattern, "_")
 	}
 	return out
 }

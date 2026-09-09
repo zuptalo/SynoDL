@@ -88,3 +88,4 @@ Specs are grouped by category band; status moves
 | [2017](specs/2017-hide-owned-migration-skipped/spec.md) | "Hide what I have" never saved, and every view save answered 500 | 🟢 shipped |
 | [2019](specs/2019-orphaned-rows-sweep/spec.md) | Remove rows the cascades should have taken with them | 🟢 shipped |
 | [2020](specs/2020-download-without-lyrics/spec.md) | A download without lyrics is not a failure | 🟢 shipped |
+| [2021](specs/2021-ytdl-flag-arity/spec.md) | Progress reporting and the traversal guard, actually switched on | 🔵 in-review |
