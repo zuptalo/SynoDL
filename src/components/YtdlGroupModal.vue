@@ -58,14 +58,43 @@ async function load(reset: boolean): Promise<void> {
     items.value = reset ? page.items : [...items.value, ...page.items];
     cursor.value = page.nextCursor;
   } catch {
-    // Leave whatever is already shown; the next open re-reads.
+    // Leave whatever is already shown; the next refresh re-reads.
   } finally {
     loading.value = false;
   }
 }
 
+/**
+ * Update what is already on screen, in place.
+ *
+ * Deliberately NOT `load(true)`. Re-reading the first page and assigning it
+ * would blank the list and repopulate it — which is visible as a flicker every
+ * few seconds, and throws away any further pages the reader has scrolled to.
+ * Only the fields that actually move are copied onto the rows already shown.
+ */
+async function refreshInPlace(): Promise<void> {
+  const id = props.group?.requestId;
+  if (!id || loading.value || items.value.length === 0) return;
+  try {
+    const page = await api.ytdlItems(id);
+    const fresh = new Map(page.items.map((i) => [i.requestId, i]));
+    items.value = items.value.map((existing) => fresh.get(existing.requestId) ?? existing);
+  } catch {
+    // Keep showing what we have.
+  }
+}
+
+/**
+ * Two SEPARATE sources, not one getter returning an array.
+ *
+ * A getter that builds a new array is a new object every time it runs, so Vue's
+ * reference comparison fires the watcher on every re-render — and since `group`
+ * comes from the polled list, that meant clearing and reloading the items every
+ * few seconds. An array of sources is compared element-wise, so this fires only
+ * when the sheet opens or when it is pointed at a different group.
+ */
 watch(
-  () => [props.isOpen, props.group?.requestId],
+  [() => props.isOpen, () => props.group?.requestId],
   ([open]) => {
     if (open) {
       items.value = [];
@@ -74,6 +103,28 @@ watch(
     }
   },
   { immediate: true },
+);
+
+/**
+ * While the sheet is open, follow the group's own updates.
+ *
+ * Watched as a STRING, not as the counts object. The parent re-reads the list on
+ * its own schedule, so `group.counts` is a brand new object every few seconds
+ * even when not one number in it has changed — and an object source, deep or
+ * not, fires on that new reference. Comparing a derived string compares by
+ * value, so this runs when something actually moved and not merely when the
+ * list was polled.
+ */
+watch(
+  () => {
+    const g = props.group;
+    if (!g) return '';
+    const c = g.counts;
+    return c ? `${g.state}:${c.total}/${c.completed}/${c.failed}/${c.remaining}` : g.state;
+  },
+  () => {
+    if (props.isOpen) void refreshInPlace();
+  },
 );
 
 const summary = computed(() => {
