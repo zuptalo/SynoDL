@@ -459,8 +459,26 @@ let searchGen = 0;
  */
 let searchAbort: AbortController | null = null;
 
-/** Whether there is something running that a reader could call off. */
-const cancellable = computed(() => loading.value);
+/**
+ * Whether the pages in flight are MORE OF THE SAME rather than a new view.
+ *
+ * The distinction is what a reader is doing while they wait. A fresh search is
+ * something they asked for and are waiting on: the grid they are looking at is
+ * about to be replaced, and offering to call it off is offering them their old
+ * view back. Paging is not that — they are already reading, and more is arriving
+ * below the fold. Nothing is being taken away, so there is nothing to take back.
+ */
+const paging = ref(false);
+
+/**
+ * Whether there is something running that a reader could call off.
+ *
+ * Not merely "is a request in flight". Paging deliberately does not count: a
+ * spinner parked over the grid while the reader scrolls is in the way of the
+ * very thing it is reporting on, and the indeterminate bar in the header already
+ * says a page is coming.
+ */
+const cancellable = computed(() => loading.value && !paging.value);
 
 /**
  * Call off the search in progress and put things back as they were.
@@ -503,6 +521,10 @@ async function runSearch(reset = true): Promise<void> {
     searchAbort = new AbortController();
   }
   loading.value = true;
+  // A reset also CLEARS it, rather than only not setting it: changing the sort
+  // mid-scroll starts a real search while a page is still in the air, and that
+  // search must be callable off.
+  paging.value = !reset;
   errorMsg.value = '';
   if (reset) {
     // Keep the current results on screen while the first fresh page loads
@@ -542,7 +564,10 @@ async function runSearch(reset = true): Promise<void> {
       handleErr(e); // ignore errors from a superseded search
     }
   } finally {
-    if (gen === searchGen) loading.value = false;
+    if (gen === searchGen) {
+      loading.value = false;
+      paging.value = false;
+    }
   }
 }
 

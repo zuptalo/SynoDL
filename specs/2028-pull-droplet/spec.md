@@ -88,6 +88,9 @@ arrive.
    the search began.
 4. **Given** a pull-to-refresh is cancelled, **When** it is, **Then** the
    refresher retracts with it rather than staying open over nothing.
+5. **Given** the reader scrolls to the bottom and the next page loads, **When**
+   it does, **Then** no spinner or cancel appears over the grid — only the
+   progress bar. Nothing is being taken away, so there is nothing to take back.
 
 ---
 
@@ -97,6 +100,9 @@ arrive.
   path too; a refresher left open is the screen saying "working" about nothing.
 - **A cancel with no pull behind it.** Cancelling a sort-triggered search has no
   refresher to retract, and must not assume one.
+- **A sort changed while a page is still in the air.** That starts a real search
+  and must be callable off, so "this is only paging" has to be cleared by a new
+  search rather than merely not set by it.
 
 ## Requirements
 
@@ -119,6 +125,9 @@ arrive.
   away.
 - **FR-012**: The pull MUST be measured from ONE source, so the shape never
   restarts mid-gesture.
+- **FR-013**: Loading MORE of the same results — paging as the reader scrolls on
+  — MUST show no spinner and offer no cancel. The header's progress bar is the
+  whole report.
 
 ## Success Criteria
 

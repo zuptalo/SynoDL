@@ -372,3 +372,52 @@ test('pulling draws one indicator, growing downward, with the cancel inside it',
 
   await setSlow(0);
 });
+
+test('reading on past the bottom loads quietly, with no spinner over the grid', async ({ page }) => {
+  // Paging is not a search. The reader is already reading and more is arriving
+  // underneath them — they are not waiting on a combination they asked for, so
+  // there is nothing to offer to call off, and a spinner parked over the grid is
+  // in the way of the thing it is reporting on. The progress bar in the header
+  // says it, which is enough.
+  await login(page);
+  await openDiscover(page);
+  await expect(page.locator('.card').first()).toBeVisible({ timeout: 30_000 });
+  await page.waitForTimeout(4000); // let the fill-the-viewport pass finish
+
+  const before = await page.getByTestId('catalog-card').count();
+  await setSlow(4000);
+
+  // Reach the bottom, which is what arms infinite scroll.
+  await page.evaluate(async () => {
+    const el = await (document.querySelector('ion-content') as HTMLIonContentElement).getScrollElement();
+    el.scrollTop = el.scrollHeight;
+  });
+
+  // Sampled ACROSS the load rather than checked once. A single `toHaveCount(0)`
+  // passes the instant it is evaluated, and the block needs a tick to mount — so
+  // that version of this test passed with the spinner present. Watched for.
+  const seen: Array<{ bar: boolean; cancel: boolean }> = [];
+  for (let i = 0; i < 16; i += 1) {
+    seen.push(
+      await page.evaluate(() => ({
+        bar: !document.querySelector('[data-testid=search-loading]')?.classList.contains('idle'),
+        cancel: !!document.querySelector('[data-testid=search-cancel]'),
+      })),
+    );
+    await page.waitForTimeout(250);
+  }
+
+  // A load really did run — otherwise the assertion below passes on a page that
+  // is simply doing nothing.
+  expect(seen.some((s) => s.bar), 'no page load ever started').toBe(true);
+  expect(
+    seen.filter((s) => s.cancel).length,
+    'paging put a spinner over the grid',
+  ).toBe(0);
+  await expect(page.getByTestId('pull-refresh')).toHaveCount(0);
+
+  await setSlow(0);
+  // And it was a real page load, not just a bar that lit up.
+  await expect.poll(() => page.getByTestId('catalog-card').count(), { timeout: 30_000 })
+    .toBeGreaterThan(before);
+});
