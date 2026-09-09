@@ -32,12 +32,35 @@ The described interaction is one object throughout: a droplet drawn out by the
 pull, which becomes the spinner, with the cancel directly beneath it, the pair
 holding their position relative to each other until the search ends.
 
+## Revision — the animation, redesigned (2026-09-10)
+
+The first cut of this spec shipped as 0.16.14 and reached only the Discover tab:
+it gave Ionic's stock pull icon a droplet shape and a top transform-origin, and
+put the cancel in a block beneath the spinner.
+
+Watching it run, two things were wrong with the idea rather than the code. The
+droplet borrowed Ionic's scale, so it *grew* — it never had a narrow stem being
+drawn off a surface. And the cancel below the spinner made a two-storey block
+that the list had to be pushed a long way down to clear.
+
+The redesign, as asked for: a dot fades in as the pull begins, is drawn out into
+a tall narrow droplet as it deepens, and pinches off into a rotating dashed ring
+at the threshold — one continuous shape, green dashed throughout. The ✕ moves to
+the DEAD CENTRE of the ring and the words "Cancel Loading" sit just above it, so
+the whole control is ring-sized instead of stacked. It lives in one component
+used by every list that pulls, not just Discover.
+
+FR-001, FR-003 and SC-001 below are restated accordingly; everything else stands.
+
+---
+
 ## User Scenarios & Testing
 
 ### User Story 1 - Pulling to refresh (Priority: P1)
 
 Someone pulls the list down and watches a droplet stretch under their finger,
-turn into the spinner, and stay — with a cancel under it — until results arrive.
+turn into the spinning ring, and stay — with a cancel in it — until results
+arrive.
 
 **Acceptance Scenarios**:
 
@@ -47,8 +70,8 @@ turn into the spinner, and stay — with a cancel under it — until results arr
    droplet gives way to the spinner in the same place.
 3. **Given** a search is running, **When** the screen is watched, **Then** there
    is exactly ONE spinner.
-4. **Given** the search finishes or fails, **When** it ends, **Then** the spinner
-   and the cancel both go.
+4. **Given** the search finishes or fails, **When** it ends, **Then** the ring
+   and the cancel both go, leaving nothing behind.
 
 ---
 
@@ -56,8 +79,8 @@ turn into the spinner, and stay — with a cancel under it — until results arr
 
 **Acceptance Scenarios**:
 
-1. **Given** a search is running, **When** the pair is shown, **Then** the cancel
-   is directly beneath the spinner and centred on it.
+1. **Given** a search is running, **When** the pair is shown, **Then** the ✕ is
+   at the centre of the ring and the label sits directly above it.
 2. **Given** the list moves, **When** it does, **Then** the two keep their
    position relative to each other.
 3. **Given** a search started by a sort, a filter or a keystroke, **When** it
@@ -65,6 +88,9 @@ turn into the spinner, and stay — with a cancel under it — until results arr
    the search began.
 4. **Given** a pull-to-refresh is cancelled, **When** it is, **Then** the
    refresher retracts with it rather than staying open over nothing.
+5. **Given** the reader scrolls to the bottom and the next page loads, **When**
+   it does, **Then** no spinner or cancel appears over the grid — only the
+   progress bar. Nothing is being taken away, so there is nothing to take back.
 
 ---
 
@@ -74,25 +100,42 @@ turn into the spinner, and stay — with a cancel under it — until results arr
   path too; a refresher left open is the screen saying "working" about nothing.
 - **A cancel with no pull behind it.** Cancelling a sort-triggered search has no
   refresher to retract, and must not assume one.
+- **A sort changed while a page is still in the air.** That starts a real search
+  and must be callable off, so "this is only paging" has to be cleared by a new
+  search rather than merely not set by it.
 
 ## Requirements
 
-- **FR-001**: The pull indicator MUST be a droplet that stretches DOWNWARD as the
-  pull deepens.
+- **FR-001**: The pull indicator MUST be ONE shape throughout: a dot as the pull
+  begins, drawn DOWNWARD into a tall narrow droplet as it deepens, closing into
+  the ring at the threshold. Its last droplet frame MUST be the ring's first —
+  the same circle, so nothing jumps.
 - **FR-002**: Exactly one spinner MUST be on screen while a search runs.
-- **FR-003**: The cancel MUST sit directly beneath the spinner and centred on it,
-  as one block.
+- **FR-003**: The cancel ✕ MUST sit at the centre of the ring, with the words
+  "Cancel Loading" directly above it, as one block.
 - **FR-004**: The pair MUST hold that relationship however the list moves.
 - **FR-005**: The pair MUST be the same whatever started the search.
 - **FR-006**: The pair MUST remain until the search finishes OR fails.
 - **FR-007**: Cancelling a pull-triggered search MUST retract the refresher.
 - **FR-008**: The pair MUST still cost no layout.
+- **FR-009**: The indicator MUST be drawn in the gap the refresher holds open,
+  never over a row.
+- **FR-010**: Every list that pulls to refresh MUST use this same indicator.
+- **FR-011**: There MUST be no success mark. Finishing is the animation going
+  away.
+- **FR-012**: The pull MUST be measured from ONE source, so the shape never
+  restarts mid-gesture.
+- **FR-013**: Loading MORE of the same results — paging as the reader scrolls on
+  — MUST show no spinner and offer no cancel. The header's progress bar is the
+  whole report.
 
 ## Success Criteria
 
-- **SC-001**: The cancel's top edge is below the spinner's bottom edge, and their
-  centres line up.
+- **SC-001**: The ✕ is centred on the ring, and the label's bottom edge is above
+  the ring's top edge, on the same centre line.
 - **SC-002**: A search that errors leaves no refresher open.
+- **SC-003**: Through a single pull, the measured content offset never decreases
+  before release.
 
 ## Credential-Safety Impact
 
@@ -100,7 +143,14 @@ turn into the spinner, and stay — with a cancel under it — until results arr
 
 ## Assumptions
 
-- The droplet's stretch comes from the refresher's OWN pull progress, by giving
-  the icon a top transform-origin so the scale it already applies extends the
-  shape downward. That ties the animation to the finger rather than running
-  alongside it, and needs nothing Ionic does not already expose.
+- The droplet's stretch is driven by the refresher's OWN pull distance, read
+  each frame from the transform Ionic applies to the scroller, and redrawn as an
+  SVG path. Reading Ionic's transform *and* the browser's rubber-band overscroll
+  — which an earlier attempt did — is what made the shape restart once, early in
+  the pull: the bounce moves first, then Ionic claims the gesture and resets the
+  scroller to zero. One source cannot hand off to itself.
+- No `<ion-refresher-content>` is present. Ionic decides between its own JS
+  refresher and the browser-native one by inspecting that element's spinners, in
+  an async check re-run on every state change — so with one there, the first pull
+  can still be mid-decision and swap implementations under the gesture. With no
+  content element the check answers false immediately.

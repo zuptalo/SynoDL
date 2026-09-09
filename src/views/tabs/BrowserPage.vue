@@ -17,8 +17,6 @@ import {
   IonNote,
   IonPage,
   IonProgressBar,
-  IonRefresher,
-  IonRefresherContent,
   IonSearchbar,
   IonSelect,
   IonSelectOption,
@@ -50,6 +48,7 @@ import { genreLabels } from '@/services/genre-label';
 import { useSourceCatalog } from '@/composables/useSourceCatalog';
 import { sortLabel } from '@/services/source-filters';
 import { useSession } from '@/composables/useSession';
+import PullRefresh from '@/components/PullRefresh.vue';
 import SourceFilterSheet from '@/components/SourceFilterSheet.vue';
 import SourceTitleModal from '@/components/SourceTitleModal.vue';
 
@@ -390,6 +389,7 @@ function onCancelSearch(): void {
   // is over the moment its search is.
   void activeRefresher?.complete();
   activeRefresher = null;
+  activeRefresherLive.value = false;
 }
 
 async function onSearch(e: CustomEvent): Promise<void> {
@@ -442,9 +442,17 @@ const pulling = ref(false);
  * saying "working" about nothing at all.
  */
 let activeRefresher: HTMLIonRefresherElement | null = null;
+const activeRefresherLive = ref(false);
+
+// While a PULL is what started the search, the pull indicator is already saying
+// "working" and already carries a cancel — a second floating block is the app
+// saying it twice, in two places, which is what the doubled indicator on this
+// tab actually was. A sort or a keystroke still gets the floating one.
+const loadingFromPull = computed(() => loading.value && activeRefresherLive.value);
 
 async function onRefresh(e: RefresherCustomEvent): Promise<void> {
   activeRefresher = e.target;
+  activeRefresherLive.value = true;
   pulling.value = false;
   try {
     await loadStatus();
@@ -454,6 +462,7 @@ async function onRefresh(e: RefresherCustomEvent): Promise<void> {
     // still retracts it. Leaving it open on an error is how a refresher ends up
     // spinning forever over a screen that has already given up.
     activeRefresher = null;
+    activeRefresherLive.value = false;
     await e.target.complete();
   }
 }
@@ -673,7 +682,7 @@ function goSettings(): void {
          It sits where the refresher's own spinner would, which is why that one
          is turned off, and it stays until the search finishes or fails. -->
     <transition name="cancel-pill">
-      <div v-if="cancellable" class="search-block" :style="{ top: pillTop }">
+      <div v-if="cancellable && !loadingFromPull" class="search-block" :style="{ top: pillTop }">
         <ion-spinner name="crescent" class="block-spinner" />
         <button
           type="button"
@@ -688,31 +697,7 @@ function goSettings(): void {
     </transition>
 
     <ion-content ref="contentRef" :fullscreen="true" :scroll-events="true" @ionScroll="onScroll">
-      <!-- Pulling stretches a droplet, which becomes the spinner (spec 2028).
-           The droplet's transform-origin is its TOP, so Ionic's own
-           scale-with-pull extends it downward from a fixed point rather than
-           growing it evenly — the stretch is the gesture's, not an animation
-           playing alongside it.
-           `refreshing-spinner="none"` because the spinner belongs to the block
-           below, with the cancel button: two spinners in the same place would be
-           the app saying "working" twice. -->
-      <ion-refresher
-        slot="fixed"
-        @ionRefresh="onRefresh"
-        @ionStart="pulling = true"
-        @ionPull="pulling = true"
-      >
-        <ion-refresher-content :refreshing-spinner="null" pulling-text="">
-          <div slot="pulling-icon" class="droplet" aria-hidden="true">
-            <svg viewBox="0 0 24 34" width="26" height="34">
-              <path
-                d="M12 0 C12 0 22 14.5 22 22 A10 10 0 0 1 2 22 C2 14.5 12 0 12 0 Z"
-                fill="currentColor"
-              />
-            </svg>
-          </div>
-        </ion-refresher-content>
-      </ion-refresher>
+      <PullRefresh @refresh="onRefresh" @cancel="onCancelSearch" />
 
       <!-- Unavailable: no provider configured (or legacy mode). -->
       <div v-if="unavailable" class="state">

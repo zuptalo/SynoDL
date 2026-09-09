@@ -55,6 +55,10 @@ export default defineConfig({
         'src/services/catalog-session.ts',
         // Where a NAS download came from (spec 1042).
         'src/services/task-origin.ts',
+        // How far the pull has travelled (spec 2028) — gated because the
+        // regression it exists to prevent is a phone-only one the e2e suite
+        // cannot reach, so this is where it is held.
+        'src/services/pull-distance.ts',
       ],
       thresholds: { lines: 80, functions: 80, statements: 80, branches: 80 },
     },

@@ -15,8 +15,6 @@ import {
   IonListHeader,
   IonNote,
   IonPage,
-  IonRefresher,
-  IonRefresherContent,
   IonSpinner,
   IonTitle,
   IonToolbar,
@@ -46,6 +44,7 @@ import UploadModal from '@/components/UploadModal.vue';
 import { useUploads } from '@/composables/useUploads';
 import UploadItem from '@/components/UploadItem.vue';
 import UploadDetailModal from '@/components/UploadDetailModal.vue';
+import PullRefresh from '@/components/PullRefresh.vue';
 import { splitByOrigin } from '@/services/task-origin';
 import { useYtdl } from '@/composables/useYtdl';
 import YtdlItem from '@/components/YtdlItem.vue';
@@ -331,10 +330,18 @@ async function openSelectionActions(): Promise<void> {
 }
 
 // ---- existing per-row + list plumbing -------------------------------------
+// Pull to refresh. The indicator stays for exactly as long as the refresh runs,
+// so the refresher is completed in a finally — one left open is the screen
+// saying "working" about nothing. There is no success mark: finishing is the
+// animation going away.
 async function onPull(ev: RefresherCustomEvent): Promise<void> {
-  await refresh();
-  await ev.target.complete();
+  try {
+    await refresh();
+  } finally {
+    await ev.target.complete();
+  }
 }
+
 async function onApplyFilter(next: TaskFilterState): Promise<void> {
   await apply(next);
   filterOpen.value = false;
@@ -397,9 +404,10 @@ async function onDelete(id: string): Promise<void> {
       </ion-toolbar>
     </ion-header>
     <ion-content :fullscreen="true">
-      <ion-refresher slot="fixed" @ionRefresh="onPull">
-        <ion-refresher-content />
-      </ion-refresher>
+      <!-- Cancelling retracts the indicator, which PullRefresh does itself. The
+           poll already in flight is left to finish quietly: stopping it would
+           only mean a staler list. -->
+      <PullRefresh @refresh="onPull" />
 
       <!-- Uploads sit above the downloads and read the same way: they are
            transfers in progress, not notices. -->
