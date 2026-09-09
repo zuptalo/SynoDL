@@ -49,6 +49,51 @@ func TestListPods_UsesSelectorAndNamespace(t *testing.T) {
 	}
 }
 
+// The regression for the bug that shipped in 0.16.0-0.16.2.
+//
+// PodLog sent `Accept: text/plain`, which is the obvious header for a response
+// whose body IS plain text — and the API server answers 406 to it:
+//
+//	only the following media types are accepted: application/json,
+//	application/yaml, application/vnd.kubernetes.protobuf
+//
+// Content negotiation is on the API's own media types, not on what a particular
+// subresource happens to return. Every expansion therefore failed with "could
+// not read what that link contains", and no playlist ever expanded.
+//
+// The original test did not catch it because its httptest fake ignored Accept
+// entirely — the fake was more permissive than the thing it stood in for. This
+// one rejects what the real server rejects.
+func TestPodLog_SendsNoUnacceptableAcceptHeader(t *testing.T) {
+	c := podClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Reproduce the API server's own content negotiation.
+		if a := r.Header.Get("Accept"); a != "" {
+			ok := false
+			for _, m := range []string{"application/json", "application/yaml", "application/vnd.kubernetes.protobuf", "*/*"} {
+				if strings.Contains(a, m) {
+					ok = true
+				}
+			}
+			if !ok {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusNotAcceptable)
+				_, _ = w.Write([]byte(`{"message":"only the following media types are accepted: application/json, application/yaml, application/vnd.kubernetes.protobuf"}`))
+				return
+			}
+		}
+		w.Header().Set("Content-Type", "text/plain")
+		_, _ = w.Write([]byte("worker output\n"))
+	}))
+
+	out, err := c.PodLog(context.Background(), "p1", PodLogOptions{Container: "downloader"})
+	if err != nil {
+		t.Fatalf("PodLog: %v — the API server refuses an Accept it does not serve", err)
+	}
+	if string(out) != "worker output\n" {
+		t.Fatalf("body = %q", out)
+	}
+}
+
 func TestPodLog_ReadsPlainTextNotJSON(t *testing.T) {
 	// The log endpoint returns text/plain. do() decodes JSON and cannot be
 	// reused, which is the whole reason PodLog exists separately.
