@@ -99,20 +99,15 @@ test('pulling to refresh still asks, so fresh results are one gesture away', asy
 });
 
 /**
- * Start a search WITHOUT pulling.
+ * Start the one kind of search that still offers a cancel (spec 2029): a TYPED
+ * query.
  *
- * Since spec 2028's redesign a pull carries its own cancel, inside the ring it
- * draws, and the floating block is suppressed while one is running — one spinner
- * on screen, not two. So the block's own tests have to start a search the way
- * the block is for: a typed query, a sort, a filter. Typing changes nothing in
- * the layout below the header, so anything that moves afterwards moved because
- * of the block.
+ * A pull carries its own cancel inside the ring it draws (spec 2028); paging and
+ * view changes — source, filter, sort — report through the header bar alone. So
+ * the block's own tests have to type.
  */
-async function searchWithoutPulling(page: Page): Promise<void> {
-  // The sort DIRECTION toggle: one click, no popover, and — unlike typing a
-  // query, which reveals the search hint — nothing above the grid changes size.
-  // That matters here, because "nothing moves" is the assertion.
-  await page.locator('.order-toggle').click();
+async function typeQuery(page: Page, q: string): Promise<void> {
+  await page.getByTestId('discover-search').locator('input').fill(q);
 }
 
 /**
@@ -172,19 +167,37 @@ test('a search in progress offers to be called off, and nothing moves when it ap
 
   // Nothing running, nothing offering to cancel (FR-011).
   await expect(page.getByTestId('search-cancel')).toHaveCount(0);
-  const gridBefore = await page.getByTestId('catalog-card').first().boundingBox();
+
+  // Get a query on screen FIRST and let it settle. Typing reveals the search
+  // hint, which is a real row above the grid — so measuring a no-query baseline
+  // against a with-query search would blame the hint's height on the block. Both
+  // measurements below are taken with a query already in the box.
+  await typeQuery(page, 'Title');
+  // Wait for the hint to be REAL and the search to be over. `toHaveCount(0)` on
+  // the cancel is satisfied the instant it is evaluated — before the first
+  // search has even started — so it measured a grid with no hint above it and
+  // then blamed the hint's 31px on the block.
+  await expect(page.getByTestId('search-hint')).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByTestId('search-loading')).toHaveClass(/idle/, { timeout: 20_000 });
+  // Measured on the HINT, not the first card: a text search can legitimately
+  // come back empty, and then there is no card to measure and the test times out
+  // instead of reporting anything. The hint sits directly above the grid and is
+  // there whether or not the search matched, so it moves if and only if
+  // something above it changed height.
+  const hint = page.getByTestId('search-hint');
+  const before = await hint.boundingBox();
 
   await setSlow(5000);
-  await searchWithoutPulling(page);
+  await typeQuery(page, 'Title 1');
 
   const pill = page.getByTestId('search-cancel');
   await expect(pill).toBeVisible({ timeout: 15_000 });
 
-  // SC-005. Flipping the sort direction changes nothing below the header, so if
-  // the grid has not moved, the pill costs no layout — which is the whole reason it is laid out
-  // over the content rather than in it.
-  const gridDuring = await page.getByTestId('catalog-card').first().boundingBox();
-  expect(gridDuring?.y, 'the grid moved when the cancel pill appeared').toBe(gridBefore?.y);
+  // SC-003. Both states carry the hint, so the only difference between them is
+  // the block — if the grid has not moved, the block costs no layout, which is
+  // the whole reason it is laid out over the content rather than in it.
+  const during = await hint.boundingBox();
+  expect(during?.y, 'the content moved when the cancel block appeared').toBe(before?.y);
 
   // The spinner and the cancel are ONE block: the cancel sits directly beneath
   // the spinner, and they keep that relationship however the list moves.
@@ -255,7 +268,7 @@ test('calling a search off stops it reaching the source', async ({ page }) => {
 
   await setSlow(5000);
   const searches = countSearches(page);
-  await searchWithoutPulling(page);
+  await typeQuery(page, 'dune');
 
   const pill = page.getByTestId('search-cancel');
   await expect(pill).toBeVisible({ timeout: 15_000 });
@@ -421,3 +434,79 @@ test('reading on past the bottom loads quietly, with no spinner over the grid', 
   await expect.poll(() => page.getByTestId('catalog-card').count(), { timeout: 30_000 })
     .toBeGreaterThan(before);
 });
+
+/**
+ * Changing the view is quiet (spec 2029).
+ *
+ * Sampled across the whole load rather than checked once: the block needs a tick
+ * to mount, so a single assertion lands in the gap before it appears and passes
+ * with it present. That mistake has already been made twice in this file.
+ */
+const VIEW_CHANGES: Array<{
+  what: string;
+  setup?: () => Promise<void>;
+  act: (p: Page) => Promise<void>;
+}> = [
+  {
+    what: 'the sort direction',
+    act: (p) => p.locator('.order-toggle').click(),
+  },
+  {
+    what: 'a filter',
+    act: async (p) => {
+      await p.getByTestId('filter-open').click();
+      await p.getByTestId('filter-type').click();
+      // ion-select interface="alert" opens an Ionic alert of radio options.
+      await p.locator('ion-alert button:has-text("Movie")').first().click();
+      await p.locator('ion-alert button:has-text("OK")').click();
+      await p.getByTestId('filter-apply').click();
+    },
+  },
+  {
+    what: 'the source',
+    // The picker is only rendered when there is more than one source to pick
+    // between, so a single-source fixture has nothing to click.
+    setup: async () => {
+      await addSource(await apiToken(), 'Second Source', 1);
+    },
+    act: async (p) => {
+      await p.locator('.source-control ion-select').click();
+      await p.getByRole('radio').nth(1).click();
+    },
+  },
+];
+
+for (const { what, setup, act } of VIEW_CHANGES) {
+  test(`changing ${what} reports through the bar alone`, async ({ page }) => {
+    await setup?.();
+    await login(page);
+    await openDiscover(page);
+    await expect(page.locator('.card').first()).toBeVisible({ timeout: 30_000 });
+    await page.waitForTimeout(4000);
+
+    await setSlow(4000);
+    await act(page);
+
+    const seen: Array<{ bar: boolean; cancel: boolean }> = [];
+    for (let i = 0; i < 16; i += 1) {
+      seen.push(
+        await page.evaluate(() => ({
+          bar: !document.querySelector('[data-testid=search-loading]')?.classList.contains('idle'),
+          cancel: !!document.querySelector('[data-testid=search-cancel]'),
+        })),
+      );
+      await page.waitForTimeout(250);
+    }
+
+    // SC-001. A load really ran — otherwise this passes on a page doing nothing.
+    expect(seen.some((s) => s.bar), 'no search ever started').toBe(true);
+    expect(
+      seen.filter((s) => s.cancel).length,
+      `changing ${what} put a cancel over the grid`,
+    ).toBe(0);
+    // And the pull indicator is not standing in for it either.
+    await expect(page.getByTestId('pull-refresh')).toHaveCount(0);
+
+    await setSlow(0);
+  });
+}

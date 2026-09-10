@@ -460,25 +460,34 @@ let searchGen = 0;
 let searchAbort: AbortController | null = null;
 
 /**
- * Whether the pages in flight are MORE OF THE SAME rather than a new view.
+ * What started the search that is running.
  *
- * The distinction is what a reader is doing while they wait. A fresh search is
- * something they asked for and are waiting on: the grid they are looking at is
- * about to be replaced, and offering to call it off is offering them their old
- * view back. Paging is not that — they are already reading, and more is arriving
- * below the fold. Nothing is being taken away, so there is nothing to take back.
+ * Carried WITH the search rather than worked out afterwards, because afterwards
+ * is too late: by the time anything asks "was there a query?" the state belongs
+ * to whichever search started most recently, not to the one still in the air.
+ *
+ * - `query` — the reader TYPED it. The only search they compose rather than
+ *   pick: it can be long, it can be wrong, it can go to a slow full-text
+ *   endpoint, and abandoning it has to put the old query and the old results
+ *   back. Worth an explicit control.
+ * - `view` — a source, filter or sort change. A flick of a control that reorders
+ *   or narrows what is already there. Also a pull, which carries its own cancel
+ *   inside the ring it draws.
+ * - `page` — more of the same, arriving below the fold.
  */
-const paging = ref(false);
+type SearchOrigin = 'query' | 'view' | 'page';
+const searchOrigin = ref<SearchOrigin>('view');
 
 /**
  * Whether there is something running that a reader could call off.
  *
- * Not merely "is a request in flight". Paging deliberately does not count: a
- * spinner parked over the grid while the reader scrolls is in the way of the
- * very thing it is reporting on, and the indeterminate bar in the header already
- * says a page is coming.
+ * Not merely "is a request in flight" (spec 2029). Only a typed query gets the
+ * block: for everything else a spinner parked over the grid is a heavier report
+ * than the event deserves, and it covers the very thing it is reporting on. The
+ * indeterminate bar in the header already says a request is out, and it costs no
+ * layout.
  */
-const cancellable = computed(() => loading.value && !paging.value);
+const cancellable = computed(() => loading.value && searchOrigin.value === 'query');
 
 /**
  * Call off the search in progress and put things back as they were.
@@ -514,17 +523,18 @@ function cancelSearch(): void {
   pages.value = 0;
 }
 
-async function runSearch(reset = true): Promise<void> {
+async function runSearch(reset = true, origin: SearchOrigin = 'view'): Promise<void> {
   const gen = reset ? ++searchGen : searchGen;
   if (reset) {
     searchAbort?.abort(); // a new search supersedes the one in flight
     searchAbort = new AbortController();
   }
   loading.value = true;
-  // A reset also CLEARS it, rather than only not setting it: changing the sort
-  // mid-scroll starts a real search while a page is still in the air, and that
-  // search must be callable off.
-  paging.value = !reset;
+  // Set on every search, not only when it is a query — a view change starting
+  // while a typed search is still in the air has to take the block away with it,
+  // and merely not setting the origin would leave the older one standing.
+  // Paging can never be anything else, whatever the caller passes.
+  searchOrigin.value = reset ? origin : 'page';
   errorMsg.value = '';
   if (reset) {
     // Keep the current results on screen while the first fresh page loads
@@ -564,10 +574,7 @@ async function runSearch(reset = true): Promise<void> {
       handleErr(e); // ignore errors from a superseded search
     }
   } finally {
-    if (gen === searchGen) {
-      loading.value = false;
-      paging.value = false;
-    }
+    if (gen === searchGen) loading.value = false;
   }
 }
 
@@ -610,7 +617,7 @@ async function loadMore(): Promise<void> {
     // second trigger arriving mid-load. Inside the loop we ARE the load.
     if (i === 0 && loading.value) return;
     page.value += 1;
-    await runSearch(false);
+    await runSearch(false, 'page');
   }
 }
 
@@ -627,9 +634,10 @@ async function setHideOwned(on: boolean): Promise<void> {
   await runSearch(true);
 }
 
+/** The one search that still offers a way out — see `searchOrigin`. */
 async function setQuery(q: string): Promise<void> {
   query.value = q;
-  await runSearch(true);
+  await runSearch(true, 'query');
 }
 
 /**

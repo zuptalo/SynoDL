@@ -389,7 +389,6 @@ function onCancelSearch(): void {
   // is over the moment its search is.
   void activeRefresher?.complete();
   activeRefresher = null;
-  activeRefresherLive.value = false;
 }
 
 async function onSearch(e: CustomEvent): Promise<void> {
@@ -442,17 +441,9 @@ const pulling = ref(false);
  * saying "working" about nothing at all.
  */
 let activeRefresher: HTMLIonRefresherElement | null = null;
-const activeRefresherLive = ref(false);
-
-// While a PULL is what started the search, the pull indicator is already saying
-// "working" and already carries a cancel — a second floating block is the app
-// saying it twice, in two places, which is what the doubled indicator on this
-// tab actually was. A sort or a keystroke still gets the floating one.
-const loadingFromPull = computed(() => loading.value && activeRefresherLive.value);
 
 async function onRefresh(e: RefresherCustomEvent): Promise<void> {
   activeRefresher = e.target;
-  activeRefresherLive.value = true;
   pulling.value = false;
   try {
     await loadStatus();
@@ -462,7 +453,6 @@ async function onRefresh(e: RefresherCustomEvent): Promise<void> {
     // still retracts it. Leaving it open on an error is how a refresher ends up
     // spinning forever over a screen that has already given up.
     activeRefresher = null;
-    activeRefresherLive.value = false;
     await e.target.complete();
   }
 }
@@ -673,16 +663,15 @@ function goSettings(): void {
          screen moves as this appears or goes (FR-011). The same reason the
          progress bar above holds its row rather than being mounted and
          unmounted. -->
-    <!-- What a running search looks like, wherever it came from (spec 2028).
+    <!-- What a TYPED search looks like (spec 2029). Only a typed one: a pull
+         carries its own cancel inside the ring it draws, and a source, filter or
+         sort change reports through the progress bar alone — a spinner over the
+         grid is a heavier report than reordering it deserves, and it covers the
+         thing it is reporting on.
          The spinner and the cancel are ONE block, stacked, so they keep their
-         position relative to each other however the list moves — and it is the
-         same block whether the search began with a pull, a sort or a keystroke,
-         rather than one treatment for the gesture and another for everything
-         else.
-         It sits where the refresher's own spinner would, which is why that one
-         is turned off, and it stays until the search finishes or fails. -->
+         position relative to each other however the list moves. -->
     <transition name="cancel-pill">
-      <div v-if="cancellable && !loadingFromPull" class="search-block" :style="{ top: pillTop }">
+      <div v-if="cancellable" class="search-block" :style="{ top: pillTop }">
         <ion-spinner name="crescent" class="block-spinner" />
         <button
           type="button"
