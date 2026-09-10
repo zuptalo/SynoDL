@@ -52,6 +52,25 @@ used by every list that pulls, not just Discover.
 
 FR-001, FR-003 and SC-001 below are restated accordingly; everything else stands.
 
+**Tuning, after watching it on a phone.** The stem was tightened twice. The neck
+alone barely moved it — the neck governs only the top of the stem, while its
+middle was being pulled out to the full bulb radius by the second control point,
+which sat at the radius regardless. Drawing that point inward is what actually
+slims it: ~1.4px across a fifth of the way down and ~5px at two fifths, against
+a 30px bulb, from 4.2px and 11.7px before.
+
+**Why the tip cannot appear any earlier, which was tried and abandoned.** Ionic's
+refresher ignores the first ~24px of finger travel outright and then tracks it
+1:1 — measured by dragging in 3px steps, and not tunable: `pullFactor` scales
+what happens after the guard and moves the engage point not at all (checked at
+1, 2 and 3). Fading a dot in across that gap on the finger does not work either,
+and the reason is worth recording: Ionic parks the whole refresher off-screen
+until it engages, so through the dead zone the shape's bottom edge sits 116px
+ABOVE the top of the content. The opacity ramp runs perfectly on something that
+cannot be seen. Showing anything there means drawing it outside the refresher,
+at the droplet's true start position — 67px down, over the first row of posters
+— with a handover between two elements. Not worth it for 24px.
+
 ---
 
 ## User Scenarios & Testing

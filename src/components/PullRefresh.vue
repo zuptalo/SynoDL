@@ -190,19 +190,32 @@ const dropPath = computed(() => {
   const K = 0.5523;
   const drawn = tail / TAIL_MAX; // 0 = circle, 1 = full droplet
 
-  // NECK is how wide the shape is where it leaves the apex, and LIFT is how long
-  // it stays that narrow before flaring into the bulb. Together they are the
-  // difference between a fat teardrop and something being drawn down off a
-  // surface it is still attached to: a thin stem held almost parallel for most
-  // of its length, widening only as it reaches the body.
-  const neck = r * (K + (0.09 - K) * drawn);
+  // Three terms shape the stem, each interpolating from the circle's own control
+  // points at `drawn = 0` — which is what keeps the last droplet frame a true
+  // circle no matter how these are tuned.
+  //
+  // NECK is the half-width where the shape leaves the apex, and LIFT is how far
+  // down that stays. Those two alone are not enough: they govern the top of the
+  // stem, while its MIDDLE is pulled out to the full radius by the second
+  // control point, which is why tightening the neck on its own barely changed
+  // anything (4.2px to 3.5px a fifth of the way down).
+  //
+  // WAIST is that second point, drawn in to well inside the bulb. It is what
+  // holds the stem narrow through its whole length instead of only at the top:
+  // at full stretch the shape is ~1.4px across a fifth of the way down and ~5px
+  // at two fifths, against a 30px bulb — narrower than the 2.5px stroke for the
+  // top third, so the two sides of the stem read as one line there before
+  // separating into the body. That is the difference between a fat
+  // teardrop and something being drawn down off a surface it is still stuck to.
+  const neck = r * (K + (0.02 - K) * drawn);
+  const waist = r * (1 + (0.32 - 1) * drawn);
   const shoulder = r * (K + (1.12 - K) * drawn);
-  const lift = tail * 0.82;
+  const lift = tail * 0.94;
   return [
     'M', CX, apex,
-    'C', CX - neck, apex + lift, CX - r, CY - shoulder, CX - r, CY,
+    'C', CX - neck, apex + lift, CX - waist, CY - shoulder, CX - r, CY,
     'A', r, r, 0, 1, 0, CX + r, CY,
-    'C', CX + r, CY - shoulder, CX + neck, apex + lift, CX, apex,
+    'C', CX + waist, CY - shoulder, CX + neck, apex + lift, CX, apex,
     'Z',
   ].join(' ');
 });
