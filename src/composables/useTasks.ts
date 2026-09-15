@@ -7,6 +7,7 @@
  * keep the NAS awake.
  */
 import { onMounted, onUnmounted, ref } from 'vue';
+import { createPollLoop } from '@/services/poll-loop';
 import { ApiError, api, streamTasks, type TaskSnapshot } from '@/services/api';
 import type { Stats, Task } from '@/types/task';
 
@@ -21,7 +22,6 @@ export function useTasks() {
   const error = ref('');
 
   let stopped = false;
-  let pollTimer: ReturnType<typeof setTimeout> | null = null;
   let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   let controller: AbortController | null = null;
   let backoffIdx = 0;
@@ -46,20 +46,23 @@ export function useTasks() {
   }
 
   // ---- fallback polling: runs only while the stream is down ----------------
+  // Shared with the downloads list via `poll-loop`, which is where the reason
+  // this is not written inline lives (spec 2030). The version that was here had
+  // the same hole: it re-armed unconditionally, so a stop arriving while its own
+  // request was in flight was undone the moment that request resolved.
+  const poll = createPollLoop(async () => {
+    if (stopped) {
+      poll.stop();
+      return;
+    }
+    if (document.visibilityState === 'visible') await refresh();
+  }, POLL_MS);
+
   function startPolling(): void {
-    if (pollTimer) return;
-    const tick = async () => {
-      if (stopped) return;
-      if (document.visibilityState === 'visible') await refresh();
-      pollTimer = setTimeout(tick, POLL_MS);
-    };
-    pollTimer = setTimeout(tick, POLL_MS);
+    poll.start();
   }
   function stopPolling(): void {
-    if (pollTimer) {
-      clearTimeout(pollTimer);
-      pollTimer = null;
-    }
+    poll.stop();
   }
 
   // ---- live stream ---------------------------------------------------------

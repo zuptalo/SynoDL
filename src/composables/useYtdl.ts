@@ -22,6 +22,7 @@
  * fill it on its own.
  */
 import { computed, onMounted, onUnmounted, ref } from 'vue';
+import { createPollLoop } from '@/services/poll-loop';
 import { ApiError, api, streamYtdl, type YtdlDownload, type YtdlUpdate } from '@/services/api';
 import { mergeYtdlUpdate } from '@/services/ytdl-merge';
 
@@ -36,7 +37,6 @@ const degraded = ref(false);
 // orchestrator answers 503 and the feature simply does not appear.
 const available = ref(true);
 
-let pollTimer: ReturnType<typeof setTimeout> | null = null;
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 let controller: AbortController | null = null;
 let backoffIdx = 0;
@@ -76,24 +76,26 @@ async function refresh(): Promise<void> {
 }
 
 // ---- fallback polling: runs only while the stream is down -------------------
+// The loop lives in `poll-loop` because stopping one correctly is not obvious
+// (spec 2030): this used to re-arm itself after a stop that arrived while its
+// own request was in flight, which is precisely when a stream going live calls
+// it — so the fallback ran alongside a healthy stream indefinitely.
+const poll = createPollLoop(async () => {
+  // Stop the moment the last viewer goes away: a hidden PWA must not keep
+  // polling, exactly as the task list does not.
+  if (watchers === 0) {
+    poll.stop();
+    return;
+  }
+  if (document.visibilityState === 'visible') await refresh();
+}, POLL_MS);
+
 function startPolling(): void {
-  if (pollTimer) return;
-  const tick = async () => {
-    pollTimer = null;
-    // Stop the moment the last viewer goes away: a hidden PWA must not keep
-    // polling, exactly as the task list does not.
-    if (watchers === 0) return;
-    if (document.visibilityState === 'visible') await refresh();
-    if (watchers > 0) pollTimer = setTimeout(tick, POLL_MS);
-  };
-  pollTimer = setTimeout(tick, POLL_MS);
+  poll.start();
 }
 
 function stopPolling(): void {
-  if (pollTimer) {
-    clearTimeout(pollTimer);
-    pollTimer = null;
-  }
+  poll.stop();
 }
 
 // ---- live stream -----------------------------------------------------------

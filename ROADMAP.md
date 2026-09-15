@@ -103,3 +103,4 @@ Specs are grouped by category band; status moves
 | [2027](specs/2027-cancel-pill-position/spec.md) | The cancel pill, clear of the controls it covered | 🔵 in-review |
 | [2028](specs/2028-pull-droplet/spec.md) | Pulling stretches a droplet, and the cancel rides with the spinner | 🔵 in-review |
 | [2029](specs/2029-quiet-view-changes/spec.md) | Only a typed search offers to be called off | 🔵 in-review |
+| [2030](specs/2030-fallback-poll-never-stops/spec.md) | The fallback poll stops when the stream goes live | 🔵 in-review |
