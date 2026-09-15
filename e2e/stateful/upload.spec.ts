@@ -5,159 +5,212 @@
  * is about the boundary as much as the happy path: where a file may land, and
  * that a client cannot talk it into landing anywhere else.
  */
-import { expect, test } from '@playwright/test';
-import { addSource, apiToken, clearSources, login, setSourceState } from './helpers';
+import { expect, test } from "@playwright/test";
+import {
+  addSource,
+  apiToken,
+  clearSources,
+  login,
+  setSourceState,
+} from "./helpers";
 
 const API = `http://localhost:${Number(process.env.SYNODL_E2E_SF_PORT) || 8283}`;
 
-let token = '';
+let token = "";
 
 test.beforeEach(async () => {
   token = await apiToken();
   await clearSources(token);
-  await setSourceState('reset');
-  await addSource(token, 'Only Source', 0);
+  await setSourceState("reset");
+  await addSource(token, "Only Source", 0);
 });
 
 /** POST a multipart upload directly, so the boundary can be probed. */
-async function upload(fields: Record<string, string>, filename: string, body = 'x') {
+async function upload(
+  fields: Record<string, string>,
+  filename: string,
+  body = "x",
+) {
   const form = new FormData();
   for (const [k, v] of Object.entries(fields)) form.append(k, v);
   // The real client sends the byte count ahead of the file so the server can give
   // the NAS an exact Content-Length (DSM refuses a chunked upload body). Cases
   // that deliberately omit it pass their own `size` in `fields`.
-  if (!('size' in fields)) form.append('size', String(new Blob([body]).size));
-  form.append('file', new Blob([body]), filename);
+  if (!("size" in fields)) form.append("size", String(new Blob([body]).size));
+  form.append("file", new Blob([body]), filename);
   const res = await fetch(`${API}/v1/fs/upload`, {
-    method: 'POST',
-    headers: { 'X-SynoDL-Session': token },
+    method: "POST",
+    headers: { "X-SynoDL-Session": token },
     body: form,
   });
-  return { status: res.status, body: (await res.json().catch(() => ({}))) as Record<string, string> };
+  return {
+    status: res.status,
+    body: (await res.json().catch(() => ({}))) as Record<string, string>,
+  };
 }
 
-test('a movie is named the way a download would name it', async () => {
-  const r = await upload({ kind: 'movie', title: 'Dune 2021' }, 'Dune.2021.mkv');
+test("a movie is named the way a download would name it", async () => {
+  const r = await upload(
+    { kind: "movie", title: "Dune 2021" },
+    "Dune.2021.mkv",
+  );
   expect(r.status).toBe(200);
-  expect(r.body.destination).toBe('movie/Dune (2021)');
+  expect(r.body.destination).toBe("movie/Dune (2021)");
 });
 
-test('an episode lands in its season folder', async () => {
-  const r = await upload({ kind: 'tv', title: 'Friends 1994 - 2004', season: '1' }, 'Friends.S01E01.mkv');
+test("an episode lands in its season folder", async () => {
+  const r = await upload(
+    { kind: "tv", title: "Friends 1994 - 2004", season: "1" },
+    "Friends.S01E01.mkv",
+  );
   expect(r.status).toBe(200);
-  expect(r.body.destination).toBe('tv-show/Friends (1994)/Season 01');
+  expect(r.body.destination).toBe("tv-show/Friends (1994)/Season 01");
 });
 
-test('a second episode joins the same show and season', async () => {
-  await upload({ kind: 'tv', title: 'Friends (1994)', season: '2' }, 'Friends.S02E01.mkv');
-  const r = await upload({ kind: 'tv', title: 'Friends (1994)', season: '2' }, 'Friends.S02E02.mkv');
+test("a second episode joins the same show and season", async () => {
+  await upload(
+    { kind: "tv", title: "Friends (1994)", season: "2" },
+    "Friends.S02E01.mkv",
+  );
+  const r = await upload(
+    { kind: "tv", title: "Friends (1994)", season: "2" },
+    "Friends.S02E02.mkv",
+  );
   expect(r.status).toBe(200);
-  expect(r.body.destination).toBe('tv-show/Friends (1994)/Season 02');
+  expect(r.body.destination).toBe("tv-show/Friends (1994)/Season 02");
 });
 
-test('the same file twice is refused, never overwritten', async () => {
-  await upload({ kind: 'movie', title: 'Dune 2021' }, 'Dune.mkv', 'first');
-  const r = await upload({ kind: 'movie', title: 'Dune 2021' }, 'Dune.mkv', 'second');
+test("the same file twice is refused, never overwritten", async () => {
+  await upload({ kind: "movie", title: "Dune 2021" }, "Dune.mkv", "first");
+  const r = await upload(
+    { kind: "movie", title: "Dune 2021" },
+    "Dune.mkv",
+    "second",
+  );
   expect(r.status).toBe(409);
-  expect(r.body.error).toBe('file_exists');
+  expect(r.body.error).toBe("file_exists");
 });
 
-test('only media and sidecar files are accepted', async () => {
-  for (const name of ['payload.sh', 'tool.exe', 'archive.zip']) {
-    expect((await upload({ kind: 'movie', title: 'X 2020' }, name)).status).toBe(415);
+test("only media and sidecar files are accepted", async () => {
+  for (const name of ["payload.sh", "tool.exe", "archive.zip"]) {
+    expect(
+      (await upload({ kind: "movie", title: "X 2020" }, name)).status,
+    ).toBe(415);
   }
-  for (const name of ['a.mkv', 'a.srt', 'a.jpg', 'a.nfo']) {
-    expect((await upload({ kind: 'movie', title: 'X 2020' }, name)).status).toBe(200);
+  for (const name of ["a.mkv", "a.srt", "a.jpg", "a.nfo"]) {
+    expect(
+      (await upload({ kind: "movie", title: "X 2020" }, name)).status,
+    ).toBe(200);
   }
 });
 
-test('a file cannot be placed outside the configured parents', async () => {
+test("a file cannot be placed outside the configured parents", async () => {
   // No request shape names a path: the parent is one of a handful of words, and
   // anything else has no parent to resolve to. ("music" used to stand in for a
   // name that is not a kind. It is one now — spec 1040 — so a real non-kind
   // takes its place.)
-  for (const kind of ['home', '/home', '../home', 'photos', '']) {
-    expect((await upload({ kind, title: 'X 2020' }, 'a.mkv')).status).toBe(409);
+  for (const kind of ["home", "/home", "../home", "photos", ""]) {
+    expect((await upload({ kind, title: "X 2020" }, "a.mkv")).status).toBe(409);
   }
   // A hostile file name never escapes the folder the server composed.
-  const r = await upload({ kind: 'movie', title: 'X 2020' }, '../../../etc/passwd.mkv');
+  const r = await upload(
+    { kind: "movie", title: "X 2020" },
+    "../../../etc/passwd.mkv",
+  );
   expect(r.status).toBe(200);
-  expect(r.body.destination).toBe('movie/X (2020)');
-  expect(r.body.file).toBe('passwd.mkv');
+  expect(r.body.destination).toBe("movie/X (2020)");
+  expect(r.body.file).toBe("passwd.mkv");
 });
 
-test('a title is required', async () => {
-  expect((await upload({ kind: 'movie', title: '' }, 'a.mkv')).status).toBe(400);
-  expect((await upload({ kind: 'movie', title: '...' }, 'a.mkv')).status).toBe(400);
+test("a title is required", async () => {
+  expect((await upload({ kind: "movie", title: "" }, "a.mkv")).status).toBe(
+    400,
+  );
+  expect((await upload({ kind: "movie", title: "..." }, "a.mkv")).status).toBe(
+    400,
+  );
 });
 
-test('the upload flow works from the Tasks tab', async ({ page }) => {
+test("the upload flow works from the Tasks tab", async ({ page }) => {
   await login(page);
-  await page.goto('/tabs/tasks');
+  await page.goto("/tabs/tasks");
 
-  await page.getByTestId('newtask-fab').click();
-  await page.getByTestId('upload-open').click();
+  await page.getByTestId("newtask-fab").click();
+  await page.getByTestId("upload-open").click();
 
-  await page.getByTestId('upload-title').locator('input').fill('Arrival 2016');
-  await page.getByTestId('upload-input').setInputFiles({
-    name: 'Arrival.2016.mkv',
-    mimeType: 'video/x-matroska',
-    buffer: Buffer.from('a short film'),
+  await page.getByTestId("upload-title").locator("input").fill("Arrival 2016");
+  await page.getByTestId("upload-input").setInputFiles({
+    name: "Arrival.2016.mkv",
+    mimeType: "video/x-matroska",
+    buffer: Buffer.from("a short film"),
   });
 
   // The destination is shown before committing to it, named the way the SERVER
   // will name it. The preview used to show the raw title ("movie/Arrival 2016")
   // and so promised a folder the file never landed in.
-  await expect(page.getByTestId('upload-preview')).toContainText('movie/Arrival (2016)');
+  await expect(page.getByTestId("upload-preview")).toContainText(
+    "movie/Arrival (2016)",
+  );
 
-  await page.getByTestId('upload-send').click();
+  await page.getByTestId("upload-send").click();
 
   // Sending hands the files to the queue and CLOSES the sheet, exactly as adding
   // by URL does. Keeping it open would duplicate rows the Tasks list already
   // shows and leave the user choosing which one to watch.
-  await expect(page.getByTestId('upload-title')).toBeHidden();
+  await expect(page.getByTestId("upload-title")).toBeHidden();
 
   // The Tasks list is now the one place reporting the transfer, and it reports
   // where the file actually landed — matching what the preview promised.
-  await expect(page.getByTestId('upload-item')).toBeVisible({ timeout: 30_000 });
-  await expect(page.getByTestId('upload-result')).toContainText('movie/Arrival (2016)', {
+  await expect(page.getByTestId("upload-item")).toBeVisible({
     timeout: 30_000,
   });
+  await expect(page.getByTestId("upload-result")).toContainText(
+    "movie/Arrival (2016)",
+    {
+      timeout: 30_000,
+    },
+  );
 });
 
-
-test('an upload without its byte count is refused', async () => {
+test("an upload without its byte count is refused", async () => {
   // The server cannot build a NAS request without knowing the length up front,
   // and guessing is not an option — so this fails loudly rather than falling
   // back to a chunked body the NAS would reject anyway.
   const form = new FormData();
-  form.append('kind', 'movie');
-  form.append('title', 'Sizeless 2021');
-  form.append('file', new Blob(['x']), 'a.mkv');
+  form.append("kind", "movie");
+  form.append("title", "Sizeless 2021");
+  form.append("file", new Blob(["x"]), "a.mkv");
   const res = await fetch(`${API}/v1/fs/upload`, {
-    method: 'POST',
-    headers: { 'X-SynoDL-Session': token },
+    method: "POST",
+    headers: { "X-SynoDL-Session": token },
     body: form,
   });
   expect(res.status).toBe(400);
 });
 
-test('replacing is opt-in, and is what recovers a partial file', async () => {
-  const f = 'Partial.2021.mkv';
-  expect((await upload({ kind: 'movie', title: 'Partial 2021' }, f, 'half a file')).status).toBe(200);
+test("replacing is opt-in, and is what recovers a partial file", async () => {
+  const f = "Partial.2021.mkv";
+  expect(
+    (await upload({ kind: "movie", title: "Partial 2021" }, f, "half a file"))
+      .status,
+  ).toBe(200);
 
   // Without asking, the name is defended — nothing is destroyed by accident.
-  const clash = await upload({ kind: 'movie', title: 'Partial 2021' }, f, 'the whole file');
+  const clash = await upload(
+    { kind: "movie", title: "Partial 2021" },
+    f,
+    "the whole file",
+  );
   expect(clash.status).toBe(409);
-  expect(clash.body.error).toBe('file_exists');
+  expect(clash.body.error).toBe("file_exists");
 
   // An interrupted upload leaves a fragment behind, and this is the only way
   // past it: the user explicitly chooses to replace.
   const replaced = await upload(
-    { kind: 'movie', title: 'Partial 2021', overwrite: 'true' },
+    { kind: "movie", title: "Partial 2021", overwrite: "true" },
     f,
-    'the whole file',
+    "the whole file",
   );
   expect(replaced.status).toBe(200);
-  expect(replaced.body.destination).toBe('movie/Partial (2021)');
+  expect(replaced.body.destination).toBe("movie/Partial (2021)");
 });

@@ -55,6 +55,8 @@ export default defineConfig({
         'src/services/catalog-session.ts',
         // Where a NAS download came from (spec 1042).
         'src/services/task-origin.ts',
+        // Which block of the Tasks list goes on top (spec 2031).
+        'src/services/task-sections.ts',
         // The fallback poll that can actually be stopped (spec 2030) — gated
         // because the bug it fixes was invisible in both copies of the inline
         // version and only a shared module can be tested at all.

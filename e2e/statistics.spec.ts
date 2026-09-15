@@ -12,28 +12,30 @@
  * and the client unit tests (stats-buckets). A full stateful stats e2e awaits a
  * stateful e2e harness (tracked separately).
  */
-import { expect, test } from '@playwright/test';
-import { login, openNewTask, resetMock } from './helpers';
+import { expect, test } from "@playwright/test";
+import { login, openNewTask, resetMock } from "./helpers";
 
 test.beforeEach(async () => {
   await resetMock();
 });
 
-test('the Statistics section is hidden in stateless mode', async ({ page }) => {
+test("the Statistics section is hidden in stateless mode", async ({ page }) => {
   await login(page);
-  await page.getByTestId('tab-settings').click();
+  await page.getByTestId("tab-settings").click();
 
   // Settings renders, but the stateful-only Statistics row is absent.
-  await expect(page.getByTestId('settings-version')).toBeVisible();
-  await expect(page.getByTestId('settings-statistics')).toHaveCount(0);
+  await expect(page.getByTestId("settings-version")).toBeVisible();
+  await expect(page.getByTestId("settings-statistics")).toHaveCount(0);
 });
 
-test('the new-task category picker is hidden in stateless mode', async ({ page }) => {
+test("the new-task category picker is hidden in stateless mode", async ({
+  page,
+}) => {
   await login(page); // lands on Tasks
   await openNewTask(page);
 
   // The add-task modal opens (URL box present) but carries no category picker,
   // since categories only feed the stateful statistics.
-  await expect(page.getByTestId('newtask-urls')).toBeVisible();
-  await expect(page.getByTestId('newtask-category')).toHaveCount(0);
+  await expect(page.getByTestId("newtask-urls")).toBeVisible();
+  await expect(page.getByTestId("newtask-category")).toHaveCount(0);
 });

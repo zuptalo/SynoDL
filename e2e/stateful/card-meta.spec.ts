@@ -5,22 +5,31 @@
  * span and a genre in `genres_links` — which is exactly the shape the real site
  * uses, and exactly what the driver used to parse and then discard.
  */
-import { expect, test } from '@playwright/test';
-import { addSource, apiToken, clearSources, gotoDiscover, login, setSourceState } from './helpers';
+import { expect, test } from "@playwright/test";
+import {
+  addSource,
+  apiToken,
+  clearSources,
+  gotoDiscover,
+  login,
+  setSourceState,
+} from "./helpers";
 
-let token = '';
+let token = "";
 
 test.beforeEach(async () => {
   token = await apiToken();
   await clearSources(token);
-  await setSourceState('reset');
-  await addSource(token, 'Mock ZarFilm', 0);
+  await setSourceState("reset");
+  await addSource(token, "Mock ZarFilm", 0);
 });
 
-test('a title card shows the release year its source published', async ({ page }) => {
+test("a title card shows the release year its source published", async ({
+  page,
+}) => {
   await login(page);
   await gotoDiscover(page);
-  const cards = page.getByTestId('catalog-card');
+  const cards = page.getByTestId("catalog-card");
   await expect(cards.first()).toBeVisible({ timeout: 30_000 });
 
   // Every mock archive card carries a year, so the first one must show one.
@@ -30,23 +39,26 @@ test('a title card shows the release year its source published', async ({ page }
   expect(caption, `caption was: ${caption}`).toMatch(/\b20\d{2}\b/);
 });
 
-test('a title card shows a genre, in English', async ({ page }) => {
+test("a title card shows a genre, in English", async ({ page }) => {
   await login(page);
   await gotoDiscover(page);
-  const cards = page.getByTestId('catalog-card');
+  const cards = page.getByTestId("catalog-card");
   await expect(cards.first()).toBeVisible({ timeout: 30_000 });
 
   // The mock publishes Comedy / Drama / Action. Whichever a card carries, it
   // must reach the caption as a readable English word.
   const captions = await cards.allInnerTexts();
   const withGenre = captions.filter((c) => /\b(Comedy|Drama|Action)\b/.test(c));
-  expect(withGenre.length, `no genre on any card; first was: ${captions[0]}`).toBeGreaterThan(0);
+  expect(
+    withGenre.length,
+    `no genre on any card; first was: ${captions[0]}`,
+  ).toBeGreaterThan(0);
 });
 
-test('the year is shown once, not twice', async ({ page }) => {
+test("the year is shown once, not twice", async ({ page }) => {
   await login(page);
   await gotoDiscover(page);
-  const cards = page.getByTestId('catalog-card');
+  const cards = page.getByTestId("catalog-card");
   await expect(cards.first()).toBeVisible({ timeout: 30_000 });
 
   // The heading has its trailing year stripped and the year is rendered as its
@@ -59,24 +71,27 @@ test('the year is shown once, not twice', async ({ page }) => {
 // Spec 1032, FR-007. This is the assertion that was missing: it was left to a
 // manual browser check that then could not be performed, so the one behaviour
 // with no automated test was also the one nobody had looked at.
-test('a card stops repeating the type once a type filter is applied', async ({ page }) => {
+test("a card stops repeating the type once a type filter is applied", async ({
+  page,
+}) => {
   await login(page);
   await gotoDiscover(page);
-  const cards = page.getByTestId('catalog-card');
+  const cards = page.getByTestId("catalog-card");
   await expect(cards.first()).toBeVisible({ timeout: 30_000 });
 
   // With no filter, the type IS part of the caption.
   const before = await cards.allInnerTexts();
-  expect(before.some((c) => /\bMovie\b/.test(c)), `no Movie card to test with: ${before[0]}`).toBe(
-    true,
-  );
+  expect(
+    before.some((c) => /\bMovie\b/.test(c)),
+    `no Movie card to test with: ${before[0]}`,
+  ).toBe(true);
 
-  await page.getByTestId('filter-open').click();
-  await page.getByTestId('filter-type').click();
+  await page.getByTestId("filter-open").click();
+  await page.getByTestId("filter-type").click();
   // ion-select interface="alert" opens an Ionic alert of radio options.
   await page.locator('ion-alert button:has-text("Movie")').first().click();
   await page.locator('ion-alert button:has-text("OK")').click();
-  await page.getByTestId('filter-apply').click();
+  await page.getByTestId("filter-apply").click();
 
   await expect(cards.first()).toBeVisible({ timeout: 30_000 });
   const after = await cards.allInnerTexts();
@@ -92,37 +107,45 @@ test('a card stops repeating the type once a type filter is applied', async ({ p
 
 // Spec 1035: the caption reads like the detail sheet — three lines, each
 // answering a different question, rather than four facts run together on one.
-test('a card caption is three lines: name, then rating/type/year, then genres', async ({ page }) => {
+test("a card caption is three lines: name, then rating/type/year, then genres", async ({
+  page,
+}) => {
   await login(page);
   await gotoDiscover(page);
-  const card = page.getByTestId('catalog-card').first();
+  const card = page.getByTestId("catalog-card").first();
   await expect(card).toBeVisible({ timeout: 30_000 });
 
   // Name on its own line, then the facts, then the genres.
-  await expect(card.locator('h3')).toHaveCount(1);
-  await expect(card.locator('p.facts')).toHaveCount(1);
-  await expect(card.locator('p.genres')).toHaveCount(1);
+  await expect(card.locator("h3")).toHaveCount(1);
+  await expect(card.locator("p.facts")).toHaveCount(1);
+  await expect(card.locator("p.genres")).toHaveCount(1);
 
   // The facts line reads rating, then type, then year.
-  const facts = (await card.locator('p.facts').innerText()).replace(/\s+/g, ' ').trim();
-  expect(facts, `facts line was: ${facts}`).toMatch(/^★\s*[\d.]+\s+\w+\s+\d{4}$/);
+  const facts = (await card.locator("p.facts").innerText())
+    .replace(/\s+/g, " ")
+    .trim();
+  expect(facts, `facts line was: ${facts}`).toMatch(
+    /^★\s*[\d.]+\s+\w+\s+\d{4}$/,
+  );
 
   // The genre line separates several genres the way the sheet does.
-  const genres = await card.locator('p.genres').innerText();
+  const genres = await card.locator("p.genres").innerText();
   expect(genres.trim().length).toBeGreaterThan(0);
 });
 
 // FR-005: a title missing a fact must not make its card a different height,
 // or the grid stops looking like a grid.
-test('cards stay the same height when a title knows less about itself', async ({ page }) => {
+test("cards stay the same height when a title knows less about itself", async ({
+  page,
+}) => {
   await login(page);
   await gotoDiscover(page);
-  const cards = page.getByTestId('catalog-card');
+  const cards = page.getByTestId("catalog-card");
   await expect(cards.first()).toBeVisible({ timeout: 30_000 });
 
   const heights = await cards.evaluateAll((els) =>
     els.slice(0, 8).map((el) => Math.round(el.getBoundingClientRect().height)),
   );
   const unique = [...new Set(heights)];
-  expect(unique.length, `card heights differ: ${heights.join(', ')}`).toBe(1);
+  expect(unique.length, `card heights differ: ${heights.join(", ")}`).toBe(1);
 });
