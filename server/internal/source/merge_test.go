@@ -397,3 +397,72 @@ func firstOr(v []string, def string) string {
 	}
 	return def
 }
+
+// Spec 2032 FR-001/FR-002, SC-001. THE REGRESSION THIS EXISTS FOR.
+//
+// In production a source whose session had expired reported "unreachable" for
+// hours, which the client renders as "isn't responding" — so the operator went
+// looking at a website that was serving its whole catalogue the entire time.
+//
+// classify() gets the reason right on the FIRST attempt. The breaker then threw
+// it away: it recorded a count and a deadline and nothing else, so once it
+// opened, every later request short-circuited to a flat ReasonUnreachable.
+func TestBreakerKeepsTheReasonThatOpenedIt(t *testing.T) {
+	ResetBreakers()
+	refs := []SourceRef{
+		ref(1, "Stale", fakeProvider{kind: "s", err: &ErrNeedsRefresh{Layer: LayerToken}}),
+	}
+
+	// Fail it past the threshold, so the breaker is open and calls stop.
+	for i := 0; i < coolOffThreshold+2; i++ {
+		res := SearchAll(context.Background(), nil, refs, SearchQuery{Page: 1})
+		if len(res.Degraded) != 1 {
+			t.Fatalf("attempt %d: degraded = %+v, want one entry", i, res.Degraded)
+		}
+		if got := res.Degraded[0].Reason; got != ReasonNeedsRefresh {
+			t.Fatalf("attempt %d: reason = %q, want %q — the breaker flattened it",
+				i, got, ReasonNeedsRefresh)
+		}
+	}
+}
+
+// FR-004: two sources failing differently must each keep their own reason.
+func TestBreakerReasonsAreNotSharedBetweenSources(t *testing.T) {
+	ResetBreakers()
+	refs := []SourceRef{
+		ref(1, "Stale", fakeProvider{kind: "s", err: &ErrNeedsRefresh{Layer: LayerToken}}),
+		ref(2, "Gone", fakeProvider{kind: "g", err: errors.New("dial tcp: no route to host")}),
+	}
+	for i := 0; i < coolOffThreshold+2; i++ {
+		res := SearchAll(context.Background(), nil, refs, SearchQuery{Page: 1})
+		got := map[string]string{}
+		for _, d := range res.Degraded {
+			got[d.Name] = d.Reason
+		}
+		if got["Stale"] != ReasonNeedsRefresh || got["Gone"] != ReasonUnreachable {
+			t.Fatalf("attempt %d: reasons = %+v, want Stale=%s Gone=%s",
+				i, got, ReasonNeedsRefresh, ReasonUnreachable)
+		}
+	}
+}
+
+// FR-003: a source that recovers forgets the reason with everything else.
+func TestBreakerSuccessClearsTheRememberedReason(t *testing.T) {
+	ResetBreakers()
+	broken := []SourceRef{ref(1, "Flaky", fakeProvider{kind: "f", err: &ErrNeedsRefresh{Layer: LayerToken}})}
+	for i := 0; i < coolOffThreshold+1; i++ {
+		SearchAll(context.Background(), nil, broken, SearchQuery{Page: 1})
+	}
+	healthy := []SourceRef{ref(1, "Flaky", fakeProvider{kind: "f", items: titles("f", 1), pages: 1})}
+	ResetBreakers() // an admin re-saving the source, which is what clears it in practice
+	res := SearchAll(context.Background(), nil, healthy, SearchQuery{Page: 1})
+	if len(res.Degraded) != 0 {
+		t.Fatalf("degraded = %+v, want none once it works again", res.Degraded)
+	}
+	// And failing again starts from a clean reason rather than the stale one.
+	again := []SourceRef{ref(1, "Flaky", fakeProvider{kind: "f", err: errors.New("dial tcp: refused")})}
+	res = SearchAll(context.Background(), nil, again, SearchQuery{Page: 1})
+	if res.Degraded[0].Reason != ReasonUnreachable {
+		t.Fatalf("reason = %q, want %q", res.Degraded[0].Reason, ReasonUnreachable)
+	}
+}

@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"path"
@@ -184,6 +185,7 @@ func resetSourceFailures() {
 	sourceFailMu.Lock()
 	defer sourceFailMu.Unlock()
 	sourceFailStreak = map[int64]int{}
+	sourceLoggedReason = map[int64]string{}
 }
 
 // clearSourceFailures resets a source's streak after a healthy call.
@@ -191,6 +193,36 @@ func clearSourceFailures(id int64) {
 	sourceFailMu.Lock()
 	defer sourceFailMu.Unlock()
 	delete(sourceFailStreak, id)
+	delete(sourceLoggedReason, id)
+}
+
+// sourceLoggedReason is the last reason written to the log for each source, so a
+// source that keeps failing the same way is reported ONCE rather than on every
+// request a reader makes (spec 2032 FR-007). A source failing for a NEW reason
+// is news and is logged again.
+var sourceLoggedReason = map[int64]string{}
+
+// logSourceFailure records which source failed and why, the first time it fails
+// that way.
+//
+// This exists because the reason was computed correctly and then went nowhere: a
+// source could be down for hours with the server logging nothing but request
+// lines, so the only account anybody had was the client's catch-all "isn't
+// responding" — which, for an expired session, was simply untrue.
+//
+// Only the id, the operator's own display name and a reason keyword from a
+// closed set are written. Deliberately NOT the underlying error text, which is
+// where a URL, cookie or token would leak into a log (constitution Principle
+// III; spec 2032 FR-006).
+func logSourceFailure(id int64, name, reason string) {
+	sourceFailMu.Lock()
+	if sourceLoggedReason[id] == reason {
+		sourceFailMu.Unlock()
+		return
+	}
+	sourceLoggedReason[id] = reason
+	sourceFailMu.Unlock()
+	slog.Warn("source unavailable", "source", id, "name", name, "reason", reason)
 }
 
 // sourceCallOK records a healthy provider call: clears the failure streak and, if
@@ -467,6 +499,10 @@ func handleSourceSearch(d Deps) http.Handler {
 				clearSourceFailures(ref.ID)
 				continue
 			}
+			// Logged here rather than at the point of failure: this is where a
+			// filter it cannot express has already been separated from a source
+			// that is actually unwell, so the log says only the latter (FR-008).
+			logSourceFailure(ref.ID, ref.Name, reason)
 			// An entitlement problem is immediate and definite — no streak needed,
 			// and re-pasting would not help.
 			if reason == source.ReasonUnsubscribed {

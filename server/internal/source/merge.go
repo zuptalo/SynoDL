@@ -55,6 +55,12 @@ type SourceRef struct {
 type breakerState struct {
 	failures int
 	until    time.Time
+	// Why it opened. Without this an open breaker reported a flat
+	// ReasonUnreachable for every later request, throwing away the reason
+	// classify() had already worked out on the first attempt — so a source whose
+	// session had merely expired read as "isn't responding", and the operator was
+	// sent to check a site that was serving its whole catalogue (spec 2032).
+	reason string
 }
 
 var (
@@ -71,7 +77,7 @@ func breakerOpen(id int64, now time.Time) bool {
 	return b != nil && b.failures >= coolOffThreshold && now.Before(b.until)
 }
 
-func breakerFail(id int64, now time.Time) {
+func breakerFail(id int64, now time.Time, reason string) {
 	breakerMu.Lock()
 	defer breakerMu.Unlock()
 	b := breakers[id]
@@ -80,9 +86,23 @@ func breakerFail(id int64, now time.Time) {
 		breakers[id] = b
 	}
 	b.failures++
+	// The most recent reason wins: a source whose problem CHANGES should report
+	// what is wrong now, not what was wrong first.
+	b.reason = reason
 	if b.failures >= coolOffThreshold {
 		b.until = now.Add(coolOffWindow)
 	}
+}
+
+// breakerReason is why this source's breaker opened, or "" if it has no state.
+// Each id keeps its own; one failing source never speaks for another.
+func breakerReason(id int64) string {
+	breakerMu.Lock()
+	defer breakerMu.Unlock()
+	if b := breakers[id]; b != nil {
+		return b.reason
+	}
+	return ""
 }
 
 func breakerOK(id int64) {
@@ -123,7 +143,14 @@ func SearchAll(ctx context.Context, c *Client, refs []SourceRef, q SearchQuery) 
 		// reported — the user learns the source is unavailable rather than quietly
 		// seeing a shorter list.
 		if breakerOpen(ref.ID, now) {
-			results[i] = outcome{ref: ref, reason: ReasonUnreachable}
+			// Report what actually went wrong, not the fact that we are now
+			// declining to ask. Falling back to unreachable only when there is
+			// somehow no remembered reason.
+			reason := breakerReason(ref.ID)
+			if reason == "" {
+				reason = ReasonUnreachable
+			}
+			results[i] = outcome{ref: ref, reason: reason}
 			continue
 		}
 		// The user narrowed by something this source cannot express: report it and
@@ -148,7 +175,7 @@ func SearchAll(ctx context.Context, c *Client, refs []SourceRef, q SearchQuery) 
 			res, err := ref.Driver.Search(cctx, c, ref.Cfg, ref.Sess, sq)
 			if err != nil {
 				reason := classify(err, cctx)
-				breakerFail(ref.ID, time.Now())
+				breakerFail(ref.ID, time.Now(), reason)
 				results[i] = outcome{ref: ref, reason: reason}
 				return
 			}
