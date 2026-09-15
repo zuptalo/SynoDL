@@ -6,14 +6,21 @@
  * An upload row, meanwhile, said less than any other row in the list and could
  * not be opened at all.
  */
-import { expect, test, type Page } from '@playwright/test';
-import { addSource, apiToken, clearSources, clearYtdl, login, setSourceState } from './helpers';
+import { expect, test, type Page } from "@playwright/test";
+import {
+  addSource,
+  apiToken,
+  clearSources,
+  clearYtdl,
+  login,
+  setSourceState,
+} from "./helpers";
 
 const K8S = `http://localhost:${process.env.SYNODL_E2E_SF_K8S_PORT || 8296}`;
 
 const API = `http://localhost:${Number(process.env.SYNODL_E2E_SF_PORT) || 8283}`;
 
-let token = '';
+let token = "";
 
 test.beforeEach(async () => {
   token = await apiToken();
@@ -21,18 +28,21 @@ test.beforeEach(async () => {
   // cluster state behind like the download specs do. Clearing it here — rather
   // than relying on the next spec to — keeps that from being somebody else's
   // intermittent failure.
-  await fetch(`${K8S}/__mock/reset`, { method: 'POST' });
+  await fetch(`${K8S}/__mock/reset`, { method: "POST" });
   await clearYtdl(token);
   await clearSources(token);
-  await setSourceState('reset');
-  await addSource(token, 'Only Source', 0);
-  await setMusicLibraries('music', 'music-video');
+  await setSourceState("reset");
+  await addSource(token, "Only Source", 0);
+  await setMusicLibraries("music", "music-video");
 });
 
-async function setMusicLibraries(music: string, musicVideo: string): Promise<void> {
+async function setMusicLibraries(
+  music: string,
+  musicVideo: string,
+): Promise<void> {
   const res = await fetch(`${API}/v1/library/music`, {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json', 'X-SynoDL-Session': token },
+    method: "PUT",
+    headers: { "Content-Type": "application/json", "X-SynoDL-Session": token },
     body: JSON.stringify({ music, musicVideo }),
   });
   expect(res.status).toBe(200);
@@ -40,8 +50,15 @@ async function setMusicLibraries(music: string, musicVideo: string): Promise<voi
 
 async function gotoTasks(page: Page): Promise<void> {
   await login(page);
-  await page.goto('/tabs/tasks');
-  await expect(page.getByTestId('task-list').or(page.getByTestId('tasks-empty'))).toBeVisible({
+  await page.goto("/tabs/tasks");
+  await expect(
+    page
+      .getByTestId("task-list")
+      .or(page.getByTestId("ytdl-list"))
+      .or(page.getByTestId("upload-list"))
+      .or(page.getByTestId("tasks-empty"))
+      .first(),
+  ).toBeVisible({
     timeout: 20_000,
   });
 }
@@ -49,110 +66,260 @@ async function gotoTasks(page: Page): Promise<void> {
 /** Send a track through the upload sheet, so the row under test is a real one. */
 let takeNo = 0;
 
-async function uploadTrack(page: Page, track: string, artist: string, album: string): Promise<void> {
+async function uploadTrack(
+  page: Page,
+  track: string,
+  artist: string,
+  album: string,
+): Promise<void> {
   // A distinct file name per upload: the same track twice is a collision on the
   // NAS, which is correct behaviour and not what any of these tests is about.
   takeNo += 1;
-  await page.getByTestId('newtask-fab').click();
-  await page.getByTestId('upload-open').click();
-  await page.getByTestId('upload-kind-music').click();
-  await page.getByTestId('upload-track').locator('input').fill(track);
-  await page.getByTestId('upload-artist').locator('input').fill(artist);
-  if (album) await page.getByTestId('upload-album').locator('input').fill(album);
-  await page.getByTestId('upload-input').setInputFiles([
-    { name: `take-${takeNo}.mp3`, mimeType: 'audio/mpeg', buffer: Buffer.from(`audio ${takeNo}`) },
+  await page.getByTestId("newtask-fab").click();
+  await page.getByTestId("upload-open").click();
+  await page.getByTestId("upload-kind-music").click();
+  await page.getByTestId("upload-track").locator("input").fill(track);
+  await page.getByTestId("upload-artist").locator("input").fill(artist);
+  if (album)
+    await page.getByTestId("upload-album").locator("input").fill(album);
+  await page.getByTestId("upload-input").setInputFiles([
+    {
+      name: `take-${takeNo}.mp3`,
+      mimeType: "audio/mpeg",
+      buffer: Buffer.from(`audio ${takeNo}`),
+    },
     // A 1x1 PNG, so the row has real artwork to render from the device.
     {
-      name: 'art.png',
-      mimeType: 'image/png',
+      name: "art.png",
+      mimeType: "image/png",
       buffer: Buffer.from(
-        'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
-        'base64',
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+        "base64",
       ),
     },
   ]);
-  await page.getByTestId('upload-send').click();
+  await page.getByTestId("upload-send").click();
 }
 
-test('a download sent from Discover sits under a heading that says so', async ({ page }) => {
+test("a download sent from Discover sits under a heading that says so", async ({
+  page,
+}) => {
   await gotoTasks(page);
   // Whatever the fixtures hold, a task with no catalog id is not from Discover
   // and must not be filed under Discover's heading.
-  const direct = page.getByTestId('task-list-direct');
+  const direct = page.getByTestId("task-list-direct");
   await expect(direct).toBeVisible({ timeout: 20_000 });
-  await expect(direct).toContainText('Added by link');
+  await expect(direct).toContainText("Added by link");
   // And nothing is left unlabelled: every row is inside one of the two lists.
   const inSections = await page
     .locator(
       '[data-testid="task-list-discover"] ion-item-sliding, [data-testid="task-list-direct"] ion-item-sliding',
     )
     .count();
-  const allRows = await page.getByTestId('task-item').count();
+  const allRows = await page.getByTestId("task-item").count();
   expect(inSections).toBe(allRows);
 });
 
-test('an empty section is not shown at all', async ({ page }) => {
+test("an empty section is not shown at all", async ({ page }) => {
   await gotoTasks(page);
   // The fixtures have no Discover-sent downloads, so that heading must be absent
   // rather than present and empty.
-  await expect(page.getByText('From Discover', { exact: true })).toHaveCount(0);
+  await expect(page.getByText("From Discover", { exact: true })).toHaveCount(0);
 });
 
-test('an upload row shows its artwork, track, artist and album', async ({ page }) => {
+test("an upload row shows its artwork, track, artist and album", async ({
+  page,
+}) => {
   await gotoTasks(page);
-  await uploadTrack(page, 'Lucente', 'Anyma', 'The End Of Genesys');
+  await uploadTrack(page, "Lucente", "Anyma", "The End Of Genesys");
 
-  const row = page.getByTestId('upload-item').first();
+  const row = page.getByTestId("upload-item").first();
   await expect(row).toBeVisible({ timeout: 20_000 });
-  await expect(row.getByTestId('upload-name')).toHaveText('Lucente');
-  await expect(row).toContainText('Anyma');
-  await expect(row).toContainText('The End Of Genesys');
-  await expect(row).toContainText('Music');
+  await expect(row.getByTestId("upload-name")).toHaveText("Lucente");
+  await expect(row).toContainText("Anyma");
+  await expect(row).toContainText("The End Of Genesys");
+  await expect(row).toContainText("Music");
 
   // Rendered from the device: the src is a local object URL, so drawing the row
   // makes no request (FR-010, SC-004).
-  const art = page.getByTestId('upload-artwork').first();
+  const art = page.getByTestId("upload-artwork").first();
   await expect(art).toBeVisible();
-  await expect(art).toHaveAttribute('src', /^blob:/);
+  await expect(art).toHaveAttribute("src", /^blob:/);
 });
 
-test('the state reads as the same chip every other row uses', async ({ page }) => {
+test("the state reads as the same chip every other row uses", async ({
+  page,
+}) => {
   await gotoTasks(page);
-  await uploadTrack(page, 'Sonder', 'Anyma', '');
+  await uploadTrack(page, "Sonder", "Anyma", "");
 
-  const status = page.getByTestId('upload-status').first();
+  const status = page.getByTestId("upload-status").first();
   await expect(status).toBeVisible({ timeout: 20_000 });
   const chip = await status.evaluate((el) => {
     const s = getComputedStyle(el);
     return { background: s.backgroundColor, radius: s.borderRadius };
   });
-  expect(chip.background).not.toBe('rgba(0, 0, 0, 0)');
+  expect(chip.background).not.toBe("rgba(0, 0, 0, 0)");
   expect(parseFloat(chip.radius)).toBeGreaterThan(0);
 });
 
-test('tapping an upload opens everything known about it', async ({ page }) => {
+test("tapping an upload opens everything known about it", async ({ page }) => {
   await gotoTasks(page);
-  await uploadTrack(page, 'Lucente', 'Anyma', 'The End Of Genesys');
+  await uploadTrack(page, "Lucente", "Anyma", "The End Of Genesys");
 
-  await expect(page.getByTestId('upload-item').first()).toBeVisible({ timeout: 20_000 });
-  await page.getByTestId('upload-item').first().click();
+  await expect(page.getByTestId("upload-item").first()).toBeVisible({
+    timeout: 20_000,
+  });
+  await page.getByTestId("upload-item").first().click();
 
-  await expect(page.getByTestId('upload-detail')).toBeVisible();
-  await expect(page.getByTestId('upload-detail-title')).toHaveText('Lucente');
-  await expect(page.getByTestId('upload-detail-artist')).toHaveText('Anyma');
-  await expect(page.getByTestId('upload-detail-album')).toHaveText('The End Of Genesys');
-  await expect(page.getByTestId('upload-detail-kind')).toHaveText('Music');
-  await expect(page.getByTestId('upload-detail-state')).toBeVisible();
-  await expect(page.getByTestId('upload-detail-artwork')).toHaveAttribute('src', /^blob:/);
+  await expect(page.getByTestId("upload-detail")).toBeVisible();
+  await expect(page.getByTestId("upload-detail-title")).toHaveText("Lucente");
+  await expect(page.getByTestId("upload-detail-artist")).toHaveText("Anyma");
+  await expect(page.getByTestId("upload-detail-album")).toHaveText(
+    "The End Of Genesys",
+  );
+  await expect(page.getByTestId("upload-detail-kind")).toHaveText("Music");
+  await expect(page.getByTestId("upload-detail-state")).toBeVisible();
+  await expect(page.getByTestId("upload-detail-artwork")).toHaveAttribute(
+    "src",
+    /^blob:/,
+  );
 });
 
-test('an upload with no album says Singles, which is where it actually goes', async ({ page }) => {
+test("an upload with no album says Singles, which is where it actually goes", async ({
+  page,
+}) => {
   await gotoTasks(page);
-  await uploadTrack(page, 'Sonder', 'Anyma', '');
+  await uploadTrack(page, "Sonder", "Anyma", "");
 
-  await expect(page.getByTestId('upload-item').first()).toBeVisible({ timeout: 20_000 });
-  await page.getByTestId('upload-item').first().click();
+  await expect(page.getByTestId("upload-item").first()).toBeVisible({
+    timeout: 20_000,
+  });
+  await page.getByTestId("upload-item").first().click();
   // Saying "—" would describe a different folder from the one the server files
   // it in.
-  await expect(page.getByTestId('upload-detail-album')).toHaveText('Singles');
+  await expect(page.getByTestId("upload-detail-album")).toHaveText("Singles");
+});
+
+// ---- spec 2031: order by what was added last, and clear both systems -------
+
+const YT_API = `${API}/v1/ytdl`;
+
+async function submitYtdl(url: string): Promise<string> {
+  const res = await fetch(YT_API, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-SynoDL-Session": token },
+    body: JSON.stringify({ url, mode: "music" }),
+  });
+  expect(res.ok).toBe(true);
+  return ((await res.json()) as { requestId: string }).requestId;
+}
+
+async function driveYtdl(requestId: string, action: string): Promise<void> {
+  const deadline = Date.now() + 25_000;
+  for (;;) {
+    const res = await fetch(`${K8S}/__mock/jobs/${requestId}/${action}`, {
+      method: "POST",
+    });
+    if (res.ok) return;
+    if (res.status !== 404 || Date.now() > deadline) {
+      throw new Error(`drive ${action} failed: ${res.status}`);
+    }
+    await new Promise((r) => setTimeout(r, 500));
+  }
+}
+
+/** The headings on screen, top to bottom — which is the whole question here. */
+async function headings(page: Page): Promise<string[]> {
+  return (await page.locator("ion-list-header ion-label").allInnerTexts()).map(
+    (t) => t.trim(),
+  );
+}
+
+/** Add a NAS download now, so it is the newest thing in the list. */
+async function addNasDownload(url: string): Promise<void> {
+  const res = await fetch(`${API}/v1/tasks`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-SynoDL-Session": token },
+    body: JSON.stringify({ uris: [url] }),
+  });
+  expect(res.ok, `creating a NAS task failed: ${res.status}`).toBe(true);
+}
+
+test("the block holding the newest thing is on top", async ({ page }) => {
+  // Asserted as the ORDER OF THE HEADINGS, not as absolute positions: absolute
+  // positions would pass with the list in any arrangement at all.
+  //
+  // The last step is the one that earns the test. The first two happen to agree
+  // with the old hard-coded order (uploads, then YouTube, then downloads), so a
+  // test that stopped there passed with the ordering removed entirely — checked,
+  // by removing it. Only a NAS download arriving last can distinguish them,
+  // because downloads are last in that fixed order and must now come first.
+  const requestId = await submitYtdl("https://youtu.be/zSGhyrF7YVo");
+  await driveYtdl(requestId, "succeed");
+
+  await gotoTasks(page);
+  await expect(page.getByTestId("ytdl-list")).toBeVisible({ timeout: 25_000 });
+  await expect
+    .poll(async () => (await headings(page))[0], { timeout: 25_000 })
+    .toBe("From YouTube");
+
+  await uploadTrack(page, "Ordering", "Tester", "Spec 2031");
+  await expect(page.getByTestId("upload-list")).toBeVisible({
+    timeout: 25_000,
+  });
+  await expect
+    .poll(async () => (await headings(page))[0], { timeout: 25_000 })
+    .toBe("Uploads");
+
+  // Timestamps are unix SECONDS, so an upload and a download started in the same
+  // second tie and fall back to the fixed order. Real use cannot notice that;
+  // a test firing both within milliseconds can, so separate them.
+  await page.waitForTimeout(1500);
+  await addNasDownload("https://example.invalid/newest.iso");
+  await expect
+    .poll(async () => (await headings(page))[0], { timeout: 25_000 })
+    .toBe("Added by link");
+
+  // The others are still there, just lower down — reordering is not hiding.
+  const after = await headings(page);
+  expect(after).toContain("Uploads");
+  expect(after).toContain("From YouTube");
+});
+
+test("clear finished removes saved YouTube downloads too", async ({ page }) => {
+  // The button was wired only to the NAS list, so a screen of saved tracks could
+  // only be cleared one row at a time.
+  const requestId = await submitYtdl("https://youtu.be/zSGhyrF7YVo");
+  await driveYtdl(requestId, "succeed");
+
+  await gotoTasks(page);
+  await expect(page.getByTestId("ytdl-item")).toHaveCount(1, {
+    timeout: 25_000,
+  });
+  await expect
+    .poll(
+      async () =>
+        (await page.getByTestId("ytdl-item").innerText()).toLowerCase(),
+      {
+        timeout: 25_000,
+      },
+    )
+    .toContain("saved");
+
+  await page.getByTestId("overflow-open").click();
+  const clear = page.getByRole("button", { name: /Clear finished/ });
+  await expect(clear).toBeVisible();
+  await clear.click();
+
+  // The confirmation must say what dismissing a saved download actually costs,
+  // which is not about files: the record IS the "we already have this" memory,
+  // so a re-run fetches it again.
+  const sheet = page.locator("ion-action-sheet");
+  await expect(sheet).toContainText(/fetched again/i);
+  await sheet.getByRole("button", { name: /^Clear \d+$/ }).click();
+
+  await expect(page.getByTestId("ytdl-item")).toHaveCount(0, {
+    timeout: 20_000,
+  });
 });

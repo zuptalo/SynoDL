@@ -19,6 +19,12 @@ export type UploadState = 'waiting' | 'sending' | 'done' | 'failed' | 'cancelled
 
 export interface UploadJob {
   id: number;
+  /**
+   * When this upload was added, in unix SECONDS — the same unit the NAS and the
+   * server use, so the Tasks list can compare all three kinds without anyone
+   * remembering which one is milliseconds (spec 2031).
+   */
+  createdAt: number;
   file: File;
   name: string;
   kind: UploadKind;
@@ -222,6 +228,7 @@ export function useUploads() {
 
     const added = files.map((file) => ({
       id: nextId++,
+      createdAt: Math.floor(Date.now() / 1000),
       batchId,
       artworkUrl,
       file,

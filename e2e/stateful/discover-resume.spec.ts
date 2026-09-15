@@ -6,23 +6,29 @@
  * watching the screen. A grid that looks right says nothing about whether it was
  * fetched, and "did it search?" is the whole question here.
  */
-import { expect, test, type Page } from '@playwright/test';
-import { addSource, apiToken, clearSources, login, setSourceState } from './helpers';
+import { expect, test, type Page } from "@playwright/test";
+import {
+  addSource,
+  apiToken,
+  clearSources,
+  login,
+  setSourceState,
+} from "./helpers";
 
-let token = '';
+let token = "";
 
 test.beforeEach(async () => {
   token = await apiToken();
   await clearSources(token);
-  await setSourceState('reset');
-  await addSource(token, 'Only Source', 0);
+  await setSourceState("reset");
+  await addSource(token, "Only Source", 0);
 });
 
 /** Count catalog searches — the asking this feature exists to put in the reader's hands. */
 function countSearches(page: Page): () => number {
   let n = 0;
-  page.on('request', (r) => {
-    if (new URL(r.url()).pathname === '/v1/source/search') n += 1;
+  page.on("request", (r) => {
+    if (new URL(r.url()).pathname === "/v1/source/search") n += 1;
   });
   return () => n;
 }
@@ -39,27 +45,40 @@ async function setSlow(ms: number): Promise<void> {
 }
 
 async function openDiscover(page: Page): Promise<void> {
-  await page.goto('/tabs/browser');
-  await expect(page.locator('.card, .state').first()).toBeVisible({ timeout: 30_000 });
+  await page.goto("/tabs/browser");
+  await expect(page.locator(".card, .state").first()).toBeVisible({
+    timeout: 30_000,
+  });
 }
 
-test('the first ever visit searches, because there is nothing to come back to', async ({ page }) => {
+test("the first ever visit searches, because there is nothing to come back to", async ({
+  page,
+}) => {
   await login(page);
   const searches = countSearches(page);
   await openDiscover(page);
-  await expect(page.locator('.card').first()).toBeVisible({ timeout: 30_000 });
-  expect(searches(), 'a first run has no session to restore, so it must fetch').toBeGreaterThan(0);
+  await expect(page.locator(".card").first()).toBeVisible({ timeout: 30_000 });
+  expect(
+    searches(),
+    "a first run has no session to restore, so it must fetch",
+  ).toBeGreaterThan(0);
 });
 
-test('opening the app again shows the last session without asking the source', async ({ page }) => {
+test("opening the app again shows the last session without asking the source", async ({
+  page,
+}) => {
   // Session one: browse, which is what gets remembered.
   await login(page);
   await openDiscover(page);
-  await expect(page.locator('.card').first()).toBeVisible({ timeout: 30_000 });
+  await expect(page.locator(".card").first()).toBeVisible({ timeout: 30_000 });
   // The TITLE, not the card's whole text: a card also carries a source mark and
   // an ownership ribbon, which are rendered from live state and are not what
   // "the last session's results" means.
-  const firstTitle = await page.getByTestId('catalog-card').first().locator('h3').innerText();
+  const firstTitle = await page
+    .getByTestId("catalog-card")
+    .first()
+    .locator("h3")
+    .innerText();
 
   // Let the first session finish before counting. Its fill-the-viewport loop
   // keeps fetching pages after the first card renders, and those land AFTER a
@@ -73,15 +92,22 @@ test('opening the app again shows the last session without asking the source', a
   await page.reload();
   await openDiscover(page);
 
-  await expect(page.locator('.card').first()).toBeVisible({ timeout: 30_000 });
-  expect(await page.getByTestId('catalog-card').first().locator('h3').innerText()).toBe(firstTitle);
-  expect(searches(), 'opening the app searched instead of showing the last session').toBe(0);
+  await expect(page.locator(".card").first()).toBeVisible({ timeout: 30_000 });
+  expect(
+    await page.getByTestId("catalog-card").first().locator("h3").innerText(),
+  ).toBe(firstTitle);
+  expect(
+    searches(),
+    "opening the app searched instead of showing the last session",
+  ).toBe(0);
 });
 
-test('pulling to refresh still asks, so fresh results are one gesture away', async ({ page }) => {
+test("pulling to refresh still asks, so fresh results are one gesture away", async ({
+  page,
+}) => {
   await login(page);
   await openDiscover(page);
-  await expect(page.locator('.card').first()).toBeVisible({ timeout: 30_000 });
+  await expect(page.locator(".card").first()).toBeVisible({ timeout: 30_000 });
 
   await page.reload();
   await openDiscover(page);
@@ -90,10 +116,12 @@ test('pulling to refresh still asks, so fresh results are one gesture away', asy
   // The refresher is a gesture; calling what it calls is the honest equivalent
   // in a test, and it is the same code path.
   await page.evaluate(() => {
-    document.querySelector('ion-refresher')?.dispatchEvent(new CustomEvent('ionRefresh', {
-      detail: { complete: () => undefined },
-      bubbles: true,
-    }));
+    document.querySelector("ion-refresher")?.dispatchEvent(
+      new CustomEvent("ionRefresh", {
+        detail: { complete: () => undefined },
+        bubbles: true,
+      }),
+    );
   });
   await expect.poll(() => searches(), { timeout: 20_000 }).toBeGreaterThan(0);
 });
@@ -107,7 +135,7 @@ test('pulling to refresh still asks, so fresh results are one gesture away', asy
  * the block's own tests have to type.
  */
 async function typeQuery(page: Page, q: string): Promise<void> {
-  await page.getByTestId('discover-search').locator('input').fill(q);
+  await page.getByTestId("discover-search").locator("input").fill(q);
 }
 
 /**
@@ -126,7 +154,7 @@ async function dragDown(
   steps = 16,
   px = 9,
 ): Promise<{ offsets: number[]; drop: number[] }> {
-  const box = await page.locator('ion-content').first().boundingBox();
+  const box = await page.locator("ion-content").first().boundingBox();
   // Down the LEFT GUTTER of the grid, not through a card. A pointer drag that
   // starts and ends on a card still delivers a click to it, so dragging through
   // the middle opened the title modal on release — the pull worked, and the
@@ -140,11 +168,15 @@ async function dragDown(
   for (let i = 1; i <= steps; i += 1) {
     await page.mouse.move(x, y + i * px);
     const s = await page.evaluate(() => {
-      const el = document.querySelector('ion-content')?.shadowRoot?.querySelector('.inner-scroll');
-      const t = el ? getComputedStyle(el).transform : 'none';
-      const path = document.querySelector('.pr-stage path') as SVGGraphicsElement | null;
+      const el = document
+        .querySelector("ion-content")
+        ?.shadowRoot?.querySelector(".inner-scroll");
+      const t = el ? getComputedStyle(el).transform : "none";
+      const path = document.querySelector(
+        ".pr-stage path",
+      ) as SVGGraphicsElement | null;
       return {
-        offset: t && t !== 'none' ? new DOMMatrixReadOnly(t).m42 : 0,
+        offset: t && t !== "none" ? new DOMMatrixReadOnly(t).m42 : 0,
         // The DRAWN shape, in its own user units — which is the only thing that
         // can say whether the animation restarted.
         drop: path ? Math.round(path.getBBox().height) : 0,
@@ -157,57 +189,63 @@ async function dragDown(
   return { offsets, drop };
 }
 
-test('a search in progress offers to be called off, and nothing moves when it appears', async ({
+test("a search in progress offers to be called off, and nothing moves when it appears", async ({
   page,
 }) => {
   await login(page);
   await openDiscover(page);
-  await expect(page.locator('.card').first()).toBeVisible({ timeout: 30_000 });
+  await expect(page.locator(".card").first()).toBeVisible({ timeout: 30_000 });
   await page.waitForTimeout(3000); // let the first fill settle
 
   // Nothing running, nothing offering to cancel (FR-011).
-  await expect(page.getByTestId('search-cancel')).toHaveCount(0);
+  await expect(page.getByTestId("search-cancel")).toHaveCount(0);
 
   // Get a query on screen FIRST and let it settle. Typing reveals the search
   // hint, which is a real row above the grid — so measuring a no-query baseline
   // against a with-query search would blame the hint's height on the block. Both
   // measurements below are taken with a query already in the box.
-  await typeQuery(page, 'Title');
+  await typeQuery(page, "Title");
   // Wait for the hint to be REAL and the search to be over. `toHaveCount(0)` on
   // the cancel is satisfied the instant it is evaluated — before the first
   // search has even started — so it measured a grid with no hint above it and
   // then blamed the hint's 31px on the block.
-  await expect(page.getByTestId('search-hint')).toBeVisible({ timeout: 20_000 });
-  await expect(page.getByTestId('search-loading')).toHaveClass(/idle/, { timeout: 20_000 });
+  await expect(page.getByTestId("search-hint")).toBeVisible({
+    timeout: 20_000,
+  });
+  await expect(page.getByTestId("search-loading")).toHaveClass(/idle/, {
+    timeout: 20_000,
+  });
   // Measured on the HINT, not the first card: a text search can legitimately
   // come back empty, and then there is no card to measure and the test times out
   // instead of reporting anything. The hint sits directly above the grid and is
   // there whether or not the search matched, so it moves if and only if
   // something above it changed height.
-  const hint = page.getByTestId('search-hint');
+  const hint = page.getByTestId("search-hint");
   const before = await hint.boundingBox();
 
   await setSlow(5000);
-  await typeQuery(page, 'Title 1');
+  await typeQuery(page, "Title 1");
 
-  const pill = page.getByTestId('search-cancel');
+  const pill = page.getByTestId("search-cancel");
   await expect(pill).toBeVisible({ timeout: 15_000 });
 
   // SC-003. Both states carry the hint, so the only difference between them is
   // the block — if the grid has not moved, the block costs no layout, which is
   // the whole reason it is laid out over the content rather than in it.
   const during = await hint.boundingBox();
-  expect(during?.y, 'the content moved when the cancel block appeared').toBe(before?.y);
+  expect(during?.y, "the content moved when the cancel block appeared").toBe(
+    before?.y,
+  );
 
   // The spinner and the cancel are ONE block: the cancel sits directly beneath
   // the spinner, and they keep that relationship however the list moves.
   // Asserted as a relationship rather than two absolute positions — absolute
   // positions would pass with them anywhere on screen.
-  const block = page.locator('.search-block');
-  await expect(block).toHaveCSS('position', 'fixed');
-  const spinner = await block.locator('.block-spinner').boundingBox();
+  const block = page.locator(".search-block");
+  await expect(block).toHaveCSS("position", "fixed");
+  const spinner = await block.locator(".block-spinner").boundingBox();
   const button = await pill.boundingBox();
-  expect(button?.y ?? 0, 'the cancel is not below the spinner').toBeGreaterThan(
+  expect(button?.y ?? 0, "the cancel is not below the spinner").toBeGreaterThan(
     (spinner?.y ?? 0) + (spinner?.height ?? 0) - 1,
   );
   // Centred on each other, so the pair reads as one thing rather than two.
@@ -222,55 +260,57 @@ test('a search in progress offers to be called off, and nothing moves when it ap
   // clears this viewport's short header and so passed such a test — while
   // landing squarely on the search box on a phone. This checks the clearance the
   // design actually asks for, which is what the fallback could never satisfy.
-  const header = await page.locator('ion-header').first().boundingBox();
+  const header = await page.locator("ion-header").first().boundingBox();
   const headerBottom = (header?.y ?? 0) + (header?.height ?? 0);
   const box = await pill.boundingBox();
   expect(
     box?.y ?? 0,
-    'the cancel pill is not clear of the header and the refresher spinner',
+    "the cancel pill is not clear of the header and the refresher spinner",
   ).toBeGreaterThanOrEqual(headerBottom + 80);
 
   await pill.click();
   await expect(pill).toHaveCount(0, { timeout: 10_000 });
   // FR-010: usable again immediately, rather than waiting out the request.
-  await expect(page.getByTestId('filter-open')).toBeEnabled();
+  await expect(page.getByTestId("filter-open")).toBeEnabled();
 
   await setSlow(0);
 });
 
-test('cancelling puts the view back, so the controls never describe what is not shown', async ({
+test("cancelling puts the view back, so the controls never describe what is not shown", async ({
   page,
 }) => {
   // FR-009. Leaving the typed query above the old results would make the screen
   // claim a view it is not showing — and nothing about that looks wrong.
   await login(page);
   await openDiscover(page);
-  await expect(page.locator('.card').first()).toBeVisible({ timeout: 30_000 });
+  await expect(page.locator(".card").first()).toBeVisible({ timeout: 30_000 });
   await page.waitForTimeout(3000);
 
   await setSlow(5000);
-  await page.getByTestId('discover-search').locator('input').fill('dune');
+  await page.getByTestId("discover-search").locator("input").fill("dune");
 
-  const pill = page.getByTestId('search-cancel');
+  const pill = page.getByTestId("search-cancel");
   await expect(pill).toBeVisible({ timeout: 15_000 });
   await pill.click();
   await expect(pill).toHaveCount(0, { timeout: 10_000 });
 
-  await expect(page.getByTestId('discover-search').locator('input')).toHaveValue('');
+  await expect(
+    page.getByTestId("discover-search").locator("input"),
+  ).toHaveValue("");
   await setSlow(0);
 });
 
-test('calling a search off stops it reaching the source', async ({ page }) => {
+test("calling a search off stops it reaching the source", async ({ page }) => {
   await login(page);
   await openDiscover(page);
-  await expect(page.locator('.card').first()).toBeVisible({ timeout: 30_000 });
+  await expect(page.locator(".card").first()).toBeVisible({ timeout: 30_000 });
   await page.waitForTimeout(3000);
 
   await setSlow(5000);
   const searches = countSearches(page);
-  await typeQuery(page, 'dune');
+  await typeQuery(page, "dune");
 
-  const pill = page.getByTestId('search-cancel');
+  const pill = page.getByTestId("search-cancel");
   await expect(pill).toBeVisible({ timeout: 15_000 });
   await pill.click();
 
@@ -278,7 +318,10 @@ test('calling a search off stops it reaching the source', async ({ page }) => {
   // Long enough that the abandoned search's fill-the-viewport loop would have
   // fired several times over had it not been called off.
   await page.waitForTimeout(9000);
-  expect(searches(), 'pages kept being fetched after the search was called off').toBe(afterCancel);
+  expect(
+    searches(),
+    "pages kept being fetched after the search was called off",
+  ).toBe(afterCancel);
 
   await setSlow(0);
 });
@@ -291,12 +334,12 @@ test('calling a search off stops it reaching the source', async ({ page }) => {
  * appears when Ionic sets its own class. A synthetic `ionRefresh` produces
  * neither, so it would assert nothing about what a reader sees.
  */
-test('pulling draws one indicator, growing downward, with the cancel inside it', async ({
+test("pulling draws one indicator, growing downward, with the cancel inside it", async ({
   page,
 }) => {
   await login(page);
   await openDiscover(page);
-  await expect(page.locator('.card').first()).toBeVisible({ timeout: 30_000 });
+  await expect(page.locator(".card").first()).toBeVisible({ timeout: 30_000 });
   await page.waitForTimeout(3000);
 
   await setSlow(6000);
@@ -320,34 +363,41 @@ test('pulling draws one indicator, growing downward, with the cancel inside it',
   // The floor is 20, not "never decreases", because the shape legitimately gets
   // SHORTER at the end: the tail pinches off into the ring, settling at the
   // circle's 30. A restart lands at the dot's 6.
-  expect(drop.some((h) => h > 20), `the droplet never drew: ${drop.join(', ')}`).toBe(true);
+  expect(
+    drop.some((h) => h > 20),
+    `the droplet never drew: ${drop.join(", ")}`,
+  ).toBe(true);
   const grown = drop.findIndex((h) => h > 20);
   expect(
     drop.slice(grown).filter((h) => h < 20),
-    `the droplet collapsed and restarted mid-pull: ${drop.join(', ')}`,
+    `the droplet collapsed and restarted mid-pull: ${drop.join(", ")}`,
   ).toEqual([]);
-  expect(offsets.at(-1) ?? 0, 'the pull never opened').toBeGreaterThan(0);
+  expect(offsets.at(-1) ?? 0, "the pull never opened").toBeGreaterThan(0);
 
   await page.mouse.up();
 
   // FR-002. One spinner. The floating block is the treatment for a search
   // started any OTHER way; while a pull is running it must stay away, which is
   // what the two-spinners-a-few-pixels-apart bug was.
-  const ring = page.getByTestId('pull-refresh');
+  const ring = page.getByTestId("pull-refresh");
   await expect(ring).toBeVisible({ timeout: 15_000 });
-  await expect(page.getByTestId('search-cancel')).toHaveCount(0);
+  await expect(page.getByTestId("search-cancel")).toHaveCount(0);
 
   // SC-001. The label sits above the ring, on its centre line — asserted as a
   // relationship, since absolute positions would pass with the pair anywhere.
   // Measured against the RING, not the button: the button is deliberately padded
   // out past the ring to a finger-sized target, so its box would report the
   // label overlapping it while the drawn shapes are clear of each other.
-  const label = await page.locator('.pr-label').boundingBox();
-  const circle = await page.locator('[data-testid="pull-refresh"] circle').boundingBox();
-  const cross = await page.locator('[data-testid="pull-refresh"] path').boundingBox();
+  const label = await page.locator(".pr-label").boundingBox();
+  const circle = await page
+    .locator('[data-testid="pull-refresh"] circle')
+    .boundingBox();
+  const cross = await page
+    .locator('[data-testid="pull-refresh"] path')
+    .boundingBox();
   expect(
     (label?.y ?? 0) + (label?.height ?? 0),
-    'the label is not above the ring',
+    "the label is not above the ring",
   ).toBeLessThanOrEqual(circle?.y ?? 0);
   const mid = (b: typeof circle) => ({
     x: (b?.x ?? 0) + (b?.width ?? 0) / 2,
@@ -355,20 +405,30 @@ test('pulling draws one indicator, growing downward, with the cancel inside it',
   });
   expect(
     Math.abs(mid(label).x - mid(circle).x),
-    'the label is not centred on the ring',
+    "the label is not centred on the ring",
   ).toBeLessThan(2);
   // The ✕ is IN the ring, not beside it — and inside its bounds, not merely
   // sharing a centre with something twice its size.
-  expect(Math.abs(mid(cross).x - mid(circle).x), 'the cross is not centred').toBeLessThan(1.5);
-  expect(Math.abs(mid(cross).y - mid(circle).y), 'the cross is not centred').toBeLessThan(1.5);
-  expect((cross?.width ?? 0) < (circle?.width ?? 0), 'the cross is not inside the ring').toBe(true);
+  expect(
+    Math.abs(mid(cross).x - mid(circle).x),
+    "the cross is not centred",
+  ).toBeLessThan(1.5);
+  expect(
+    Math.abs(mid(cross).y - mid(circle).y),
+    "the cross is not centred",
+  ).toBeLessThan(1.5);
+  expect(
+    (cross?.width ?? 0) < (circle?.width ?? 0),
+    "the cross is not inside the ring",
+  ).toBe(true);
 
   // FR-009. Drawn in the gap the refresher holds open, never over a row. The
   // first card has been pushed below the ring rather than sitting under it.
-  const card = await page.getByTestId('catalog-card').first().boundingBox();
-  expect(card?.y ?? 0, 'the indicator is covering the list').toBeGreaterThanOrEqual(
-    (circle?.y ?? 0) + (circle?.height ?? 0),
-  );
+  const card = await page.getByTestId("catalog-card").first().boundingBox();
+  expect(
+    card?.y ?? 0,
+    "the indicator is covering the list",
+  ).toBeGreaterThanOrEqual((circle?.y ?? 0) + (circle?.height ?? 0));
 
   // FR-007. The ✕ is reachable and retracts the refresher — it did nothing at
   // all while Ionic's `z-index: -1` left the list painted over it, and a test
@@ -377,8 +437,10 @@ test('pulling draws one indicator, growing downward, with the cancel inside it',
   await expect(ring).toHaveCount(0, { timeout: 10_000 });
   await expect
     .poll(async () =>
-      page.evaluate(
-        () => document.querySelector('ion-refresher')?.classList.contains('refresher-refreshing'),
+      page.evaluate(() =>
+        document
+          .querySelector("ion-refresher")
+          ?.classList.contains("refresher-refreshing"),
       ),
     )
     .toBe(false);
@@ -386,7 +448,9 @@ test('pulling draws one indicator, growing downward, with the cancel inside it',
   await setSlow(0);
 });
 
-test('reading on past the bottom loads quietly, with no spinner over the grid', async ({ page }) => {
+test("reading on past the bottom loads quietly, with no spinner over the grid", async ({
+  page,
+}) => {
   // Paging is not a search. The reader is already reading and more is arriving
   // underneath them — they are not waiting on a combination they asked for, so
   // there is nothing to offer to call off, and a spinner parked over the grid is
@@ -394,15 +458,17 @@ test('reading on past the bottom loads quietly, with no spinner over the grid', 
   // says it, which is enough.
   await login(page);
   await openDiscover(page);
-  await expect(page.locator('.card').first()).toBeVisible({ timeout: 30_000 });
+  await expect(page.locator(".card").first()).toBeVisible({ timeout: 30_000 });
   await page.waitForTimeout(4000); // let the fill-the-viewport pass finish
 
-  const before = await page.getByTestId('catalog-card').count();
+  const before = await page.getByTestId("catalog-card").count();
   await setSlow(4000);
 
   // Reach the bottom, which is what arms infinite scroll.
   await page.evaluate(async () => {
-    const el = await (document.querySelector('ion-content') as HTMLIonContentElement).getScrollElement();
+    const el = await (
+      document.querySelector("ion-content") as HTMLIonContentElement
+    ).getScrollElement();
     el.scrollTop = el.scrollHeight;
   });
 
@@ -413,8 +479,10 @@ test('reading on past the bottom loads quietly, with no spinner over the grid', 
   for (let i = 0; i < 16; i += 1) {
     seen.push(
       await page.evaluate(() => ({
-        bar: !document.querySelector('[data-testid=search-loading]')?.classList.contains('idle'),
-        cancel: !!document.querySelector('[data-testid=search-cancel]'),
+        bar: !document
+          .querySelector("[data-testid=search-loading]")
+          ?.classList.contains("idle"),
+        cancel: !!document.querySelector("[data-testid=search-cancel]"),
       })),
     );
     await page.waitForTimeout(250);
@@ -422,16 +490,20 @@ test('reading on past the bottom loads quietly, with no spinner over the grid', 
 
   // A load really did run — otherwise the assertion below passes on a page that
   // is simply doing nothing.
-  expect(seen.some((s) => s.bar), 'no page load ever started').toBe(true);
+  expect(
+    seen.some((s) => s.bar),
+    "no page load ever started",
+  ).toBe(true);
   expect(
     seen.filter((s) => s.cancel).length,
-    'paging put a spinner over the grid',
+    "paging put a spinner over the grid",
   ).toBe(0);
-  await expect(page.getByTestId('pull-refresh')).toHaveCount(0);
+  await expect(page.getByTestId("pull-refresh")).toHaveCount(0);
 
   await setSlow(0);
   // And it was a real page load, not just a bar that lit up.
-  await expect.poll(() => page.getByTestId('catalog-card').count(), { timeout: 30_000 })
+  await expect
+    .poll(() => page.getByTestId("catalog-card").count(), { timeout: 30_000 })
     .toBeGreaterThan(before);
 });
 
@@ -448,30 +520,30 @@ const VIEW_CHANGES: Array<{
   act: (p: Page) => Promise<void>;
 }> = [
   {
-    what: 'the sort direction',
-    act: (p) => p.locator('.order-toggle').click(),
+    what: "the sort direction",
+    act: (p) => p.locator(".order-toggle").click(),
   },
   {
-    what: 'a filter',
+    what: "a filter",
     act: async (p) => {
-      await p.getByTestId('filter-open').click();
-      await p.getByTestId('filter-type').click();
+      await p.getByTestId("filter-open").click();
+      await p.getByTestId("filter-type").click();
       // ion-select interface="alert" opens an Ionic alert of radio options.
       await p.locator('ion-alert button:has-text("Movie")').first().click();
       await p.locator('ion-alert button:has-text("OK")').click();
-      await p.getByTestId('filter-apply').click();
+      await p.getByTestId("filter-apply").click();
     },
   },
   {
-    what: 'the source',
+    what: "the source",
     // The picker is only rendered when there is more than one source to pick
     // between, so a single-source fixture has nothing to click.
     setup: async () => {
-      await addSource(await apiToken(), 'Second Source', 1);
+      await addSource(await apiToken(), "Second Source", 1);
     },
     act: async (p) => {
-      await p.locator('.source-control ion-select').click();
-      await p.getByRole('radio').nth(1).click();
+      await p.locator(".source-control ion-select").click();
+      await p.getByRole("radio").nth(1).click();
     },
   },
 ];
@@ -481,7 +553,9 @@ for (const { what, setup, act } of VIEW_CHANGES) {
     await setup?.();
     await login(page);
     await openDiscover(page);
-    await expect(page.locator('.card').first()).toBeVisible({ timeout: 30_000 });
+    await expect(page.locator(".card").first()).toBeVisible({
+      timeout: 30_000,
+    });
     await page.waitForTimeout(4000);
 
     await setSlow(4000);
@@ -491,21 +565,26 @@ for (const { what, setup, act } of VIEW_CHANGES) {
     for (let i = 0; i < 16; i += 1) {
       seen.push(
         await page.evaluate(() => ({
-          bar: !document.querySelector('[data-testid=search-loading]')?.classList.contains('idle'),
-          cancel: !!document.querySelector('[data-testid=search-cancel]'),
+          bar: !document
+            .querySelector("[data-testid=search-loading]")
+            ?.classList.contains("idle"),
+          cancel: !!document.querySelector("[data-testid=search-cancel]"),
         })),
       );
       await page.waitForTimeout(250);
     }
 
     // SC-001. A load really ran — otherwise this passes on a page doing nothing.
-    expect(seen.some((s) => s.bar), 'no search ever started').toBe(true);
+    expect(
+      seen.some((s) => s.bar),
+      "no search ever started",
+    ).toBe(true);
     expect(
       seen.filter((s) => s.cancel).length,
       `changing ${what} put a cancel over the grid`,
     ).toBe(0);
     // And the pull indicator is not standing in for it either.
-    await expect(page.getByTestId('pull-refresh')).toHaveCount(0);
+    await expect(page.getByTestId("pull-refresh")).toHaveCount(0);
 
     await setSlow(0);
   });

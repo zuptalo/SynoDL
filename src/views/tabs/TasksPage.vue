@@ -46,6 +46,7 @@ import UploadItem from '@/components/UploadItem.vue';
 import UploadDetailModal from '@/components/UploadDetailModal.vue';
 import PullRefresh from '@/components/PullRefresh.vue';
 import { splitByOrigin } from '@/services/task-origin';
+import { newestOf, orderSections } from '@/services/task-sections';
 import { useYtdl } from '@/composables/useYtdl';
 import YtdlItem from '@/components/YtdlItem.vue';
 import YtdlDetailModal from '@/components/YtdlDetailModal.vue';
@@ -137,6 +138,25 @@ const visible = computed(() => applyTaskFilter(tasks.value, filter.value));
 // order and these sections must not quietly apply a second one (spec 1042,
 // FR-004). A section with nothing in it is not rendered at all.
 const sections = computed(() => splitByOrigin(visible.value));
+
+// Which block goes on top: the one holding the most recently added thing
+// (spec 2031). See `task-sections` for why it is the newest member and not an
+// average. A block with nothing in it has no timestamp and sorts last, which is
+// also where an empty block should be.
+const sectionOrder = computed(() =>
+  orderSections({
+    uploads: newestOf(uploads.value, (j) => j.createdAt),
+    ytdl: newestOf(visibleYtdl.value, (d) => d.submittedAt),
+    downloads: newestOf(visible.value, (t) => t.createdAt),
+  }),
+);
+
+// Nothing anywhere — as opposed to no NAS downloads, which is a different claim
+// and used to be made while a YouTube list sat above it saying otherwise. With
+// the blocks reordered it could also have landed above them.
+const nothingAtAll = computed(
+  () => visible.value.length === 0 && visibleYtdl.value.length === 0 && uploads.value.length === 0,
+);
 
 // The open upload, tracked by id so the sheet follows the live job — a bar keeps
 // moving while it is open, and an upload dismissed elsewhere shows its gone
@@ -252,9 +272,57 @@ async function confirmDelete(ids: string[], subHeader: string): Promise<boolean>
   await refresh();
   return true;
 }
-async function clearFinished(pool: Task[]): Promise<void> {
+/**
+ * Saved YouTube downloads that this clear would also remove.
+ *
+ * Only whole downloads and whole groups: an item inside a group is removed by
+ * its group's cascade, so counting it here would say "14" for 3 things and then
+ * delete 3.
+ */
+const savedYtdl = computed(() =>
+  visibleYtdl.value.filter((d) => d.state === 'completed' && d.kind !== 'item'),
+);
+
+/**
+ * Clear finished, across both systems.
+ *
+ * It only ever cleared NAS tasks, because it is wired to the NAS list and the
+ * YouTube downloads are a different store behind their own endpoint — so a
+ * screen full of saved tracks was unclearable except one row at a time.
+ *
+ * The confirmation says what dismissing a saved download actually costs, which
+ * is not obvious and is not about files: the completed record IS the "we already
+ * have this" memory (`YtdlAlreadyHeld`), so re-running that playlist or channel
+ * fetches the cleared items again. The media itself is never touched by either
+ * system.
+ */
+async function clearFinished(pool: Task[], includeYtdl: boolean): Promise<void> {
   const ids = finished(pool);
-  await confirmDelete(ids, 'Removes the finished entries; files stay on the NAS.');
+  // A selection is a selection of NAS tasks. Sweeping YouTube rows nobody picked
+  // would be a bigger action than the one being confirmed.
+  const saved = includeYtdl ? savedYtdl.value : [];
+  const total = ids.length + saved.length;
+  if (total === 0) return;
+
+  const sheet = await actionSheetController.create({
+    header: `Clear ${total} finished ${plural(total)}?`,
+    subHeader: saved.length
+      ? 'Files stay where they are. Cleared YouTube downloads are fetched again if you re-run their playlist or channel.'
+      : 'Removes the finished entries; files stay on the NAS.',
+    buttons: [
+      { text: `Clear ${total}`, role: 'destructive', data: 'ok' },
+      { text: 'Cancel', role: 'cancel' },
+    ],
+  });
+  await sheet.present();
+  const { data } = await sheet.onDidDismiss();
+  if (data !== 'ok') return;
+
+  if (ids.length) await api.deleteTasks(ids);
+  // Sequential rather than concurrent: a group's cascade and its items' own
+  // rows can both be in flight otherwise, and the second answers 404.
+  for (const d of saved) await dismissYtdl(d.requestId);
+  await refresh();
 }
 
 // ---- menus ----------------------------------------------------------------
@@ -267,7 +335,11 @@ async function openOverflow(): Promise<void> {
       { text: 'Pause all', data: 'pause' },
       { text: 'Resume all', data: 'resume' },
       { text: 'Delete all', role: 'destructive', data: 'delete' },
-      { text: `Clear finished (${finished(all).length})`, role: 'destructive', data: 'clear' },
+      {
+        text: `Clear finished (${finished(all).length + savedYtdl.value.length})`,
+        role: 'destructive',
+        data: 'clear',
+      },
       { text: 'Cancel', role: 'cancel' },
     ],
   });
@@ -278,7 +350,7 @@ async function openOverflow(): Promise<void> {
       enterSelect();
       break;
     case 'clear':
-      await clearFinished(all);
+      await clearFinished(all, true);
       break;
     case 'pause':
       await runPause(pausable(all));
@@ -312,7 +384,7 @@ async function openSelectionActions(): Promise<void> {
   const { data } = await sheet.onDidDismiss();
   switch (data) {
     case 'clear':
-      await clearFinished(pool);
+      await clearFinished(pool, false);
       cancelSelect();
       break;
     case 'pause':
@@ -409,83 +481,89 @@ async function onDelete(id: string): Promise<void> {
            only mean a staler list. -->
       <PullRefresh @refresh="onPull" />
 
-      <!-- Uploads sit above the downloads and read the same way: they are
-           transfers in progress, not notices. -->
-      <ion-list v-if="uploads.length" data-testid="upload-list">
-        <ion-list-header><ion-label>Uploads</ion-label></ion-list-header>
-        <UploadItem
-          v-for="job in uploads"
-          :key="job.id"
-          :job="job"
-          @stop="cancelUpload"
-          @retry="retryUpload"
-          @clear="dismissUpload"
-          @open="uploadDetailId = $event"
-        />
-        <ion-note v-if="uploadRunning" class="upload-hint" color="medium">
-          Keep the app open while an upload is running.
-        </ion-note>
-      </ion-list>
-
-      <!-- YouTube downloads sit with the NAS ones and read the same way: they
-           are downloads in progress. They are a separate list because they are
-           a separate system — no pause, no resume, no progress. -->
-      <ion-list v-if="visibleYtdl.length" data-testid="ytdl-list">
-        <ion-list-header><ion-label>From YouTube</ion-label></ion-list-header>
-        <YtdlItem
-          v-for="d in visibleYtdl"
-          :key="d.requestId"
-          :download="d"
-          @dismiss="onDismissYtdl"
-          @open="onOpenYtdl"
-          @retry="onRetryYtdl"
-        />
-      </ion-list>
-
       <div v-if="!loaded" class="center"><ion-spinner name="crescent" /></div>
-      <div v-else-if="visible.length === 0" class="center empty" data-testid="tasks-empty">
-        <p>{{ tasks.length === 0 ? 'No download tasks.' : 'No tasks match the filters.' }}</p>
+      <div v-else-if="nothingAtAll" class="center empty" data-testid="tasks-empty">
+        <p>{{
+            tasks.length === 0 && ytdlDownloads.length === 0
+              ? 'Nothing here yet.'
+              : 'Nothing matches the filters.'
+          }}</p>
       </div>
-      <template v-else>
+
+      <!-- The three blocks are rendered in the order `sectionOrder` gives, so
+           whatever was added most recently is on top (spec 2031). They are
+           separate lists because they are separate systems — a YouTube download
+           has no pause, no resume and no NAS task behind it. -->
+      <template v-for="key in sectionOrder" v-else :key="key">
+        <!-- Uploads read the same way as downloads: transfers in progress, not
+             notices. They are the only kind that needs the app kept open. -->
+        <ion-list v-if="key === 'uploads' && uploads.length" data-testid="upload-list">
+          <ion-list-header><ion-label>Uploads</ion-label></ion-list-header>
+          <UploadItem
+            v-for="job in uploads"
+            :key="job.id"
+            :job="job"
+            @stop="cancelUpload"
+            @retry="retryUpload"
+            @clear="dismissUpload"
+            @open="uploadDetailId = $event"
+          />
+          <ion-note v-if="uploadRunning" class="upload-hint" color="medium">
+            Keep the app open while an upload is running.
+          </ion-note>
+        </ion-list>
+
+        <ion-list v-if="key === 'ytdl' && visibleYtdl.length" data-testid="ytdl-list">
+          <ion-list-header><ion-label>From YouTube</ion-label></ion-list-header>
+          <YtdlItem
+            v-for="d in visibleYtdl"
+            :key="d.requestId"
+            :download="d"
+            @dismiss="onDismissYtdl"
+            @open="onOpenYtdl"
+            @retry="onRetryYtdl"
+          />
+        </ion-list>
+
         <!-- Sent from Discover, and added some other way. Uploads and YouTube
              downloads have said where they came from since they existed; NAS
              downloads simply began, so a film sat under a YouTube playlist with
-             nothing between them (spec 1042). -->
-        <!-- The two sections sit inside ONE marker. `task-list` means "the
-             downloads rendered" and is used across the suite for that; moving it
-             onto a section would make it mean "there are Discover downloads",
-             which is a different and much narrower claim. -->
-        <div data-testid="task-list">
-        <ion-list v-if="sections.discover.length" data-testid="task-list-discover">
-          <ion-list-header><ion-label>From Discover</ion-label></ion-list-header>
-          <TaskItem
-            v-for="t in sections.discover"
-            :key="t.id"
-            :task="t"
-            :select-mode="selectMode"
-            :selected="selected.has(t.id)"
-            @pause="onPause"
-            @resume="onResume"
-            @delete="onDelete"
-            @toggle="toggleSelect"
-            @open="openDetail"
-          />
-        </ion-list>
-        <ion-list v-if="sections.direct.length" data-testid="task-list-direct">
-          <ion-list-header><ion-label>Added by link</ion-label></ion-list-header>
-          <TaskItem
-            v-for="t in sections.direct"
-            :key="t.id"
-            :task="t"
-            :select-mode="selectMode"
-            :selected="selected.has(t.id)"
-            @pause="onPause"
-            @resume="onResume"
-            @delete="onDelete"
-            @toggle="toggleSelect"
-            @open="openDetail"
-          />
-        </ion-list>
+             nothing between them (spec 1042).
+             The two sit inside ONE marker. `task-list` means "the downloads
+             rendered" and is used across the suite for that; moving it onto a
+             section would make it mean "there are Discover downloads", which is
+             a different and much narrower claim. -->
+        <div v-if="key === 'downloads' && visible.length" data-testid="task-list">
+          <ion-list v-if="sections.discover.length" data-testid="task-list-discover">
+            <ion-list-header><ion-label>From Discover</ion-label></ion-list-header>
+            <TaskItem
+              v-for="t in sections.discover"
+              :key="t.id"
+              :task="t"
+              :select-mode="selectMode"
+              :selected="selected.has(t.id)"
+              @pause="onPause"
+              @resume="onResume"
+              @delete="onDelete"
+              @toggle="toggleSelect"
+              @open="openDetail"
+            />
+          </ion-list>
+          <ion-list v-if="sections.direct.length" data-testid="task-list-direct">
+            <ion-list-header><ion-label>Added by link</ion-label></ion-list-header>
+            <TaskItem
+              v-for="t in sections.direct"
+              :key="t.id"
+              :task="t"
+              :select-mode="selectMode"
+              :selected="selected.has(t.id)"
+              @pause="onPause"
+              @resume="onResume"
+              @delete="onDelete"
+              @toggle="toggleSelect"
+              @open="openDetail"
+            />
+          </ion-list>
         </div>
       </template>
 

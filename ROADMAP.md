@@ -104,3 +104,4 @@ Specs are grouped by category band; status moves
 | [2028](specs/2028-pull-droplet/spec.md) | Pulling stretches a droplet, and the cancel rides with the spinner | 🔵 in-review |
 | [2029](specs/2029-quiet-view-changes/spec.md) | Only a typed search offers to be called off | 🔵 in-review |
 | [2030](specs/2030-fallback-poll-never-stops/spec.md) | The fallback poll stops when the stream goes live | 🔵 in-review |
+| [2031](specs/2031-tasks-sections-and-clear/spec.md) | The newest block on top, and one clear for both systems | 🔵 in-review |
