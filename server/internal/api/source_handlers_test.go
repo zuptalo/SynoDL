@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"log/slog"
 	"net/http"
 	"strings"
 	"testing"
@@ -796,5 +797,69 @@ func TestTitleDetailAnswersOnlyForTitlesTheCallerHasSeen(t *testing.T) {
 	}
 	if after.Ownership != source.OwnershipOwned {
 		t.Errorf("ownership after the caller searched = %q, want owned", after.Ownership)
+	}
+}
+
+// Spec 2032 FR-005..FR-007. A failing source has to leave a record a person can
+// read: the reason was already computed correctly and then went nowhere, so a
+// source could be down for hours with the server logging only request lines.
+func TestLogSourceFailureSaysWhichAndWhy(t *testing.T) {
+	resetSourceFailures()
+	var buf bytes.Buffer
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelWarn})))
+	defer slog.SetDefault(prev)
+
+	logSourceFailure(7, "ZarFilm", "needs_refresh")
+	out := buf.String()
+	for _, want := range []string{"source=7", "name=ZarFilm", "reason=needs_refresh"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("log line %q is missing %q", out, want)
+		}
+	}
+}
+
+// FR-007: a source failing the same way a hundred times is one piece of news.
+func TestLogSourceFailureDoesNotFlood(t *testing.T) {
+	resetSourceFailures()
+	var buf bytes.Buffer
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelWarn})))
+	defer slog.SetDefault(prev)
+
+	for i := 0; i < 100; i++ {
+		logSourceFailure(7, "ZarFilm", "needs_refresh")
+	}
+	if n := strings.Count(buf.String(), "source unavailable"); n != 1 {
+		t.Fatalf("wrote %d lines for one unchanging failure, want 1", n)
+	}
+
+	// A DIFFERENT reason is news again.
+	logSourceFailure(7, "ZarFilm", "unreachable")
+	if n := strings.Count(buf.String(), "source unavailable"); n != 2 {
+		t.Fatalf("a changed reason wrote %d lines total, want 2", n)
+	}
+
+	// And recovering means the next failure is reported afresh.
+	clearSourceFailures(7)
+	logSourceFailure(7, "ZarFilm", "unreachable")
+	if n := strings.Count(buf.String(), "source unavailable"); n != 3 {
+		t.Fatalf("after recovery wrote %d lines total, want 3", n)
+	}
+}
+
+// FR-004 at the log level: two sources failing differently each get their say.
+func TestLogSourceFailureIsPerSource(t *testing.T) {
+	resetSourceFailures()
+	var buf bytes.Buffer
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelWarn})))
+	defer slog.SetDefault(prev)
+
+	logSourceFailure(1, "A", "needs_refresh")
+	logSourceFailure(2, "B", "unreachable")
+	logSourceFailure(1, "A", "needs_refresh") // repeat, must stay quiet
+	if n := strings.Count(buf.String(), "source unavailable"); n != 2 {
+		t.Fatalf("wrote %d lines, want one per source", n)
 	}
 }
