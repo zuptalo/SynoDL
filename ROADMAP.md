@@ -100,9 +100,9 @@ Specs are grouped by category band; status moves
 | [2024](specs/2024-group-sheet-refetch/spec.md) | A group's items stop reloading on every poll | 🟢 shipped |
 | [2025](specs/2025-item-detail-lookup/spec.md) | An item's details, actually reachable | 🟢 shipped |
 | [2026](specs/2026-steady-row-height/spec.md) | A row that stays the height it was | 🟢 shipped |
-| [2027](specs/2027-cancel-pill-position/spec.md) | The cancel pill, clear of the controls it covered | 🔵 in-review |
-| [2028](specs/2028-pull-droplet/spec.md) | Pulling stretches a droplet, and the cancel rides with the spinner | 🔵 in-review |
-| [2029](specs/2029-quiet-view-changes/spec.md) | Only a typed search offers to be called off | 🔵 in-review |
-| [2030](specs/2030-fallback-poll-never-stops/spec.md) | The fallback poll stops when the stream goes live | 🔵 in-review |
-| [2031](specs/2031-tasks-sections-and-clear/spec.md) | The newest block on top, and one clear for both systems | 🔵 in-review |
-| [2032](specs/2032-source-failure-reason/spec.md) | A failing source says why, and says it out loud | 🔵 in-review |
+| [2027](specs/2027-cancel-pill-position/spec.md) | The cancel pill, clear of the controls it covered | 🟢 shipped |
+| [2028](specs/2028-pull-droplet/spec.md) | Pulling stretches a droplet, and the cancel rides with the spinner | 🟢 shipped |
+| [2029](specs/2029-quiet-view-changes/spec.md) | Only a typed search offers to be called off | 🟢 shipped |
+| [2030](specs/2030-fallback-poll-never-stops/spec.md) | The fallback poll stops when the stream goes live | 🟢 shipped |
+| [2031](specs/2031-tasks-sections-and-clear/spec.md) | The newest block on top, and one clear for both systems | 🟢 shipped |
+| [2032](specs/2032-source-failure-reason/spec.md) | A failing source says why, and says it out loud | 🟢 shipped |
