@@ -51,11 +51,12 @@ const sections = computed(() =>
 );
 
 /**
- * Which image source a tile has fallen back to. Keyed per tile rather than held
- * on the person, because the person objects come from the server and are
- * replaced wholesale whenever the sheet reloads.
+ * How far down the fallback chain each tile has fallen. Held here, keyed per
+ * tile, rather than written back onto the person — the person objects belong to
+ * the server's response, and a component that edits its own props is a component
+ * whose state disappears the next time that response is replaced.
  */
-const failed = reactive<Record<string, boolean>>({});
+const fellBack = reactive<Record<string, 'source' | 'none'>>({});
 
 /** A stable key for one person within one role. Two people who share a name are
  *  different people, so the id leads where there is one. */
@@ -64,29 +65,25 @@ function tileKey(role: string, p: Person, i: number): string {
 }
 
 /**
- * Where a tile's picture comes from. The source's own photograph first — it is
- * already there and needs no lookup — then the server's, and nothing once one of
- * those has failed to load.
+ * Where a tile's picture comes from, in descending order of what is known: the
+ * source's own photograph (already in hand, no lookup), then the one the server
+ * resolves, then nothing — which the template turns into initials.
  */
 function photoFor(key: string, p: Person): string {
-  if (failed[key]) return '';
-  return p.photoUrl ? posterSrc(p.photoUrl) : personPhotoSrc(p.imdbId);
+  const stage = fellBack[key];
+  if (stage === 'none') return '';
+  if (p.photoUrl && stage !== 'source') return posterSrc(p.photoUrl);
+  return personPhotoSrc(p.imdbId);
 }
 
 /**
- * A photograph that will not load falls back to the initials rather than leaving
- * a broken glyph (FR-032). The source photo and the looked-up one are tried in
- * order: a source URL that 404s still gets the lookup its person deserves.
+ * A photograph that will not load drops to the next source rather than leaving a
+ * broken glyph (FR-032). A source URL that 404s still gets its person the lookup
+ * they deserve, which is the case that matters: a stale cover URL is exactly the
+ * kind of thing these sites leave lying around.
  */
 function onPhotoError(key: string, p: Person) {
-  if (p.photoUrl && !failed[`${key}:source`]) {
-    failed[`${key}:source`] = true;
-    // Drop the source's copy and let the server try, by pretending this person
-    // never had one.
-    p.photoUrl = '';
-    return;
-  }
-  failed[key] = true;
+  fellBack[key] = fellBack[key] !== 'source' && p.photoUrl && p.imdbId ? 'source' : 'none';
 }
 </script>
 
