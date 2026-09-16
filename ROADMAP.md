@@ -26,7 +26,7 @@ Specs are grouped by category band; status moves
 | [0011](specs/0011-keep-knowing-what-nas/spec.md) | Keep knowing what is on the NAS | 🟢 shipped |
 | [0012](specs/0012-download-youtube-audio/spec.md) | Save YouTube music and music videos to the library | 🟢 shipped |
 | [0013](specs/0013-youtube-downloads-managed/spec.md) | YouTube downloads you can watch, keep, and retry | 🟢 shipped |
-| [0014](specs/0014-cast-and-director-title/spec.md) | Who made it — cast and director on a title | 🔵 in-review |
+| [0014](specs/0014-cast-and-director-title/spec.md) | Who made it — cast and director on a title | 🟢 shipped |
 
 ## ⚡ Ad-hoc (1001–1999)
 
@@ -107,4 +107,4 @@ Specs are grouped by category band; status moves
 | [2030](specs/2030-fallback-poll-never-stops/spec.md) | The fallback poll stops when the stream goes live | 🟢 shipped |
 | [2031](specs/2031-tasks-sections-and-clear/spec.md) | The newest block on top, and one clear for both systems | 🟢 shipped |
 | [2032](specs/2032-source-failure-reason/spec.md) | A failing source says why, and says it out loud | 🟢 shipped |
-| [2033](specs/2033-people-section-title-sheet/spec.md) | The last title's cast stops appearing on the next one | 🔵 in-review |
+| [2033](specs/2033-people-section-title-sheet/spec.md) | The last title's cast stops appearing on the next one | 🟢 shipped |
