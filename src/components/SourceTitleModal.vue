@@ -31,8 +31,10 @@ import {
   ApiError,
   posterSrc,
   type CatalogTitle,
+  type Person,
   type QualityOption,
   type SeasonPresence,
+  type TitleDetail,
 } from '@/services/api';
 import { bySeasonThenSize, seasonNum, sizeMB } from '@/services/quality-sort';
 import { useSourceCatalog } from '@/composables/useSourceCatalog';
@@ -40,6 +42,7 @@ import { displayYear } from '@/services/release-year';
 import { genreLabels } from '@/services/genre-label';
 import { splitYear } from '@/services/title-year';
 import { imdbUrl } from '@/services/imdb-link';
+import SourceCredits from '@/components/SourceCredits.vue';
 import type { Task } from '@/types/task';
 
 const props = defineProps<{
@@ -62,7 +65,33 @@ const enriched = ref<CatalogTitle | null>(null);
 // Metadata the SOURCE returned with the download options. Sources whose listing
 // pages carry no synopsis and no IMDb link (ZarFilm) describe the title only on
 // its own page, which the title request fetches anyway — see spec 1023.
-const detailMeta = ref<{ imdbId?: string; plot?: string }>({});
+const detailMeta = ref<{
+  imdbId?: string;
+  plot?: string;
+  year?: string;
+  cast?: Person[];
+  directors?: Person[];
+  creators?: Person[];
+  writers?: Person[];
+}>({});
+/**
+ * Everything a title's own detail response told us that the catalog row did not
+ * (spec 0014). One helper because the sheet fetches the detail from two places
+ * — opened from the grid, and opened from a Tasks row — and the two diverging
+ * is how a field ends up present on one path and missing on the other.
+ */
+function creditsOf(d: TitleDetail) {
+  return {
+    imdbId: d.imdbId,
+    plot: d.plot,
+    year: d.year,
+    cast: d.cast,
+    directors: d.directors,
+    creators: d.creators,
+    writers: d.writers,
+  };
+}
+
 // The catalog entry always wins: a source that puts a full English synopsis in
 // its search results must never have it replaced by a thinner one from a detail
 // page. Detail metadata fills gaps, nothing more (FR-008).
@@ -72,6 +101,10 @@ const info = computed<CatalogTitle>(() => {
     ...base,
     imdbId: base.imdbId || detailMeta.value.imdbId || '',
     plot: base.plot || detailMeta.value.plot || '',
+    // The source that states a year outright beats the one we split off the end
+    // of a title string — the latter is a guess that works, not a fact (spec
+    // 0014, FR-036).
+    year: base.year || detailMeta.value.year || '',
   };
 });
 
@@ -212,7 +245,7 @@ async function loadMeta(): Promise<void> {
 async function loadDetailMeta(): Promise<void> {
   try {
     const d = await api.getSourceTitle(props.title.id);
-    detailMeta.value = { imdbId: d.imdbId, plot: d.plot };
+    detailMeta.value = creditsOf(d);
   } catch {
     /* the synopsis is a bonus here, never the reason the sheet was opened */
   }
@@ -511,7 +544,7 @@ watch(
       qualities.value = detail.qualities;
       presentSeasons.value = detail.seasons ?? [];
       ownership.value = detail.ownership ?? 'unknown';
-      detailMeta.value = { imdbId: detail.imdbId, plot: detail.plot };
+      detailMeta.value = creditsOf(detail);
       // Open on the user's preferred quality tab where the title has one, else the
       // highest. NOTHING is selected: a pre-selected option reads as a choice the
       // user made, and on a part-owned series the pre-selection sat inside a
@@ -891,6 +924,17 @@ async function offerOverLimit(): Promise<void> {
           </ion-button>
         </template>
       </template>
+
+      <!-- Who made it (spec 0014), BELOW the download options on purpose:
+           sending a download is what this sheet is for, and faces above it
+           would push the one action a phone can see below the fold. Renders
+           nothing at all when the source publishes nobody. -->
+      <source-credits
+        :cast="detailMeta.cast"
+        :directors="detailMeta.directors"
+        :creators="detailMeta.creators"
+        :writers="detailMeta.writers"
+      />
     </ion-content>
   </ion-modal>
 </template>

@@ -29,3 +29,22 @@ export function imdbUrl(imdbId: string): string {
   const id = TITLE_ID_RE.test(raw) ? raw : (TITLE_URL_RE.exec(raw)?.[1] ?? '');
   return id ? `https://www.imdb.com/title/${id}/` : '';
 }
+
+// A canonical IMDb PERSON id: "nm" + digits (spec 0014). Bounded at both ends
+// like the title id above, and for the same reason — this value is interpolated
+// into an href, and a title id, a query string or a `javascript:` URL must not
+// pass for a person.
+const PERSON_ID_RE = /^nm\d{6,9}$/;
+
+// A full IMDb person URL, from which we take only the id. The host must be
+// imdb.com itself (optionally www.), so imdb.com.evil.example can't match.
+const PERSON_URL_RE = /^https?:\/\/(?:www\.)?imdb\.com\/name\/(nm\d{6,9})\/?$/;
+
+/** A person's IMDb URL, or "" when the id is missing or is not a person id. */
+export function imdbPersonUrl(imdbId: string | undefined): string {
+  const raw = (imdbId ?? '').trim().toLowerCase();
+  if (!raw) return '';
+
+  const id = PERSON_ID_RE.test(raw) ? raw : (PERSON_URL_RE.exec(raw)?.[1] ?? '');
+  return id ? `https://www.imdb.com/name/${id}/` : '';
+}

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"path"
 	"sort"
 	"strconv"
 	"strings"
@@ -201,10 +202,14 @@ func (s *Server) handleZarMock(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprint(w, head+zarMockPanelHTML(zarMockBaseFor(r))+
 			zarListingHTML(zarMockBaseFor(r), prefix, page, perPage, pages, seriesArchive,
 				q.Get("filter_genre"), q.Get("imdb_rate"), q.Get("sortby")))
+	case strings.HasPrefix(path, "/actor/"), strings.HasPrefix(path, "/director/"):
+		// A person's own page: where this site keeps the two things its title
+		// pages do not carry (spec 0014).
+		fmt.Fprint(w, head+zarPersonHTML(zarMockBaseFor(r), strings.Trim(path, "/")))
 	default:
 		// A title page.
 		slug := strings.Trim(path, "/")
-		fmt.Fprint(w, head+zarTitleHTML(zarMockBaseFor(r), slug, paywalled))
+		fmt.Fprint(w, head+zarCreditsHTML(zarMockBaseFor(r))+zarTitleHTML(zarMockBaseFor(r), slug, paywalled))
 	}
 }
 
@@ -438,6 +443,12 @@ func (s *Server) handleTNMock(w http.ResponseWriter, r *http.Request) {
 	// VALUES are opaque codes and its slugs are English — the opposite shape to
 	// the HTML-shaped source beside it, which is what makes the two a real test
 	// of cross-source translation rather than a pair of look-alikes.
+	// The title-detail endpoint (spec 0014): who made a title, and the synopsis,
+	// year and IMDb id that the search results never carried.
+	if strings.Contains(r.URL.Path, "/action/single/") {
+		_ = json.NewEncoder(w).Encode(map[string]any{"success": true, "result": tnMockSingle(r)})
+		return
+	}
 	if strings.Contains(r.URL.Path, "advanced_search_parametres") {
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"success": true,
@@ -559,4 +570,106 @@ func tnMockGenreFacets() []map[string]any {
 func tnMockGenreFor(n int) map[string]any {
 	g := tnMockGenres[n%len(tnMockGenres)]
 	return map[string]any{"name": g.Name, "value": g.Value, "slug": g.Slug}
+}
+
+// tnMockSingle is this source's answer to "what IS this title": its people, and
+// the description fields its listing pages never carried.
+//
+// Shaped so every branch of the feature has something to be true of:
+//
+//   - a cast member WITH a photograph of their own,
+//   - a cast member whose image is the provider's /none/ stand-in, which must be
+//     dropped so the fallback is asked for the real one,
+//   - a cast member the fallback also has no picture of, who ends as initials,
+//   - a director and a writer, neither of which this source ever gives a picture,
+//   - and a cast member shared with the OTHER title below, so a test can prove
+//     the second sheet costs no second lookup.
+func tnMockSingle(r *http.Request) map[string]any {
+	scheme := "http"
+	if r.TLS != nil {
+		scheme = "https"
+	}
+	base := scheme + "://" + r.Host + "/mocksrc/tn"
+	person := func(name, as, nm, img string) map[string]any {
+		e := map[string]any{"name": name, "as": as, "imdb": nm, "order": 0}
+		if img != "" {
+			e["id"] = "1"
+			e["image"] = map[string]any{"cover": false, "poster": map[string]any{
+				"medium":      img,
+				"medium_webp": img,
+			}}
+		} else {
+			e["id"] = nil
+			e["image"] = map[string]any{"cover": false, "poster": map[string]any{
+				"medium":      base + "/none/none-m_30NAMA.jpg?2",
+				"medium_webp": base + "/none/none-m_30NAMA.webp?2",
+			}}
+		}
+		return e
+	}
+	return map[string]any{
+		"id":           strings.TrimSuffix(path.Base(r.URL.Path), "/"),
+		"year":         2021,
+		"year_end":     nil,
+		"imdb":         "tt7654321",
+		"english_plot": "A mock title served by the in-repo fake source.",
+		"persian_plot": "خلاصه داستان ساختگی.",
+		"cast": []map[string]any{
+			person("Mock Star", "The Lead", "nm0000101", base+"/person-101.jpg"),
+			person("Mock Second", "The Friend", "nm0000102", ""),
+			person("Mock Unknown", "The Stranger", nmWithoutPhoto, ""),
+		},
+		"director": []map[string]any{
+			{"name": "Mock Director", "imdb": "nm0000201", "order": 0},
+		},
+		"creator": nil,
+		"writer": []map[string]any{
+			{"name": "Mock Writer", "imdb": "nm0000301", "order": 0},
+		},
+	}
+}
+
+// zarCreditsHTML is the block this site puts the people in.
+//
+// It includes the COUNTRY group, which is the trap the real site sets: same
+// markup as the cast and the director, told apart only by its Persian heading.
+// A mock without it could not tell a parser that reads headings from one that
+// takes every block and files "America" as an actor.
+func zarCreditsHTML(base string) string {
+	return `<div class="single_casts">` +
+		`<div class="stars"><div class="label"><span>ستارگان: </span></div><div class="list">` +
+		`<div class="item"><a title="Mock Star" href="` + base + `/actor/mock-star/">Mock Star</a></div>` +
+		`<div class="item"><a title="Mock Nameless" href="` + base + `/actor/mock-nameless/">Mock Nameless</a></div>` +
+		`</div></div>` +
+		`<div class="stars"><div class="label"><span>کارگردان: </span></div><div class="list">` +
+		`<div class="item"><a title="Mock Director" href="` + base + `/director/mock-director/">Mock Director</a></div>` +
+		`</div></div>` +
+		`<div class="stars"><div class="label"><span>کشور: </span></div><div class="list">` +
+		`<div class="item"><a title="آمریکا" href="` + base + `/country/usa/">آمریکا</a></div>` +
+		`</div></div></div>`
+}
+
+// zarPersonHTML is a person's own page. Three shapes, because all three exist:
+//
+//   - mock-star      an uploaded portrait AND an IMDb link — one fetch, both halves
+//   - mock-director  the theme's silhouette, which must be REJECTED so the
+//     fallback is asked for the real photograph
+//   - mock-nameless  no IMDb link at all: they stay a name on an unlinked tile
+func zarPersonHTML(base, ref string) string {
+	portrait := base + "/wp-content/uploads/mock-portrait.jpg"
+	imdb := ""
+	switch {
+	case strings.HasSuffix(ref, "mock-star"):
+		imdb = "https://www.imdb.com/name/nm0000101/"
+	case strings.HasSuffix(ref, "mock-director"):
+		imdb = "https://www.imdb.com/name/nm0000201/"
+		// The site ships generic silhouettes with its theme and serves one for
+		// anybody it has no picture of.
+		portrait = base + "/wp-content/themes/zarfilm208/images/man.jpg"
+	}
+	out := `<div class="actor_archives"><div class="inner_profile"><img src="` + portrait + `" alt=""></div>`
+	if imdb != "" {
+		out += `<div class="linktoimdb"><a href="` + imdb + `" rel="nofollow">مشاهده در IMDB</a></div>`
+	}
+	return out + `</div>`
 }

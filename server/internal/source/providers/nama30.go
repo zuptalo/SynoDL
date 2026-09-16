@@ -331,7 +331,19 @@ func facetOptions(in []tnFacet) []source.FacetOption {
 }
 
 func (p nama30) Title(ctx context.Context, c *source.Client, cfg source.Config, s source.Session, id string) (source.TitleDetail, error) {
+	// Two independent reads of the same title: what can be downloaded, and what
+	// the title IS — who made it, its synopsis, its year, its IMDb id.
+	//
+	// In parallel, and that is the whole reason this feature costs no visible
+	// time on this source: the sheet waits on both, and neither informs the
+	// other, so running them one after the other would double the wait for
+	// nothing. The second one's failure is swallowed entirely — a title whose
+	// cast could not be read still offers every download it has (FR-006).
+	single := make(chan tnSingleResult, 1)
+	go func() { single <- p.single(ctx, c, cfg, s, id) }()
+
 	quals, isSeries, err := p.downloads(ctx, c, cfg, s, id)
+	meta := <-single
 	if err != nil {
 		return source.TitleDetail{}, runtimeErr(err)
 	}
@@ -341,7 +353,137 @@ func (p nama30) Title(ctx context.Context, c *source.Client, cfg source.Config, 
 	}
 	// Sendable when it exposes downloadable entries: a movie's files, or a
 	// series' season packs.
-	return source.TitleDetail{ID: id, Type: typ, Sendable: len(quals) > 0, Qualities: quals}, nil
+	td := source.TitleDetail{ID: id, Type: typ, Sendable: len(quals) > 0, Qualities: quals}
+	meta.apply(&td)
+	return td, nil
+}
+
+// tnSingleResult is what the title-detail endpoint told us, or the zero value
+// when it told us nothing. There is no error in it on purpose: nothing upstream
+// of here treats a missing cast as a failure.
+type tnSingleResult struct {
+	d  tnSingle
+	ok bool
+}
+
+// apply copies whatever was learned onto the detail. Each field is filled only
+// when the source actually published it, so a sparse response can never blank
+// out something the catalog row already knew.
+func (r tnSingleResult) apply(td *source.TitleDetail) {
+	if !r.ok {
+		return
+	}
+	td.Cast = source.ClampPeople(tnPeople(r.d.Cast), source.MaxCast)
+	td.Directors = source.ClampPeople(tnPeople(r.d.Director), source.MaxCrew)
+	td.Creators = source.ClampPeople(tnPeople(r.d.Creator), source.MaxCrew)
+	td.Writers = source.ClampPeople(tnPeople(r.d.Writer), source.MaxCrew)
+
+	// The synopsis, in ONE language (FR-037). English wins where there is one;
+	// Persian is the fallback rather than an addition, because the two are
+	// alternatives and joining them would show every synopsis twice, once in a
+	// language the reader may not have. The client renders it dir="auto", so a
+	// Persian fallback lands the right way round.
+	if plot := strings.TrimSpace(string(r.d.EnglishPlot)); plot != "" {
+		td.Plot = plot
+	} else if plot := strings.TrimSpace(string(r.d.PersianPlot)); plot != "" {
+		td.Plot = plot
+	}
+	if imdb := strings.TrimSpace(string(r.d.IMDb)); imdb != "" {
+		td.IMDbID = imdb
+	}
+	td.Year = tnYear(r.d)
+}
+
+// tnYear is the year as this source states it. A series carries a range, and an
+// ongoing one an open range — neither of which fits a number, which is why the
+// field is a string everywhere (spec 1032).
+func tnYear(d tnSingle) string {
+	from := strings.TrimSpace(string(d.Year))
+	if from == "" || from == "0" {
+		return ""
+	}
+	to := strings.TrimSpace(string(d.YearEnd))
+	switch {
+	case to == "" || to == "0" || to == from:
+		return from
+	default:
+		return from + "–" + to
+	}
+}
+
+// single fetches the title-detail endpoint. Every failure — transport, auth,
+// a shape that does not parse — is the same answer: we learned nothing.
+func (p nama30) single(ctx context.Context, c *source.Client, cfg source.Config, s source.Session, id string) tnSingleResult {
+	raw, err := p.call(ctx, c, cfg, s, "/api/v1/action/single/id/"+url.PathEscape(id), "")
+	if err != nil {
+		return tnSingleResult{}
+	}
+	var d tnSingle
+	if err := json.Unmarshal(raw, &d); err != nil {
+		return tnSingleResult{}
+	}
+	return tnSingleResult{d: d, ok: true}
+}
+
+// tnPeople maps this source's person entries onto the shared shape, preserving
+// the billing order it publishes them in (FR-002).
+func tnPeople(in []tnPerson) []source.Person {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]source.Person, 0, len(in))
+	for _, e := range in {
+		out = append(out, source.Person{
+			Name:      string(e.Name),
+			Character: string(e.As),
+			IMDbID:    source.PersonID(string(e.IMDb)),
+			PhotoURL:  tnPersonPhoto(e.Image),
+		})
+	}
+	return out
+}
+
+// tnPersonPhoto reads a usable photograph out of a person's image object.
+//
+// Tolerant on purpose. This field is an object for a cast member and absent for
+// every crew member, and a strict decode would throw away a whole cast over a
+// director with no picture. An unparseable image is simply no image.
+func tnPersonPhoto(raw json.RawMessage) string {
+	if len(raw) == 0 {
+		return ""
+	}
+	var img struct {
+		Poster struct {
+			Medium     flexStr `json:"medium"`
+			MediumWebp flexStr `json:"medium_webp"`
+		} `json:"poster"`
+	}
+	if err := json.Unmarshal(raw, &img); err != nil {
+		return ""
+	}
+	u := string(img.Poster.MediumWebp)
+	if u == "" {
+		u = string(img.Poster.Medium)
+	}
+	if u == "" || tnPlaceholderImage(u) {
+		return ""
+	}
+	return u
+}
+
+// tnPlaceholderImage reports whether a person image URL is the provider's own
+// "no photo" stand-in rather than a photograph of anybody.
+//
+// This source serves those from a /none/ path, and it does so constantly — every
+// crew member, and often most of a cast. Forwarding one would put the same grey
+// silhouette on half the tiles and, worse, would stop the IMDb fallback from
+// ever being asked for the real thing (FR-013).
+func tnPlaceholderImage(raw string) bool {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return true
+	}
+	return strings.Contains(u.Path, "/none/")
 }
 
 func (p nama30) ResolveDownload(ctx context.Context, c *source.Client, cfg source.Config, s source.Session, titleID, qualityID string) ([]string, string, error) {
@@ -912,4 +1054,37 @@ func firstNonEmptyStr(vals ...string) string {
 		}
 	}
 	return ""
+}
+
+// The title-detail endpoint's payload (spec 0014). Only the fields this feature
+// needs are declared; the response carries sixty more, and naming them would be
+// a maintenance cost with no reader.
+//
+// Every people field is a POINTERLESS slice with no `required` anywhere, because
+// each of them is genuinely null in the wild: this source leaves `director` null
+// for most series and names a `creator` or `writer` instead, which is why the
+// sheet shows whichever roles exist rather than a director line that is usually
+// empty.
+type tnSingle struct {
+	Cast     []tnPerson `json:"cast"`
+	Director []tnPerson `json:"director"`
+	Creator  []tnPerson `json:"creator"`
+	Writer   []tnPerson `json:"writer"`
+
+	Year        flexNumStr `json:"year"`
+	YearEnd     flexNumStr `json:"year_end"`
+	IMDb        flexStr    `json:"imdb"`
+	EnglishPlot flexStr    `json:"english_plot"`
+	PersianPlot flexStr    `json:"persian_plot"`
+}
+
+// tnPerson is one person as this source publishes them. `id` is its OWN person
+// id and is null for anyone it has no record of — but `imdb` is present even
+// then, which is what makes the IMDb id the right identity to key a face on.
+type tnPerson struct {
+	Name  flexStr         `json:"name"`
+	As    flexStr         `json:"as"`
+	IMDb  flexStr         `json:"imdb"`
+	Order flexInt         `json:"order"`
+	Image json.RawMessage `json:"image"`
 }

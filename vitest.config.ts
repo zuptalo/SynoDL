@@ -65,6 +65,8 @@ export default defineConfig({
         // regression it exists to prevent is a phone-only one the e2e suite
         // cannot reach, so this is where it is held.
         'src/services/pull-distance.ts',
+        // What to draw when nobody has a photograph of somebody (spec 0014).
+        'src/services/person.ts',
       ],
       thresholds: { lines: 80, functions: 80, statements: 80, branches: 80 },
     },

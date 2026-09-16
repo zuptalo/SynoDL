@@ -399,3 +399,79 @@ func TestFileNameFromURL(t *testing.T) {
 		}
 	}
 }
+
+// Spec 0014: the people are in the page the driver already fetched. The country
+// group is the trap — same markup, different heading — and a parser that took
+// every `.stars` block would file "America" as a cast member.
+func TestParseCredits(t *testing.T) {
+	people := parseCredits(zarFixture(t, "credits.html"), "https://zarfilm.com")
+
+	var cast, directors []zarPerson
+	for _, p := range people {
+		switch p.Role {
+		case zarRoleCast:
+			cast = append(cast, p)
+		case zarRoleDirector:
+			directors = append(directors, p)
+		default:
+			t.Fatalf("unexpected role %q for %q", p.Role, p.Name)
+		}
+	}
+	if len(cast) != 3 {
+		t.Fatalf("cast = %d, want 3: %+v", len(cast), cast)
+	}
+	if cast[1].Name != "Kurt Russell" || cast[1].Ref != "actor/kurt-russell" {
+		t.Fatalf("cast[1] = %+v", cast[1])
+	}
+	if len(directors) != 1 || directors[0].Ref != "director/andrew-patterson" {
+		t.Fatalf("directors = %+v", directors)
+	}
+	// This site publishes no character names, and inventing one would be worse
+	// than the gap.
+	for _, p := range people {
+		if strings.Contains(p.Name, "آمریکا") {
+			t.Fatal("the country group was read as a person")
+		}
+	}
+}
+
+// A page with no such block is a normal page, not a broken one.
+func TestParseCreditsEmptyPage(t *testing.T) {
+	if got := parseCredits(zarFixture(t, "movie_meta.html"), "https://zarfilm.com"); got != nil {
+		t.Fatalf("want nothing, got %+v", got)
+	}
+	if got := parseCredits([]byte("not html at all"), "https://zarfilm.com"); got != nil {
+		t.Fatalf("want nothing, got %+v", got)
+	}
+}
+
+// One request to a person's own page buys both halves: who they are, and a
+// picture of them.
+func TestParsePersonPage(t *testing.T) {
+	id, photo := parsePersonPage(zarFixture(t, "person_real.html"))
+	if id != "nm0000621" {
+		t.Fatalf("imdb id = %q", id)
+	}
+	if !strings.Contains(photo, "/wp-content/uploads/") {
+		t.Fatalf("portrait = %q", photo)
+	}
+
+	// The theme's silhouette is not a photograph of anybody. Accepting it would
+	// also stop the fallback being asked for the real one (FR-013).
+	id, photo = parsePersonPage(zarFixture(t, "person_placeholder.html"))
+	if id != "nm1234567" {
+		t.Fatalf("imdb id = %q", id)
+	}
+	if photo != "" {
+		t.Fatalf("theme stand-in was accepted: %q", photo)
+	}
+
+	// No IMDb link: they stay a name on an unlinked tile.
+	id, photo = parsePersonPage(zarFixture(t, "person_noimdb.html"))
+	if id != "" {
+		t.Fatalf("invented an id: %q", id)
+	}
+	if photo == "" {
+		t.Fatal("a real portrait was there to take")
+	}
+}

@@ -9,6 +9,8 @@ import (
 	"unicode"
 
 	"golang.org/x/net/html"
+
+	"synodl/server/internal/source"
 )
 
 // HTML parsing for the zarfilm driver (spec 0007).
@@ -707,4 +709,146 @@ func assignSeriesMeta(sq *zarSeasonQuality, meta *html.Node) {
 	if strings.Contains(text(meta), "دوبله") {
 		sq.Dubbed = true
 	}
+}
+
+// ---------- who made it (spec 0014) ----------
+
+// zarPerson is one person named on a title page: their name, the site's own
+// handle for them, and which role the page filed them under.
+//
+// There is no photograph and no IMDb id here, because the title page carries
+// neither — it links to the person's own page, and that is where both live.
+type zarPerson struct {
+	Name string
+	Ref  string // the site's path for them, e.g. "actor/kurt-russell"
+	Role string
+}
+
+// The roles a title page can file somebody under.
+const (
+	zarRoleCast     = "cast"
+	zarRoleDirector = "director"
+	zarRoleWriter   = "writer"
+)
+
+// zarRoleLabels maps the site's own Persian headings onto those roles.
+//
+// Matched by CONTENT, like the download rows' metadata labels beside them, and
+// for the same reason: the headings are the only thing identifying a group, and
+// they are prose. The country group uses exactly the same markup as the cast and
+// the director, so a parser that took every `.stars` block would put "America"
+// in the cast list — which is why an unrecognised label is skipped rather than
+// guessed at (FR-012).
+var zarRoleLabels = map[string]string{
+	"ستارگان":  zarRoleCast,
+	"بازیگران": zarRoleCast,
+	"کارگردان": zarRoleDirector,
+	"نویسنده":  zarRoleWriter,
+}
+
+// parseCredits reads the people a title page names.
+//
+// It costs no request: this is the page the driver already fetched for the
+// download options. A page with no such block yields nothing, which is a normal
+// outcome and never an error.
+func parseCredits(body []byte, bases ...string) []zarPerson {
+	doc, err := parseHTML(body)
+	if err != nil {
+		return nil
+	}
+	var out []zarPerson
+	for _, block := range findAll(doc, byClass("single_casts")) {
+		for _, group := range findAll(block, byClass("stars")) {
+			role, ok := zarRoleFor(group)
+			if !ok {
+				continue
+			}
+			list := findFirst(group, byClass("list"))
+			if list == nil {
+				continue
+			}
+			for _, item := range findAll(list, byClass("item")) {
+				a := findFirst(item, byTag("a"))
+				if a == nil {
+					continue
+				}
+				name := strings.TrimSpace(text(a))
+				if name == "" {
+					name = strings.TrimSpace(attr(a, "title"))
+				}
+				if name == "" {
+					continue
+				}
+				// pathFromURL rejects anything off-site, so a page cannot smuggle a
+				// foreign host in as a person the server will then go and fetch.
+				out = append(out, zarPerson{
+					Name: name,
+					Ref:  pathFromURL(attr(a, "href"), bases...),
+					Role: role,
+				})
+			}
+		}
+	}
+	return out
+}
+
+// zarRoleFor reads a group's heading and says which role it is, or that it is
+// one we do not recognise.
+func zarRoleFor(group *html.Node) (string, bool) {
+	label := findFirst(group, byClass("label"))
+	if label == nil {
+		return "", false
+	}
+	txt := text(label)
+	for word, role := range zarRoleLabels {
+		if strings.Contains(txt, word) {
+			return role, true
+		}
+	}
+	return "", false
+}
+
+// parsePersonPage reads what a person's own page says about them: their IMDb
+// identity, and a portrait.
+//
+// One request buys both, which is the reason the driver fetches these pages at
+// all rather than going straight to the fallback — and the portrait it finds is
+// on a host that is already allowlisted for this source's images.
+func parsePersonPage(body []byte) (imdbID, photoURL string) {
+	doc, err := parseHTML(body)
+	if err != nil {
+		return "", ""
+	}
+	if link := findFirst(doc, byClass("linktoimdb")); link != nil {
+		if a := findFirst(link, byTag("a")); a != nil {
+			imdbID = source.PersonID(attr(a, "href"))
+		}
+	}
+	if profile := findFirst(doc, byClass("inner_profile")); profile != nil {
+		if img := findFirst(profile, byTag("img")); img != nil {
+			photoURL = zarPortrait(attr(img, "src"))
+		}
+	}
+	return imdbID, photoURL
+}
+
+// zarPortrait accepts a real portrait and rejects the theme's stand-in.
+//
+// The site ships generic silhouettes with its theme and serves one for anybody
+// it has no picture of. They live under the theme directory; an actual portrait
+// is an upload. Without this, half the tiles would show the same two faces —
+// and the fallback would never be asked for the real photograph (FR-013).
+func zarPortrait(src string) string {
+	src = strings.TrimSpace(src)
+	if src == "" {
+		return ""
+	}
+	u, err := url.Parse(src)
+	if err != nil {
+		return ""
+	}
+	if strings.Contains(u.Path, "/wp-content/themes/") {
+		return ""
+	}
+	return src
 }

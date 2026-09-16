@@ -77,6 +77,24 @@ export async function setSourceState(action: string): Promise<void> {
 }
 
 /**
+ * Make the fake IMDb refuse, or answer again (spec 0014).
+ *
+ * 'down' is the state the whole feature is arranged around: losing the
+ * photograph fallback entirely must cost faces and nothing else.
+ */
+export async function setIMDb(state: 'down' | 'up' | 'reset'): Promise<void> {
+  const res = await mockFetch(`/__mock/imdb/${state}`, { method: 'POST' });
+  if (!res.ok) throw new Error(`imdb ${state} failed: ${res.status}`);
+}
+
+/** How many lookups the fake IMDb has been asked for — the measure of whether
+ *  the cache is doing its job. */
+export async function imdbHits(): Promise<number> {
+  const res = await mockFetch('/__mock/imdb/hits');
+  return ((await res.json()) as { hits: number }).hits;
+}
+
+/**
  * Take FileStation down and bring it back.
  *
  * Everything else on the NAS keeps working, which is what the real failure
@@ -246,6 +264,20 @@ export interface TitleDetailShape {
   imdbId?: string;
   plot?: string;
   qualities?: QualityShape[];
+  /** Who made it (spec 0014). Each role is ABSENT, not empty, when the source
+   *  publishes nobody for it. */
+  cast?: PersonShape[];
+  directors?: PersonShape[];
+  creators?: PersonShape[];
+  writers?: PersonShape[];
+  year?: string;
+}
+
+export interface PersonShape {
+  name: string;
+  character?: string;
+  imdbId?: string;
+  photoUrl?: string;
 }
 
 export interface QualityShape {

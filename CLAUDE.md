@@ -75,6 +75,14 @@ One repo, two parts, shipped as a single container.
   - `internal/ytdl/` — the verified yt-dlp recipe, the URL host allowlist and
     scope classifier, Job assembly, and the lifecycle→state mapping. Pure and
     table-tested; this is where spec 0012's behaviour lives.
+  - `internal/people/` — who made a title, and what they look like (spec 0014).
+    The drivers report the cast and crew a source publishes; this resolves the
+    faces the sources DON'T have — every crew member on one of them, half a cast
+    on the other — from IMDb, behind an LRU, a single-flight guard and two cache
+    tables. Its outbound allowlist is its own two hosts, deliberately not the
+    catalog image proxy's: that list is assembled from the source drivers plus
+    the operator's mirrors, and IMDb is neither. Losing the whole fallback costs
+    faces and nothing else.
   - `internal/{config,httpx}/` — env config (fail-fast), HTTP middleware
     (recover → log → CORS), JSON responses, rate limiting.
 - **`e2e/`** — Playwright tests, hermetic: they build and boot their own
@@ -133,6 +141,12 @@ ports before adding a new listener):
 | 8295 | mock Kubernetes Jobs API dev (`make start`, spec 0012) |
 | 8296 | e2e mock Kubernetes Jobs API (stateful stack) |
 
+The dev build's `sourcemock` tag also compiles in `IMDB_MOCK_BASE`, which points
+the person-photograph lookup (spec 0014) at the in-repo fake IMDb on the mock
+(`/mockimdb`, `/mockimg`, with `/__mock/imdb/{up,down}` to make it refuse). A
+release build has no such branch, so that lookup's two-host allowlist is
+structural.
+
 `YTDL_MAX_PARALLEL` (default 4) bounds how many YouTube downloads run at once
 for the whole instance; everything beyond it waits in a durable queue.
 
@@ -168,7 +182,11 @@ npm run test:e2e              # Playwright e2e (builds + boots its own synodl + 
 
 **Custodial state, one volume.** All persistent state is one SQLite database on
 one mounted volume (`DATA_DIR`): operator setup, SynoDL accounts, per-user NAS
-folder access, push subscriptions, settings. There is no second datastore.
+folder access, push subscriptions, settings. Two tables in it are pure CACHE —
+`person_photos` and `source_people` (spec 0014), holding derived public facts so
+a restart does not re-scrape a third party for hundreds of people; they hold no
+secret, no user id and no title id, and losing them costs lookups, never data.
+There is no second datastore.
 Stored NAS credentials and the VAPID private key are encrypted at rest under
 `SECRETS_KEY`. Never log credentials, sids, OTP codes, or full task URIs. The
 server exposes typed `/v1` endpoints only — it is NOT a transparent `/webapi`
