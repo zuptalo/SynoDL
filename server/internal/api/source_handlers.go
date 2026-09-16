@@ -594,6 +594,12 @@ func handleSourceTitle(d Deps) http.Handler {
 			return
 		}
 		d.sourceCallOK(&store.SourceProvider{ID: ref.ID, State: store.SourceActive})
+		// Who somebody IS, for a source that names people without identifying
+		// them (spec 0014). Cache-first and bounded by its own deadline, so this
+		// is free on every title after the first one an actor appears in, and can
+		// never be the reason a sheet is slow. The names are already in hand
+		// either way.
+		d.resolvePeople(r.Context(), ref, &td)
 		td.ID = source.QualifyID(ref.ID, td.ID)
 		if td.Qualities == nil {
 			td.Qualities = []source.QualityOption{}

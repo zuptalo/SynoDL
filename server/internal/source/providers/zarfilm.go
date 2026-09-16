@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -539,6 +540,12 @@ func (p zarfilm) Title(ctx context.Context, c *source.Client, cfg source.Config,
 	// title. Either being absent is normal and never fails the request.
 	td.IMDbID = parseIMDbID(body)
 	td.Plot = parsePlot(body)
+	// Who made it, out of the same page (spec 0014). Also free — the block sits
+	// beside the synopsis we just read. The people arrive NAMED but not
+	// identified: this site links to its own person pages rather than publishing
+	// an IMDb id, so each carries a Ref the server resolves once through
+	// ResolvePerson below and then remembers.
+	p.applyCredits(&td, body, cfg)
 	if strings.HasPrefix(id, "series/") {
 		td.Type = source.TypeSeries
 		seasons, err := parseSeriesPage(body)
@@ -687,3 +694,63 @@ func (p zarfilm) ResolveDownload(ctx context.Context, c *source.Client, cfg sour
 func asProviderVerifyErr(err error, target **source.ErrProviderVerify) bool {
 	return errors.As(err, target)
 }
+
+// applyCredits maps the people named on a title page onto the shared shape.
+//
+// Cast first, then the crew roles, each kept apart and each capped. The site
+// bills about three cast and one director, so the caps are never what limits
+// what you see here — they exist so a redesign cannot turn one title into a
+// hundred person-page fetches.
+func (p zarfilm) applyCredits(td *source.TitleDetail, body []byte, cfg source.Config) {
+	people := parseCredits(body, p.linkBases(cfg)...)
+	if len(people) == 0 {
+		return
+	}
+	byRole := map[string][]source.Person{}
+	for _, e := range people {
+		byRole[e.Role] = append(byRole[e.Role], source.Person{Name: e.Name, Ref: e.Ref})
+	}
+	td.Cast = source.ClampPeople(byRole[zarRoleCast], source.MaxCast)
+	td.Directors = source.ClampPeople(byRole[zarRoleDirector], source.MaxCrew)
+	td.Writers = source.ClampPeople(byRole[zarRoleWriter], source.MaxCrew)
+}
+
+// linkBases is every address a link on one of this site's pages might name. A
+// page's links are absolute and always name the canonical host, even when the
+// driver reached the page by another address, so all of them are accepted — and
+// nothing else is.
+func (p zarfilm) linkBases(cfg source.Config) []string {
+	return append(p.bases(cfg), zarBase, "https://"+zarHost)
+}
+
+// ResolvePerson learns who somebody is from their own page on this site.
+//
+// This is the PersonResolver capability, and it exists because this site names
+// people without identifying them. One request yields both halves — the IMDb id
+// the tile links to, and a portrait on a host already allowlisted for this
+// source's images — which is why it is worth making at all rather than going
+// straight to the fallback with only a name, which could not be looked up
+// reliably anyway (two people share a name far more often than an id).
+//
+// The call carries the operator's stored session, so it is made by the server
+// while assembling a response it decided to assemble, never on a client's
+// instruction (FR-014a). A failure returns an error and the caller carries on
+// with the name alone.
+func (p zarfilm) ResolvePerson(ctx context.Context, c *source.Client, cfg source.Config, s source.Session, ref string) (source.Person, error) {
+	ref = strings.Trim(strings.TrimSpace(ref), "/")
+	if !zarPersonRef.MatchString(ref) {
+		return source.Person{}, errors.New("zarfilm: not a person reference")
+	}
+	body, err := p.get(ctx, c, cfg, s, "/"+ref+"/")
+	if err != nil {
+		return source.Person{}, err
+	}
+	imdbID, photo := parsePersonPage(body)
+	return source.Person{IMDbID: imdbID, PhotoURL: photo, Ref: ref}, nil
+}
+
+// zarPersonRef is the shape of a person's path on this site. Anchored, and
+// narrow: this value becomes a URL path on a host we hold credentials for, so
+// it is validated rather than trusted even though it came from the site's own
+// markup a moment ago.
+var zarPersonRef = regexp.MustCompile(`^(actor|director|writer)/[A-Za-z0-9%._~-]{1,200}$`)

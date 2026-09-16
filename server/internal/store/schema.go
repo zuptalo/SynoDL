@@ -519,4 +519,39 @@ var migrations = []string{
 	// offering it and then failing.
 	`ALTER TABLE operator_config ADD COLUMN music_parent TEXT NOT NULL DEFAULT '';`,
 	`ALTER TABLE operator_config ADD COLUMN music_video_parent TEXT NOT NULL DEFAULT '';`,
+	// 0039 — remembered faces (spec 0014).
+	//
+	// Two caches, not state. They hold what a lookup already concluded about a
+	// person: their public identity, their name, and a public image URL (or an
+	// explicit "none"). Losing either costs lookups and nothing else — which is
+	// why they carry no user id, no title id, and nothing about who viewed what,
+	// and why they are not encrypted: there is no secret here, and nothing that
+	// would deserve to be may be added to them.
+	//
+	// Persisted rather than derived because re-deriving means re-reading a third
+	// party's pages for hundreds of people after every restart, which is the
+	// behaviour most likely to get an instance blocked.
+	//
+	// IF NOT EXISTS throughout: the spec 1031 drift repair rewinds
+	// schema_migrations and replays, so a migration that cannot run twice turns
+	// that repair into a boot failure.
+	`
+	CREATE TABLE IF NOT EXISTS person_photos (
+		imdb_id    TEXT PRIMARY KEY,
+		photo_url  TEXT NOT NULL DEFAULT '',
+		checked_at INTEGER NOT NULL DEFAULT 0
+	);
+	CREATE INDEX IF NOT EXISTS idx_person_photos_checked ON person_photos (checked_at);
+
+	CREATE TABLE IF NOT EXISTS source_people (
+		source_kind TEXT NOT NULL,
+		ref         TEXT NOT NULL,
+		imdb_id     TEXT NOT NULL DEFAULT '',
+		photo_url   TEXT NOT NULL DEFAULT '',
+		name        TEXT NOT NULL DEFAULT '',
+		checked_at  INTEGER NOT NULL DEFAULT 0,
+		PRIMARY KEY (source_kind, ref)
+	);
+	CREATE INDEX IF NOT EXISTS idx_source_people_checked ON source_people (checked_at);
+	`,
 }

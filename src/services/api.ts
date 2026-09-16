@@ -688,6 +688,25 @@ export interface SeasonPresence {
   videoFiles: number;
 }
 
+/**
+ * Somebody who worked on a title (spec 0014). Everything but the name is
+ * optional, because every source is missing something: one publishes the
+ * character but rarely a photograph, the other publishes neither on the page
+ * that names them.
+ *
+ * A missing field is a fact, not a failure. No `imdbId` means the tile is not a
+ * link; no `photoUrl` means ask the person-photo endpoint, and failing that,
+ * draw their initials.
+ */
+export interface Person {
+  name: string;
+  character?: string;
+  imdbId?: string;
+  /** A photograph the SOURCE hosts. The server drops a provider's "no photo"
+   *  stand-in rather than forwarding it, so a value here is a real picture. */
+  photoUrl?: string;
+}
+
 export interface TitleDetail {
   id: string;
   type: string;
@@ -709,7 +728,33 @@ export interface TitleDetail {
    * so nothing here ever claims a season is complete.
    */
   seasons?: SeasonPresence[];
+  /**
+   * Who made it. Each role is ABSENT rather than empty when the source publishes
+   * nobody for it — which is the normal case: one source leaves the director
+   * empty for most series and names a creator instead. The sheet renders a
+   * heading for a role that is present, so the distinction is load-bearing.
+   */
+  cast?: Person[];
+  directors?: Person[];
+  creators?: Person[];
+  writers?: Person[];
+  /** The release year as the source states it, where its detail response
+   *  carries one — a string because a series carries a range. */
+  year?: string;
 }
+/**
+ * A person's photograph, resolved and served by the server (spec 0014).
+ *
+ * Used only when the source has no picture of them: the server looks one up,
+ * caches it, and answers 404 when there is none — which the tile turns into
+ * initials. Empty for somebody with no IMDb identity, so no request is made at
+ * all for a person who could not be looked up anyway.
+ */
+export function personPhotoSrc(imdbId: string | undefined): string {
+  const id = (imdbId ?? '').trim().toLowerCase();
+  return /^nm\d{6,9}$/.test(id) ? `/v1/source/person/${id}/photo` : '';
+}
+
 /** Route a provider cover URL through the same-origin, server-cached image proxy
  *  (empty when there's no poster). */
 export function posterSrc(url: string): string {

@@ -1,0 +1,17 @@
+{"success":true,"msg":null,"result":{
+  "id":283405,
+  "title":"Reacher 2022",
+  "year":2022,
+  "year_end":2026,
+  "title_type":"series",
+  "imdb":"tt9288030",
+  "english_plot":"",
+  "persian_plot":"خلاصه داستان فارسی برای سریال.",
+  "cast":[
+    {"id":"416492","name":"Alan Ritchson","as":"Jack Reacher","imdb":"nm2024927","order":0,
+     "image":{"cover":false,"poster":{"medium_webp":"https://cdn.30nama.com/person/30416492-m_30NAMA.webp?"}}}
+  ],
+  "director":null,
+  "creator":null,
+  "writer":[{"imdb":"nm0761498","name":"Nick Santora","order":0}]
+}}

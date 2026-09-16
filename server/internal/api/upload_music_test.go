@@ -2,8 +2,8 @@ package api
 
 import (
 	"bytes"
-	"errors"
 	"encoding/json"
+	"errors"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"

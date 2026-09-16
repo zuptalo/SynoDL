@@ -10,6 +10,7 @@ import (
 	"synodl/server/internal/config"
 	"synodl/server/internal/httpx"
 	"synodl/server/internal/nas"
+	"synodl/server/internal/people"
 	"synodl/server/internal/store"
 	"synodl/server/internal/syno"
 	"synodl/server/internal/ytdl"
@@ -37,6 +38,12 @@ type Deps struct {
 	// cache. Built by NewRouter; nil in tests that do not need it, which
 	// libraryIndex treats as "know nothing".
 	lib *libraryCache
+
+	// people resolves and remembers what somebody looks like (spec 0014). A
+	// POINTER for the same reason lib, caps and ytdlProgress are: Deps is copied
+	// by value into every handler closure, and a value field would give each
+	// handler its own cache — which is the entire feature.
+	people *people.Resolver
 
 	// ytdlProgress holds the latest reading for each running YouTube download.
 	// A POINTER for the same reason lib and caps are: Deps is copied by value
@@ -126,7 +133,22 @@ func InitCaches(d Deps) Deps {
 	if d.ytdlSeen == nil {
 		d.ytdlSeen = newYtdlFingerprints()
 	}
+	if d.people == nil {
+		// nil Store is fine and means memory-only: the stateless mode has no
+		// database, and a face is still worth showing there.
+		d.people = people.New(peopleStore(d.Store))
+	}
 	return d
+}
+
+// peopleStore hands the resolver the store, or nothing at all. A typed nil
+// *store.Store inside a non-nil interface would look present and panic on first
+// use, which is the classic way this conversion goes wrong.
+func peopleStore(s *store.Store) people.Store {
+	if s == nil {
+		return nil
+	}
+	return s
 }
 
 // DownloadNotifier is the slice of the push watcher this feature needs.
@@ -243,6 +265,14 @@ func NewRouter(d Deps) http.Handler {
 		// Unauthenticated (an <img> can't send the session header) but bounded to
 		// the provider's known image hosts — a same-origin poster proxy + cache.
 		mux.Handle("GET /v1/source/image", handleSourceImage(d))
+		// A person's face (spec 0014). Its own host rule, deliberately not the
+		// poster proxy's — the same separation the YouTube artwork proxy keeps.
+		//
+		// Rate-limited, which neither of the other two image routes is, and the
+		// difference is the point: they proxy a URL the caller already had, while
+		// this one can make the server go and ASK a third party. The limiter is
+		// protecting somebody else's server here, not the NAS.
+		mux.Handle("GET /v1/source/person/{imdbId}/photo", limiter.Middleware(handlePersonPhoto(d)))
 		mux.Handle("GET /v1/source/status", handleSourceStatus(d))
 		// Multi-source admin (spec 0007). The singular session/policy routes below
 		// stay for compatibility and address the lowest-id source.

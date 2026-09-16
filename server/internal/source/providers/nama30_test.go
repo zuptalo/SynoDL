@@ -718,3 +718,143 @@ func TestThirtynamaGenreNamesAreSlugsNotDisplayNames(t *testing.T) {
 		}
 	}
 }
+
+// tnCreditsServer serves the download endpoint and the title-detail endpoint,
+// counting calls to each. `single` may be told to fail, which is the case that
+// matters most: the cast is a nice-to-have and the downloads are the point.
+func tnCreditsServer(t *testing.T, singleFixture string, singleFails bool) (source.Config, func(), *int) {
+	t.Helper()
+	singleCalls := 0
+	cfg, done := fakeProvider(t, func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.Contains(r.URL.Path, "/action/single/"):
+			singleCalls++
+			if singleFails {
+				w.WriteHeader(http.StatusBadGateway)
+				return
+			}
+			w.Write(fixture(t, singleFixture))
+		case strings.Contains(r.URL.Path, "/action/download/"):
+			w.Write(fixture(t, "download.json"))
+		default:
+			t.Fatalf("unexpected path %s", r.URL.Path)
+		}
+	})
+	return cfg, done, &singleCalls
+}
+
+// Spec 0014: who made a title comes from the endpoint the site's own app uses,
+// which this driver did not previously call at all.
+func TestThirtynamaTitleCredits(t *testing.T) {
+	cfg, done, calls := tnCreditsServer(t, "tn_single.json", false)
+	defer done()
+
+	td, err := nama30{}.Title(context.Background(), source.NewClient(), cfg, source.Session{}, "217561")
+	if err != nil {
+		t.Fatalf("Title: %v", err)
+	}
+	if *calls != 1 {
+		t.Fatalf("single called %d times, want exactly 1", *calls)
+	}
+	if len(td.Cast) != 3 {
+		t.Fatalf("cast = %d, want 3", len(td.Cast))
+	}
+	// Billing order is the source's, never re-sorted (FR-002).
+	if td.Cast[0].Name != "Jamie Foxx" || td.Cast[1].Name != "Tina Fey" {
+		t.Fatalf("billing order not preserved: %+v", td.Cast)
+	}
+	// The character is the one thing only this source publishes.
+	if td.Cast[0].Character != "Joe" {
+		t.Fatalf("character = %q, want Joe", td.Cast[0].Character)
+	}
+	if td.Cast[0].IMDbID != "nm0004937" {
+		t.Fatalf("imdb id = %q", td.Cast[0].IMDbID)
+	}
+	// A /none/ image is the provider's stand-in, not a photograph of anybody: it
+	// must be dropped, or the fallback is never asked for the real one (FR-013).
+	if td.Cast[0].PhotoURL != "" {
+		t.Fatalf("stand-in image was forwarded: %q", td.Cast[0].PhotoURL)
+	}
+	if !strings.Contains(td.Cast[1].PhotoURL, "/person/30690759-m_30NAMA.webp") {
+		t.Fatalf("real photo not taken: %q", td.Cast[1].PhotoURL)
+	}
+	// "image": false is a shape this source really serves. It must cost that one
+	// person their picture and nothing else.
+	if td.Cast[2].PhotoURL != "" || td.Cast[2].Name != "Graham Norton" {
+		t.Fatalf("a false image broke the entry: %+v", td.Cast[2])
+	}
+	if len(td.Directors) != 2 || td.Directors[0].Name != "Pete Docter" {
+		t.Fatalf("directors = %+v", td.Directors)
+	}
+	// A crew entry never carries an image on this source — every one of those
+	// faces has to come from the fallback.
+	if td.Directors[0].PhotoURL != "" {
+		t.Fatalf("crew photo appeared from nowhere: %q", td.Directors[0].PhotoURL)
+	}
+	if len(td.Writers) != 2 {
+		t.Fatalf("writers = %+v", td.Writers)
+	}
+	// creator is null here, and an absent role is an ABSENT field — never an
+	// empty slice, which the client would render a heading for.
+	if td.Creators != nil {
+		t.Fatalf("creators = %+v, want nil", td.Creators)
+	}
+	// The same response fills in what this source's detail sheet never had.
+	if td.Plot == "" || !strings.HasPrefix(td.Plot, "A jazz musician") {
+		t.Fatalf("english plot not used: %q", td.Plot)
+	}
+	if td.IMDbID != "tt2948372" || td.Year != "2020" {
+		t.Fatalf("imdb/year = %q/%q", td.IMDbID, td.Year)
+	}
+	// The downloads are still there — they are the point of the sheet.
+	if len(td.Qualities) == 0 {
+		t.Fatal("credits cost us the download options")
+	}
+}
+
+// A series is the case that made the spec cover creator and writers at all:
+// this source leaves the director null for most of them.
+func TestThirtynamaTitleCreditsSeriesHasNoDirector(t *testing.T) {
+	cfg, done, _ := tnCreditsServer(t, "tn_single_series.json", false)
+	defer done()
+
+	td, err := nama30{}.Title(context.Background(), source.NewClient(), cfg, source.Session{}, "283405")
+	if err != nil {
+		t.Fatalf("Title: %v", err)
+	}
+	if td.Directors != nil || td.Creators != nil {
+		t.Fatalf("directors/creators should be absent: %+v / %+v", td.Directors, td.Creators)
+	}
+	if len(td.Writers) != 1 || td.Writers[0].Name != "Nick Santora" {
+		t.Fatalf("writers = %+v", td.Writers)
+	}
+	// Persian is the FALLBACK synopsis, never an addition (FR-037).
+	if td.Plot != "خلاصه داستان فارسی برای سریال." {
+		t.Fatalf("persian fallback not used: %q", td.Plot)
+	}
+	// A series that is still running carries a range.
+	if td.Year != "2022–2026" {
+		t.Fatalf("year = %q, want the range", td.Year)
+	}
+}
+
+// The whole feature is optional: if the endpoint that knows who made a title
+// fails, the sheet still offers every download it has (FR-006).
+func TestThirtynamaTitleSurvivesCreditsFailure(t *testing.T) {
+	cfg, done, calls := tnCreditsServer(t, "tn_single.json", true)
+	defer done()
+
+	td, err := nama30{}.Title(context.Background(), source.NewClient(), cfg, source.Session{}, "217561")
+	if err != nil {
+		t.Fatalf("a failed credits lookup must not fail the title: %v", err)
+	}
+	if *calls != 1 {
+		t.Fatalf("single called %d times", *calls)
+	}
+	if len(td.Qualities) == 0 {
+		t.Fatal("no download options")
+	}
+	if td.Cast != nil || td.Directors != nil || td.Plot != "" {
+		t.Fatalf("a failed lookup invented data: %+v", td)
+	}
+}

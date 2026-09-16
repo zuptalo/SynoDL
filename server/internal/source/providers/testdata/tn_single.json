@@ -1,0 +1,27 @@
+{"success":true,"msg":null,"result":{
+  "id":217561,
+  "title":"Soul 2020",
+  "year":2020,
+  "year_end":null,
+  "title_type":"movie",
+  "imdb":"tt2948372",
+  "imdb_score":8,
+  "english_plot":"A jazz musician finds himself somewhere he did not expect to be.",
+  "persian_plot":"خلاصه داستان فارسی.",
+  "cast":[
+    {"id":null,"name":"Jamie Foxx","as":"Joe","imdb":"nm0004937","order":0,
+     "image":{"cover":false,"poster":{"medium":"https://cdn.30nama.com/none/none-m_30NAMA.jpg?2","medium_webp":"https://cdn.30nama.com/none/none-m_30NAMA.webp?2"}}},
+    {"id":"690759","name":"Tina Fey","as":"22","imdb":"nm0275486","order":1,
+     "image":{"cover":false,"poster":{"medium":"https://cdn.30nama.com/person/30690759-m_30NAMA.jpg?","medium_webp":"https://cdn.30nama.com/person/30690759-m_30NAMA.webp?"}}},
+    {"id":null,"name":"Graham Norton","as":"Moonwind","imdb":"nm0636218","order":2,"image":false}
+  ],
+  "director":[
+    {"imdb":"nm0230032","name":"Pete Docter","order":0},
+    {"imdb":"nm5358492","name":"Kemp Powers","order":1}
+  ],
+  "creator":null,
+  "writer":[
+    {"imdb":"nm0230032","name":"Pete Docter","order":0},
+    {"imdb":"nm0428873","name":"Mike Jones","order":1}
+  ]
+}}

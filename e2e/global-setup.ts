@@ -158,6 +158,11 @@ export default async function globalSetup(): Promise<void> {
     // with no real credentials.
     SOURCE_MOCK_ZARFILM: `https://localhost:${SF_MOCK_PORT}/mocksrc/zar`,
     SOURCE_MOCK_30NAMA: `https://localhost:${SF_MOCK_PORT}/mocksrc/tn`,
+    // The photograph fallback (spec 0014), pointed at the fake IMDb on the same
+    // mock. Without it the suite would reach the public internet to draw a face,
+    // which the dev-parity rule forbids and which would make it flaky besides —
+    // the same reason the oembed lookup below is redirected.
+    IMDB_MOCK_BASE: `https://localhost:${SF_MOCK_PORT}/mockimdb`,
     // YouTube download workers (spec 0012), pointed at the fake Jobs API. The
     // SAME client code runs here as in a real cluster, so the wire format, the
     // label selector and the lifecycle mapping are all genuinely exercised.

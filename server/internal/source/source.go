@@ -334,6 +334,160 @@ type QualityOption struct {
 	ReleaseName string `json:"-"`
 }
 
+// Person is somebody who worked on a title — a cast member or a member of its
+// crew (spec 0014). Everything but Name is optional, because every source is
+// missing something: one publishes the character but often no photograph, the
+// other publishes neither on the page that names them.
+//
+// A missing field is a fact, not a failure. An empty IMDbID means the tile is
+// not a link; an empty PhotoURL means "ask the person-photo endpoint, or show
+// initials" — never "something went wrong".
+type Person struct {
+	Name string `json:"name"`
+	// Character is the part they play, where the source publishes one. Only one
+	// of the two does.
+	Character string `json:"character,omitempty"`
+	// IMDbID is their public "nm…" identity. It is what the tile links to and
+	// what the photo cache is keyed by, so two people who share a name never
+	// share a face.
+	IMDbID string `json:"imdbId,omitempty"`
+	// PhotoURL is a photograph the SOURCE hosts, already known to be a real one:
+	// a provider's own "no photo" stand-in is dropped by the driver rather than
+	// forwarded (FR-013), because a grey silhouette shown as somebody's face is
+	// worse than no face at all.
+	PhotoURL string `json:"photoUrl,omitempty"`
+	// Ref is the source's own handle for this person ("actor/kurt-russell"), used
+	// only by a source that names people without identifying them, so the server
+	// can resolve them once and remember it.
+	//
+	// `json:"-"` is deliberate and load-bearing, exactly as it is on
+	// QualityOption.ReleaseName: this is an internal join key, and a wire tag
+	// enforces that permanently rather than relying on every future handler to
+	// remember.
+	Ref string `json:"-"`
+}
+
+// Field bounds for anything a source publishes about a person (FR-030a).
+//
+// A name, a character and a URL all arrive from outside. Without a bound, a
+// hostile or merely broken upstream could put a megabyte into the operator's
+// volume and into every viewer's DOM. These are generous — the longest real
+// name is a fraction of them — so they clip an attack, never a person.
+const (
+	maxPersonName = 200
+	maxPersonURL  = 2048
+)
+
+// Clamp returns p with every externally-supplied field bounded, and reports
+// whether it is worth showing at all (a person with no name is not).
+func (p Person) Clamp() (Person, bool) {
+	p.Name = clampText(p.Name, maxPersonName)
+	p.Character = clampText(p.Character, maxPersonName)
+	p.PhotoURL = clampText(p.PhotoURL, maxPersonURL)
+	p.Ref = clampText(p.Ref, maxPersonURL)
+	if !PersonIDRe.MatchString(p.IMDbID) {
+		// Anything that is not an IMDb person id is dropped rather than carried:
+		// it is about to become an href and a cache key, and neither tolerates a
+		// value we cannot vouch for.
+		p.IMDbID = ""
+	}
+	return p, p.Name != ""
+}
+
+// clampText trims and bounds one free-text field, cutting on a rune boundary so
+// a clipped name is never invalid UTF-8.
+func clampText(s string, max int) string {
+	s = strings.TrimSpace(s)
+	if len(s) <= max {
+		return s
+	}
+	r := []rune(s)
+	for len(string(r)) > max {
+		r = r[:len(r)-1]
+	}
+	return string(r)
+}
+
+// PersonIDRe is a canonical IMDb person id. Anchored at both ends: this value
+// reaches an href, a cache key and a URL path, and a loose match would let a
+// source steer all three.
+var PersonIDRe = regexp.MustCompile(`^nm\d{6,9}$`)
+
+// PersonID normalises an IMDb person id out of either shape a source publishes —
+// a bare "nm0000621" or the full profile URL one of them links to — and returns
+// "" for anything else.
+func PersonID(s string) string {
+	s = strings.ToLower(strings.TrimSpace(s))
+	if m := rePersonURL.FindStringSubmatch(s); m != nil {
+		s = m[1]
+	}
+	if PersonIDRe.MatchString(s) {
+		return s
+	}
+	return ""
+}
+
+// The host must be imdb.com itself (optionally www.), so a lookalike like
+// imdb.com.evil.example cannot match.
+var rePersonURL = regexp.MustCompile(`^https?://(?:www\.)?imdb\.com/name/(nm\d{6,9})/?$`)
+
+// ClampPeople bounds, de-duplicates and caps one role's worth of people.
+//
+// De-duplication is within a role only (FR-004c): a writer who also directed
+// appears under each heading, which is true, and twice under one, which is not.
+// Identity is the IMDb id where there is one, and the name otherwise — never the
+// name alone, or two different people who share one would collapse into a single
+// tile carrying whichever face was resolved first.
+func ClampPeople(in []Person, max int) []Person {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]Person, 0, len(in))
+	seen := map[string]bool{}
+	for _, p := range in {
+		p, ok := p.Clamp()
+		if !ok {
+			continue
+		}
+		key := p.IMDbID
+		if key == "" {
+			key = "name:" + p.Name
+		}
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, p)
+		if len(out) >= max {
+			break
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+// How many people one title may contribute. A normal billed cast is three to
+// six; the caps exist so a title cannot become a lever for a hundred outbound
+// lookups (FR-007).
+const (
+	MaxCast = 20
+	MaxCrew = 10
+)
+
+// PersonResolver is implemented by a driver whose title pages NAME people
+// without identifying them — the names are free, the identity costs a request.
+//
+// It is an optional capability, asserted at the call site, so a driver whose API
+// already carries an IMDb id per person implements nothing. The resolution is
+// driven by the SERVER while assembling a response it decided to assemble: these
+// calls carry the operator's stored source session, so no endpoint may let a
+// client name the ref to be fetched (FR-014a).
+type PersonResolver interface {
+	ResolvePerson(ctx context.Context, c *Client, cfg Config, s Session, ref string) (Person, error)
+}
+
 // TitleDetail is a title with its qualities. Sendable is false for types this
 // provider/version cannot send (v1: series/anime).
 type TitleDetail struct {
@@ -370,6 +524,27 @@ type TitleDetail struct {
 	// Seasons is present only for a series, and lists only seasons that actually
 	// hold video. It never states a total or claims completeness (FR-016a).
 	Seasons []SeasonPresence `json:"seasons,omitempty"`
+
+	// Who made it (spec 0014). Cast is in the source's own billing order, never
+	// re-sorted; the three crew roles are kept apart because "who is in it",
+	// "who directed it", "whose show it is" and "who wrote it" are four different
+	// questions.
+	//
+	// Every one is `omitempty`, and that is the contract rather than a tidiness:
+	// an ABSENT field means the source publishes nothing for that role, which is
+	// the normal case — one source leaves the director empty for most series and
+	// names a creator instead. A driver must never send an empty slice to mean
+	// the same thing, because the client renders a heading for a present role.
+	Cast      []Person `json:"cast,omitempty"`
+	Directors []Person `json:"directors,omitempty"`
+	Creators  []Person `json:"creators,omitempty"`
+	Writers   []Person `json:"writers,omitempty"`
+
+	// Year as the source publishes it — a string for the same reason
+	// CatalogTitle.Year is one: a series carries a range, and an ongoing series an
+	// open one. Filled by the source whose detail response happens to carry it;
+	// the client falls back to the year at the end of the title string.
+	Year string `json:"year,omitempty"`
 }
 
 // SeasonPresence is what one season folder holds. Episodes are read from the file

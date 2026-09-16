@@ -79,6 +79,7 @@ type Server struct {
 	// without pasting real credentials for a real site. See sources.go.
 	zarSrc *SourceState
 	tnSrc  *SourceState
+	imdb   imdbState
 }
 
 func New() *Server {
@@ -167,6 +168,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/webapi/DownloadStation/statistic.cgi", s.handleStatistic)
 	mux.HandleFunc("/webapi/entry.cgi", s.handleFileStation)
 	s.registerSources(mux)
+	s.registerIMDbMock(mux)
 	mux.HandleFunc("POST /__mock/reset", s.handleReset)
 	mux.HandleFunc("POST /__mock/seed", s.handleSeed)
 	mux.HandleFunc("POST /__mock/tick", s.handleTick)

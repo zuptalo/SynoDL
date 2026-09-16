@@ -1,6 +1,9 @@
 package store
 
-import "testing"
+import (
+	"testing"
+	"time"
+)
 
 func TestOperatorConfigSaveGet(t *testing.T) {
 	s := openTestStore(t)
@@ -133,5 +136,116 @@ func TestDeleteExpiredSessions(t *testing.T) {
 	_ = s.DB().QueryRow(`SELECT COUNT(*) FROM sessions`).Scan(&n)
 	if n != 1 {
 		t.Fatalf("sessions after prune = %d, want 1", n)
+	}
+}
+
+// Remembered faces (spec 0014). A cache, so every property here is about not
+// asking a third party twice — and about the table staying a cache rather than
+// quietly becoming a record of who looked at what.
+func TestPersonPhotoCache(t *testing.T) {
+	s := openTestStore(t)
+
+	// Never asked is not the same as asked and found nothing.
+	if _, ok := s.GetPersonPhoto("nm0000621"); ok {
+		t.Fatal("an unasked person should be a miss")
+	}
+	if err := s.PutPersonPhoto("nm0000621", "https://img.invalid/a.jpg"); err != nil {
+		t.Fatalf("put: %v", err)
+	}
+	got, ok := s.GetPersonPhoto("nm0000621")
+	if !ok || !got.Found || got.URL != "https://img.invalid/a.jpg" {
+		t.Fatalf("round-trip = %+v ok=%v", got, ok)
+	}
+
+	// "No photograph of this person" is a real answer and is cached, or every
+	// view of every title they appear in asks again.
+	if err := s.PutPersonPhoto("nm0000002", ""); err != nil {
+		t.Fatalf("put none: %v", err)
+	}
+	got, ok = s.GetPersonPhoto("nm0000002")
+	if !ok {
+		t.Fatal("a cached 'none' should be a hit")
+	}
+	if got.Found || got.URL != "" {
+		t.Fatalf("none came back as %+v", got)
+	}
+}
+
+// A stale row reads as a miss, so the caller re-resolves and overwrites it. That
+// is the whole of expiry — there is no sweeper to go wrong.
+func TestPersonPhotoExpiry(t *testing.T) {
+	s := openTestStore(t)
+	if err := s.PutPersonPhoto("nm0000003", "https://img.invalid/b.jpg"); err != nil {
+		t.Fatalf("put: %v", err)
+	}
+	age := func(id string, d time.Duration) {
+		if _, err := s.db.Exec(`UPDATE person_photos SET checked_at = ? WHERE imdb_id = ?`,
+			time.Now().Add(-d).Unix(), id); err != nil {
+			t.Fatalf("age: %v", err)
+		}
+	}
+	age("nm0000003", personPhotoTTL/2)
+	if _, ok := s.GetPersonPhoto("nm0000003"); !ok {
+		t.Fatal("a photograph within its life should still be a hit")
+	}
+	age("nm0000003", personPhotoTTL+time.Hour)
+	if _, ok := s.GetPersonPhoto("nm0000003"); ok {
+		t.Fatal("an expired photograph should read as a miss")
+	}
+
+	// A "none" expires much sooner, because "none" is also what a block looks
+	// like and a blocked instance must recover on its own.
+	if err := s.PutPersonPhoto("nm0000004", ""); err != nil {
+		t.Fatalf("put none: %v", err)
+	}
+	age("nm0000004", personMissingTTL+time.Hour)
+	if _, ok := s.GetPersonPhoto("nm0000004"); ok {
+		t.Fatal("an expired 'none' should read as a miss")
+	}
+	if personMissingTTL >= personPhotoTTL {
+		t.Fatal("a missing photograph must be re-checked sooner than a found one")
+	}
+}
+
+// A source's own handle for somebody resolves once, to both halves.
+func TestSourcePersonCache(t *testing.T) {
+	s := openTestStore(t)
+	want := SourcePerson{IMDbID: "nm0000621", PhotoURL: "https://site.invalid/p.jpg", Name: "Kurt Russell"}
+	if err := s.PutSourcePerson("zarfilm", "actor/kurt-russell", want); err != nil {
+		t.Fatalf("put: %v", err)
+	}
+	got, ok := s.GetSourcePerson("zarfilm", "actor/kurt-russell")
+	if !ok || got != want {
+		t.Fatalf("round-trip = %+v ok=%v", got, ok)
+	}
+	// Scoped per source: two sources' handles never collide.
+	if _, ok := s.GetSourcePerson("30nama", "actor/kurt-russell"); ok {
+		t.Fatal("a handle leaked across sources")
+	}
+}
+
+// The tables are bounded, so a long-running instance cannot fill the operator's
+// volume with faces.
+func TestPrunePeopleBoundsGrowth(t *testing.T) {
+	s := openTestStore(t)
+	// One row past its life, and one still fresh.
+	if err := s.PutPersonPhoto("nm0000005", "https://img.invalid/c.jpg"); err != nil {
+		t.Fatalf("put: %v", err)
+	}
+	if _, err := s.db.Exec(`UPDATE person_photos SET checked_at = ? WHERE imdb_id = ?`,
+		time.Now().Add(-2*personPhotoTTL).Unix(), "nm0000005"); err != nil {
+		t.Fatalf("age: %v", err)
+	}
+	if err := s.PutPersonPhoto("nm0000006", "https://img.invalid/d.jpg"); err != nil {
+		t.Fatalf("put: %v", err)
+	}
+	s.PrunePeople()
+
+	var n int
+	if err := s.db.QueryRow(`SELECT COUNT(*) FROM person_photos`).Scan(&n); err != nil {
+		t.Fatalf("count: %v", err)
+	}
+	if n != 1 {
+		t.Fatalf("after pruning: %d rows, want only the fresh one", n)
 	}
 }
