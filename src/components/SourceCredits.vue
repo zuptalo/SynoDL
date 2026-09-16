@@ -18,8 +18,7 @@
  * The third is a designed state, not a failure. It is also where a photograph
  * that fails to load lands, so a dead URL leaves a tile rather than a gap.
  */
-import { IonAvatar, IonIcon, IonListHeader, IonLabel } from '@ionic/vue';
-import { openOutline } from 'ionicons/icons';
+import { IonAvatar, IonListHeader, IonLabel } from '@ionic/vue';
 import { computed, reactive } from 'vue';
 import type { Person } from '@/services/api';
 import { personPhotoSrc, posterSrc } from '@/services/api';
@@ -126,15 +125,14 @@ function onPhotoError(key: string, p: Person) {
           </ion-avatar>
           <!-- dir="auto" for the same reason the synopsis has it: a name arrives
                in whatever script the source publishes, and the browser decides
-               per string from its first strong character. -->
-          <span class="name" dir="auto">
-            {{ person.name }}
-            <ion-icon
-              v-if="imdbPersonUrl(person.imdbId)"
-              :icon="openOutline"
-              aria-hidden="true"
-            />
-          </span>
+               per string from its first strong character.
+
+               No external-link icon (spec 2033): nearly every tile is a link, so
+               an icon on each decorates rather than distinguishes, and it
+               crowded a 76-pixel tile whose name already wraps. The aria-label
+               below still says where the tile goes, so nothing is lost to
+               anyone who cannot see the layout. -->
+          <span class="name" dir="auto">{{ person.name }}</span>
           <span v-if="person.character" class="character" dir="auto">{{ person.character }}</span>
         </component>
       </div>
@@ -222,11 +220,6 @@ ion-list-header ion-label {
   line-height: 1.25;
   color: var(--app-text);
   overflow-wrap: anywhere;
-}
-.name ion-icon {
-  font-size: 0.66rem;
-  vertical-align: baseline;
-  opacity: 0.55;
 }
 .character {
   margin-top: 2px;

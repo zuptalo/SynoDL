@@ -525,6 +525,13 @@ watch(
     posterFellBack.value = false;
     backdropFailed.value = false;
     enriched.value = null;
+    // Everything the PREVIOUS title's detail response supplied, forgotten before
+    // the next one is asked for (spec 2033). This was missing from the moment
+    // detail metadata existed: the synopsis, IMDb id and year had always carried
+    // over, and got away with it because each is shown only when the catalog row
+    // has none — so the stale value lost a race it usually lost anyway. A cast
+    // has no such competitor and simply showed, under the wrong film's name.
+    detailMeta.value = {};
     // Read-only mode has no options to fetch — only the metadata the stub is
     // missing. Keep the spinner up for it so the header doesn't render sparse
     // and then visibly re-draw with the backdrop and synopsis.
@@ -777,6 +784,21 @@ async function offerOverLimit(): Promise<void> {
              the paragraph, so the rest of the sheet keeps its own direction. -->
         <p v-if="info.plot" class="plot" dir="auto">{{ info.plot }}</p>
 
+        <!-- Who made it (spec 0014), between the synopsis and the download
+             options (spec 2033). Spec 0014 put it below them on the reasoning
+             that sending a download is this sheet's job; seeing it, the order
+             read backwards — the cast is part of deciding WHETHER you want the
+             thing, which comes before choosing which file of it to fetch.
+             Inside this branch, so the spinner is the whole of the loading
+             state and a half-loaded sheet shows nobody rather than the last
+             title's people. Renders nothing when the source publishes nobody. -->
+        <source-credits
+          :cast="detailMeta.cast"
+          :directors="detailMeta.directors"
+          :creators="detailMeta.creators"
+          :writers="detailMeta.writers"
+        />
+
         <!-- Everything below is about starting a download, so read-only mode
              (opened from an existing task) stops here. -->
         <ion-button
@@ -924,17 +946,6 @@ async function offerOverLimit(): Promise<void> {
           </ion-button>
         </template>
       </template>
-
-      <!-- Who made it (spec 0014), BELOW the download options on purpose:
-           sending a download is what this sheet is for, and faces above it
-           would push the one action a phone can see below the fold. Renders
-           nothing at all when the source publishes nobody. -->
-      <source-credits
-        :cast="detailMeta.cast"
-        :directors="detailMeta.directors"
-        :creators="detailMeta.creators"
-        :writers="detailMeta.writers"
-      />
     </ion-content>
   </ion-modal>
 </template>

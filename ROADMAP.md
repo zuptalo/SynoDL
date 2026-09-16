@@ -107,3 +107,4 @@ Specs are grouped by category band; status moves
 | [2030](specs/2030-fallback-poll-never-stops/spec.md) | The fallback poll stops when the stream goes live | 🟢 shipped |
 | [2031](specs/2031-tasks-sections-and-clear/spec.md) | The newest block on top, and one clear for both systems | 🟢 shipped |
 | [2032](specs/2032-source-failure-reason/spec.md) | A failing source says why, and says it out loud | 🟢 shipped |
+| [2033](specs/2033-people-section-title-sheet/spec.md) | The last title's cast stops appearing on the next one | 🔵 in-review |

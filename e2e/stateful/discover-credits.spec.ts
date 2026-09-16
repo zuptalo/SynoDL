@@ -150,7 +150,7 @@ test("with IMDb unreachable, everything except the faces is unchanged", async ()
   expect(res.status).toBe(404);
 });
 
-test("the sheet shows the people below the download options", async ({ page }) => {
+test("the sheet shows the people above the download options", async ({ page }) => {
   // The HTML source, because its fake serves real download options — which is
   // what this test is positioning the people against.
   await addSource(token, "Mock ZarFilm", 0);
@@ -171,9 +171,68 @@ test("the sheet shows the people below the download options", async ({ page }) =
   // name on it — a name is worth more than nothing.
   await expect(credits).toContainText("Mock Nameless");
 
-  // Below the downloads, so sending one stays the sheet's first action.
+  // A tile that links out carries no external-link icon, and is still announced
+  // as the link it is (spec 2033).
+  const linked = credits.locator("a.person").first();
+  await expect(linked).toHaveAttribute("aria-label", /Open .* on IMDb/);
+  await expect(linked.locator("ion-icon")).toHaveCount(0);
+
+  // Above the downloads (spec 2033): who is in it is part of deciding whether
+  // you want the thing, which comes before choosing which file of it to fetch.
   const optionsBox = await page.locator(".quality-row").first().boundingBox();
   const creditsBox = await credits.boundingBox();
   expect(optionsBox && creditsBox).toBeTruthy();
-  expect(creditsBox!.y).toBeGreaterThan(optionsBox!.y);
+  expect(creditsBox!.y).toBeLessThan(optionsBox!.y);
+});
+
+/**
+ * The regression that spec 2033 exists for.
+ *
+ * The sheet cleared the download options, the ownership marker and the poster
+ * state when a title was opened — but not the metadata the title's own detail
+ * response supplied. So the PREVIOUS title's cast sat under the spinner while
+ * the next one loaded, confidently attributing one film's actors to another.
+ *
+ * The source is made slow so the loading state is a window rather than a race.
+ */
+test("the previous title's people never appear under the next one", async ({
+  page,
+}) => {
+  await addSource(token, "Mock ZarFilm", 0);
+  await login(page);
+  await gotoDiscover(page);
+
+  const cards = page.getByTestId("catalog-card");
+  await expect(cards.first()).toBeVisible({ timeout: 30_000 });
+
+  // Open one title and let its people render, so there IS something stale to
+  // carry over.
+  await cards.first().click();
+  const credits = page.getByTestId("title-credits");
+  await expect(credits).toBeVisible({ timeout: 15_000 });
+  await expect(credits).toContainText("Mock Star");
+  await page.getByRole("button", { name: "Close" }).click();
+  await expect(credits).toBeHidden();
+
+  // Now make the next one take its time, and watch what the sheet shows while
+  // it waits.
+  await setSourceState("zar/slow?ms=3000");
+  try {
+    await cards.nth(1).click();
+    // Wait until the sheet is demonstrably IN its loading state before asserting
+    // anything — a bare "is hidden" would be satisfied by the instant before the
+    // modal even opens, which is how the first version of this test passed
+    // against the very bug it was written for.
+    const spinner = page.locator("ion-modal .centered ion-spinner");
+    await expect(spinner).toBeVisible({ timeout: 10_000 });
+    // The spinner is the whole of the loading state: no people, not the previous
+    // title's and not an empty section either.
+    await expect(credits).toBeHidden();
+    await expect(spinner).toBeVisible();
+  } finally {
+    await setSourceState("zar/slow?ms=0");
+  }
+
+  // And once it has loaded, the people shown are this title's.
+  await expect(credits).toBeVisible({ timeout: 20_000 });
 });
