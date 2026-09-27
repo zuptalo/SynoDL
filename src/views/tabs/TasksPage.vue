@@ -182,13 +182,41 @@ function openDetail(id: string): void {
 const ytdlDetail = computed<YtdlDownload | null>(
   () => ytdlDownloads.value.find((d) => d.requestId === ytdlDetailId.value) ?? null,
 );
+// A group opened from a notification may not be in the list yet — or at all,
+// if it sits past the page the list holds — so a fetched copy stands in for
+// the row until the list has it (spec 2038). The sheet only needs the row for
+// its header; the tracks it loads by id.
+const ytdlGroupFallback = ref<YtdlDownload | null>(null);
 const ytdlGroup = computed<YtdlDownload | null>(
-  () => ytdlDownloads.value.find((d) => d.requestId === ytdlGroupId.value) ?? null,
+  () =>
+    ytdlDownloads.value.find((d) => d.requestId === ytdlGroupId.value) ??
+    (ytdlGroupFallback.value?.requestId === ytdlGroupId.value ? ytdlGroupFallback.value : null),
 );
 function onOpenYtdl(requestId: string): void {
   const row = ytdlDownloads.value.find((d) => d.requestId === requestId);
   if (row?.kind === 'group') ytdlGroupId.value = requestId;
   else ytdlDetailId.value = requestId;
+}
+// Open a download by id alone, as a tapped notification does: the list may not
+// hold it, so the kind is asked for when the row is absent. A single download's
+// sheet fetches itself; a group's needs the row for its header.
+async function openYtdlById(requestId: string): Promise<void> {
+  const row = ytdlDownloads.value.find((d) => d.requestId === requestId);
+  if (row) {
+    onOpenYtdl(requestId);
+    return;
+  }
+  try {
+    const fetched = await api.ytdlOne(requestId);
+    if (fetched.kind === 'group') {
+      ytdlGroupFallback.value = fetched;
+      ytdlGroupId.value = requestId;
+      return;
+    }
+  } catch {
+    // Not a group we can show; the detail sheet says "gone" for itself.
+  }
+  ytdlDetailId.value = requestId;
 }
 
 // Deep link from a tapped download notification: /tabs/tasks?task=<id> opens
@@ -201,6 +229,18 @@ watch(
   ([id, isLoaded]) => {
     if (isLoaded && typeof id === 'string' && id) {
       openDetail(id);
+      void router.replace({ query: {} });
+    }
+  },
+  { immediate: true },
+);
+// The same for a YouTube download: /tabs/tasks?download=<id> (spec 2038). Its
+// id was being handed to the NAS task sheet, which found nothing.
+watch(
+  () => route.query.download,
+  (id) => {
+    if (typeof id === 'string' && id) {
+      void openYtdlById(id);
       void router.replace({ query: {} });
     }
   },

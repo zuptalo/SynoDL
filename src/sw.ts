@@ -73,13 +73,17 @@ self.addEventListener('push', (event) => {
   let title = 'SynoDL';
   let body = 'A download update is available.';
   let taskId = '';
+  // What the id names (spec 2038): a NAS task, or a YouTube download. The two
+  // open different sheets, and an id handed to the wrong one is "not found".
+  let kind = '';
   try {
     const data = event.data?.json() as
-      | { title?: string; body?: string; taskId?: string }
+      | { title?: string; body?: string; taskId?: string; kind?: string }
       | undefined;
     if (data?.title) title = data.title;
     if (data?.body) body = data.body;
     if (data?.taskId) taskId = data.taskId;
+    if (data?.kind) kind = data.kind;
   } catch {
     if (event.data) body = event.data.text();
   }
@@ -91,7 +95,7 @@ self.addEventListener('push', (event) => {
         // App is open in front — let the page decide (in-app toast off the Tasks
         // tab, nothing on it). No OS notification, no badge.
         for (const c of clients) {
-          c.postMessage({ type: 'push-notification', title, body, taskId });
+          c.postMessage({ type: 'push-notification', title, body, taskId, kind });
         }
         return undefined;
       }
@@ -104,7 +108,7 @@ self.addEventListener('push', (event) => {
           icon: '/pwa-192x192.png',
           badge: '/pwa-192x192.png',
           tag: 'synodl-download',
-          data: { taskId },
+          data: { taskId, kind },
         }),
         incrementBadge(),
       ]);
@@ -114,16 +118,24 @@ self.addEventListener('push', (event) => {
 
 // Tapping a notification focuses an open SynoDL tab (and asks it to open the
 // task's detail) or opens a new window deep-linked to that task.
+// The query key the Tasks page opens a detail from: `task` for a NAS task,
+// `download` for a YouTube download (spec 2038).
+function deepLinkKey(kind: string): string {
+  return kind === 'download' ? 'download' : 'task';
+}
+
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
-  const taskId = (event.notification.data as { taskId?: string } | undefined)?.taskId ?? '';
-  const url = taskId ? `/tabs/tasks?task=${encodeURIComponent(taskId)}` : '/tabs/tasks';
+  const data = event.notification.data as { taskId?: string; kind?: string } | undefined;
+  const taskId = data?.taskId ?? '';
+  const kind = data?.kind ?? '';
+  const url = taskId ? `/tabs/tasks?${deepLinkKey(kind)}=${encodeURIComponent(taskId)}` : '/tabs/tasks';
   event.waitUntil(
     self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clients) => {
       for (const c of clients) {
         if ('focus' in c) {
           // An open tab won't reload, so tell the page to route to the task.
-          c.postMessage({ type: 'open-task', taskId });
+          c.postMessage({ type: 'open-task', taskId, kind });
           return c.focus();
         }
       }
