@@ -67,6 +67,12 @@ type ytdlDownloadView struct {
 	Reason     string `json:"reason,omitempty"`
 	// Counts is a group's aggregate — how its items are getting on (FR-019).
 	Counts *ytdlCountsView `json:"counts,omitempty"`
+	// Unrecoverable marks a failed playlist that can never reach Finished: nothing
+	// is running or waiting, everything that could be saved has been, and every
+	// remaining failure is one a retry cannot change (spec 1050). It is what
+	// "Clear failed for good" acts on, so a playlist with a refused track — which
+	// may well save next time — is never swept up with them.
+	Unrecoverable bool `json:"unrecoverable,omitempty"`
 }
 
 type ytdlCountsView struct {
@@ -378,6 +384,8 @@ func (d Deps) ytdlViewOf(rec store.YtdlDownload, state, reason string, u *store.
 					if why := ytdl.SummarizeFailures(rcs); why != "" {
 						v.Reason = why
 					}
+					v.Unrecoverable = state == string(ytdl.StateFailed) &&
+						c.Active == 0 && c.Remaining == 0 && ytdl.AllPermanent(rcs)
 				}
 			}
 		}

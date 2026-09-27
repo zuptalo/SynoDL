@@ -347,6 +347,40 @@ const retryableYtdlCount = computed(() =>
 );
 
 /**
+ * Failed playlists that no retry can finish (spec 1050): the server marks a
+ * group unrecoverable when nothing is running or waiting, everything that could
+ * be saved has been, and every remaining failure is permanent — removed,
+ * age-gated, paid, region-locked. A playlist with a refused track is not one of
+ * these: that may well save next time, and the automatic retry is on it.
+ */
+const unrecoverableYtdl = computed(() =>
+  visibleYtdl.value.filter((d) => d.kind === 'group' && d.unrecoverable === true),
+);
+
+/**
+ * Dismiss every unrecoverable playlist, after saying what that means. The
+ * records go; the tracks that saved are on the NAS and stay there, exactly as
+ * clearing a finished task leaves its files.
+ */
+async function clearUnrecoverable(): Promise<void> {
+  const pool = unrecoverableYtdl.value;
+  if (!pool.length) return;
+  const sheet = await actionSheetController.create({
+    header: `Clear ${pool.length} failed for good?`,
+    subHeader:
+      'These playlists cannot finish: every track that could be saved has been, and the rest are gone from YouTube or locked. Saved tracks stay on the NAS.',
+    buttons: [
+      { text: `Clear ${pool.length}`, role: 'destructive', data: 'ok' },
+      { text: 'Cancel', role: 'cancel' },
+    ],
+  });
+  await sheet.present();
+  const { data } = await sheet.onDidDismiss();
+  if (data !== 'ok') return;
+  await Promise.allSettled(pool.map((d) => dismissYtdl(d.requestId)));
+}
+
+/**
  * Retry everything failed, in one tap (spec 1049). Each row is retried on its
  * own so a refusal — a download the server is already retrying by itself, or one
  * that has used up its attempts — stops nothing else; the next poll shows what
@@ -408,6 +442,11 @@ async function openOverflow(): Promise<void> {
       { text: 'Pause all', data: 'pause' },
       { text: 'Resume all', data: 'resume' },
       { text: `Retry failed (${retryableYtdlCount.value})`, data: 'retry' },
+      {
+        text: `Clear failed for good (${unrecoverableYtdl.value.length})`,
+        role: 'destructive',
+        data: 'clear-unrecoverable',
+      },
       { text: 'Delete all', role: 'destructive', data: 'delete' },
       {
         text: `Clear finished (${finished(all).length + savedYtdl.value.length})`,
@@ -434,6 +473,9 @@ async function openOverflow(): Promise<void> {
       break;
     case 'retry':
       await retryAllFailedYtdl();
+      break;
+    case 'clear-unrecoverable':
+      await clearUnrecoverable();
       break;
     case 'delete':
       await confirmDelete(

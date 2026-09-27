@@ -247,6 +247,12 @@ export interface YtdlDownload {
   groupName?: string;
   /** A group's item counts; absent on anything that is not a group. */
   counts?: YtdlCounts;
+  /**
+   * A failed playlist that can never reach Finished: nothing running or waiting,
+   * everything that could be saved has been, every remaining failure permanent
+   * (spec 1050). What "Clear failed for good" acts on.
+   */
+  unrecoverable?: boolean;
   /** How many times this has been attempted. Above 1 means it was retried. */
   attempts?: number;
   /** Absent until the download is final — never 0, which would render as 1970. */

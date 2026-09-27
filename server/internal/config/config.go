@@ -161,7 +161,7 @@ func Load() (Config, error) {
 		YtdlMinDurationSeconds: envInt("YTDL_MIN_DURATION_SECONDS", 90),
 		YtdlMaxParallel:        ytdlMaxParallel(envInt("YTDL_MAX_PARALLEL", defaultYtdlMaxParallel)),
 
-		YtdlAutoRetryAfterSeconds: int64(envInt("YTDL_AUTO_RETRY_AFTER_SECONDS", 1800)),
+		YtdlAutoRetryAfterSeconds: int64(envInt("YTDL_AUTO_RETRY_AFTER_SECONDS", 30)),
 		YtdlAutoRetryMaxAttempts:  envInt("YTDL_AUTO_RETRY_MAX_ATTEMPTS", 3),
 	}
 

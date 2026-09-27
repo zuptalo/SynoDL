@@ -106,7 +106,7 @@ too. Two optional knobs:
 ```yaml
   # Seconds before the first automatic retry; each later one waits that much
   # longer again (30 min, then 60 min, …).
-  YTDL_AUTO_RETRY_AFTER_SECONDS: "1800"
+  YTDL_AUTO_RETRY_AFTER_SECONDS: "30"
   # Attempts in total, the first included. "1" switches automatic retry off.
   YTDL_AUTO_RETRY_MAX_ATTEMPTS: "3"
 ```

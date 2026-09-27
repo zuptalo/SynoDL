@@ -646,3 +646,79 @@ test("more than a page of tracks are all in the playlist sheet", async ({
     timeout: 20_000,
   });
 });
+
+/** Feed a line of worker output to one item's job, once it exists. */
+async function emitTo(requestId: string, line: string): Promise<void> {
+  const deadline = Date.now() + 25_000;
+  for (;;) {
+    const res = await fetch(`${K8S}/__mock/jobs/${requestId}/emit`, {
+      method: "POST",
+      body: line,
+    });
+    if (res.ok) return;
+    if (res.status !== 404 || Date.now() > deadline) {
+      throw new Error(`emit failed: ${res.status}`);
+    }
+    await new Promise((r) => setTimeout(r, 500));
+  }
+}
+
+// Spec 1050. A playlist whose only failures are permanent — the video is gone
+// from YouTube — can never finish, so the Tasks menu clears those in one go.
+// One whose failure was a refusal is NOT among them: that may save next time.
+test("the Tasks menu clears playlists that can never finish, and only those", async ({
+  page,
+}) => {
+  const { requestId: gone } = await submit(
+    token,
+    "https://www.youtube.com/@lofi",
+  );
+  await emitEntries(gone, ["aaaaaaaaaaa", "bbbbbbbbbbb"]);
+  await expect
+    .poll(() => items(token, gone).then((i) => i.length), { timeout: 30_000 })
+    .toBe(2);
+  const [a, b] = await items(token, gone);
+  await driveItem(a.requestId, "start");
+  await emitTo(a.requestId, "ERROR: [youtube] aaaaaaaaaaa: Video unavailable");
+  await driveItem(a.requestId, "fail");
+  await driveItem(b.requestId, "succeed");
+
+  const { requestId: refused } = await submit(
+    token,
+    "https://www.youtube.com/@chill",
+  );
+  await emitEntries(refused, ["ccccccccccc"]);
+  await expect
+    .poll(() => items(token, refused).then((i) => i.length), { timeout: 30_000 })
+    .toBe(1);
+  const [c] = await items(token, refused);
+  await driveItem(c.requestId, "start");
+  await emitTo(c.requestId, "ERROR: [youtube] ccccccccccc: HTTP Error 429: Too Many Requests");
+  await driveItem(c.requestId, "fail");
+
+  await expect
+    .poll(() => groupState(token, gone), { timeout: 20_000 })
+    .toBe("failed");
+  // A refused track is "failed, retrying by itself" (spec 1043), so its
+  // playlist does not read as failed — which is the point: it is not hopeless.
+  await expect
+    .poll(() => items(token, refused).then((i) => i[0]?.state), {
+      timeout: 20_000,
+    })
+    .toBe("failed");
+
+  await gotoTasks(page);
+  await page.getByTestId("overflow-open").click();
+  const clear = page.getByRole("button", { name: /Clear failed for good/ });
+  await expect(clear).toHaveText(/Clear failed for good \(1\)/);
+  await clear.click();
+  await page.getByRole("button", { name: /^Clear 1$/ }).click();
+
+  // The hopeless one is gone; the refused one is still there to be retried.
+  await expect
+    .poll(() => rows(token).then((r) => r.map((x) => x.requestId).sort()), {
+      timeout: 20_000,
+    })
+    .toEqual([refused]);
+  await expect(page.getByTestId("ytdl-item")).toHaveCount(1);
+});

@@ -234,8 +234,8 @@ func TestLoad_YtdlAutoRetry(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	if cfg.YtdlAutoRetryAfterSeconds != 1800 || cfg.YtdlAutoRetryMaxAttempts != 3 {
-		t.Fatalf("defaults = %ds / %d attempts, want 1800s / 3", cfg.YtdlAutoRetryAfterSeconds, cfg.YtdlAutoRetryMaxAttempts)
+	if cfg.YtdlAutoRetryAfterSeconds != 30 || cfg.YtdlAutoRetryMaxAttempts != 3 {
+		t.Fatalf("defaults = %ds / %d attempts, want 30s / 3", cfg.YtdlAutoRetryAfterSeconds, cfg.YtdlAutoRetryMaxAttempts)
 	}
 
 	t.Setenv("YTDL_AUTO_RETRY_AFTER_SECONDS", "600")
