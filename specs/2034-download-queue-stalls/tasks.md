@@ -18,5 +18,5 @@ nothing to design and nothing for a checklist to review.
 - [x] T006 Edge-triggered WARN/INFO for the reconciler's list (FR-005), with a test
 - [x] T007 `sweepDismissed` deletes only on `store.ErrNotFound` (FR-006)
 - [x] T008 Run the gate: `go build/vet/test ./...`
-- [ ] T009 Merge; confirm Keel rolls the pod and the queue drains in production
-- [ ] T010 Set `**Status**: shipped` and run `make roadmap`
+- [x] T009 Merge; confirm Keel rolls the pod and the queue drains in production
+- [x] T010 Set `**Status**: shipped` and run `make roadmap`
