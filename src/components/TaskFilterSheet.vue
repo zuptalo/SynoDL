@@ -90,7 +90,17 @@ function apply(): void {
 </script>
 
 <template>
-  <ion-modal :is-open="isOpen" :initial-breakpoint="0.85" :breakpoints="[0, 0.85, 1]" @didDismiss="emit('dismiss')">
+  <!-- expand-to-scroll off: the content scrolls at whatever height the sheet is
+       (spec 2036). By default a sheet only scrolls once dragged fully open —
+       natural with a finger, impossible with a mouse wheel, so on a desktop the
+       sort order at the bottom of this list could not be reached at all. -->
+  <ion-modal
+    :is-open="isOpen"
+    :initial-breakpoint="0.85"
+    :breakpoints="[0, 0.85, 1]"
+    :expand-to-scroll="false"
+    @didDismiss="emit('dismiss')"
+  >
     <ion-header :translucent="true">
       <ion-toolbar>
         <ion-title>Filters</ion-title>

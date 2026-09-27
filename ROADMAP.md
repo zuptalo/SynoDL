@@ -113,3 +113,4 @@ Specs are grouped by category band; status moves
 | [2033](specs/2033-people-section-title-sheet/spec.md) | The last title's cast stops appearing on the next one | 🟢 shipped |
 | [2034](specs/2034-download-queue-stalls/spec.md) | YouTube downloads stop waiting forever once a few hundred have run | 🟢 shipped |
 | [2035](specs/2035-playlist-retry-and-status/spec.md) | A playlist's failed tracks are one tap to retry, and the playlist always says what its tracks add up to | 🟢 shipped |
+| [2036](specs/2036-filter-sheet-scrolls-desktop/spec.md) | The filter sheet scrolls with a mouse wheel on desktop | 🟡 in-progress |

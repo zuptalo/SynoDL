@@ -128,6 +128,7 @@ function clear(): void {
     :is-open="isOpen"
     :initial-breakpoint="0.75"
     :breakpoints="[0, 0.75, 1]"
+    :expand-to-scroll="false"
     @didDismiss="emit('dismiss')"
   >
     <ion-header>
