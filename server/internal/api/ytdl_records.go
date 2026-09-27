@@ -51,24 +51,28 @@ func liveStateOf(d store.YtdlDownload, live map[string]k8s.Job) (state string, r
 // observed on every cycle until the orchestrator sweeps it. Writing on every
 // sighting would keep moving the timestamp, and the first sighting is the one
 // that means anything.
-func (d Deps) captureTerminal(rec store.YtdlDownload, state, reason string) {
-	if rec.State == state {
-		return
-	}
+//
+// It reports whether the record now holds this final outcome — written just
+// now or already there — which is what lets the reconciler let go of the Job.
+func (d Deps) captureTerminal(rec store.YtdlDownload, state, reason string) bool {
 	if state != string(ytdl.StateCompleted) && state != string(ytdl.StateFailed) {
 		// Not final: state that is still moving belongs to the orchestrator, and
 		// writing it here would be the mirror Principle III forbids.
-		return
+		return false
+	}
+	if rec.State == state {
+		return true
 	}
 	now := time.Now().Unix()
 	if err := d.Store.SetYtdlState(rec.RequestID, state, reason, &now); err != nil {
 		// FR-006b: a download that saved its files is not failed because a row
 		// could not be written. Nothing is announced either — announcing an
 		// outcome we could not record would mean announcing it again next cycle.
-		return
+		return false
 	}
 	rec.State, rec.Reason = state, reason
 	d.notifyFinished(context.Background(), rec, state)
+	return true
 }
 
 // ytdlLiveJobs indexes the orchestrator's jobs by request id.

@@ -911,3 +911,110 @@ func TestReadWorkerOutput_SkipsEnumerationJobs(t *testing.T) {
 		t.Fatal("progress was recorded for a group from its enumeration worker")
 	}
 }
+
+// Spec 2034. A download's Job is only the means; once its outcome is in the
+// store, the store is what the list, the detail view and history all read. A
+// Job left behind for a day after that only makes every cycle's list heavier —
+// heavy enough, at 700 of them, to stop the queue outright.
+func TestReconcile_AFinishedDownloadsJobGoesOnceItsOutcomeIsRecorded(t *testing.T) {
+	jobs := &fakeJobs{}
+	h, st := newYtdlRouter(t, jobs, ytdlCfg())
+	admin := adminAfterSetup(t, h)
+
+	rec := submit(t, h, admin, `{"url":"https://youtu.be/abc","mode":"music"}`)
+	var sub ytdlSubmitResp
+	_ = json.Unmarshal(rec.Body.Bytes(), &sub)
+	ytdlAdmit(t, jobs, st)
+
+	d := Deps{Jobs: jobs, Store: st}
+	jobs.setStatus(t, sub.RequestID, k8s.JobStatus{Active: 1})
+	d.reconcileYtdlOnce(context.Background())
+	if len(jobs.deleted) != 0 {
+		t.Fatalf("a running worker was deleted: %v", jobs.deleted)
+	}
+
+	jobs.setStatus(t, sub.RequestID, k8s.JobStatus{Succeeded: 1})
+	d.reconcileYtdlOnce(context.Background())
+	if len(jobs.deleted) != 1 || jobs.deleted[0] != ytdl.JobName(sub.RequestID) {
+		t.Fatalf("deleted = %v, want the finished job removed once recorded", jobs.deleted)
+	}
+
+	// And with the Job gone, the record still says what happened — it is not
+	// mistaken for a worker that vanished.
+	d.ytdlMissing = newMissingJobs()
+	d.reconcileYtdlOnce(context.Background())
+	d.reconcileYtdlOnce(context.Background())
+	got, _ := st.GetYtdlDownload(sub.RequestID)
+	if got.State != "completed" {
+		t.Fatalf("state = %q after the job was removed, want completed", got.State)
+	}
+}
+
+// The Job is the only evidence of an outcome the store has not taken yet, so
+// it must stay until the write succeeds (FR-006b's other half).
+func TestReconcile_AnUnrecordedOutcomeKeepsItsJob(t *testing.T) {
+	jobs := &fakeJobs{}
+	h, st := newYtdlRouter(t, jobs, ytdlCfg())
+	admin := adminAfterSetup(t, h)
+
+	rec := submit(t, h, admin, `{"url":"https://youtu.be/abc","mode":"music"}`)
+	var sub ytdlSubmitResp
+	_ = json.Unmarshal(rec.Body.Bytes(), &sub)
+	ytdlAdmit(t, jobs, st)
+	jobs.setStatus(t, sub.RequestID, k8s.JobStatus{Succeeded: 1})
+	_ = st.Close()
+
+	d := Deps{Jobs: jobs, Store: st}
+	d.reconcileYtdlOnce(context.Background())
+	if len(jobs.deleted) != 0 {
+		t.Fatalf("deleted = %v, want the job kept while its outcome is unrecorded", jobs.deleted)
+	}
+}
+
+// Spec 2034: the pods list outgrew the read cap alongside the Jobs list. A
+// running worker's output is found by asking for THAT request's pod, so the
+// lookup's size does not depend on how many finished ones are lying about.
+func TestReadWorkerOutput_AsksOnlyForTheRunningRequestsPods(t *testing.T) {
+	jobs := &fakeJobs{}
+	h, st := newYtdlRouter(t, jobs, ytdlCfg())
+	admin := adminAfterSetup(t, h)
+	id := ytdlRunning(t, h, jobs, st, admin, "https://youtu.be/abc")
+	jobs.emitFor(id, ytdl.ProgressSentinel+" status=downloading downloaded=25 total=100")
+
+	d := Deps{Jobs: jobs, Store: st, ytdlProgress: newProgressCache()}
+	d.reconcileYtdlOnce(context.Background())
+
+	if len(jobs.podSelectors) == 0 {
+		t.Fatal("no pods were listed")
+	}
+	for _, sel := range jobs.podSelectors {
+		if !strings.Contains(sel, ytdl.LabelRequestID+"="+id) {
+			t.Errorf("pods listed with %q, want it narrowed to request %s", sel, id)
+		}
+	}
+	if _, ok := d.ytdlProgress.Get(id); !ok {
+		t.Error("progress was not read through the narrowed lookup")
+	}
+}
+
+// A list that keeps failing is said once, and so is its recovery. Spec 2034's
+// queue stood still for a day with nothing in the log at all.
+func TestListHealth_SaysSoOncePerTransition(t *testing.T) {
+	var h listHealth
+	boom := errors.New("boom")
+	if !h.failed(boom) {
+		t.Fatal("the first failure was not reported")
+	}
+	if h.failed(boom) || h.failed(boom) {
+		t.Fatal("a continuing failure was reported again")
+	}
+	if !h.ok() {
+		t.Fatal("the recovery was not reported")
+	}
+	if h.ok() {
+		t.Fatal("continuing health was reported again")
+	}
+	if !h.failed(boom) {
+		t.Fatal("a second outage was not reported")
+	}
+}

@@ -136,7 +136,14 @@ type JobCondition struct {
 
 // JobList is the shape returned by a LIST.
 type JobList struct {
-	Items []Job `json:"items"`
+	Metadata ListMeta `json:"metadata"`
+	Items    []Job    `json:"items"`
+}
+
+// ListMeta carries the token for the next page of a paged list. Empty means
+// this was the last page.
+type ListMeta struct {
+	Continue string `json:"continue,omitempty"`
 }
 
 func int32p(v int32) *int32 { return &v }
@@ -159,5 +166,6 @@ type PodStatus struct {
 
 // PodList is the LIST response.
 type PodList struct {
-	Items []Pod `json:"items"`
+	Metadata ListMeta `json:"metadata"`
+	Items    []Pod    `json:"items"`
 }

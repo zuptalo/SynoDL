@@ -33,10 +33,13 @@ type fakeJobs struct {
 	createErr error
 	// pods and logs stand in for the worker output the reconciler reads. Keyed
 	// by pod name; a request id's pod is named after its job.
-	pods    []k8s.Pod
-	logs    map[string]string
-	logErr  error
-	logReqs []string
+	pods []k8s.Pod
+	// podSelectors records every selector ListPods was asked with, so a test
+	// can assert a lookup was narrowed to the request it is for (spec 2034).
+	podSelectors []string
+	logs         map[string]string
+	logErr       error
+	logReqs      []string
 	// nCalls counts every call the orchestrator receives, whatever it was.
 	// Spec 1038 needs this: no number of watching clients may change how often
 	// the cluster is asked (FR-010, SC-004), and a count is the only way to
@@ -87,14 +90,29 @@ func (f *fakeJobs) DeleteJob(_ context.Context, name string) error {
 	return nil
 }
 
-func (f *fakeJobs) ListPods(_ context.Context, _ string) ([]k8s.Pod, error) {
+func (f *fakeJobs) ListPods(_ context.Context, selector string) ([]k8s.Pod, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.nCalls++
+	f.podSelectors = append(f.podSelectors, selector)
 	if f.listErr != nil {
 		return nil, f.listErr
 	}
-	return append([]k8s.Pod{}, f.pods...), nil
+	// Honour a request-id clause the way the API server would; every other
+	// clause matches, since every pod here is one of ours.
+	want := ""
+	for _, clause := range strings.Split(selector, ",") {
+		if k, v, ok := strings.Cut(clause, "="); ok && k == ytdl.LabelRequestID {
+			want = v
+		}
+	}
+	var out []k8s.Pod
+	for _, p := range f.pods {
+		if want == "" || p.Metadata.Labels[ytdl.LabelRequestID] == want {
+			out = append(out, p)
+		}
+	}
+	return out, nil
 }
 
 func (f *fakeJobs) PodLog(_ context.Context, name string, _ k8s.PodLogOptions) ([]byte, error) {

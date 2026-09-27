@@ -3,7 +3,9 @@ package api
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"strconv"
+	"sync"
 	"time"
 
 	"synodl/server/internal/k8s"
@@ -85,7 +87,17 @@ func (d Deps) reconcileYtdlOnce(ctx context.Context) {
 		// Not fatal, and not logged per-cycle: at this interval an outage would
 		// fill the log with the same line. The list simply reports as degraded
 		// to whoever asks next.
+		//
+		// But it IS logged once, when it starts. A cycle that returns here admits
+		// nothing and records nothing, and spec 2034's queue stood still for a
+		// day with an empty log because this branch said so to nobody.
+		if d.ytdlListHealth != nil && d.ytdlListHealth.failed(err) {
+			slog.Warn("youtube downloads paused: cannot list workers", "err", err)
+		}
 		return
+	}
+	if d.ytdlListHealth != nil && d.ytdlListHealth.ok() {
+		slog.Info("youtube downloads resumed: listing workers again")
 	}
 
 	live := make(map[string]k8s.Job, len(jobs))
@@ -99,7 +111,7 @@ func (d Deps) reconcileYtdlOnce(ctx context.Context) {
 	// admission, so a download that has just finished frees its slot in the same
 	// cycle rather than the next one.
 	d.readWorkerOutput(ctx, jobs)
-	d.captureFinished(live)
+	d.captureFinished(ctx, live)
 	d.resolveVanished(live)
 	d.resolveExpansions(ctx, jobs)
 	d.refreshGroups(ctx)
@@ -458,11 +470,14 @@ func (d Deps) expandInto(ctx context.Context, g store.YtdlDownload, j k8s.Job) {
 
 // podLogFor reads the output of a job's pod.
 func (d Deps) podLogFor(ctx context.Context, j k8s.Job) ([]byte, error) {
-	pods, err := d.Jobs.ListPods(ctx, ytdl.Selector)
+	want := j.Metadata.Labels[ytdl.LabelRequestID]
+	// Narrowed to this request (spec 2034). Listing every pod to find one grew
+	// with every finished worker, and failing here fails the whole group as
+	// "could not read what that link contains" — permanently.
+	pods, err := d.Jobs.ListPods(ctx, podsFor(want))
 	if err != nil {
 		return nil, err
 	}
-	want := j.Metadata.Labels[ytdl.LabelRequestID]
 	for _, p := range pods {
 		if p.Metadata.Labels[ytdl.LabelRequestID] != want {
 			continue
@@ -492,7 +507,7 @@ var errExpansionOutputGone = errors.New("expansion output is no longer available
 // already saved its files must never be REPORTED as failed because the server
 // could not write a row about it. The files exist either way, and the next cycle
 // tries again.
-func (d Deps) captureFinished(live map[string]k8s.Job) {
+func (d Deps) captureFinished(ctx context.Context, live map[string]k8s.Job) {
 	if d.Store == nil {
 		return
 	}
@@ -517,7 +532,16 @@ func (d Deps) captureFinished(live map[string]k8s.Job) {
 		if state == ytdl.StateFailed {
 			reason = ytdl.FailureReason(j)
 		}
-		d.captureTerminal(rec, string(state), reason)
+		if d.captureTerminal(rec, string(state), reason) && d.Jobs != nil {
+			// Recorded, so the Job has nothing left to tell anybody: the list,
+			// the detail view and history all read the record from here on. It
+			// goes now rather than lingering until the cluster's TTL sweeps it,
+			// because every lingering Job is read again on every cycle — and at
+			// a few hundred of them that list outgrew what one read may hold,
+			// and the queue stopped (spec 2034). Only once RECORDED: until then
+			// the Job is the only evidence of how the download ended.
+			_ = d.Jobs.DeleteJob(ctx, j.Metadata.Name)
+		}
 
 		// A finished download has no progress. Dropping the entry also stops the
 		// cache growing by one key per download for the life of the process.
@@ -541,8 +565,11 @@ func (d Deps) sweepDismissed(ctx context.Context, jobs []k8s.Job) {
 		if id == "" || !ytdl.StateOf(j).Terminal() {
 			continue
 		}
-		if _, err := d.Store.GetYtdlDownload(id); err == nil {
-			continue // still wanted
+		if _, err := d.Store.GetYtdlDownload(id); !errors.Is(err, store.ErrNotFound) {
+			// Still wanted — or the store could not be READ, which says nothing
+			// about whether the record exists. Deleting on that would throw
+			// away the only evidence of an outcome not yet recorded (spec 2034).
+			continue
 		}
 		_ = d.Jobs.DeleteJob(ctx, j.Metadata.Name)
 	}
@@ -570,17 +597,24 @@ func (d Deps) readWorkerOutput(ctx context.Context, jobs []k8s.Job) {
 		return
 	}
 
-	pods, err := d.Jobs.ListPods(ctx, ytdl.Selector)
-	if err != nil {
-		return
-	}
 	// Index pods by the request id their labels carry, so a job is matched to
 	// its pod by the same selector that found both — never by guessing at a
 	// name the cluster generates.
+	//
+	// One narrowed lookup per running download rather than one list of every
+	// pod (spec 2034): there are at most YTDL_MAX_PARALLEL of these, while the
+	// finished pods an unnarrowed list also returns have no ceiling.
 	podFor := map[string]k8s.Pod{}
-	for _, p := range pods {
-		if id := p.Metadata.Labels[ytdl.LabelRequestID]; id != "" {
-			podFor[id] = p
+	for _, j := range running {
+		id := j.Metadata.Labels[ytdl.LabelRequestID]
+		pods, err := d.Jobs.ListPods(ctx, podsFor(id))
+		if err != nil {
+			continue
+		}
+		for _, p := range pods {
+			if p.Metadata.Labels[ytdl.LabelRequestID] == id {
+				podFor[id] = p
+			}
 		}
 	}
 
@@ -640,4 +674,35 @@ func ytdlNotADownload(j k8s.Job) bool {
 	default:
 		return false
 	}
+}
+
+// podsFor is the selector for one request's pods: this feature's own, narrowed
+// by the request id label every worker carries.
+func podsFor(requestID string) string {
+	return ytdl.Selector + "," + ytdl.LabelRequestID + "=" + requestID
+}
+
+// listHealth remembers whether the last attempt to list workers failed, so a
+// failure and its recovery are each logged once rather than every cycle.
+type listHealth struct {
+	mu   sync.Mutex
+	down bool
+}
+
+// failed records a failed list and reports whether it is the first in a row.
+func (h *listHealth) failed(error) bool {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	first := !h.down
+	h.down = true
+	return first
+}
+
+// ok records a successful list and reports whether it ends a run of failures.
+func (h *listHealth) ok() bool {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	was := h.down
+	h.down = false
+	return was
 }

@@ -62,6 +62,11 @@ type Deps struct {
 	// download had no job. A POINTER for the same reason ytdlProgress is.
 	ytdlMissing *missingJobs
 
+	// ytdlListHealth is whether the reconciler's last list of workers failed,
+	// so the start and end of an outage are each logged once (spec 2034). A
+	// POINTER for the same reason ytdlProgress is.
+	ytdlListHealth *listHealth
+
 	// ytdlHub fans a change out to whoever is watching (spec 1038), and
 	// ytdlSeen is what was last said about each download so the reconciler can
 	// tell what changed. POINTERS for the same reason ytdlProgress is: Deps is
@@ -126,6 +131,9 @@ func InitCaches(d Deps) Deps {
 	}
 	if d.ytdlMissing == nil {
 		d.ytdlMissing = newMissingJobs()
+	}
+	if d.ytdlListHealth == nil {
+		d.ytdlListHealth = &listHealth{}
 	}
 	if d.ytdlHub == nil {
 		d.ytdlHub = newYtdlHub()
