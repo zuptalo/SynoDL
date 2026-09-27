@@ -136,8 +136,8 @@ func TestNotify_AGroupAnnouncesOnceForTheWholeThing(t *testing.T) {
 		t.Fatalf("notice was for %q, want the group %q", got[0].id, gid)
 	}
 	// The body summarises: no single item's name would answer "how did my
-	// channel go?".
-	if !strings.Contains(got[0].body, "3 saved") || !strings.Contains(got[0].body, "1 failed") {
+	// channel go?" — and it says why (spec 1048), not just how many.
+	if !strings.Contains(got[0].body, "3 saved") || !strings.Contains(got[0].body, "1 could not be downloaded") {
 		t.Fatalf("body = %q, want a summary of what happened", got[0].body)
 	}
 	// Something failed, so the group did not entirely work.

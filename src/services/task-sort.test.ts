@@ -43,9 +43,9 @@ describe('applyTaskFilter — sorting', () => {
     expect(ids(applyTaskFilter(mixed, f({ sortKey: 'size', ascending: false })))).toEqual(['a', 'c', 'b']);
   });
 
-  it('sorts by creation date (default: newest first)', () => {
-    expect(ids(applyTaskFilter(mixed, defaultTaskFilter()))).toEqual(['a', 'c', 'b']);
-    expect(ids(applyTaskFilter(mixed, f({ ascending: true })))).toEqual(['b', 'c', 'a']);
+  it('sorts by creation date, newest first', () => {
+    expect(ids(applyTaskFilter(mixed, f({ sortKey: 'createdAt' })))).toEqual(['a', 'c', 'b']);
+    expect(ids(applyTaskFilter(mixed, f({ sortKey: 'createdAt', ascending: true })))).toEqual(['b', 'c', 'a']);
   });
 
   it('sorts by peers, download speed, upload speed', () => {
@@ -128,9 +128,9 @@ describe('applyTaskFilter — term + status filters', () => {
 });
 
 describe('defaults', () => {
-  it('default filter: createdAt desc, empty term, all twelve statuses on', () => {
+  it('default filter: by what is happening, empty term, all twelve statuses on', () => {
     const d = defaultTaskFilter();
-    expect(d.sortKey).toBe('createdAt');
+    expect(d.sortKey).toBe('status');
     expect(d.ascending).toBe(false);
     expect(d.term).toBe('');
     expect(d.statuses).toEqual(ALL_STATUSES);
@@ -157,5 +157,23 @@ describe('applyTaskFilter — newest-first default tie-break', () => {
       task({ id: 'dbid_9', createdAt: 0 }), // brand new; NAS create_time not set yet
     ];
     expect(applyTaskFilter(tasks, defaultTaskFilter())[0].id).toBe('dbid_9');
+  });
+});
+
+// Spec 1048. The default order is by what is happening, newest first within
+// each group: the one running leads, the finished and the failed sink.
+describe('the default order', () => {
+  it('puts active work first, then waiting, then finished, then errored — newest first within each', () => {
+    const tasks = [
+      task({ id: 'dbid_1', status: 'finished' }),
+      task({ id: 'dbid_2', status: 'error' }),
+      task({ id: 'dbid_3', status: 'downloading' }),
+      task({ id: 'dbid_4', status: 'paused' }),
+      task({ id: 'dbid_5', status: 'downloading' }),
+      task({ id: 'dbid_6', status: 'finished' }),
+    ];
+    expect(ids(applyTaskFilter(tasks, defaultTaskFilter()))).toEqual([
+      'dbid_5', 'dbid_3', 'dbid_4', 'dbid_6', 'dbid_1', 'dbid_2',
+    ]);
   });
 });

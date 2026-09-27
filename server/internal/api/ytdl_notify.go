@@ -62,6 +62,13 @@ func (d Deps) notifyBody(rec store.YtdlDownload, state string) string {
 		if c.Failed == 0 {
 			return fmt.Sprintf("%d saved", c.Completed)
 		}
+		// Why, not just how many (spec 1048): "45 saved, 1 could not be
+		// downloaded: no longer available" tells the reader whether to bother.
+		if rcs, err := d.Store.YtdlFailureReasons(rec.RequestID); err == nil {
+			if why := ytdl.SummarizeFailures(rcs); why != "" {
+				return fmt.Sprintf("%d saved, %s", c.Completed, why)
+			}
+		}
 		return fmt.Sprintf("%d saved, %d failed", c.Completed, c.Failed)
 	}
 	if state == string(ytdl.StateFailed) {

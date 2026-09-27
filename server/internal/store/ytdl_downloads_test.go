@@ -429,3 +429,28 @@ func TestListYtdlUnfinished(t *testing.T) {
 		}
 	}
 }
+
+// Spec 1048. A group's failures, counted by reason, most common first.
+func TestYtdlFailureReasons(t *testing.T) {
+	s := openTestStore(t)
+	anna, _ := s.CreateUser("anna", "h", false)
+	group := dl("grp", &anna)
+	group.Kind = YtdlKindGroup
+	_ = s.CreateYtdlDownload(group)
+	for id, r := range map[string]string{"i1": "gone", "i2": "gone", "i3": "adults", "i4": ""} {
+		item := dl(id, &anna)
+		item.Kind, item.ParentID, item.State, item.Reason = YtdlKindItem, "grp", "failed", r
+		_ = s.CreateYtdlDownload(item)
+	}
+	ok := dl("i5", &anna)
+	ok.Kind, ok.ParentID, ok.State = YtdlKindItem, "grp", "completed"
+	_ = s.CreateYtdlDownload(ok)
+
+	got, err := s.YtdlFailureReasons("grp")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 3 || got[0].Reason != "gone" || got[0].N != 2 {
+		t.Fatalf("reasons = %+v", got)
+	}
+}

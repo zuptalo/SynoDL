@@ -369,6 +369,17 @@ func (d Deps) ytdlViewOf(rec store.YtdlDownload, state, reason string, u *store.
 				Total: c.Total, Completed: c.Completed, Failed: c.Failed, Remaining: c.Remaining,
 				Active: c.Active,
 			}
+			// Its reason says WHY its tracks failed, folded from their own
+			// reasons (spec 1048) — derived on every read, like the counts, so
+			// a playlist that failed before this could be said still says it,
+			// and one still running says what has failed so far.
+			if c.Failed > 0 {
+				if rcs, err := d.Store.YtdlFailureReasons(rec.RequestID); err == nil {
+					if why := ytdl.SummarizeFailures(rcs); why != "" {
+						v.Reason = why
+					}
+				}
+			}
 		}
 	}
 	// Who sent it is shown to admins only, matching the existing rule for NAS

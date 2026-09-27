@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"errors"
 	"strings"
+	"synodl/server/internal/ytdl"
 	"time"
 )
 
@@ -242,6 +243,29 @@ func (s *Store) YtdlCounts(parentID string) (YtdlGroupCounts, error) {
 		Scan(&c.Total, &c.Completed, &c.Failed, &c.Active)
 	c.Remaining = c.Total - c.Completed - c.Failed
 	return c, err
+}
+
+// YtdlFailureReasons counts a group's failed items by reason, most common
+// first, so the group can say WHY it failed rather than just that it did
+// (spec 1048).
+func (s *Store) YtdlFailureReasons(parentID string) ([]ytdl.ReasonCount, error) {
+	rows, err := s.db.Query(
+		`SELECT reason, COUNT(*) FROM ytdl_downloads
+		  WHERE parent_id = ? AND state = 'failed'
+		  GROUP BY reason ORDER BY COUNT(*) DESC, reason ASC`, parentID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []ytdl.ReasonCount
+	for rows.Next() {
+		var rc ytdl.ReasonCount
+		if err := rows.Scan(&rc.Reason, &rc.N); err != nil {
+			return nil, err
+		}
+		out = append(out, rc)
+	}
+	return out, rows.Err()
 }
 
 // SetYtdlState moves a download to a new state.

@@ -1330,3 +1330,37 @@ func TestAutoRetry_APlaylistWaitsForItsRetriesBeforeFinishing(t *testing.T) {
 		t.Fatalf("group = %q once the retry saved, want completed", g.State)
 	}
 }
+
+// Spec 1048. A playlist with failures says WHY, folded from its tracks'
+// reasons — on its row and in its notification — so a reader can tell at a
+// glance whether a retry is worth anything.
+func TestGroup_SaysWhyItsTracksFailed(t *testing.T) {
+	d, jobs, h, admin, st, gid, items := expandedGroup(t, "aaaaaaaaaaa", "bbbbbbbbbbb", "ccccccccccc")
+	jobs.attachPod(items[0].RequestID)
+	jobs.emitFor(items[0].RequestID, "ERROR: [youtube] aaaaaaaaaaa: Video unavailable")
+	jobs.setStatus(t, items[0].RequestID, k8s.JobStatus{Failed: 1})
+	jobs.attachPod(items[1].RequestID)
+	jobs.emitFor(items[1].RequestID, "ERROR: [youtube] bbbbbbbbbbb: Sign in to confirm your age. This video may be inappropriate for some users.")
+	jobs.setStatus(t, items[1].RequestID, k8s.JobStatus{Failed: 1})
+	jobs.setStatus(t, items[2].RequestID, k8s.JobStatus{Succeeded: 1})
+	d.reconcileYtdlOnce(context.Background())
+
+	got := listYtdl2(t, h, admin)
+	state, reason, listed := "", "", false
+	for _, dl := range got.Downloads {
+		if dl.RequestID == gid {
+			state, reason, listed = dl.State, dl.Reason, true
+		}
+	}
+	if !listed {
+		t.Fatal("group not listed")
+	}
+	want := "2 could not be downloaded: 1 adults only, 1 no longer available"
+	if state != "failed" || reason != want {
+		t.Fatalf("group = %q %q, want failed with %q", state, reason, want)
+	}
+	rec, _ := st.GetYtdlDownload(gid)
+	if body := d.notifyBody(rec, "failed"); body != "1 saved, "+want {
+		t.Fatalf("notification = %q", body)
+	}
+}
