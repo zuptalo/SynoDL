@@ -17,5 +17,5 @@ facet through the existing translator, and one merge rule.
 - [x] T007 `providers/combined_test.go`: real fixtures intersect to a non-empty sheet (FR-006)
 - [x] T008 Fake 30nama declares languages/countries; fake ZarFilm's countries in Persian; e2e: combined type/language/country offered and applied to both sources; IMDb ordering exact across sources
 - [x] T009 Gate: `go test` (both tags), `npm run build`, unit coverage, e2e
-- [ ] T010 Merge; confirm in production with both sources
-- [ ] T011 Set `**Status**: shipped` and run `make roadmap`
+- [x] T010 Merge; confirm in production with both sources
+- [x] T011 Set `**Status**: shipped` and run `make roadmap`
