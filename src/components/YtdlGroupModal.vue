@@ -16,8 +16,6 @@ import {
   IonButtons,
   IonContent,
   IonHeader,
-  IonInfiniteScroll,
-  IonInfiniteScrollContent,
   IonList,
   IonModal,
   IonSpinner,
@@ -25,7 +23,7 @@ import {
   IonToolbar,
 } from '@ionic/vue';
 import { computed, onUnmounted, ref, watch } from 'vue';
-import { api, type YtdlDownload } from '@/services/api';
+import { YTDL_PAGE, api, type YtdlDownload } from '@/services/api';
 import { onYtdlUpdate } from '@/composables/useYtdl';
 import { mergeYtdlUpdate, updateTouchesGroup } from '@/services/ytdl-merge';
 import YtdlItem from '@/components/YtdlItem.vue';
@@ -39,7 +37,6 @@ const emit = defineEmits<{
 }>();
 
 const items = ref<YtdlDownload[]>([]);
-const cursor = ref<string | undefined>(undefined);
 const loading = ref(false);
 
 /**
@@ -47,15 +44,26 @@ const loading = ref(false);
  * With no ceiling on expansion a group can hold thousands, and sending them all
  * on every poll of the Tasks list would make the whole list slow for everyone —
  * including the people who never opened a group.
+ *
+ * Paged on the wire, whole on screen (spec 2039): this follows the cursor to
+ * the end before showing anything, in the largest pages the server allows. It
+ * used to load a hundred and fetch the rest as the reader scrolled, which made
+ * "how many of these failed?" a question the sheet could not answer until it
+ * had been scrolled to the bottom — and the group row above it already knew.
  */
-async function load(reset: boolean): Promise<void> {
+async function load(): Promise<void> {
   const id = props.group?.requestId;
   if (!id || loading.value) return;
   loading.value = true;
   try {
-    const page = await api.ytdlItems(id, reset ? undefined : cursor.value);
-    items.value = reset ? page.items : [...items.value, ...page.items];
-    cursor.value = page.nextCursor;
+    const all: YtdlDownload[] = [];
+    let cursor: string | undefined;
+    do {
+      const page = await api.ytdlItems(id, cursor, YTDL_PAGE);
+      all.push(...page.items);
+      cursor = page.nextCursor;
+    } while (cursor);
+    items.value = all;
   } catch {
     // Leave whatever is already shown; the next refresh re-reads.
   } finally {
@@ -85,7 +93,7 @@ const stopListening = onYtdlUpdate((update) => {
     // Opened while the group was still working out what it contains: there was
     // nothing to merge into, and there is now. Fetching once here is what keeps
     // a sheet opened a second too early from staying empty for good.
-    void load(true);
+    void load();
     return;
   }
   // `nested`: a track that arrives for a group nobody has open belongs to
@@ -109,8 +117,7 @@ watch(
   ([open]) => {
     if (open) {
       items.value = [];
-      cursor.value = undefined;
-      void load(true);
+            void load();
     }
   },
   { immediate: true },
@@ -186,12 +193,6 @@ function retryFailed(): void {
         <p>Nothing new to download here.</p>
       </div>
 
-      <ion-infinite-scroll
-        v-if="cursor"
-        @ion-infinite="load(false).then(() => ($event.target as HTMLIonInfiniteScrollElement).complete())"
-      >
-        <ion-infinite-scroll-content />
-      </ion-infinite-scroll>
     </ion-content>
   </ion-modal>
 </template>

@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"testing"
 
@@ -263,4 +264,65 @@ func adminUserID(t *testing.T, st *store.Store) int64 {
 		return users[0].ID
 	}
 	return u.ID
+}
+
+// Spec 2039. The sheet asks for large pages and follows the cursor, so the
+// items endpoint must honour ?limit the way the list does — and an ask above
+// the ceiling gets the ceiling, not the default it used to fall back to.
+func TestYtdlItems_HonoursLimitAndPages(t *testing.T) {
+	jobs := &fakeJobs{}
+	h, st := newYtdlRouter(t, jobs, ytdlCfg())
+	admin := adminAfterSetup(t, h)
+
+	owner := adminUserID(t, st)
+	group := store.YtdlDownload{
+		RequestID: "grp", Kind: store.YtdlKindGroup, UserID: &owner,
+		SourceURL: "https://www.youtube.com/@lofi/videos", Mode: "music", Scope: "channel",
+		State: "downloading", Title: "Lo-fi Beats",
+	}
+	if err := st.CreateYtdlDownload(group); err != nil {
+		t.Fatalf("create group: %v", err)
+	}
+	for i := 0; i < 120; i++ {
+		id := fmt.Sprintf("i%03d", i)
+		if err := st.CreateYtdlDownload(store.YtdlDownload{
+			RequestID: id, Kind: store.YtdlKindItem, ParentID: "grp", UserID: &owner,
+			SourceURL: "https://youtu.be/" + id, VideoID: id, Mode: "music", Scope: "single",
+			State: "queued", Origin: store.YtdlOriginExpanded, GroupName: "Lo-fi Beats",
+		}); err != nil {
+			t.Fatalf("create item: %v", err)
+		}
+	}
+
+	type page struct {
+		Items      []ytdlDetailResp `json:"items"`
+		NextCursor string           `json:"nextCursor"`
+	}
+	get := func(q string) page {
+		rec := do(t, h, "GET", "/v1/ytdl/grp/items"+q, "", admin)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("items%s = %d %s", q, rec.Code, rec.Body.String())
+		}
+		var p page
+		if err := json.Unmarshal(rec.Body.Bytes(), &p); err != nil {
+			t.Fatalf("decode: %v", err)
+		}
+		return p
+	}
+
+	// No limit: the default page, with more to come.
+	if p := get(""); len(p.Items) != 100 || p.NextCursor == "" {
+		t.Fatalf("default page = %d items, cursor %q; want 100 and a cursor", len(p.Items), p.NextCursor)
+	}
+	// Far above the ceiling: everything, in one page, not the default.
+	if p := get("?limit=9999"); len(p.Items) != 120 || p.NextCursor != "" {
+		t.Fatalf("limit=9999 = %d items, cursor %q; want all 120 and no cursor", len(p.Items), p.NextCursor)
+	}
+	// A small page, then the rest through the cursor, with nothing lost.
+	first := get("?limit=50")
+	rest := get("?limit=50&cursor=" + first.NextCursor)
+	more := get("?limit=50&cursor=" + rest.NextCursor)
+	if n := len(first.Items) + len(rest.Items) + len(more.Items); n != 120 || more.NextCursor != "" {
+		t.Fatalf("three pages = %d items, last cursor %q; want 120 and none", n, more.NextCursor)
+	}
 }

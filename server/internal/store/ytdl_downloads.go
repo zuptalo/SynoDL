@@ -122,15 +122,36 @@ func (s *Store) GetYtdlDownload(requestID string) (YtdlDownload, error) {
 	return d, err
 }
 
+// Page sizes. A caller that asks for MORE than the ceiling gets the ceiling,
+// not the default (spec 2039): the old "over the cap → default" rule turned a
+// client's request for 500 rows into 50, which is how the Tasks list came to
+// show a fifth of what it was asking for. The ceilings themselves are what one
+// SQLite read and one JSON body comfortably carry; a client wanting everything
+// follows the cursor.
+const (
+	ytdlListDefault  = 50
+	ytdlListMax      = 500
+	ytdlItemsDefault = 100
+	ytdlItemsMax     = 500
+)
+
+func clampPage(limit, def, max int) int {
+	switch {
+	case limit <= 0:
+		return def
+	case limit > max:
+		return max
+	}
+	return limit
+}
+
 // ListYtdlDownloads returns a page of top-level downloads the user may see.
 //
 // Items of a group are excluded (FR-019b): a group is one row in the list, and
 // its items live behind it. Paged by (created_at, request_id) rather than by
 // OFFSET, because history is unbounded and OFFSET re-walks everything it skips.
 func (s *Store) ListYtdlDownloads(userID int64, isAdmin bool, cursor string, limit int) ([]YtdlDownload, string, error) {
-	if limit <= 0 || limit > 200 {
-		limit = 50
-	}
+	limit = clampPage(limit, ytdlListDefault, ytdlListMax)
 	where := []string{"parent_id IS NULL"}
 	args := []any{}
 	if !isAdmin {
@@ -179,9 +200,7 @@ func (s *Store) ListYtdlDownloads(userID int64, isAdmin bool, cursor string, lim
 // ListYtdlItems returns a group's items, oldest first — the order they were
 // found in, which is the order the source published them.
 func (s *Store) ListYtdlItems(parentID string, cursor string, limit int) ([]YtdlDownload, string, error) {
-	if limit <= 0 || limit > 500 {
-		limit = 100
-	}
+	limit = clampPage(limit, ytdlItemsDefault, ytdlItemsMax)
 	args := []any{parentID}
 	extra := ""
 	if cursor != "" {

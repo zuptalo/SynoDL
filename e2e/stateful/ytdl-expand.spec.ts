@@ -47,7 +47,7 @@ async function rows(token: string): Promise<Row[]> {
 }
 
 async function items(token: string, groupId: string): Promise<Row[]> {
-  const res = await fetch(`${API}/v1/ytdl/${groupId}/items`, {
+  const res = await fetch(`${API}/v1/ytdl/${groupId}/items?limit=500`, {
     headers: { "X-SynoDL-Session": token },
   });
   if (!res.ok) return [];
@@ -596,4 +596,53 @@ test("a download's deep link opens its own sheet, group or single", async ({ pag
   await page.goto(`/tabs/tasks?download=${a.requestId}`);
   await expect(page.getByTestId("ytdl-detail")).toBeVisible();
   await expect(page.getByTestId("ytdl-detail-gone")).toHaveCount(0);
+});
+
+// Spec 2039. The server pages the list; the Tasks screen shows all of it. The
+// first assertion proves the paging is real (a bare request is one page of
+// fifty with more to come), so the second — every row on screen — means the
+// client followed the cursor rather than the fixture fitting in one page.
+test("more than a page of downloads are all in the Tasks list", async ({
+  page,
+}) => {
+  for (let i = 0; i < 55; i++) {
+    await submit(token, `https://youtu.be/page${String(i).padStart(7, "0")}`);
+  }
+  const bare = await fetch(`${API}/v1/ytdl`, {
+    headers: { "X-SynoDL-Session": token },
+  });
+  const first = (await bare.json()) as { downloads: Row[]; nextCursor?: string };
+  expect(first.downloads).toHaveLength(50);
+  expect(first.nextCursor).toBeTruthy();
+
+  await gotoTasks(page);
+  await expect(page.getByTestId("ytdl-item")).toHaveCount(55, {
+    timeout: 20_000,
+  });
+});
+
+// Spec 2039. A playlist's sheet shows every track at once, not the first
+// hundred and the rest as it scrolls.
+test("more than a page of tracks are all in the playlist sheet", async ({
+  page,
+}) => {
+  const { requestId: gid } = await submit(
+    token,
+    "https://www.youtube.com/@lofi",
+  );
+  const ids = Array.from(
+    { length: 120 },
+    (_, i) => `t${String(i).padStart(3, "0")}aaaaaaa`,
+  );
+  await emitEntries(gid, ids);
+  await expect
+    .poll(() => items(token, gid).then((i) => i.length), { timeout: 30_000 })
+    .toBe(120);
+
+  await gotoTasks(page);
+  await page.getByTestId("ytdl-item").first().click();
+  await expect(page.getByTestId("ytdl-group-items")).toBeVisible();
+  await expect(page.getByTestId("ytdl-group-item")).toHaveCount(120, {
+    timeout: 20_000,
+  });
 });

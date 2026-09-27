@@ -2,6 +2,7 @@ package store
 
 import (
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 )
@@ -452,5 +453,39 @@ func TestYtdlFailureReasons(t *testing.T) {
 	}
 	if len(got) != 3 || got[0].Reason != "gone" || got[0].N != 2 {
 		t.Fatalf("reasons = %+v", got)
+	}
+}
+
+// Spec 2039. Asking for more than the ceiling gets the ceiling. It used to get
+// the DEFAULT, which is how a client asking for 500 rows was handed 50 and the
+// Tasks list came to show the newest fifty playlists as if they were all.
+func TestListYtdl_PageSizeClamps(t *testing.T) {
+	s := openTestStore(t)
+	anna, _ := s.CreateUser("anna", "h", false)
+	for i := 0; i < 260; i++ {
+		d := dl(fmt.Sprintf("t%03d", i), &anna)
+		d.CreatedAt = int64(1764700000 + i)
+		if err := s.CreateYtdlDownload(d); err != nil {
+			t.Fatalf("create: %v", err)
+		}
+	}
+	got, next, err := s.ListYtdlDownloads(anna, false, "", 9999)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 260 || next != "" {
+		t.Fatalf("limit 9999 → %d rows, cursor %q; want all 260 and no cursor (over the ceiling is the ceiling, not the default 50)", len(got), next)
+	}
+	got, next, err = s.ListYtdlDownloads(anna, false, "", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 50 || next == "" {
+		t.Fatalf("limit 0 → %d rows, cursor %q; want the default 50 and a cursor", len(got), next)
+	}
+	for _, c := range []struct{ in, want int }{{-1, 50}, {0, 50}, {7, 7}, {500, 500}, {501, 500}} {
+		if got := clampPage(c.in, ytdlListDefault, ytdlListMax); got != c.want {
+			t.Errorf("clampPage(%d) = %d, want %d", c.in, got, c.want)
+		}
 	}
 }
