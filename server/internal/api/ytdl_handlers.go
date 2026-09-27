@@ -74,6 +74,9 @@ type ytdlCountsView struct {
 	Completed int `json:"completed"`
 	Failed    int `json:"failed"`
 	Remaining int `json:"remaining"`
+	// Active is how many items are being downloaded right now (spec 1044):
+	// what tells a playlist that is doing something from one that is waiting.
+	Active int `json:"active"`
 }
 
 type ytdlListView struct {
@@ -364,6 +367,7 @@ func (d Deps) ytdlViewOf(rec store.YtdlDownload, state, reason string, u *store.
 		if c, err := d.Store.YtdlCounts(rec.RequestID); err == nil {
 			v.Counts = &ytdlCountsView{
 				Total: c.Total, Completed: c.Completed, Failed: c.Failed, Remaining: c.Remaining,
+				Active: c.Active,
 			}
 		}
 	}

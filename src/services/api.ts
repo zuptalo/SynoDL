@@ -220,6 +220,9 @@ export interface YtdlCounts {
   completed: number;
   failed: number;
   remaining: number;
+  /** Items being downloaded right now (spec 1044). Optional: absent from a
+   *  server older than this client. */
+  active?: number;
 }
 
 export interface YtdlDownload {

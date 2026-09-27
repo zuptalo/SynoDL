@@ -223,6 +223,11 @@ func (s *Store) ListYtdlItems(parentID string, cursor string, limit int) ([]Ytdl
 // list (FR-019).
 type YtdlGroupCounts struct {
 	Total, Completed, Failed, Remaining int
+	// Active is how many items have a worker right now — scheduled or
+	// downloading (spec 1044). Remaining counts the queued ones too, so on its
+	// own it cannot tell a playlist that is downloading from one waiting its
+	// turn behind a few thousand other tracks.
+	Active int
 }
 
 // YtdlCounts aggregates a group's items.
@@ -231,9 +236,10 @@ func (s *Store) YtdlCounts(parentID string) (YtdlGroupCounts, error) {
 	err := s.db.QueryRow(
 		`SELECT COUNT(*),
 		        COALESCE(SUM(state = 'completed'), 0),
-		        COALESCE(SUM(state = 'failed'), 0)
+		        COALESCE(SUM(state = 'failed'), 0),
+		        COALESCE(SUM(state IN ('scheduled','downloading')), 0)
 		   FROM ytdl_downloads WHERE parent_id = ?`, parentID).
-		Scan(&c.Total, &c.Completed, &c.Failed)
+		Scan(&c.Total, &c.Completed, &c.Failed, &c.Active)
 	c.Remaining = c.Total - c.Completed - c.Failed
 	return c, err
 }

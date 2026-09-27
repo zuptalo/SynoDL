@@ -90,7 +90,10 @@ function keyOf(t: Task, key: SortKey): number | string {
       // default (descending) sort rather than sinking to the bottom.
       return t.createdAt > 0 ? t.createdAt : Number.MAX_SAFE_INTEGER;
     case 'status':
-      return STATUS_RANK[t.status] ?? UNKNOWN_STATUS_RANK;
+      // Negated so that HIGHER means more active: the sheet's default order is
+      // Descending, and "Status" alone must put active work on top rather than
+      // finished and errored tasks (spec 1044).
+      return -(STATUS_RANK[t.status] ?? UNKNOWN_STATUS_RANK);
     case 'size':
       return t.size;
     case 'peers':

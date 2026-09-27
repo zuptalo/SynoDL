@@ -164,6 +164,30 @@ func TestYtdlCounts_AggregatesAGroup(t *testing.T) {
 	}
 }
 
+// Spec 1044. "Remaining" cannot tell a playlist that is downloading from one
+// waiting behind thousands of other tracks; "active" can.
+func TestYtdlCounts_SaysHowManyAreRunningNow(t *testing.T) {
+	s := openTestStore(t)
+	anna, _ := s.CreateUser("anna", "h", false)
+	group := dl("grp", &anna)
+	group.Kind = YtdlKindGroup
+	_ = s.CreateYtdlDownload(group)
+
+	for id, state := range map[string]string{"i1": "downloading", "i2": "scheduled", "i3": "queued", "i4": "queued", "i5": "completed"} {
+		item := dl(id, &anna)
+		item.Kind, item.ParentID, item.State = YtdlKindItem, "grp", state
+		_ = s.CreateYtdlDownload(item)
+	}
+
+	c, err := s.YtdlCounts("grp")
+	if err != nil {
+		t.Fatalf("counts: %v", err)
+	}
+	if c.Active != 2 || c.Remaining != 4 {
+		t.Fatalf("counts = %+v, want 2 active of 4 remaining", c)
+	}
+}
+
 func TestYtdlAlreadyHeld_OnlyCountsCompleted(t *testing.T) {
 	// FR-020. Re-running a channel must skip what it already has — and only a
 	// COMPLETED record means "already has".
