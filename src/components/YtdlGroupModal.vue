@@ -119,7 +119,7 @@ watch(
 const summary = computed(() => {
   const c = props.group?.counts;
   if (!c) return '';
-  const parts = [`${c.completed} of ${c.total} saved`];
+  const parts = [`${c.completed} of ${c.total} finished`];
   if (c.failed > 0) parts.push(`${c.failed} failed`);
   if (c.remaining > 0) parts.push(`${c.remaining} to go`);
   return parts.join(' · ');

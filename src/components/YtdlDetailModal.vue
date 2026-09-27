@@ -32,6 +32,7 @@ import {
 import { copyOutline } from 'ionicons/icons';
 import { computed, onUnmounted, ref, watch } from 'vue';
 import { api, type YtdlDownload } from '@/services/api';
+import { ytdlStateLabel } from '@/services/ytdl-labels';
 import { onYtdlUpdate } from '@/composables/useYtdl';
 import { ytdlThumbSrc } from '@/services/ytdl-thumb';
 import { appToast } from '@/services/toast';
@@ -141,18 +142,7 @@ async function copyLink(): Promise<void> {
 
 const isVideo = computed(() => resolved.value?.mode === 'music-video');
 
-const stateLabel = computed(() =>
-  resolved.value
-    ? {
-        resolving: 'reading contents',
-        queued: 'waiting its turn',
-        scheduled: 'starting',
-        downloading: 'downloading',
-        completed: 'saved',
-        failed: 'failed',
-      }[resolved.value.state]
-    : '',
-);
+const stateLabel = computed(() => (resolved.value ? ytdlStateLabel(resolved.value.state) : ''));
 
 const scopeLabel = computed(() =>
   resolved.value

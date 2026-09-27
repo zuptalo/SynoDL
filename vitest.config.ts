@@ -43,6 +43,8 @@ export default defineConfig({
         'src/services/quality-sort.ts',
         // IMDb title-link building (spec 1019).
         'src/services/imdb-link.ts',
+        // YouTube download state names (spec 1049).
+        'src/services/ytdl-labels.ts',
         // Which mark identifies a download source in the grid (spec 1021).
         'src/services/source-logo.ts',
         // What a client does with a live update (spec 1038).

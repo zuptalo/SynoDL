@@ -156,7 +156,7 @@ test("a download whose output cannot be read shows no bar, and is not failed", a
   await drive(requestId, "start"); // running, but the worker has printed nothing
 
   await gotoTasks(page);
-  await expect(page.getByTestId("ytdl-status")).toHaveText("downloading", {
+  await expect(page.getByTestId("ytdl-status")).toHaveText("Downloading", {
     timeout: 20_000,
   });
   expect(await shownPercent(page)).toBeNull();
@@ -177,7 +177,7 @@ test("a finished download reports whether lyrics were saved, and in what languag
   );
 
   await gotoTasks(page);
-  await expect(page.getByTestId("ytdl-status")).toHaveText("downloading", {
+  await expect(page.getByTestId("ytdl-status")).toHaveText("Downloading", {
     timeout: 20_000,
   });
 
@@ -220,7 +220,7 @@ test("a row is the same height with the bar as without it", async ({
 
   await gotoTasks(page);
   const row = page.getByTestId("ytdl-item").first();
-  await expect(page.getByTestId("ytdl-status")).toHaveText("downloading", {
+  await expect(page.getByTestId("ytdl-status")).toHaveText("Downloading", {
     timeout: 20_000,
   });
   await expect(page.getByTestId("ytdl-progress")).toHaveCount(0);

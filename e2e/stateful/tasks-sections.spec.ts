@@ -287,7 +287,7 @@ test("the block holding the newest thing is on top", async ({ page }) => {
   expect(after).toContain("From YouTube");
 });
 
-test("clear finished removes saved YouTube downloads too", async ({ page }) => {
+test("clear finished removes finished YouTube downloads too", async ({ page }) => {
   // The button was wired only to the NAS list, so a screen of saved tracks could
   // only be cleared one row at a time.
   const requestId = await submitYtdl("https://youtu.be/zSGhyrF7YVo");
@@ -305,7 +305,7 @@ test("clear finished removes saved YouTube downloads too", async ({ page }) => {
         timeout: 25_000,
       },
     )
-    .toContain("saved");
+    .toContain("finished");
 
   await page.getByTestId("overflow-open").click();
   const clear = page.getByRole("button", { name: /Clear finished/ });

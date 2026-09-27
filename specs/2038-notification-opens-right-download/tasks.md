@@ -7,4 +7,4 @@
 - [x] T003 Service worker + App: route by kind, for the OS tap and the in-app "View" (FR-002)
 - [x] T004 Tasks page: `download` query opens the right sheet, fetching a group by id when absent (FR-003)
 - [x] T005 Gate: `go test`, `npm run build`, e2e
-- [ ] T006 Merge and set `**Status**: shipped`
+- [x] T006 Merge and set `**Status**: shipped`

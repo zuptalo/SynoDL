@@ -78,6 +78,7 @@ Specs are grouped by category band; status moves
 | [1046](specs/1046-zarfilm-browses-through/spec.md) | ZarFilm browses through the site's advanced search | 🟢 shipped |
 | [1047](specs/1047-filters-work-across/spec.md) | Filters that work across every source | 🟢 shipped |
 | [1048](specs/1048-tasks-ordered-what/spec.md) | Tasks ordered by what is happening, and playlists that say why they failed | 🟢 shipped |
+| [1049](specs/1049-clearer-download-states/spec.md) | Download states named plainly, and every failed download retried in one tap | 🟡 in-progress |
 
 ## 🐛 Hotfixes & Bug Fixes (2001+)
 
@@ -118,4 +119,4 @@ Specs are grouped by category band; status moves
 | [2035](specs/2035-playlist-retry-and-status/spec.md) | A playlist's failed tracks are one tap to retry, and the playlist always says what its tracks add up to | 🟢 shipped |
 | [2036](specs/2036-filter-sheet-scrolls-desktop/spec.md) | The filter sheet scrolls with a mouse wheel on desktop | 🟢 shipped |
 | [2037](specs/2037-zarfilm-new-card-layout/spec.md) | ZarFilm's catalog shows titles again after the site's redesign | 🟢 shipped |
-| [2038](specs/2038-notification-opens-right-download/spec.md) | Tapping a YouTube notification opens that download | 🟡 in-progress |
+| [2038](specs/2038-notification-opens-right-download/spec.md) | Tapping a YouTube notification opens that download | 🟢 shipped |
