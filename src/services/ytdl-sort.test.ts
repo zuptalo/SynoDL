@@ -213,3 +213,23 @@ describe('applyYtdlFilter — the cases with nothing to go on', () => {
     expect(applyYtdlFilter(rows, { ...filter(), term: undefined as unknown as string })).toHaveLength(1);
   });
 });
+
+// Spec 1048. Under the default order a playlist that is running leads, one
+// waiting its turn follows, the saved come after and the failed come last —
+// newest first within each.
+describe('the default order', () => {
+  it('runs downloading, waiting, saved, failed', () => {
+    const counts = (active: number) => ({ total: 10, completed: 2, failed: 0, remaining: 8, active });
+    const rows = [
+      dl('saved-old', { kind: 'group', state: 'completed', submittedAt: 1 }),
+      dl('failed', { kind: 'group', state: 'failed', submittedAt: 9 }),
+      dl('waiting', { kind: 'group', state: 'downloading', counts: counts(0), submittedAt: 5 }),
+      dl('running', { kind: 'group', state: 'downloading', counts: counts(2), submittedAt: 2 }),
+      dl('saved-new', { kind: 'group', state: 'completed', submittedAt: 7 }),
+      dl('queued', { state: 'queued', submittedAt: 8 }),
+    ];
+    expect(ids(applyYtdlFilter(rows, defaultTaskFilter()))).toEqual([
+      'running', 'queued', 'waiting', 'saved-new', 'saved-old', 'failed',
+    ]);
+  });
+});

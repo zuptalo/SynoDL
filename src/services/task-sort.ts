@@ -63,8 +63,13 @@ const STATUS_RANK: Record<string, number> = {
 };
 const UNKNOWN_STATUS_RANK = 10;
 
+// The default order is by what is HAPPENING (spec 1048): downloading on top,
+// then waiting, then saved, with failed last — and newest first within each of
+// those, so whatever was started last still leads its group (spec 2031). A
+// list of a few dozen playlists ordered purely by when they were added put
+// the finished and the failed above the one actually running.
 export function defaultTaskFilter(): TaskFilterState {
-  return { term: '', sortKey: 'createdAt', ascending: false, statuses: [...ALL_STATUSES] };
+  return { term: '', sortKey: 'status', ascending: false, statuses: [...ALL_STATUSES] };
 }
 
 function ratioOf(t: Task): number {
