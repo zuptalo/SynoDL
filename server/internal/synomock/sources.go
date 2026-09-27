@@ -144,31 +144,35 @@ var zarMockGenres = []struct{ Value, Slug, Label string }{
 	{"g-action", "action", "Action"},
 }
 
-// zarMockPanelHTML is the capability panel a real archive page carries. Groups
-// are told apart by the shape of their values, so the headings are only labels.
-func zarMockPanelHTML(base string) string {
+// zarMockGenreLinksHTML is the archive's own genre routes, which is where the
+// driver reads the English slug for each label (spec 1024).
+func zarMockGenreLinksHTML(base string) string {
 	var b strings.Builder
-	b.WriteString(`<div class="filter_orderby"><div class="label_orderby">sort</div><div class="filter_orderby_selecr">`)
-	for _, v := range []string{"newest", "modified", "popular", "imdb_rate", "release"} {
-		fmt.Fprintf(&b, `<div class="item_filter_orderby" data-filter="%s">%s</div>`, v, v)
-	}
-	b.WriteString(`</div></div><div class="filter_orderby"><div class="label_orderby">score</div><div class="filter_orderby_selecr">`)
-	b.WriteString(`<div class="item_filter_orderby" data-filter="">all</div>`)
-	for _, v := range []string{"9", "8", "7", "6", "5"} {
-		fmt.Fprintf(&b, `<div class="item_filter_orderby" data-filter="%s">over %s</div>`, v, v)
-	}
-	b.WriteString(`</div></div><div class="filter_orderby"><div class="label_orderby">genre</div><div class="filter_orderby_selecr">`)
-	b.WriteString(`<div class="item_filter_orderby" data-filter="">all</div>`)
-	for _, g := range zarMockGenres {
-		fmt.Fprintf(&b, `<div class="item_filter_orderby" data-filter="%s">%s</div>`, g.Value, g.Label)
-	}
-	b.WriteString(`</div></div>`)
-	// The archive's own genre routes, which is where the English slug for each
-	// label comes from.
 	for _, g := range zarMockGenres {
 		fmt.Fprintf(&b, `<a href="%s/genre/%s/">%s(42)</a>`, base, g.Slug, g.Label)
 	}
 	return b.String()
+}
+
+// zarMockAdvancedForm is the site's advanced-search dialog as its AJAX endpoint
+// serves it (spec 1046): a JSON envelope around the form's HTML. The option
+// VALUES are what the search parameters take, so — like the genres — they are
+// deliberately not the labels.
+func zarMockAdvancedForm() string {
+	var b strings.Builder
+	b.WriteString(`<form method="GET"><div class="mobileTypeButtons">`)
+	b.WriteString(`<button class="mtBtn active" data-value="all">all</button><button class="mtBtn" data-value="post">movie</button><button class="mtBtn" data-value="series">series</button></div>`)
+	b.WriteString(`<select name="mobile_advsgenre"><option value="0">genre</option><option value="all">all</option>`)
+	for _, g := range zarMockGenres {
+		fmt.Fprintf(&b, `<option value="%s">%s</option>`, g.Value, g.Label)
+	}
+	b.WriteString(`</select><select name="search_order"><option value="0">order</option><option value="1">newest</option><option value="2">views</option><option value="6">imdb</option></select>`)
+	b.WriteString(`<select name="languageSearch"><option value="0">language</option><option value="all">all</option><option value="English">English</option><option value="Korean">Korean</option><option value="Klingon">Klingon</option></select>`)
+	b.WriteString(`<select name="advscountry"><option value="0">country</option><option value="all">all</option><option value="mock-us">Mockland</option><option value="mock-jp">Japan</option></select>`)
+	b.WriteString(`<select name="advsqulity"><option value="">quality</option><option value="all">all</option><option value="BluRay 1080p">BluRay 1080p</option><option value="WEB-DL 720p">WEB-DL 720p</option></select>`)
+	b.WriteString(`<input type="hidden" name="advsearch" value="on"></form>`)
+	env, _ := json.Marshal(map[string]string{"stat": "ok", "html": b.String()})
+	return string(env)
 }
 
 func (s *Server) handleZarMock(w http.ResponseWriter, r *http.Request) {
@@ -177,6 +181,18 @@ func (s *Server) handleZarMock(w http.ResponseWriter, r *http.Request) {
 	path := strings.TrimPrefix(r.URL.Path, "/mocksrc/zar")
 	path = "/" + strings.Trim(path, "/")
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+
+	// The search dialog, fetched the way the site's scripts fetch it (spec 1046).
+	if r.Method == http.MethodPost && path == "/wp-admin/admin-ajax.php" {
+		_ = r.ParseForm()
+		if r.PostForm.Get("action") != "get_advanced_search" {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, zarMockAdvancedForm())
+		return
+	}
 
 	// Every page inlines the login flag the driver reads. A logged-out fake
 	// reports u=0, exactly as the real site does.
@@ -188,9 +204,12 @@ func (s *Server) handleZarMock(w http.ResponseWriter, r *http.Request) {
 	// series parser reads as a title with no seasons — a fake site that could
 	// never answer the one question a series page exists to answer.
 	seriesArchive := path == "/series" || strings.HasPrefix(path, "/series/page/")
+	// The advanced search and a text search both live on the site root, paged as
+	// /page/N/ (spec 1046).
+	rootSearch := path == "/" || strings.HasPrefix(path, "/page/")
 
 	switch {
-	case strings.HasPrefix(path, "/all-movie"), path == "/", seriesArchive:
+	case strings.HasPrefix(path, "/all-movie"), rootSearch, seriesArchive:
 		page := pageFromPath(path)
 		if page > pages {
 			// Past the end: a real archive returns a page with no cards, which is how
@@ -199,9 +218,20 @@ func (s *Server) handleZarMock(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		q := r.URL.Query()
-		fmt.Fprint(w, head+zarMockPanelHTML(zarMockBaseFor(r))+
-			zarListingHTML(zarMockBaseFor(r), prefix, page, perPage, pages, seriesArchive,
-				q.Get("filter_genre"), q.Get("imdb_rate"), q.Get("sortby")))
+		// Honour the advanced search the way the site does: the type switch, one
+		// genre, the lower end of the IMDb range, and ordering code 6 (top IMDb).
+		genre := q.Get("mobile_advsgenre")
+		if genre == "0" || genre == "all" {
+			genre = ""
+		}
+		sortBy := ""
+		if q.Get("search_order") == "6" {
+			sortBy = "imdb_rate"
+		}
+		series := seriesArchive || q.Get("mobile_type") == "series"
+		fmt.Fprint(w, head+zarMockGenreLinksHTML(zarMockBaseFor(r))+
+			zarListingHTML(zarMockBaseFor(r), prefix, page, perPage, pages, series,
+				genre, q.Get("minadvsimdbrate"), sortBy))
 	case strings.HasPrefix(path, "/actor/"), strings.HasPrefix(path, "/director/"):
 		// A person's own page: where this site keeps the two things its title
 		// pages do not carry (spec 0014).

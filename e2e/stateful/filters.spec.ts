@@ -34,9 +34,12 @@ test("the HTML-shaped source declares what it can filter and sort by", async () 
   expect(slugs(p.genres)).toEqual(
     expect.arrayContaining(["comedy", "drama", "action"]),
   );
+  // No "year": the site cannot order by release year, and claiming it would be
+  // an ordering that silently does nothing (spec 1046).
   expect(slugs(p.sorts)).toEqual(
-    expect.arrayContaining(["imdb", "year", "date", "favorite"]),
+    expect.arrayContaining(["imdb", "date", "favorite"]),
   );
+  expect(slugs(p.sorts)).not.toContain("year");
   expect(p.scores?.length ?? 0).toBeGreaterThan(0);
 });
 
@@ -100,7 +103,7 @@ test("a single source gets its full set back", async () => {
   const solo = await apiParameters(token, String(zarID));
 
   expect(slugs(solo.genres)).toContain("action");
-  expect(slugs(solo.sorts)).toContain("modified");
+  expect(slugs(solo.sorts)).toContain("date");
 });
 
 // FR-006, the heart of the spec: one chosen value, two vocabularies, both
@@ -142,9 +145,10 @@ test("the sort control offers the live orderings", async ({ page }) => {
   await gotoDiscover(page);
 
   await page.locator(".sort-select").click();
-  // "Recently updated" is this source's own ordering — it can only be on screen
-  // if the control is built from what the source declared, not a built-in list.
-  await expect(
-    page.getByRole("radio", { name: "Recently updated" }),
-  ).toBeVisible();
+  // The built-in list carries "Release year"; this source cannot order by it
+  // and does not declare it (spec 1046). Its absence — beside an ordering the
+  // source does declare — is what shows the control is built from what the
+  // source said, not from the built-in list.
+  await expect(page.getByRole("radio", { name: "IMDb rating" })).toBeVisible();
+  await expect(page.getByRole("radio", { name: "Release year" })).toHaveCount(0);
 });

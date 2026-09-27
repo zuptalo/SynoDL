@@ -7,8 +7,10 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"synodl/server/internal/source"
 )
@@ -32,9 +34,11 @@ type zarFakeSite struct {
 	// reproducing today's pages: the captured full pages predate the block, so
 	// on their own they only exercise the "site publishes no synopsis" path.
 	meta string
-	// noPanel serves archives with no filter panel, the way most of the site's
-	// pages look, so the degrade path is exercised rather than assumed.
-	noPanel bool
+	// noForm makes the advanced-search form unobtainable, so the degrade path
+	// is exercised rather than assumed.
+	noForm bool
+	// lastAjaxAction is what the driver last asked the site's AJAX endpoint for.
+	lastAjaxAction string
 	// loginPage serves what a MIRROR serves a session that is not valid on it: a
 	// login form, status 200, and none of the markers a real page carries — not
 	// even the logged-in flag. Nothing about it says "error".
@@ -57,6 +61,19 @@ func newZarFakeSite(t *testing.T) *zarFakeSite {
 	site.Server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		site.lastCookie = r.Header.Get("Cookie")
 		site.lastPath = r.URL.RequestURI()
+		// The site's search dialog, served the way the site serves it: a JSON
+		// envelope from the WordPress AJAX endpoint (spec 1046).
+		if r.Method == http.MethodPost && r.URL.Path == zarAdvancedFormPath {
+			_ = r.ParseForm()
+			site.lastAjaxAction = r.PostForm.Get("action")
+			if site.noForm {
+				w.WriteHeader(http.StatusInternalServerError)
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			w.Write(mustFixture(t, "advanced_search_form.json"))
+			return
+		}
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		if site.loginPage {
 			// No ajax_var at all — exactly what the live mirror returns.
@@ -75,12 +92,11 @@ func newZarFakeSite(t *testing.T) *zarFakeSite {
 			w.Write(site.own(mustFixture(t, "logged_out.html")))
 		case strings.Contains(r.URL.Path, "/series/the-loyalty-game"):
 			w.Write(site.own(mustFixture(t, "series_subscribed.html")))
-		case strings.Contains(r.URL.Path, "/all-movie/"), r.URL.Path == "/":
-			// A real archive page carries the filter panel above its cards; that is
-			// where the driver learns what it may filter and sort by.
-			if !site.noPanel {
-				w.Write(site.own(mustFixture(t, "archive_filters.html")))
-			}
+		case strings.Contains(r.URL.Path, "/all-movie/"), r.URL.Path == "/", strings.HasPrefix(r.URL.Path, "/page/"):
+			// The archive: the genre routes the driver reads its slugs from, then
+			// a page of cards — which is also what the advanced search and a text
+			// search answer with.
+			w.Write(site.own(mustFixture(t, "archive_filters.html")))
 			w.Write(site.own(mustFixture(t, "archive_page1.html")))
 		case site.paywalled:
 			w.Write(site.own(mustFixture(t, "movie_unsubscribed.html")))
@@ -170,8 +186,8 @@ func TestZarfilmSearchBrowsesArchive(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Search: %v", err)
 	}
-	if !strings.Contains(site.lastPath, "/all-movie/page/2/") {
-		t.Fatalf("page 2 not requested, got %q", site.lastPath)
+	if !strings.HasPrefix(site.lastPath, "/page/2/?") || !strings.Contains(site.lastPath, "advsearch=on") {
+		t.Fatalf("page 2 of the advanced search not requested, got %q", site.lastPath)
 	}
 	if len(res.Items) == 0 {
 		t.Fatal("no items")
@@ -463,13 +479,16 @@ func TestZarfilmAcceptsCookiesSplitAcrossFields(t *testing.T) {
 	}
 }
 
-// Spec 1024 US1: the driver must declare what it can actually filter and sort by,
-// or the filter sheet stays empty and combined browsing has nothing to intersect.
+// Spec 1024 US1 / spec 1046: the driver declares what the site's advanced search
+// can narrow by, read from the site's own search dialog.
 func TestZarfilmDeclaresItsCapabilities(t *testing.T) {
 	site := newZarFakeSite(t)
 	params, err := zarfilm{}.Parameters(context.Background(), source.NewClient(), zarCfg(site), zarSession("abc"))
 	if err != nil {
 		t.Fatalf("Parameters: %v", err)
+	}
+	if site.lastAjaxAction != "get_advanced_search" {
+		t.Fatalf("the form was asked for as %q", site.lastAjaxAction)
 	}
 	if len(params.Types) == 0 {
 		t.Fatal("no types")
@@ -489,51 +508,89 @@ func TestZarfilmDeclaresItsCapabilities(t *testing.T) {
 		t.Fatal("genre value must be the site's own vocabulary, not the join slug")
 	}
 	// Sorts are declared in the CANONICAL vocabulary the client speaks, so the
-	// same choice means the same thing whichever source honours it.
+	// same choice means the same thing whichever source honours it. The site has
+	// no ordering by release year, so none is claimed.
 	got := map[string]bool{}
-	for _, s := range params.Sorts {
-		got[s.Slug] = true
+	for _, so := range params.Sorts {
+		got[so.Slug] = true
 	}
-	for _, want := range []string{"imdb", "year", "date", "favorite"} {
+	for _, want := range []string{"imdb", "date", "favorite"} {
 		if !got[want] {
 			t.Fatalf("sort %q not declared; have %+v", want, params.Sorts)
 		}
 	}
+	if got["year"] {
+		t.Fatalf("release-year ordering claimed, which the site cannot do: %+v", params.Sorts)
+	}
 	// Score bands carry a slug derived from their meaning, so "8 and above" from
 	// one source joins with "8 and above" from another.
-	var eight bool
-	for _, s := range params.Scores {
-		if s.Slug == "score-8" && s.Value == "8" {
+	var eight, under bool
+	for _, sc := range params.Scores {
+		if sc.Slug == "score-8" && sc.Value == "8" {
 			eight = true
 		}
+		if sc.Slug == "score-under-5" {
+			under = true
+		}
 	}
-	if !eight {
-		t.Fatalf("no 8+ score band among %+v", params.Scores)
+	if !eight || !under {
+		t.Fatalf("score bands incomplete: %+v", params.Scores)
+	}
+	// Languages are the site's English names, each with the ISO code the other
+	// source speaks; a name no code describes is offered without one.
+	langs := map[string]string{}
+	for _, l := range params.Languages {
+		langs[l.Value] = l.Slug
+	}
+	if langs["Korean"] != "ko" || langs["Mandarin"] != "cmn" {
+		t.Fatalf("languages = %v", langs)
+	}
+	if slug, offered := langs["کانتونی"]; !offered || slug != "" {
+		t.Fatalf("a name without a code must still be offered, without one: %v", langs)
+	}
+	// Countries and qualities are the site's own words, verbatim.
+	var japan, bluray bool
+	for _, co := range params.Countries {
+		if co.Value == "ژاپن" {
+			japan = true
+		}
+	}
+	for _, q := range params.Qualities {
+		if q.Value == "BluRay 1080p" {
+			bluray = true
+		}
+	}
+	if !japan || !bluray {
+		t.Fatalf("countries/qualities incomplete: %d / %d", len(params.Countries), len(params.Qualities))
+	}
+	if params.MinYear == 0 || params.MaxYear < 2026 {
+		t.Fatalf("year range = %d–%d", params.MinYear, params.MaxYear)
 	}
 }
 
 // A source that cannot report its abilities must still be usable: the browse goes
 // on, the sheet simply offers less (FR-011).
-func TestZarfilmCapabilitiesDegradeWhenThePanelIsMissing(t *testing.T) {
+func TestZarfilmCapabilitiesDegradeWhenTheFormIsUnobtainable(t *testing.T) {
 	site := newZarFakeSite(t)
-	site.noPanel = true
+	site.noForm = true
 	params, err := zarfilm{}.Parameters(context.Background(), source.NewClient(), zarCfg(site), zarSession("abc"))
 	if err != nil {
 		t.Fatalf("Parameters must not fail: %v", err)
 	}
-	if len(params.Genres) != 0 || len(params.Sorts) != 0 {
+	if len(params.Genres) != 0 || len(params.Sorts) != 0 || len(params.Languages) != 0 {
 		t.Fatalf("expected nothing declared, got %+v", params)
 	}
 	if len(params.Types) == 0 {
-		t.Fatal("types are known without the panel and must survive")
+		t.Fatal("types are known without the form and must survive")
 	}
 }
 
-// FR-002/003/004: the chosen genre, score and sort must all reach the site, on
-// the right route, and must survive pagination. Asserted on the REQUEST the
-// driver makes, because that is where the bug was: the sort was being written
-// with a parameter name the site does not read, so it silently did nothing.
+// Spec 1046: everything the user chose reaches the site as the advanced-search
+// form would send it — on the site root, with every field present. Asserted on
+// the REQUEST the driver makes, because that is where a filter silently does
+// nothing: a parameter the site does not read, or a range with one end missing.
 func TestZarfilmSendsEveryChosenFilter(t *testing.T) {
+	thisYear := strconv.Itoa(time.Now().Year())
 	for _, tc := range []struct {
 		name     string
 		q        source.SearchQuery
@@ -542,29 +599,56 @@ func TestZarfilmSendsEveryChosenFilter(t *testing.T) {
 		absent   []string
 	}{
 		{
-			name:     "movie browse composes genre, score and sort",
-			q:        source.SearchQuery{Page: 2, Sort: "imdb", Filters: source.SearchFilters{Genre: []string{"کمدی"}, Score: "8"}},
-			wantPath: "/all-movie/page/2/",
-			want:     map[string]string{"filter_genre": "کمدی", "imdb_rate": "8", "sortby": "imdb_rate"},
+			name:     "movie browse composes genre, score, ordering and pagination",
+			q:        source.SearchQuery{Page: 2, Sort: "imdb", Filters: source.SearchFilters{Type: source.TypeMovie, Genre: []string{"کمدی"}, Score: "8"}},
+			wantPath: "/page/2/",
+			want: map[string]string{
+				"advsearch": "on", "mobile_type": "post", "mobile_advsgenre": "کمدی", "search_order": "6",
+				"minadvsimdbrate": "8", "maxadvsimdbrate": "10",
+			},
 		},
 		{
-			name:     "series browse uses the series route and the same parameters",
-			q:        source.SearchQuery{Page: 1, Sort: "year", Filters: source.SearchFilters{Type: source.TypeSeries, Genre: []string{"درام"}}},
-			wantPath: "/series/page/1/",
-			want:     map[string]string{"filter_genre": "درام", "sortby": "release"},
+			name:     "series browse switches the type and asks for newest",
+			q:        source.SearchQuery{Page: 1, Sort: "date", Filters: source.SearchFilters{Type: source.TypeSeries}},
+			wantPath: "/",
+			want:     map[string]string{"mobile_type": "series", "search_order": "1", "mobile_advsgenre": "0"},
 		},
 		{
-			name:     "a text search still filters, but does not pretend to sort",
-			q:        source.SearchQuery{Page: 1, Query: "friends", Sort: "imdb", Filters: source.SearchFilters{Genre: []string{"کمدی"}}},
-			wantPath: "/page/1/",
-			want:     map[string]string{"s": "friends", "filter_genre": "کمدی"},
-			absent:   []string{"sortby"},
+			name:     "language, country, quality and 3D travel verbatim",
+			q:        source.SearchQuery{Page: 1, Filters: source.SearchFilters{Language: "Korean", Country: "ژاپن", Quality: "BluRay 1080p", ThreeD: "true"}},
+			wantPath: "/",
+			want:     map[string]string{"languageSearch": "Korean", "advscountry": "ژاپن", "advsqulity": "BluRay 1080p", "adv3D": "1", "adv4k": "0"},
 		},
 		{
-			name:     "no filters means no stray parameters",
+			name:     "a below-5 band is sent as a range from zero",
+			q:        source.SearchQuery{Page: 1, Filters: source.SearchFilters{Score: "-5"}},
+			wantPath: "/",
+			want:     map[string]string{"minadvsimdbrate": "0", "maxadvsimdbrate": "5"},
+		},
+		{
+			name:     "a year range with one end is completed, because the site drops half a range",
+			q:        source.SearchQuery{Page: 1, Filters: source.SearchFilters{YearFrom: "2015"}},
+			wantPath: "/",
+			want:     map[string]string{"yaersofmin": "2015", "yaersofmax": thisYear},
+		},
+		{
+			name:     "no years chosen sends no year range",
 			q:        source.SearchQuery{Page: 1},
-			wantPath: "/all-movie/page/1/",
-			absent:   []string{"sortby", "filter_genre", "imdb_rate"},
+			wantPath: "/",
+			want:     map[string]string{"yaersofmin": "", "yaersofmax": "", "mobile_type": "all", "search_order": "0"},
+		},
+		{
+			name:     "a text search is the plain search and carries nothing else",
+			q:        source.SearchQuery{Page: 1, Query: "friends", Sort: "imdb", Filters: source.SearchFilters{Genre: []string{"کمدی"}}},
+			wantPath: "/",
+			want:     map[string]string{"s": "friends"},
+			absent:   []string{"advsearch", "mobile_advsgenre", "search_order"},
+		},
+		{
+			name:     "a later page of a text search",
+			q:        source.SearchQuery{Page: 3, Query: "friends"},
+			wantPath: "/page/3/",
+			want:     map[string]string{"s": "friends"},
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

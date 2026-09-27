@@ -293,49 +293,40 @@ func TestParsersSurviveGarbage(t *testing.T) {
 	}
 }
 
-func TestParseFilterPanel(t *testing.T) {
-	p := parseFilterPanel(zarFixture(t, "archive_filters.html"))
-
-	// Groups are told apart by the SHAPE of their values, not by their Persian
-	// headings — so a relabelled panel still parses.
-	wantSorts := []string{"newest", "modified", "popular", "imdb_rate", "release"}
-	if len(p.Sorts) != len(wantSorts) {
-		t.Fatalf("sorts = %+v", p.Sorts)
+// Spec 1046: the site's advanced-search dialog, as its AJAX endpoint serves it.
+func TestParseAdvancedForm(t *testing.T) {
+	f, err := parseAdvancedForm(zarFixture(t, "advanced_search_form.json"))
+	if err != nil {
+		t.Fatal(err)
 	}
-	for i, w := range wantSorts {
-		if p.Sorts[i].Value != w {
-			t.Fatalf("sort %d = %q, want %q", i, p.Sorts[i].Value, w)
+	if len(f.Types) != 2 || f.Types[0].Value != "post" || f.Types[1].Value != "series" {
+		t.Fatalf("types = %+v", f.Types)
+	}
+	// The placeholders — the field's name and the site's "all" — are not options.
+	for _, list := range [][]zarFacet{f.Genres, f.Orders, f.Languages, f.Countries, f.Qualities} {
+		for _, o := range list {
+			if o.Value == "" || o.Value == "0" || o.Value == "all" {
+				t.Fatalf("placeholder offered as an option: %+v", o)
+			}
 		}
 	}
-	if got := len(p.Scores); got != 6 {
-		t.Fatalf("scores = %d (%+v), want the six bands", got, p.Scores)
+	if len(f.Genres) != 28 || f.Genres[0].Value != "درام" || f.Genres[0].Label != "درام" {
+		t.Fatalf("genres = %d, first %+v", len(f.Genres), f.Genres[0])
 	}
-	if p.Scores[0].Value != "9" {
-		t.Fatalf("scores start at %q, want the highest band first", p.Scores[0].Value)
+	if len(f.Orders) != 5 || f.Orders[0].Value != "1" {
+		t.Fatalf("orders = %+v", f.Orders)
 	}
-	// 29 entries in the panel, one of which is the empty "all" marker.
-	if got := len(p.Genres); got != 28 {
-		t.Fatalf("genres = %d, want 28", got)
+	if len(f.Languages) == 0 || f.Languages[0].Value != "English" {
+		t.Fatalf("languages = %+v", f.Languages)
 	}
-	for _, g := range p.Genres {
-		if g.Value == "" || g.Label == "" {
-			t.Fatalf("blank genre entry: %+v", g)
-		}
+	if len(f.Countries) == 0 || f.Countries[0].Value != "آمریکا" {
+		t.Fatalf("countries = %+v", f.Countries)
 	}
-	// The "all" entry is a UI affordance, not a filter value.
-	for _, g := range append(append([]zarFacet{}, p.Genres...), p.Scores...) {
-		if g.Value == "" {
-			t.Fatal(`the empty "all" option must not be offered as a value`)
-		}
+	if len(f.Qualities) == 0 || f.Qualities[0].Value != "BluRay 2160p 4K" {
+		t.Fatalf("qualities = %+v", f.Qualities)
 	}
-}
-
-func TestParseFilterPanelSurvivesPagesWithout(t *testing.T) {
-	for _, f := range []string{"archive_page1.html", "movie_subscribed.html", "logged_out.html"} {
-		p := parseFilterPanel(zarFixture(t, f))
-		if len(p.Sorts)+len(p.Scores)+len(p.Genres) != 0 {
-			t.Fatalf("%s: found a panel where there is none: %+v", f, p)
-		}
+	if _, err := parseAdvancedForm([]byte(`{"stat":"ok","html":""}`)); err == nil {
+		t.Fatal("an empty form must be an error, so the driver degrades rather than offering nothing as if it were everything")
 	}
 }
 

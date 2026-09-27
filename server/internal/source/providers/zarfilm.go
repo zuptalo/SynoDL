@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 
 	"synodl/server/internal/source"
 )
@@ -187,6 +188,43 @@ func (p zarfilm) get(ctx context.Context, c *source.Client, cfg source.Config, s
 	return nil, firstErr
 }
 
+// post sends a form-encoded request the way the site's own scripts do and
+// returns the body, falling back between addresses exactly as get does. It is
+// for the site's AJAX endpoints, which answer JSON — so the page's login marker
+// is not looked for here; a session the site rejects answers 401/403 instead.
+func (p zarfilm) post(ctx context.Context, c *source.Client, cfg source.Config, s source.Session, path, form string) ([]byte, error) {
+	var firstErr error
+	for i, base := range p.bases(cfg) {
+		bs := cfg.SessionFor(base, s)
+		headers, cookies := p.auth(bs)
+		resp, err := c.Do(ctx, bs, cfg.APIHosts, source.Req{
+			Method: "POST", URL: base + path, Body: form, XHR: true,
+			Origin: base, Referer: base + "/",
+			Headers: headers, Cookies: cookies,
+		})
+		if err == nil {
+			switch {
+			case resp.Status == 401 || resp.Status == 403:
+				return nil, &source.ErrNeedsRefresh{Layer: source.LayerToken}
+			case resp.Status != 200:
+				return nil, fmt.Errorf("zarfilm: unexpected status %d", resp.Status)
+			}
+			rememberWorkingBase(cfg, base)
+			return resp.Body, nil
+		}
+		if !source.IsUnavailable(err) {
+			return nil, err
+		}
+		if i == 0 {
+			firstErr = err
+		}
+	}
+	if firstErr == nil {
+		firstErr = &source.ErrUnavailable{Err: errors.New("no address configured")}
+	}
+	return nil, firstErr
+}
+
 // bases lists the addresses to try, preferred first. The main domain leads
 // unless a recent success says the mirror is the one currently answering.
 //
@@ -352,51 +390,37 @@ func (p zarfilm) listing(ctx context.Context, c *source.Client, cfg source.Confi
 	return items, parsePageCount(body), nil
 }
 
-// Search browses the archive or runs a text search.
+// Search browses the catalog through the site's advanced search, or runs a
+// text search (spec 1046).
 //
-// Browsing uses the plain paginated URLs rather than the site's own ajax
-// pagination endpoint: that endpoint requires a nonce (it answers 403 without
-// one), and the paginated URLs need no nonce and no XHR headers. Fewer moving
-// parts, one fewer thing to break.
+// Browsing used to walk the archive routes (/all-movie/, /series/) with the
+// handful of query parameters the archive's filter panel offered. The redesign
+// removed that panel, and the site's own advanced-search dialog turned out to
+// express far more — type, genre, ordering, language, country, release quality,
+// an IMDb range and a year range — as one GET against the site root. So that is
+// what a browse is now: every page is /page/N/?advsearch=on&… with every field
+// present, exactly as the dialog submits it.
+//
+// A text search is different in kind. It is the site's plain search, and it
+// reads NOTHING else — verified live: every advanced field, and the ordering, is
+// ignored beside `s`. So nothing else is sent with it, and only the type filter
+// is applied, to what comes back.
 func (p zarfilm) Search(ctx context.Context, c *source.Client, cfg source.Config, s source.Session, q source.SearchQuery) (source.SearchResult, error) {
 	page := q.Page
 	if page < 1 {
 		page = 1
 	}
-	// The route selects WHAT is being browsed; everything the user narrowed by
-	// rides in the query string. Genre used to take over the route
-	// (/genre/<slug>/), which meant a genre could never be combined with the
-	// series listing and never composed with a sort — and the route's English
-	// slugs do not exist for series at all.
-	query := strings.TrimSpace(q.Query)
-	var path string
-	params := url.Values{}
-	switch {
-	case query != "":
+	path := "/"
+	if page > 1 {
 		path = "/page/" + strconv.Itoa(page) + "/"
+	}
+	params := url.Values{}
+	if query := strings.TrimSpace(q.Query); query != "" {
 		params.Set("s", query)
-	case q.Filters.Type == source.TypeSeries:
-		path = "/series/page/" + strconv.Itoa(page) + "/"
-	default:
-		path = "/all-movie/page/" + strconv.Itoa(page) + "/"
+	} else {
+		params = zarAdvancedQuery(q)
 	}
-	if g := firstNonEmpty(q.Filters.Genre); g != "" {
-		params.Set("filter_genre", g)
-	}
-	if sc := strings.TrimSpace(q.Filters.Score); sc != "" {
-		params.Set("imdb_rate", sc)
-	}
-	// The site ignores an ordering on a text search. Offering one anyway would be
-	// the "filter that silently does nothing" this driver's own facets avoid, so
-	// it is simply not sent — the sheet disables the control in that mode too.
-	if query == "" {
-		if f := zarSortParam(q.Sort); f != "" {
-			params.Set("sortby", f)
-		}
-	}
-	if len(params) > 0 {
-		path += "?" + params.Encode()
-	}
+	path += "?" + params.Encode()
 
 	items, pages, err := p.listing(ctx, c, cfg, s, path)
 	if err != nil {
@@ -408,8 +432,9 @@ func (p zarfilm) Search(ctx context.Context, c *source.Client, cfg source.Config
 		if it.IsSeries {
 			typ = source.TypeSeries
 		}
-		// A type filter the site can't express in the URL is applied here, so the
-		// filter means what it says rather than being silently ignored.
+		// The type is applied here as well as in the query: a text search cannot
+		// express it at all, and a filter must mean what it says rather than being
+		// silently ignored.
 		if q.Filters.Type != "" && q.Filters.Type != typ {
 			continue
 		}
@@ -428,23 +453,126 @@ func (p zarfilm) Search(ctx context.Context, c *source.Client, cfg source.Config
 	return out, nil
 }
 
-// zarSortParam maps a canonical sort key onto the site's own ordering keyword —
-// the inverse of zarSortKey, which is how those keys were declared in the first
-// place. "" means "leave the site's default alone".
-func zarSortParam(sort string) string {
-	switch sort {
-	case "date", "newest":
-		return "newest"
-	case "favorite", "popular":
-		return "popular"
-	case "imdb", "imdb_rate", "score":
-		return "imdb_rate"
-	case "year", "release":
-		return "release"
-	case "modified", "updated":
-		return "modified"
+// zarMinYear is the earliest year the site's year range is asked for. The
+// site's own dialog leaves both ends blank; a bound is only ever sent because
+// the user set one, and then the OTHER end has to be sent too — the site
+// silently drops a range with one end missing (verified live).
+const zarMinYear = 1900
+
+// zarAdvancedQuery is the advanced-search form, filled in. Every field the form
+// has is sent, with its neutral value when the user chose nothing, because that
+// is the request the site's own dialog makes and the one known to work.
+func zarAdvancedQuery(q source.SearchQuery) url.Values {
+	f := q.Filters
+	v := url.Values{}
+	v.Set("mobile_type", zarTypeParam(f.Type))
+	v.Set("mobile_advsgenre", zarOr(firstNonEmpty(f.Genre), "0"))
+	v.Set("search_order", zarOrderParam(q.Sort))
+	v.Set("languageSearch", zarOr(strings.TrimSpace(f.Language), "0"))
+	v.Set("advscountry", zarOr(strings.TrimSpace(f.Country), "0"))
+	v.Set("advsqulity", strings.TrimSpace(f.Quality))
+	v.Set("mobile_subtitle", "0")
+	v.Set("mobile_dubled", "0")
+	v.Set("mobile_online", "0")
+	v.Set("adv3D", zarFlag(f.ThreeD))
+	// The site's own 4K toggle returns nothing at all (verified live), so it is
+	// never set: a filter that empties the grid is worse than none.
+	v.Set("adv4k", "0")
+	v.Set("imdbID", "")
+	lo, hi := zarScoreRange(f.Score)
+	v.Set("minadvsimdbrate", lo)
+	v.Set("maxadvsimdbrate", hi)
+	from, to := zarYearRange(f.YearFrom, f.YearTo)
+	v.Set("yaersofmin", from)
+	v.Set("yaersofmax", to)
+	v.Set("advsearch", "on")
+	return v
+}
+
+func zarOr(v, def string) string {
+	if v == "" {
+		return def
 	}
-	return ""
+	return v
+}
+
+func zarFlag(v string) string {
+	if v == "true" || v == "1" {
+		return "1"
+	}
+	return "0"
+}
+
+// zarTypeParam is the dialog's type switch: "post" is the site's word for a
+// movie. A type it has no word for (anime) is asked for as everything, and the
+// post-filter in Search then honours it by keeping nothing.
+func zarTypeParam(t string) string {
+	switch t {
+	case source.TypeMovie:
+		return "post"
+	case source.TypeSeries:
+		return "series"
+	}
+	return "all"
+}
+
+// zarOrderParam maps the canonical sort keys onto the site's ordering codes:
+// 1 newest, 2 most viewed, 6 highest IMDb. "Most popular" is the site's view
+// count — the nearest thing it has to the other source's favourites. The site
+// cannot order by release year, and has no ascending order at all; an ordering
+// it lacks leaves the default.
+func zarOrderParam(sort string) string {
+	switch sort {
+	case "date":
+		return "1"
+	case "favorite":
+		return "2"
+	case "imdb":
+		return "6"
+	}
+	return "0"
+}
+
+// zarOrderKey is the inverse: which canonical ordering a form code declares.
+func zarOrderKey(code string) (key, label string) {
+	switch code {
+	case "1":
+		return "date", "Recently added"
+	case "2":
+		return "favorite", "Most popular"
+	case "6":
+		return "imdb", "IMDb rating"
+	}
+	return "", ""
+}
+
+// zarScoreRange turns a score band into the range the site wants. It takes a
+// minimum AND a maximum: a band with one end missing is silently dropped
+// (verified live), so "8 and above" is sent as 8–10 and "below 5" as 0–5.
+func zarScoreRange(band string) (lo, hi string) {
+	switch band = strings.TrimSpace(band); {
+	case band == "":
+		return "", ""
+	case strings.HasPrefix(band, "-"):
+		return "0", strings.TrimPrefix(band, "-")
+	default:
+		return band, "10"
+	}
+}
+
+// zarYearRange completes a half-open year range, for the same reason.
+func zarYearRange(from, to string) (string, string) {
+	from, to = strings.TrimSpace(from), strings.TrimSpace(to)
+	if from == "" && to == "" {
+		return "", ""
+	}
+	if from == "" {
+		from = strconv.Itoa(zarMinYear)
+	}
+	if to == "" {
+		to = strconv.Itoa(time.Now().Year())
+	}
+	return from, to
 }
 
 // firstNonEmpty returns the first usable entry of a multi-valued filter. The site
@@ -459,90 +587,99 @@ func firstNonEmpty(vals []string) string {
 	return ""
 }
 
-// Parameters reports the facets this source can actually filter on. It is
-// deliberately modest: the site's archive URLs express genre and type, and
-// claiming more would produce filters that silently do nothing.
+// Parameters reports what the site's advanced search can narrow by (spec 1046).
+//
+// The lists are read from the site's own search dialog, fetched the way the
+// dialog fetches itself, so a genre or language the site adds appears here
+// without a release. Each option's VALUE is what the query parameter takes —
+// Persian for genres and countries, English for languages, the exact release
+// label for qualities — and where another source names the same thing
+// differently, a slug says so: the English genre slug from the archive's own
+// routes, and an ISO code for a language.
+//
+// A form that cannot be fetched is not a failure of the source: the browse goes
+// on and the sheet offers only what is known without it (FR-011).
 func (p zarfilm) Parameters(ctx context.Context, c *source.Client, cfg source.Config, s source.Session) (source.SearchParameters, error) {
 	out := source.SearchParameters{
 		Types: []source.FacetOption{
 			{Value: source.TypeMovie, Slug: "movie", Name: "Movie"},
 			{Value: source.TypeSeries, Slug: "series", Name: "Series"},
 		},
+		MinYear: zarMinYear,
+		MaxYear: time.Now().Year(),
 	}
-	// The abilities are published on the archive pages themselves, so reading them
-	// costs one page fetch. A failure here is NOT a failure of the source: the user
-	// can still browse, they are simply offered fewer ways to narrow it (FR-011).
-	body, err := p.get(ctx, c, cfg, s, "/all-movie/")
+	raw, err := p.post(ctx, c, cfg, s, zarAdvancedFormPath, zarAdvancedFormBody)
 	if err != nil {
 		return out, nil
 	}
-	panel := parseFilterPanel(body)
-	slugs := parseGenreSlugs(body)
-
-	for _, g := range panel.Genres {
-		// Value stays the site's own (Persian) vocabulary, because that is what its
-		// query parameter accepts. Slug is the English name the same page uses in
-		// its own genre routes: it is what lets this genre join with another
-		// source's, and what the client title-cases for display.
-		out.Genres = append(out.Genres, source.FacetOption{
-			Value: g.Value, Name: g.Label, Slug: slugs[g.Label],
-		})
+	form, err := parseAdvancedForm(raw)
+	if err != nil {
+		return out, nil
 	}
-	for _, sc := range panel.Scores {
-		out.Scores = append(out.Scores, source.FacetOption{
-			Value: sc.Value, Name: zarScoreName(sc.Value), Slug: zarScoreSlug(sc.Value),
-		})
+	// The English slug for each genre lives in the archive's genre routes, not in
+	// the form. Without them the genres are still offered — they just join with
+	// no other source's.
+	slugs := map[string]string{}
+	if body, err := p.get(ctx, c, cfg, s, "/all-movie/"); err == nil {
+		slugs = parseGenreSlugs(body)
 	}
-	for _, so := range panel.Sorts {
-		key, label := zarSortKey(so.Value)
-		if key == "" {
-			continue // an ordering we have no canonical name for
-		}
-		out.Sorts = append(out.Sorts, source.FacetOption{Value: key, Slug: key, Name: label})
+	for _, g := range form.Genres {
+		out.Genres = append(out.Genres, source.FacetOption{Value: g.Value, Name: g.Label, Slug: slugs[g.Label]})
 	}
+	for _, l := range form.Languages {
+		out.Languages = append(out.Languages, source.FacetOption{Value: l.Value, Name: l.Label, Slug: zarLanguageISO(l.Value)})
+	}
+	for _, co := range form.Countries {
+		out.Countries = append(out.Countries, source.FacetOption{Value: co.Value, Name: co.Label})
+	}
+	for _, q := range form.Qualities {
+		out.Qualities = append(out.Qualities, source.FacetOption{Value: q.Value, Name: q.Label})
+	}
+	out.Scores = zarScoreBands()
+	out.Sorts = zarSorts(form.Orders)
 	return out, nil
 }
 
-// zarScoreSlug gives a score band an identity derived from its MEANING, so
-// "8 and above" from this source joins with "8 and above" from another.
-//
-// The site's lowest band is the odd one out: its value is 4 but it means "below
-// 5", not "4 and above". It gets an identity of its own so it can never be
-// mistaken for another source's 4+ band — it stays available when this source is
-// browsed alone, and drops out of any combined set.
-func zarScoreSlug(v string) string {
-	if v == "4" {
-		return "score-under-5"
+// The site's own search dialog is built server-side and fetched by its scripts
+// from the WordPress AJAX endpoint. The same call, with no nonce, hands back the
+// form as JSON.
+const (
+	zarAdvancedFormPath = "/wp-admin/admin-ajax.php"
+	zarAdvancedFormBody = "action=get_advanced_search"
+)
+
+// zarScoreBands are the IMDb bands offered, in the same shape and with the same
+// slugs as the other source's, so the two join. The site itself takes a range;
+// zarScoreRange turns a band back into one.
+func zarScoreBands() []source.FacetOption {
+	out := []source.FacetOption{}
+	for _, v := range []string{"9", "8.5", "8", "7.5", "7", "6.5", "6", "5"} {
+		name := v + "+"
+		if !strings.Contains(v, ".") {
+			name = v + ".0+"
+		}
+		out = append(out, source.FacetOption{Value: v, Name: name, Slug: "score-" + v})
 	}
-	return "score-" + v
+	return append(out, source.FacetOption{Value: "-5", Name: "Under 5.0", Slug: "score-under-5"})
 }
 
-func zarScoreName(v string) string {
-	if v == "4" {
-		return "Under 5.0"
+// zarSorts declares the orderings in the canonical vocabulary, in the order the
+// other source lists them so the control reads the same whichever is browsed.
+// Only codes the form actually offers are declared.
+func zarSorts(orders []zarFacet) []source.FacetOption {
+	offered := map[string]bool{}
+	for _, o := range orders {
+		offered[o.Value] = true
 	}
-	return v + ".0+"
-}
-
-// zarSortKey maps one of the site's ordering keywords onto the canonical sort
-// vocabulary the client speaks, so choosing "IMDb rating" means the same thing
-// whichever source honours it. "modified" has no canonical equivalent — no other
-// source can order by "recently updated" — so it keeps its own key and therefore
-// appears only when this source is browsed alone.
-func zarSortKey(siteValue string) (key, label string) {
-	switch siteValue {
-	case "newest":
-		return "date", "Recently added"
-	case "popular":
-		return "favorite", "Most popular"
-	case "imdb_rate":
-		return "imdb", "IMDb rating"
-	case "release":
-		return "year", "Release year"
-	case "modified":
-		return "modified", "Recently updated"
+	var out []source.FacetOption
+	for _, code := range []string{"2", "6", "1"} {
+		if !offered[code] {
+			continue
+		}
+		key, label := zarOrderKey(code)
+		out = append(out, source.FacetOption{Value: key, Slug: key, Name: label})
 	}
-	return "", ""
+	return out
 }
 
 // Title returns a title's downloadable options. Movies yield one option per
