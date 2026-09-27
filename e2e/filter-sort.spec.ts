@@ -110,3 +110,41 @@ test("filter and sort choices survive a reload", async ({ page }) => {
     "medium-paused.zip",
   );
 });
+
+// A desktop user scrolls with a wheel, and a sheet that is not fully open used
+// to swallow it: the sheet's lower part sits below the window, and the sort
+// order and the status filters there could not be reached at all (on a phone
+// they could, by swiping the sheet open first). `click()` would not catch
+// this — Playwright scrolls an element into view itself — so this scrolls the
+// way a person does and then looks.
+test("the filter sheet scrolls with a mouse wheel on desktop", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await login(page);
+  await page.getByTestId("filter-open").click();
+  const term = page.getByTestId("filter-term");
+  await expect(term).toBeVisible();
+  // Let the sheet finish sliding up: a wheel during the animation proves nothing.
+  let last = -1;
+  await expect
+    .poll(async () => {
+      const y = (await term.boundingBox())?.y ?? -1;
+      const settled = y === last;
+      last = y;
+      return settled;
+    })
+    .toBe(true);
+
+  const last_ = page.getByTestId("status-error");
+  const inView = async () => {
+    const b = await last_.boundingBox();
+    return b !== null && b.y >= 0 && b.y + b.height <= 720;
+  };
+  expect(await inView(), "the end of the list starts out of view").toBe(false);
+
+  const box = await term.boundingBox();
+  await page.mouse.move(box!.x + box!.width / 2, box!.y + 40);
+  for (let i = 0; i < 10; i++) await page.mouse.wheel(0, 300);
+  await expect.poll(inView).toBe(true);
+});
