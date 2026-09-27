@@ -18,12 +18,20 @@
  * removes the asking and delivers a change when it happens; it does not make the
  * underlying state finer-grained.
  *
- * The list is paged, because history is unbounded and one expanded channel can
- * fill it on its own.
+ * The server pages the list, because history is unbounded and one expanded
+ * channel can fill a page on its own; this follows every page (spec 2039), so
+ * the list on screen is the whole list and not the newest fifty of it.
  */
 import { computed, onMounted, onUnmounted, ref } from 'vue';
 import { createPollLoop } from '@/services/poll-loop';
-import { ApiError, api, streamYtdl, type YtdlDownload, type YtdlUpdate } from '@/services/api';
+import {
+  ApiError,
+  api,
+  streamYtdl,
+  ytdlAll,
+  type YtdlDownload,
+  type YtdlUpdate,
+} from '@/services/api';
 import { mergeYtdlUpdate } from '@/services/ytdl-merge';
 
 /** Fallback cadence, used ONLY while the stream is down. */
@@ -60,8 +68,10 @@ function applyUpdate(update: YtdlUpdate): void {
 
 async function refresh(): Promise<void> {
   try {
-    const snap = await api.ytdl();
-    downloads.value = snap.downloads ?? [];
+    // Every page, assigned once: a page-by-page append would repaint the list
+    // with a partial set and let the status sort reshuffle it mid-read.
+    const snap = await ytdlAll();
+    downloads.value = snap.downloads;
     degraded.value = snap.degraded === true;
     available.value = true;
   } catch (e) {

@@ -3,6 +3,7 @@ package api
 import (
 	"errors"
 	"net/http"
+	"strconv"
 
 	"synodl/server/internal/httpx"
 	"synodl/server/internal/store"
@@ -60,7 +61,14 @@ func handleYtdlItems(d Deps) http.Handler {
 			return
 		}
 
-		items, next, err := d.Store.ListYtdlItems(rec.RequestID, r.URL.Query().Get("cursor"), 100)
+		// Same knob the list has: the sheet asks for large pages and follows
+		// the cursor, so a playlist is shown whole rather than as it scrolls
+		// (spec 2039). The store clamps it.
+		limit := 0
+		if n, err := strconv.Atoi(r.URL.Query().Get("limit")); err == nil && n > 0 {
+			limit = n
+		}
+		items, next, err := d.Store.ListYtdlItems(rec.RequestID, r.URL.Query().Get("cursor"), limit)
 		if err != nil {
 			httpx.Error(w, http.StatusInternalServerError, "server")
 			return

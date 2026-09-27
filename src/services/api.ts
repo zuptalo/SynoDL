@@ -266,6 +266,42 @@ export interface YtdlDownload {
   reason?: string;
 }
 
+/**
+ * The largest page the server will hand out (it clamps anything above). Both
+ * lists ask for it and then follow the cursor to the end, so what is on screen
+ * is everything, in as few round trips as the ceiling allows (spec 2039).
+ */
+export const YTDL_PAGE = 500;
+
+function pageQuery(cursor?: string, limit?: number): string {
+  const q = new URLSearchParams();
+  if (cursor) q.set('cursor', cursor);
+  if (limit) q.set('limit', String(limit));
+  const s = q.toString();
+  return s ? `?${s}` : '';
+}
+
+/**
+ * Every page of the caller's downloads, as one list. History is unbounded so
+ * the server pages it, but the Tasks list is not a window onto history: a
+ * playlist that is still downloading is as real at row 51 as at row 1, and
+ * the status sort, "Clear finished (N)" and "Retry failed (N)" are all wrong if
+ * they only see the newest page (spec 2039). Flags come from the first page;
+ * `degraded` is true if any page said so.
+ */
+export async function ytdlAll(): Promise<YtdlSnapshot> {
+  const downloads: YtdlDownload[] = [];
+  let degraded = false;
+  let cursor: string | undefined;
+  do {
+    const page = await api.ytdl(cursor, YTDL_PAGE);
+    downloads.push(...(page.downloads ?? []));
+    degraded ||= page.degraded === true;
+    cursor = page.nextCursor;
+  } while (cursor);
+  return { downloads, degraded };
+}
+
 export interface YtdlSnapshot {
   downloads: YtdlDownload[];
   /** Absent on the last page. History is unbounded, so the list is paged. */
@@ -975,8 +1011,8 @@ export const api = {
    * One page of the caller's downloads. History is unbounded (spec 0013), so
    * this is paged — pass the previous response's `nextCursor` to continue.
    */
-  ytdl: (cursor?: string) =>
-    request<YtdlSnapshot>(`/v1/ytdl${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ''}`),
+  ytdl: (cursor?: string, limit?: number) =>
+    request<YtdlSnapshot>(`/v1/ytdl${pageQuery(cursor, limit)}`),
   ytdlSubmit: (url: string, mode: 'music' | 'music-video') =>
     request<{ requestId: string; scope: string; mode: string; state: string }>(
       '/v1/ytdl',
@@ -1005,9 +1041,9 @@ export const api = {
    */
   ytdlOne: (requestId: string) =>
     request<YtdlDownload>(`/v1/ytdl/${encodeURIComponent(requestId)}`),
-  ytdlItems: (requestId: string, cursor?: string) =>
+  ytdlItems: (requestId: string, cursor?: string, limit?: number) =>
     request<{ group: YtdlDownload; items: YtdlDownload[]; nextCursor?: string }>(
-      `/v1/ytdl/${encodeURIComponent(requestId)}/items${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ''}`,
+      `/v1/ytdl/${encodeURIComponent(requestId)}/items${pageQuery(cursor, limit)}`,
     ),
 
   createTaskURIs: (
