@@ -6,4 +6,4 @@
 
 - [x] T001 `watchYtdl` fingerprints every cycle; publishes only with subscribers (FR-001, FR-002); rewrite the "costs nothing" test into the regression test (FR-003)
 - [x] T002 Gate: `go test`, e2e ytdl suites
-- [ ] T003 Merge; confirm in production; set `**Status**: shipped` and run `make roadmap`
+- [x] T003 Merge; confirm in production; set `**Status**: shipped` and run `make roadmap`

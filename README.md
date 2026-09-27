@@ -58,7 +58,7 @@ reverse proxy) whenever it's reachable from outside your LAN.
 
 ## Development
 
-Requires **Go 1.26** and **Node 22**. No Docker and no real NAS needed — dev
+Requires **Go 1.27** and **Node 24**. No Docker and no real NAS needed — dev
 runs against an in-repo mock DSM.
 
 ```sh

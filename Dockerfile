@@ -18,7 +18,7 @@
 # --- Stage 1: build the PWA -------------------------------------------------
 # Pinned to the build host's native arch ($BUILDPLATFORM): the Vite output is
 # arch-independent, so we build it once instead of emulating it per target.
-FROM --platform=$BUILDPLATFORM node:22-bookworm-slim AS web
+FROM --platform=$BUILDPLATFORM node:24-bookworm-slim AS web
 WORKDIR /web
 # Install deps from the lockfile first so this layer caches across source edits.
 COPY package.json package-lock.json ./
@@ -40,7 +40,7 @@ RUN SYNODL_VERSION="$VERSION" \
 # Also pinned to $BUILDPLATFORM and cross-compiled to the target arch via
 # GOOS/GOARCH (CGO disabled), so the Go toolchain runs natively rather than under
 # emulation. TARGETOS/TARGETARCH are provided automatically by buildx per target.
-FROM --platform=$BUILDPLATFORM golang:1.26-bookworm AS server
+FROM --platform=$BUILDPLATFORM golang:1.27-bookworm AS server
 WORKDIR /src
 COPY server/go.mod ./
 RUN go mod download

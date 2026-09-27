@@ -24,7 +24,7 @@ accepted. When in doubt, say how your change keeps the server empty-handed.
 
 ## Local setup
 
-Requires **Go 1.26** and **Node 22**. No Docker and no real NAS needed for dev.
+Requires **Go 1.27** and **Node 24**. No Docker and no real NAS needed for dev.
 
 ```sh
 npm install

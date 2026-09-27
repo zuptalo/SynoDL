@@ -303,7 +303,15 @@ test("a finished download survives its job being swept away", async ({
 
   // The cluster sweeps the job. Under spec 0012 a successful download vanished
   // with it, because the files were considered its only record.
-  await drive(requestId, "vanish");
+  // Since spec 2034 the server deletes a download's job itself once the outcome
+  // is recorded, so by now it may already be gone — a 404 here is exactly that,
+  // and is the situation this test is about (the :115 test accepts it for the
+  // same reason; going through drive() would wait 25s for a job that will never
+  // reappear and then fail).
+  const swept = await fetch(`${K8S}/__mock/jobs/${requestId}/vanish`, {
+    method: "POST",
+  });
+  expect([200, 204, 404]).toContain(swept.status);
 
   // Already signed in, so navigate rather than logging in again.
   await page.goto("/tabs/tasks");
