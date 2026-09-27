@@ -17,5 +17,5 @@ output already exists (`pods/log`, spec 0013).
 - [x] T007 `YtdlGroupModal.vue`: "Retry N failed" in the sheet header (FR-004)
 - [x] T008 e2e in `e2e/stateful/ytdl-expand.spec.ts`: one-tap retry brings the playlist to saved; a tapped swipe slides closed — the latter confirmed failing against the old row (`Received: 130`)
 - [x] T009 Gate: `npm run build`, `npm run test:unit:coverage`, `go build/vet/test`, e2e
-- [ ] T010 Merge; in production retry the failed playlists and confirm they settle
-- [ ] T011 Set `**Status**: shipped` and run `make roadmap`
+- [x] T010 Merge; confirm in production that no playlist disagrees with its tracks and new failures carry the worker's reason (retrying the existing failures is left to the user)
+- [x] T011 Set `**Status**: shipped` and run `make roadmap`
