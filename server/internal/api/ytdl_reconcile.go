@@ -184,7 +184,13 @@ func (d Deps) refreshGroups(ctx context.Context) {
 			continue
 		}
 		if c.Remaining > 0 {
-			continue // still working
+			// Still working — including a group that had finished and has had
+			// an item retried since. It reads as downloading again until that
+			// settles, rather than keeping an ending that is no longer true.
+			if g.State == string(ytdl.StateCompleted) || g.State == string(ytdl.StateFailed) {
+				_ = d.Store.ReopenYtdlGroup(g.RequestID)
+			}
+			continue
 		}
 		state := string(ytdl.StateCompleted)
 		reason := ""
@@ -195,7 +201,17 @@ func (d Deps) refreshGroups(ctx context.Context) {
 			state = string(ytdl.StateFailed)
 			reason = "some items could not be downloaded"
 		}
+		if state == g.State && reason == g.Reason {
+			continue // already says so
+		}
 		now := time.Now().Unix()
+		if g.State == string(ytdl.StateCompleted) || g.State == string(ytdl.StateFailed) {
+			// Correcting a stale ending (a failed group whose failures were all
+			// retried and saved while it still said failed). finished_at is
+			// only written on the way INTO final, so clear it first and let
+			// this write stamp when it really finished.
+			_ = d.Store.ReopenYtdlGroup(g.RequestID)
+		}
 		if err := d.Store.SetYtdlState(g.RequestID, state, reason, &now); err != nil {
 			continue
 		}
@@ -531,6 +547,16 @@ func (d Deps) captureFinished(ctx context.Context, live map[string]k8s.Job) {
 		reason := ""
 		if state == ytdl.StateFailed {
 			reason = ytdl.FailureReason(j)
+			if rec.State != string(ytdl.StateFailed) || rec.Reason == ytdl.ReasonGeneric {
+				// Once per failure, while the output still exists: the job is
+				// removed as soon as this is recorded (spec 2035). Also when
+				// the failure is ALREADY recorded generically — the list reads
+				// the Job too, and somebody looking at it can get there first
+				// with nothing better to say.
+				if why, ok := d.workerFailure(ctx, id); ok {
+					reason = why
+				}
+			}
 		}
 		if d.captureTerminal(rec, string(state), reason) && d.Jobs != nil {
 			// Recorded, so the Job has nothing left to tell anybody: the list,
@@ -674,6 +700,34 @@ func ytdlNotADownload(j k8s.Job) bool {
 	default:
 		return false
 	}
+}
+
+// workerFailure reads what a failed worker said about why (spec 2035).
+//
+// Best effort: a pod already swept, or output nobody recognises, leaves the
+// generic reason in place. A read failing here must never stop the failure
+// itself being recorded.
+func (d Deps) workerFailure(ctx context.Context, requestID string) (string, bool) {
+	pods, err := d.Jobs.ListPods(ctx, podsFor(requestID))
+	if err != nil {
+		return "", false
+	}
+	for _, p := range pods {
+		if p.Metadata.Labels[ytdl.LabelRequestID] != requestID {
+			continue
+		}
+		raw, err := d.Jobs.PodLog(ctx, p.Metadata.Name, k8s.PodLogOptions{
+			Container: "downloader",
+			TailLines: podLogTailLines,
+		})
+		if err != nil {
+			continue
+		}
+		if why, ok := ytdl.FailureFromOutput(raw); ok {
+			return why, true
+		}
+	}
+	return "", false
 }
 
 // podsFor is the selector for one request's pods: this feature's own, narrowed

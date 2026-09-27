@@ -370,3 +370,105 @@ test("every track carries artwork without a request per item", async () => {
     expect(row.artwork).toContain("i.ytimg.com");
   }
 });
+
+/** Drive one item's worker, waiting for the reconciler to have started it. */
+async function driveItem(requestId: string, action: string): Promise<void> {
+  const deadline = Date.now() + 25_000;
+  for (;;) {
+    const res = await fetch(`${K8S}/__mock/jobs/${requestId}/${action}`, {
+      method: "POST",
+    });
+    if (res.ok) return;
+    if (res.status !== 404 || Date.now() > deadline) {
+      throw new Error(`drive ${action} failed: ${res.status}`);
+    }
+    await new Promise((r) => setTimeout(r, 500));
+  }
+}
+
+async function groupState(token: string, id: string): Promise<string> {
+  return (await rows(token)).find((r) => r.requestId === id)?.state ?? "";
+}
+
+// Spec 2035. A playlist is what its tracks add up to, always — and its failed
+// tracks are one tap to retry, not one swipe each.
+test("retrying a playlist's failed tracks in one tap brings the playlist to saved", async ({
+  page,
+}) => {
+  const { requestId: gid } = await submit(
+    token,
+    "https://www.youtube.com/@lofi",
+  );
+  await emitEntries(gid, ["aaaaaaaaaaa", "bbbbbbbbbbb"]);
+  await expect
+    .poll(() => items(token, gid).then((i) => i.length), { timeout: 30_000 })
+    .toBe(2);
+  const [a, b] = await items(token, gid);
+
+  await driveItem(a.requestId, "fail");
+  await driveItem(b.requestId, "succeed");
+  await expect
+    .poll(() => groupState(token, gid), { timeout: 20_000 })
+    .toBe("failed");
+
+  await gotoTasks(page);
+  await page.getByTestId("ytdl-item").first().click();
+  const retry = page.getByTestId("ytdl-group-retry-failed");
+  await expect(retry).toHaveText(/Retry 1 failed/);
+  await retry.click();
+
+  // Reopened while the retried track runs — not still claiming to have failed.
+  await expect
+    .poll(() => groupState(token, gid), { timeout: 20_000 })
+    .not.toBe("failed");
+  await expect(retry).toBeHidden();
+
+  await driveItem(a.requestId, "succeed");
+  await expect
+    .poll(() => groupState(token, gid), { timeout: 20_000 })
+    .toBe("completed");
+  await page.getByTestId("ytdl-group-close").click();
+  await expect(page.getByTestId("ytdl-status").first()).toHaveText(/saved/i);
+});
+
+// Spec 2035. Tapping a swipe action closes the row again, as a NAS row does.
+test("tapping retry on a swiped row slides it closed", async ({ page }) => {
+  const { requestId: gid } = await submit(
+    token,
+    "https://www.youtube.com/@lofi",
+  );
+  await emitEntries(gid, ["aaaaaaaaaaa"]);
+  await expect
+    .poll(() => items(token, gid).then((i) => i.length), { timeout: 30_000 })
+    .toBe(1);
+  const [a] = await items(token, gid);
+  await driveItem(a.requestId, "fail");
+  await expect
+    .poll(() => groupState(token, gid), { timeout: 20_000 })
+    .toBe("failed");
+
+  await gotoTasks(page);
+  const sliding = page
+    .locator("ion-item-sliding")
+    .filter({
+      has: page.getByTestId("ytdl-item"),
+    })
+    .first();
+  await sliding.evaluate((el) => (el as HTMLIonItemSlidingElement).open("end"));
+  await expect
+    .poll(() =>
+      sliding.evaluate((el) =>
+        (el as HTMLIonItemSlidingElement).getOpenAmount(),
+      ),
+    )
+    .toBeGreaterThan(0);
+
+  await sliding.getByTestId("ytdl-retry").click();
+  await expect
+    .poll(() =>
+      sliding.evaluate((el) =>
+        (el as HTMLIonItemSlidingElement).getOpenAmount(),
+      ),
+    )
+    .toBe(0);
+});

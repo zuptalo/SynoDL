@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"net/http"
 
 	"synodl/server/internal/httpx"
@@ -109,6 +110,12 @@ func (d Deps) retryGroupItems(parentID string) (int, error) {
 			}
 			if ok {
 				n++
+				// As for a single retry: the old job goes so the new attempt
+				// can take its name. Usually already gone — the reconciler
+				// removes a job once its outcome is recorded (spec 2034).
+				if d.Jobs != nil {
+					_ = d.Jobs.DeleteJob(context.Background(), ytdl.JobName(it.RequestID))
+				}
 			}
 		}
 		if next == "" {
