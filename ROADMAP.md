@@ -80,7 +80,7 @@ Specs are grouped by category band; status moves
 | [1048](specs/1048-tasks-ordered-what/spec.md) | Tasks ordered by what is happening, and playlists that say why they failed | 🟢 shipped |
 | [1049](specs/1049-clearer-download-states/spec.md) | Download states named plainly, and every failed download retried in one tap | 🟡 in-progress |
 | [1050](specs/1050-clear-playlists-cannot/spec.md) | Clear the playlists that can never finish, and retry refused downloads sooner | 🟢 shipped |
-| [1051](specs/1051-unavailable-videos-recognised/spec.md) | Removed videos are recognised however YouTube words it, and failed tracks lead a playlist | 🟡 in-progress |
+| [1051](specs/1051-unavailable-videos-recognised/spec.md) | Removed videos are recognised however YouTube words it, and failed tracks lead a playlist | 🟢 shipped |
 
 ## 🐛 Hotfixes & Bug Fixes (2001+)
 
