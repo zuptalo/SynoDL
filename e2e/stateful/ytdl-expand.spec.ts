@@ -722,3 +722,34 @@ test("the Tasks menu clears playlists that can never finish, and only those", as
     .toEqual([refused]);
   await expect(page.getByTestId("ytdl-item")).toHaveCount(1);
 });
+
+// Spec 1051. Inside a playlist the failed tracks are what there is anything
+// to do about, so they lead the sheet instead of sitting under hundreds of
+// saved ones.
+test("a playlist's failed tracks are listed first in its sheet", async ({
+  page,
+}) => {
+  const { requestId: gid } = await submit(
+    token,
+    "https://www.youtube.com/@lofi",
+  );
+  await emitEntries(gid, ["aaaaaaaaaaa", "bbbbbbbbbbb", "ccccccccccc"]);
+  await expect
+    .poll(() => items(token, gid).then((i) => i.length), { timeout: 30_000 })
+    .toBe(3);
+  const [a, b, c] = await items(token, gid);
+  await driveItem(a.requestId, "succeed");
+  await driveItem(b.requestId, "fail");
+  await driveItem(c.requestId, "succeed");
+  await expect
+    .poll(() => groupState(token, gid), { timeout: 20_000 })
+    .toBe("failed");
+
+  await gotoTasks(page);
+  await page.getByTestId("ytdl-item").first().click();
+  await expect(page.getByTestId("ytdl-group-item")).toHaveCount(3);
+  const chips = page.getByTestId("ytdl-group-item").getByTestId("ytdl-status");
+  await expect(chips.first()).toHaveText("Failed");
+  await expect(chips.nth(1)).toHaveText("Finished");
+  await expect(chips.nth(2)).toHaveText("Finished");
+});
