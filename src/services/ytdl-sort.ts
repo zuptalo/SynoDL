@@ -18,18 +18,39 @@ import type { YtdlDownload, YtdlState } from '@/services/api';
 import type { TaskFilterState } from '@/services/task-sort';
 
 /**
- * Lifecycle order for the status sort: the ones doing something first, the ones
- * that are over last — the same shape as the NAS ranking, so sorting by status
- * moves both sections the same way.
+ * How much is happening, for the status sort: HIGHER means more active, so the
+ * sheet's default order — Descending — puts what is doing something on top and
+ * what is over at the bottom (spec 1044). It was a rank the other way round,
+ * which made "Status" with the default order list finished and failed rows
+ * first. The same shape as the NAS ranking, so both sections move together.
  */
-const STATE_RANK: Record<YtdlState, number> = {
-  downloading: 0,
-  scheduled: 1,
-  resolving: 2,
-  queued: 3,
-  completed: 4,
-  failed: 5,
+const ACTIVITY: Record<YtdlState, number> = {
+  downloading: 5,
+  scheduled: 4,
+  resolving: 3,
+  queued: 2,
+  completed: 1,
+  failed: 0,
 };
+/** A state this build does not know sits among the waiting ones. */
+const UNKNOWN_ACTIVITY = ACTIVITY.queued;
+
+/**
+ * A playlist's activity is whether a track in it is running NOW (spec 1044).
+ *
+ * Its own state reads "downloading" from expansion until its last track
+ * finishes — including the hours it spends waiting its turn behind every other
+ * queued track — so on state alone every unfinished playlist ties. The server's
+ * `active` count is what separates the one being worked on from the ones
+ * waiting. A server too old to send it leaves the state to speak for itself.
+ */
+function activityOf(d: YtdlDownload): number {
+  const base = ACTIVITY[d.state] ?? UNKNOWN_ACTIVITY;
+  if (d.kind !== 'group' || d.state !== 'downloading') return base;
+  const active = d.counts?.active;
+  if (active === undefined) return base;
+  return active > 0 ? ACTIVITY.downloading : ACTIVITY.queued;
+}
 
 /** What a row actually shows, which is what a search should match (FR-002). */
 function haystack(d: YtdlDownload): string {
@@ -63,7 +84,7 @@ function progressOf(d: YtdlDownload): number {
 function keyOf(d: YtdlDownload, key: TaskFilterState['sortKey']): number | string {
   switch (key) {
     case 'status':
-      return STATE_RANK[d.state] ?? 3;
+      return activityOf(d);
     case 'name':
       return (d.title || d.url).toLowerCase();
     case 'progress':

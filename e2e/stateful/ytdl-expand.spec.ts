@@ -472,3 +472,48 @@ test("tapping retry on a swiped row slides it closed", async ({ page }) => {
     )
     .toBe(0);
 });
+
+// Spec 1044. A playlist row shows how much of it is saved as a bar, and says
+// "downloading" only while a track in it actually is — not while every one of
+// its tracks is waiting behind other downloads.
+test("a playlist row shows how much is saved, and whether anything is running", async ({
+  page,
+}) => {
+  // Fill every slot first (the e2e stack runs four at once), so the playlist's
+  // tracks have to wait their turn.
+  const singles: string[] = [];
+  for (let i = 0; i < 4; i++) {
+    singles.push((await submit(token, `https://youtu.be/busy${i}`)).requestId);
+  }
+  for (const id of singles) await driveItem(id, "start");
+
+  const { requestId: gid } = await submit(
+    token,
+    "https://www.youtube.com/@lofi",
+  );
+  await emitEntries(gid, ["aaaaaaaaaaa", "bbbbbbbbbbb"]);
+  await expect
+    .poll(() => items(token, gid).then((i) => i.length), { timeout: 30_000 })
+    .toBe(2);
+
+  await gotoTasks(page);
+  const row = page
+    .getByTestId("ytdl-item")
+    .filter({ has: page.getByTestId("ytdl-group-summary") });
+  await expect(row.getByTestId("ytdl-status")).toHaveText(/waiting its turn/);
+
+  // Free the slots: the playlist's tracks start, and one of them saves.
+  for (const id of singles) await driveItem(id, "succeed");
+  const [a] = await items(token, gid);
+  await driveItem(a.requestId, "succeed");
+
+  await expect(row.getByTestId("ytdl-status")).toHaveText(/downloading/, {
+    timeout: 20_000,
+  });
+  const bar = row.getByTestId("ytdl-progress");
+  await expect
+    .poll(() => bar.evaluate((el) => (el as HTMLIonProgressBarElement).value), {
+      timeout: 20_000,
+    })
+    .toBe(0.5);
+});

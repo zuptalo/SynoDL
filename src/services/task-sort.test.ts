@@ -95,7 +95,10 @@ describe('applyTaskFilter — sorting', () => {
       task({ id: 'err', status: 'error' }),
       task({ id: 'seed', status: 'seeding' }),
     ];
-    expect(ids(applyTaskFilter(tasks, f({ sortKey: 'status', ascending: true })))).toEqual(['dl', 'seed', 'fin', 'err']);
+    // Active work first in the sheet's DEFAULT order (Descending), so picking
+    // "Status" alone does what it says (spec 1044).
+    expect(ids(applyTaskFilter(tasks, f({ sortKey: 'status' })))).toEqual(['dl', 'seed', 'fin', 'err']);
+    expect(ids(applyTaskFilter(tasks, f({ sortKey: 'status', ascending: true })))).toEqual(['err', 'fin', 'seed', 'dl']);
   });
 });
 

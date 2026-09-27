@@ -73,6 +73,7 @@ Specs are grouped by category band; status moves
 | [1041](specs/1041-discover-resume/spec.md) | Discover opens where you left it, and a search can be called off | 🟢 shipped |
 | [1042](specs/1042-tasks-list-sections/spec.md) | Every task says where it came from, and an upload says what it is | 🟢 shipped |
 | [1043](specs/1043-retry-refused-youtube/spec.md) | A YouTube download that YouTube turned away tries again by itself | 🟢 shipped |
+| [1044](specs/1044-playlist-progress-and/spec.md) | A playlist shows how much of it is saved, and sorting by status puts what is running on top | 🟡 in-progress |
 
 ## 🐛 Hotfixes & Bug Fixes (2001+)
 

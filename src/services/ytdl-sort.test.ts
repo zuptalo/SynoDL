@@ -65,17 +65,48 @@ describe('applyYtdlFilter — sorting', () => {
     ]);
   });
 
-  it('sorts by state with the ones doing something first', () => {
+  // Spec 1044: the sheet's default order is Descending, and picking "Status"
+  // without touching it must put what is doing something on top. It used to
+  // put finished and failed rows there instead.
+  it('sorts by state with the ones doing something first, in the default order', () => {
     const rows = [
       dl('done', { state: 'completed' }),
       dl('run', { state: 'downloading' }),
       dl('wait', { state: 'queued' }),
     ];
+    expect(ids(applyYtdlFilter(rows, filter({ sortKey: 'status' })))).toEqual(['run', 'wait', 'done']);
     expect(ids(applyYtdlFilter(rows, filter({ sortKey: 'status', ascending: true })))).toEqual([
-      'run',
+      'done',
       'wait',
+      'run',
+    ]);
+  });
+
+  // Spec 1044. Every playlist with anything left reads "downloading", so on
+  // state alone fifty of them tie. What sets one apart is whether a track in
+  // it is running right now.
+  it('puts a playlist with a track running ahead of one that is only waiting', () => {
+    const counts = (active: number) => ({ total: 10, completed: 2, failed: 0, remaining: 8, active });
+    const rows = [
+      dl('waiting', { kind: 'group', state: 'downloading', counts: counts(0), submittedAt: 3_000 }),
+      dl('single-queued', { state: 'queued', submittedAt: 2_000 }),
+      dl('running', { kind: 'group', state: 'downloading', counts: counts(1), submittedAt: 1_000 }),
+      dl('done', { kind: 'group', state: 'completed', counts: { ...counts(0), completed: 10, remaining: 0 } }),
+    ];
+    expect(ids(applyYtdlFilter(rows, filter({ sortKey: 'status' })))).toEqual([
+      'running',
+      'waiting',
+      'single-queued',
       'done',
     ]);
+  });
+
+  it('keeps treating a playlist as running when the server does not say how many are', () => {
+    const rows = [
+      dl('wait', { state: 'queued' }),
+      dl('grp', { kind: 'group', state: 'downloading', counts: { total: 2, completed: 0, failed: 0, remaining: 2 } }),
+    ];
+    expect(ids(applyYtdlFilter(rows, filter({ sortKey: 'status' })))).toEqual(['grp', 'wait']);
   });
 
   it('sorts by progress, counting a finished download as complete', () => {
@@ -148,11 +179,7 @@ describe('applyYtdlFilter — the cases with nothing to go on', () => {
       dl('odd', { state: 'something-new' as YtdlDownload['state'] }),
       dl('done', { state: 'completed' }),
     ];
-    expect(ids(applyYtdlFilter(rows, filter({ sortKey: 'status', ascending: true })))).toEqual([
-      'run',
-      'odd',
-      'done',
-    ]);
+    expect(ids(applyYtdlFilter(rows, filter({ sortKey: 'status' })))).toEqual(['run', 'odd', 'done']);
   });
 
   it('treats a running download with no reading as least far along', () => {

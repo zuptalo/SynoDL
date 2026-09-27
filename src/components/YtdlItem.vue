@@ -71,6 +71,19 @@ const linkLabel = computed(() => {
 // be a long wait and is nobody's fault, while "starting" means the worker is
 // coming up now. Collapsing them would make the first look like the second was
 // hanging.
+// What the row SAYS it is doing (spec 1044). A playlist's own state reads
+// "downloading" from expansion until its last track is done — including the
+// hours it can spend waiting behind every other queued track — so a list of
+// them all claimed to be downloading when one, at most two, were. With the
+// server's count of tracks running right now, a playlist with none says it is
+// waiting its turn, like any other download that is. An older server that does
+// not send the count leaves the state as it was.
+const shownState = computed(() => {
+  const d = props.download;
+  if (d.kind === 'group' && d.state === 'downloading' && d.counts?.active === 0) return 'queued';
+  return d.state;
+});
+
 const stateLabel = computed(
   () =>
     ({
@@ -80,7 +93,7 @@ const stateLabel = computed(
       downloading: 'downloading',
       completed: 'saved',
       failed: 'failed',
-    })[props.download.state],
+    })[shownState.value],
 );
 
 // Each state's Ionic colour, as BOTH the colour token and its rgb triple. The
@@ -97,7 +110,7 @@ const STATE_COLOR: Record<string, { fg: string; rgb: string; fallback: string }>
   failed: { fg: 'var(--ion-color-danger)', rgb: '--ion-color-danger-rgb', fallback: '235, 68, 90' },
 };
 
-const stateColor = computed(() => STATE_COLOR[props.download.state] ?? STATE_COLOR.queued);
+const stateColor = computed(() => STATE_COLOR[shownState.value] ?? STATE_COLOR.queued);
 const stateColorVar = computed(() => stateColor.value.fg);
 
 // The chip's own two custom properties, set inline because the colour depends on
@@ -116,7 +129,7 @@ const stateIcon = computed(
       downloading: isVideo.value ? videocamOutline : musicalNotesOutline,
       completed: checkmarkCircleOutline,
       failed: warningOutline,
-    })[props.download.state],
+    })[shownState.value],
 );
 
 const scopeLabel = computed(
@@ -139,13 +152,29 @@ const artworkFailed = ref(false);
 // could be read. Absent is a real answer here — see the file comment — so it is
 // checked with `!== undefined` rather than truthiness, or a genuine 0% would be
 // indistinguishable from "unknown".
-const progress = computed(() =>
-  props.download.state === 'downloading' && props.download.progress !== undefined
+//
+// A playlist's bar is different in kind (spec 1044): how many of its tracks are
+// saved, out of all of them. That is known from the moment it has been expanded
+// and never needs a worker's output, so it shows whenever the playlist has
+// tracks and is not yet entirely saved — including a failed one, where how far
+// it got is exactly the useful thing. No percentage beside it: the summary
+// already says "38 of 340 saved", and a second way of saying it is noise.
+const groupProgress = computed(() => {
+  const d = props.download;
+  const c = d.counts;
+  if (d.kind !== 'group' || !c || c.total <= 0 || d.state === 'completed') return undefined;
+  return c.completed / c.total;
+});
+const progress = computed(() => {
+  if (groupProgress.value !== undefined) return groupProgress.value;
+  return props.download.state === 'downloading' && props.download.progress !== undefined
     ? props.download.progress
-    : undefined,
-);
+    : undefined;
+});
 const percentLabel = computed(() =>
-  progress.value === undefined ? '' : `${Math.floor(progress.value * 100)}%`,
+  progress.value === undefined || groupProgress.value !== undefined
+    ? ''
+    : `${Math.floor(progress.value * 100)}%`,
 );
 
 // A group reports how its items are getting on rather than a percentage of its
