@@ -84,7 +84,7 @@ test.beforeEach(async () => {
   await clearYtdl(token);
 });
 
-test("a submitted song walks queued → starting → downloading → saved", async ({
+test("a submitted song walks Pending → Starting → Downloading → Finished", async ({
   page,
 }) => {
   const { status, requestId } = await submit(
@@ -98,15 +98,15 @@ test("a submitted song walks queued → starting → downloading → saved", asy
   // Queued first: submitting records the request and puts it in SynoDL's own
   // queue; the reconciler admits it when a slot frees (spec 0013, FR-022). It
   // moves on within a cycle, so poll rather than assert the instant.
-  await expect.poll(() => rowState(page), { timeout: 20_000 }).toBe("starting");
+  await expect.poll(() => rowState(page), { timeout: 20_000 }).toBe("Starting");
 
   await drive(requestId, "start");
   await expect
     .poll(() => rowState(page), { timeout: 20_000 })
-    .toBe("downloading");
+    .toBe("Downloading");
 
   await drive(requestId, "succeed");
-  await expect.poll(() => rowState(page), { timeout: 20_000 }).toBe("saved");
+  await expect.poll(() => rowState(page), { timeout: 20_000 }).toBe("Finished");
 });
 
 // FR-018, the sharpest edge in the feature. A failed download that the cluster
@@ -124,7 +124,7 @@ test("a failed download stays failed, even after its job is swept away", async (
   await expect(page.getByTestId("ytdl-item").first()).toBeVisible();
 
   await drive(requestId, "fail");
-  await expect.poll(() => rowState(page), { timeout: 20_000 }).toBe("failed");
+  await expect.poll(() => rowState(page), { timeout: 20_000 }).toBe("Failed");
 
   // The job disappears WITHOUT a terminal condition, exactly as TTL cleanup
   // would leave it. Since spec 2034 the server deletes a download's job itself
@@ -135,10 +135,10 @@ test("a failed download stays failed, even after its job is swept away", async (
   });
   expect([200, 204, 404]).toContain(res.status);
   await page.waitForTimeout(6_000);
-  expect(await rowState(page)).toBe("failed");
+  expect(await rowState(page)).toBe("Failed");
 });
 
-test("a download stopped for running too long reads as failed, not saved", async ({
+test("a download stopped for running too long reads as failed, not finished", async ({
   page,
 }) => {
   const { requestId } = await submit(token, "https://youtu.be/slow", "music");
@@ -146,7 +146,7 @@ test("a download stopped for running too long reads as failed, not saved", async
   await expect(page.getByTestId("ytdl-item").first()).toBeVisible();
 
   await drive(requestId, "deadline");
-  await expect.poll(() => rowState(page), { timeout: 20_000 }).toBe("failed");
+  await expect.poll(() => rowState(page), { timeout: 20_000 }).toBe("Failed");
 });
 
 test("a YouTube row is marked as such and offers no pause or resume", async ({
@@ -299,7 +299,7 @@ test("a finished download survives its job being swept away", async ({
   await drive(requestId, "start");
   await drive(requestId, "succeed");
   await gotoTasks(page);
-  await expect(page.getByTestId("ytdl-status")).toHaveText("saved");
+  await expect(page.getByTestId("ytdl-status")).toHaveText("Finished");
 
   // The cluster sweeps the job. Under spec 0012 a successful download vanished
   // with it, because the files were considered its only record.
@@ -317,7 +317,7 @@ test("a finished download survives its job being swept away", async ({
   ).toBeVisible();
   const row = page.getByTestId("ytdl-item").first();
   await expect(row).toBeVisible();
-  await expect(page.getByTestId("ytdl-status")).toHaveText("saved");
+  await expect(page.getByTestId("ytdl-status")).toHaveText("Finished");
   // And it still knows what it was, not just that something happened.
   await expect(page.getByTestId("ytdl-name")).not.toHaveText("");
 });
@@ -341,10 +341,10 @@ test("a queued download reads differently from one that is starting", async ({
       async () => (await page.getByTestId("ytdl-status").innerText()).trim(),
       { timeout: 20_000 },
     )
-    .toBe("starting");
+    .toBe("Starting");
 
   await drive(requestId, "start");
-  await expect(page.getByTestId("ytdl-status")).toHaveText("downloading");
+  await expect(page.getByTestId("ytdl-status")).toHaveText("Downloading");
 });
 
 /**
@@ -362,7 +362,7 @@ test("a failed download can be retried, and runs again", async ({ page }) => {
   await drive(requestId, "fail");
 
   await gotoTasks(page);
-  await expect.poll(() => rowState(page), { timeout: 20_000 }).toBe("failed");
+  await expect.poll(() => rowState(page), { timeout: 20_000 }).toBe("Failed");
 
   // Retry from the detail sheet, where someone would have just read the reason.
   await page.getByTestId("ytdl-item").first().click();
@@ -372,7 +372,7 @@ test("a failed download can be retried, and runs again", async ({ page }) => {
   // Back in the queue, then running again — and still ONE row, not two.
   await expect
     .poll(() => rowState(page), { timeout: 25_000 })
-    .toMatch(/waiting its turn|starting|downloading/);
+    .toMatch(/Pending|Starting|Downloading/);
   await expect(page.getByTestId("ytdl-item")).toHaveCount(1);
 });
 
@@ -388,7 +388,7 @@ test("retry is not offered for a download that has not failed", async ({
   await drive(requestId, "succeed");
 
   await gotoTasks(page);
-  await expect.poll(() => rowState(page), { timeout: 20_000 }).toBe("saved");
+  await expect.poll(() => rowState(page), { timeout: 20_000 }).toBe("Finished");
 
   await page.getByTestId("ytdl-item").first().click();
   await expect(page.getByTestId("ytdl-detail")).toBeVisible();

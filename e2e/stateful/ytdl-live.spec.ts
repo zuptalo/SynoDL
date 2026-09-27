@@ -126,7 +126,7 @@ test("a download changes state on screen without the list being asked again", as
   await drive(requestId, "start");
 
   await gotoTasks(page);
-  await expect(page.getByTestId("ytdl-status")).toHaveText("downloading", {
+  await expect(page.getByTestId("ytdl-status")).toHaveText("Downloading", {
     timeout: 20_000,
   });
 
@@ -143,7 +143,7 @@ test("a download changes state on screen without the list being asked again", as
   });
 
   await drive(requestId, "succeed");
-  await expect(page.getByTestId("ytdl-status")).toHaveText("saved", {
+  await expect(page.getByTestId("ytdl-status")).toHaveText("Finished", {
     timeout: 20_000,
   });
 
@@ -223,12 +223,12 @@ test("with no stream, the list still updates by asking", async ({ page }) => {
   await drive(requestId, "start");
 
   await gotoTasks(page);
-  await expect(page.getByTestId("ytdl-status")).toHaveText("downloading", {
+  await expect(page.getByTestId("ytdl-status")).toHaveText("Downloading", {
     timeout: 20_000,
   });
 
   await drive(requestId, "succeed");
-  await expect(page.getByTestId("ytdl-status")).toHaveText("saved", {
+  await expect(page.getByTestId("ytdl-status")).toHaveText("Finished", {
     timeout: 30_000,
   });
 });

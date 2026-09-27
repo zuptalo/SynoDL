@@ -78,6 +78,7 @@ Specs are grouped by category band; status moves
 | [1046](specs/1046-zarfilm-browses-through/spec.md) | ZarFilm browses through the site's advanced search | 🟢 shipped |
 | [1047](specs/1047-filters-work-across/spec.md) | Filters that work across every source | 🟢 shipped |
 | [1048](specs/1048-tasks-ordered-what/spec.md) | Tasks ordered by what is happening, and playlists that say why they failed | 🟢 shipped |
+| [1049](specs/1049-clearer-download-states/spec.md) | Download states named plainly, and every failed download retried in one tap | 🟡 in-progress |
 
 ## 🐛 Hotfixes & Bug Fixes (2001+)
 

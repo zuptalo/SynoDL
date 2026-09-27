@@ -392,7 +392,7 @@ async function groupState(token: string, id: string): Promise<string> {
 
 // Spec 2035. A playlist is what its tracks add up to, always — and its failed
 // tracks are one tap to retry, not one swipe each.
-test("retrying a playlist's failed tracks in one tap brings the playlist to saved", async ({
+test("retrying a playlist's failed tracks in one tap brings the playlist to finished", async ({
   page,
 }) => {
   const { requestId: gid } = await submit(
@@ -428,7 +428,7 @@ test("retrying a playlist's failed tracks in one tap brings the playlist to save
     .poll(() => groupState(token, gid), { timeout: 20_000 })
     .toBe("completed");
   await page.getByTestId("ytdl-group-close").click();
-  await expect(page.getByTestId("ytdl-status").first()).toHaveText(/saved/i);
+  await expect(page.getByTestId("ytdl-status").first()).toHaveText(/finished/i);
 });
 
 // Spec 2035. Tapping a swipe action closes the row again, as a NAS row does.
@@ -500,14 +500,14 @@ test("a playlist row shows how much is saved, and whether anything is running", 
   const row = page
     .getByTestId("ytdl-item")
     .filter({ has: page.getByTestId("ytdl-group-summary") });
-  await expect(row.getByTestId("ytdl-status")).toHaveText(/waiting its turn/);
+  await expect(row.getByTestId("ytdl-status")).toHaveText(/Pending/);
 
   // Free the slots: the playlist's tracks start, and one of them saves.
   for (const id of singles) await driveItem(id, "succeed");
   const [a] = await items(token, gid);
   await driveItem(a.requestId, "succeed");
 
-  await expect(row.getByTestId("ytdl-status")).toHaveText(/downloading/, {
+  await expect(row.getByTestId("ytdl-status")).toHaveText(/Downloading/, {
     timeout: 20_000,
   });
   const bar = row.getByTestId("ytdl-progress");
@@ -516,4 +516,62 @@ test("a playlist row shows how much is saved, and whether anything is running", 
       timeout: 20_000,
     })
     .toBe(0.5);
+});
+
+// Spec 1049. Everything failed is one tap to retry from the Tasks menu — the
+// count is in tracks, and one playlist's failed tracks are retried through the
+// playlist, not one by one.
+test("the Tasks menu retries every failed download at once", async ({
+  page,
+}) => {
+  const { requestId: single } = await submit(
+    token,
+    "https://youtu.be/lonely00001",
+  );
+  await driveItem(single, "fail");
+
+  const { requestId: gid } = await submit(
+    token,
+    "https://www.youtube.com/@lofi",
+  );
+  await emitEntries(gid, ["aaaaaaaaaaa", "bbbbbbbbbbb", "ccccccccccc"]);
+  await expect
+    .poll(() => items(token, gid).then((i) => i.length), { timeout: 30_000 })
+    .toBe(3);
+  const [a, b, c] = await items(token, gid);
+  await driveItem(a.requestId, "fail");
+  await driveItem(b.requestId, "fail");
+  await driveItem(c.requestId, "succeed");
+  await expect
+    .poll(() => groupState(token, gid), { timeout: 20_000 })
+    .toBe("failed");
+  await expect
+    .poll(() => groupState(token, single), { timeout: 20_000 })
+    .toBe("failed");
+
+  await gotoTasks(page);
+  await page.getByTestId("overflow-open").click();
+  const retry = page.getByRole("button", { name: /Retry failed/ });
+  await expect(retry).toHaveText(/Retry failed \(3\)/);
+  await retry.click();
+
+  // Both the single and the playlist's two tracks are running again; nothing
+  // is still "failed" — and the menu now has nothing left to retry.
+  await expect
+    .poll(() => groupState(token, single), { timeout: 20_000 })
+    .not.toBe("failed");
+  await expect
+    .poll(() => groupState(token, gid), { timeout: 20_000 })
+    .not.toBe("failed");
+  await expect
+    .poll(
+      async () =>
+        (await items(token, gid)).filter((i) => i.state === "failed").length,
+      { timeout: 20_000 },
+    )
+    .toBe(0);
+  await page.getByTestId("overflow-open").click();
+  await expect(
+    page.getByRole("button", { name: /Retry failed \(0\)/ }),
+  ).toBeVisible();
 });

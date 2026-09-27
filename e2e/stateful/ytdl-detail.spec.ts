@@ -84,7 +84,7 @@ test("tapping a download opens a sheet with everything known about it", async ({
 
   const sheet = page.getByTestId("ytdl-detail");
   await expect(sheet).toBeVisible();
-  await expect(page.getByTestId("ytdl-detail-state")).toHaveText("saved");
+  await expect(page.getByTestId("ytdl-detail-state")).toHaveText("Finished");
   await expect(page.getByTestId("ytdl-detail-mode")).toHaveText("Music");
   await expect(page.getByTestId("ytdl-detail-scope")).toHaveText("One video");
   await expect(page.getByTestId("ytdl-detail-url")).toContainText(
@@ -135,7 +135,7 @@ test("a failed download explains itself in plain language", async ({
   await gotoTasks(page);
   await page.getByTestId("ytdl-item").first().click();
   await expect(page.getByTestId("ytdl-detail")).toBeVisible();
-  await expect(page.getByTestId("ytdl-detail-state")).toHaveText("failed");
+  await expect(page.getByTestId("ytdl-detail-state")).toHaveText("Failed");
 
   const reason = await page.getByTestId("ytdl-detail-reason").innerText();
   expect(reason.trim()).not.toBe("");

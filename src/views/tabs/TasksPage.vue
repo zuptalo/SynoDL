@@ -284,6 +284,39 @@ const savedYtdl = computed(() =>
 );
 
 /**
+ * YouTube downloads with something to retry, and how many tracks that is.
+ *
+ * Same scoping as the clear: whole downloads and whole groups only, because a
+ * group's retry already re-queues every failed track inside it (spec 2035), so
+ * naming the items too would retry each one twice. The COUNT is in tracks, not
+ * rows — "Retry failed (7)" for two playlists with 3 + 4 failed tracks says what
+ * will actually happen, the way "Clear finished (12)" does.
+ */
+const retryableYtdl = computed(() =>
+  visibleYtdl.value.filter(
+    (d) =>
+      d.kind !== 'item' &&
+      (d.state === 'failed' || (d.kind === 'group' && (d.counts?.failed ?? 0) > 0)),
+  ),
+);
+const retryableYtdlCount = computed(() =>
+  retryableYtdl.value.reduce(
+    (n, d) => n + (d.kind === 'group' ? Math.max(d.counts?.failed ?? 0, 1) : 1),
+    0,
+  ),
+);
+
+/**
+ * Retry everything failed, in one tap (spec 1049). Each row is retried on its
+ * own so a refusal — a download the server is already retrying by itself, or one
+ * that has used up its attempts — stops nothing else; the next poll shows what
+ * each row is doing now.
+ */
+async function retryAllFailedYtdl(): Promise<void> {
+  await Promise.allSettled(retryableYtdl.value.map((d) => retryYtdl(d.requestId)));
+}
+
+/**
  * Clear finished, across both systems.
  *
  * It only ever cleared NAS tasks, because it is wired to the NAS list and the
@@ -334,6 +367,7 @@ async function openOverflow(): Promise<void> {
       { text: 'Select tasks', data: 'select' },
       { text: 'Pause all', data: 'pause' },
       { text: 'Resume all', data: 'resume' },
+      { text: `Retry failed (${retryableYtdlCount.value})`, data: 'retry' },
       { text: 'Delete all', role: 'destructive', data: 'delete' },
       {
         text: `Clear finished (${finished(all).length + savedYtdl.value.length})`,
@@ -357,6 +391,9 @@ async function openOverflow(): Promise<void> {
       break;
     case 'resume':
       await runResume(resumable(all));
+      break;
+    case 'retry':
+      await retryAllFailedYtdl();
       break;
     case 'delete':
       await confirmDelete(

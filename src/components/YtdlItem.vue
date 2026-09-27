@@ -36,6 +36,7 @@ import {
   warningOutline,
 } from 'ionicons/icons';
 import type { YtdlDownload } from '@/services/api';
+import { ytdlStateLabel } from '@/services/ytdl-labels';
 import { ytdlThumbSrc } from '@/services/ytdl-thumb';
 
 const props = defineProps<{ download: YtdlDownload }>();
@@ -84,17 +85,7 @@ const shownState = computed(() => {
   return d.state;
 });
 
-const stateLabel = computed(
-  () =>
-    ({
-      resolving: 'reading contents',
-      queued: 'waiting its turn',
-      scheduled: 'starting',
-      downloading: 'downloading',
-      completed: 'saved',
-      failed: 'failed',
-    })[shownState.value],
-);
+const stateLabel = computed(() => ytdlStateLabel(shownState.value));
 
 // Each state's Ionic colour, as BOTH the colour token and its rgb triple. The
 // triple is what lets the chip tint its background from the same colour the text
@@ -178,11 +169,11 @@ const percentLabel = computed(() =>
 );
 
 // A group reports how its items are getting on rather than a percentage of its
-// own — "38 of 340 saved" says more than a bar (FR-019).
+// own — "38 of 340 finished" says more than a bar (FR-019).
 const groupSummary = computed(() => {
   const c = props.download.counts;
   if (!c) return '';
-  const parts = [`${c.completed} of ${c.total} saved`];
+  const parts = [`${c.completed} of ${c.total} finished`];
   if (c.failed > 0) parts.push(`${c.failed} failed`);
   return parts.join(' · ');
 });
