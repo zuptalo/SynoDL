@@ -411,13 +411,13 @@ func FailureReason(j k8s.Job) string {
 			case "DeadlineExceeded":
 				return "took too long and was stopped"
 			case "BackoffLimitExceeded", "":
-				return "the download did not complete"
+				return ReasonGeneric
 			default:
 				return c.Reason
 			}
 		}
 	}
-	return "the download did not complete"
+	return ReasonGeneric
 }
 
 func orDefault(v, def string) string {

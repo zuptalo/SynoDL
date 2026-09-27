@@ -161,7 +161,32 @@ const groupSummary = computed(() => {
 // Retry is offered only for a failed download (FR-028): retrying a completed
 // one would re-download what is already saved, and a running one has nothing to
 // recover from yet.
-const canRetry = computed(() => props.download.state === 'failed');
+//
+// A playlist offers it whenever anything IN it has failed, not only once the
+// whole thing has finished (spec 2035): retrying a group re-queues just its
+// failed tracks, so there is no reason to make somebody wait out the other few
+// hundred first — or retry each failed track by hand.
+const canRetry = computed(
+  () =>
+    props.download.state === 'failed' ||
+    (props.download.kind === 'group' && (props.download.counts?.failed ?? 0) > 0),
+);
+
+// After a swipe action fires, slide the row back to its closed state so it does
+// not linger open over a row that has now changed (spec 2035) — the same thing
+// a NAS task row does.
+const sliding = ref<InstanceType<typeof IonItemSliding> | null>(null);
+function closeSlide(): void {
+  void (sliding.value?.$el as HTMLIonItemSlidingElement | undefined)?.close();
+}
+function onRetry(): void {
+  emit('retry', props.download.requestId);
+  closeSlide();
+}
+function onDismiss(): void {
+  emit('dismiss', props.download.requestId);
+  closeSlide();
+}
 
 // Any download can be dismissed (spec 0013, FR-005c). Spec 0012 offered this
 // only on a finished one, because dismissing a running download would have
@@ -172,7 +197,7 @@ const canDismiss = computed(() => true);
 </script>
 
 <template>
-  <ion-item-sliding :disabled="!canDismiss">
+  <ion-item-sliding ref="sliding" :disabled="!canDismiss">
     <ion-item
       button
       :detail="false"
@@ -243,7 +268,7 @@ const canDismiss = computed(() => true);
         v-if="canRetry"
         color="success"
         data-testid="ytdl-retry"
-        @click="emit('retry', download.requestId)"
+        @click="onRetry"
       >
         <ion-icon slot="icon-only" :icon="refreshOutline" />
       </ion-item-option>
@@ -251,7 +276,7 @@ const canDismiss = computed(() => true);
         v-if="canDismiss"
         color="danger"
         data-testid="ytdl-dismiss"
-        @click="emit('dismiss', download.requestId)"
+        @click="onDismiss"
       >
         <ion-icon slot="icon-only" :icon="trashOutline" />
       </ion-item-option>

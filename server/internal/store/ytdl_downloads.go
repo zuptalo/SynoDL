@@ -420,13 +420,35 @@ func (s *Store) ListYtdlResolving() ([]YtdlDownload, error) {
 	return s.listYtdlWhere(`state = 'resolving' AND kind = 'group'`)
 }
 
-// ListYtdlActiveGroups returns groups that have not reached a final state.
+// ListYtdlActiveGroups returns the groups whose stored state may no longer be
+// what their items add up to — which is what the reconciler recomputes each
+// cycle.
 //
-// A group's state follows its items, so this is what the reconciler recomputes
-// each cycle. Finished groups are excluded: once final they stay final, and
-// re-deriving them every three seconds would be work with no answer attached.
+// That is every unfinished group, AND a finished one whose items say otherwise
+// (spec 2035): a retried item is running again, a "failed" group has nothing
+// failed left in it, or a "completed" one somehow has. Final is not forever —
+// retry reopens it — so "once final they stay final" left a playlist saying
+// failed after its last failure had been retried and saved. A settled group
+// matches none of these, so it is still not re-derived every three seconds.
 func (s *Store) ListYtdlActiveGroups() ([]YtdlDownload, error) {
-	return s.listYtdlWhere(`kind = 'group' AND state NOT IN ('completed','failed','resolving')`)
+	return s.listYtdlWhere(`kind = 'group' AND state <> 'resolving' AND (
+		state NOT IN ('completed','failed')
+		OR EXISTS (SELECT 1 FROM ytdl_downloads i WHERE i.parent_id = ytdl_downloads.request_id
+		           AND i.state NOT IN ('completed','failed'))
+		OR (state = 'failed' AND NOT EXISTS (SELECT 1 FROM ytdl_downloads i
+		           WHERE i.parent_id = ytdl_downloads.request_id AND i.state = 'failed'))
+		OR (state = 'completed' AND EXISTS (SELECT 1 FROM ytdl_downloads i
+		           WHERE i.parent_id = ytdl_downloads.request_id AND i.state = 'failed')))`)
+}
+
+// ReopenYtdlGroup puts a finished group back to downloading, clearing its
+// ending, because something in it is running again (spec 2035). Only a
+// finished group moves; an unfinished one is already where it should be.
+func (s *Store) ReopenYtdlGroup(requestID string) error {
+	_, err := s.db.Exec(
+		`UPDATE ytdl_downloads SET state = 'downloading', reason = '', finished_at = NULL
+		  WHERE request_id = ? AND kind = 'group' AND state IN ('completed','failed')`, requestID)
+	return err
 }
 
 func (s *Store) listYtdlWhere(where string) ([]YtdlDownload, error) {

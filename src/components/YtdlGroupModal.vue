@@ -125,6 +125,15 @@ const summary = computed(() => {
   return parts.join(' · ');
 });
 
+// How many tracks a one-tap retry would send back (spec 2035). Retrying the
+// GROUP re-queues exactly its failed tracks and nothing that already saved, so
+// a playlist with a dozen failures is one tap rather than a dozen swipes.
+const failedCount = computed(() => props.group?.counts?.failed ?? 0);
+function retryFailed(): void {
+  const id = props.group?.requestId;
+  if (id) emit('retry', id);
+}
+
 // No label, colour or progress maps here on purpose: a track is rendered by the
 // SAME row component as a top-level download (FR-003), so the two cannot drift
 // apart the way they already had — the tracks had lost artwork, the source
@@ -142,7 +151,18 @@ const summary = computed(() => {
       </ion-toolbar>
     </ion-header>
     <ion-content>
-      <div v-if="summary" class="summary" data-testid="ytdl-group-summary-header">{{ summary }}</div>
+      <div v-if="summary" class="summary" data-testid="ytdl-group-summary-header">
+        <span>{{ summary }}</span>
+        <ion-button
+          v-if="failedCount > 0"
+          size="small"
+          fill="outline"
+          data-testid="ytdl-group-retry-failed"
+          @click="retryFailed"
+        >
+          Retry {{ failedCount }} failed
+        </ion-button>
+      </div>
 
       <ion-list data-testid="ytdl-group-items">
         <!-- The SAME row as the Tasks list. A track is a download in every
@@ -190,6 +210,11 @@ ion-content {
 }
 
 .summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
   padding: 12px 16px;
   color: var(--ion-color-medium);
   font-size: 0.9rem;

@@ -61,6 +61,13 @@ func (d Deps) captureTerminal(rec store.YtdlDownload, state, reason string) bool
 		return false
 	}
 	if rec.State == state {
+		// Already recorded. A better reason may have arrived since — the
+		// worker's own, where the first recording only had the Job's — and is
+		// worth keeping. It is not a new outcome, so nothing is announced and
+		// the finish time stays.
+		if reason != "" && reason != rec.Reason && rec.Reason == ytdl.ReasonGeneric {
+			_ = d.Store.SetYtdlState(rec.RequestID, state, reason, nil)
+		}
 		return true
 	}
 	now := time.Now().Unix()

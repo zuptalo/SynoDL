@@ -1018,3 +1018,154 @@ func TestListHealth_SaysSoOncePerTransition(t *testing.T) {
 		t.Fatal("a second outage was not reported")
 	}
 }
+
+// expandedGroup submits a channel, expands it into the given items and admits
+// them, returning the group id and its items in order.
+func expandedGroup(t *testing.T, ids ...string) (Deps, *fakeJobs, http.Handler, map[string]string, *store.Store, string, []store.YtdlDownload) {
+	t.Helper()
+	jobs := &fakeJobs{}
+	h, st := newYtdlRouter(t, jobs, ytdlCfg())
+	admin := adminAfterSetup(t, h)
+	gid := submitGroup(t, h, admin, "https://www.youtube.com/@lofi")
+
+	d := InitCaches(Deps{Cfg: ytdlCfg(), Store: st, Jobs: jobs})
+	d.reconcileYtdlOnce(context.Background())
+	expandName := ytdl.ExpandJobName(gid)
+	jobs.setStatusByName(t, expandName, k8s.JobStatus{Succeeded: 1})
+	jobs.attachPodFor(expandName, gid, ytdl.JobKindExpand)
+	jobs.logs[expandName+"-worker"] = expansionOutput("Lo-fi Beats", ids...)
+	d.reconcileYtdlOnce(context.Background())
+	items, _, _ := st.ListYtdlItems(gid, "", 100)
+	d.reconcileYtdlOnce(context.Background()) // admit
+	return d, jobs, h, admin, st, gid, items
+}
+
+// Spec 2035. A playlist's state is ALWAYS what its items add up to. Retrying
+// the one track that failed used to leave the playlist saying "failed" for
+// good — even once that track had saved and nothing in it had failed at all.
+func TestGroup_RetryingItsFailedItemReopensItAndThenSettlesIt(t *testing.T) {
+	d, jobs, h, admin, st, gid, items := expandedGroup(t, "aaaaaaaaaaa", "bbbbbbbbbbb")
+	jobs.setStatus(t, items[0].RequestID, k8s.JobStatus{Failed: 1})
+	jobs.setStatus(t, items[1].RequestID, k8s.JobStatus{Succeeded: 1})
+	d.reconcileYtdlOnce(context.Background())
+	if g, _ := st.GetYtdlDownload(gid); g.State != "failed" {
+		t.Fatalf("group = %q before the retry, want failed", g.State)
+	}
+
+	if r := do(t, h, "POST", "/v1/ytdl/"+items[0].RequestID+"/retry", "", admin); r.Code != http.StatusAccepted {
+		t.Fatalf("retry = %d", r.Code)
+	}
+	d.reconcileYtdlOnce(context.Background())
+	g, _ := st.GetYtdlDownload(gid)
+	if g.State != "downloading" {
+		t.Fatalf("group = %q while its retried item runs, want downloading", g.State)
+	}
+	if g.FinishedAt != nil || g.Reason != "" {
+		t.Errorf("a reopened group still carries its old ending: finished=%v reason=%q", g.FinishedAt, g.Reason)
+	}
+
+	jobs.setStatus(t, items[0].RequestID, k8s.JobStatus{Succeeded: 1})
+	d.reconcileYtdlOnce(context.Background())
+	g, _ = st.GetYtdlDownload(gid)
+	if g.State != "completed" || g.FinishedAt == nil {
+		t.Fatalf("group = %q (finished %v) once everything saved, want completed with a time", g.State, g.FinishedAt)
+	}
+}
+
+// Groups already stuck before this fix put themselves right: stored "failed",
+// with nothing underneath failed any more.
+func TestGroup_AStaleFinalStateIsCorrectedFromItsItems(t *testing.T) {
+	d, jobs, _, _, st, gid, items := expandedGroup(t, "aaaaaaaaaaa")
+	jobs.setStatus(t, items[0].RequestID, k8s.JobStatus{Succeeded: 1})
+	d.reconcileYtdlOnce(context.Background())
+	now := time.Now().Unix()
+	_ = st.SetYtdlState(gid, "failed", "some items could not be downloaded", &now)
+
+	d.reconcileYtdlOnce(context.Background())
+	if g, _ := st.GetYtdlDownload(gid); g.State != "completed" || g.Reason != "" {
+		t.Fatalf("group = %q %q, want completed with no reason", g.State, g.Reason)
+	}
+}
+
+// A settled group is not rewritten — or re-announced — every cycle.
+func TestGroup_ASettledGroupIsLeftAlone(t *testing.T) {
+	d, jobs, _, _, st, gid, items := expandedGroup(t, "aaaaaaaaaaa")
+	jobs.setStatus(t, items[0].RequestID, k8s.JobStatus{Failed: 1})
+	d.reconcileYtdlOnce(context.Background())
+	first, _ := st.GetYtdlDownload(gid)
+
+	groups, err := st.ListYtdlActiveGroups()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, g := range groups {
+		if g.RequestID == gid {
+			t.Fatalf("a group whose state matches its items is still re-derived every cycle")
+		}
+	}
+	d.reconcileYtdlOnce(context.Background())
+	again, _ := st.GetYtdlDownload(gid)
+	if *again.FinishedAt != *first.FinishedAt {
+		t.Error("a settled group's finish time moved")
+	}
+}
+
+// Spec 2035. The reason a failed download carries is the one its worker gave,
+// read before the job (and with it the output) is removed.
+func TestReconcile_AFailureSaysWhatTheWorkerSaid(t *testing.T) {
+	jobs := &fakeJobs{}
+	h, st := newYtdlRouter(t, jobs, ytdlCfg())
+	admin := adminAfterSetup(t, h)
+	id := ytdlRunning(t, h, jobs, st, admin, "https://youtu.be/abc")
+	jobs.emitFor(id, "ERROR: unable to download video data: HTTP Error 403: Forbidden")
+	jobs.setStatus(t, id, k8s.JobStatus{Failed: 1})
+
+	d := InitCaches(Deps{Jobs: jobs, Store: st})
+	d.reconcileYtdlOnce(context.Background())
+
+	got, _ := st.GetYtdlDownload(id)
+	if got.State != "failed" || got.Reason != ytdl.ReasonRefused {
+		t.Fatalf("record = %q %q, want failed with the worker's reason", got.State, got.Reason)
+	}
+}
+
+// With nothing readable, the failure is still recorded — just generically.
+func TestReconcile_AFailureWithNoOutputStillFails(t *testing.T) {
+	jobs := &fakeJobs{}
+	h, st := newYtdlRouter(t, jobs, ytdlCfg())
+	admin := adminAfterSetup(t, h)
+	id := ytdlRunning(t, h, jobs, st, admin, "https://youtu.be/abc")
+	jobs.setStatus(t, id, k8s.JobStatus{Failed: 1})
+
+	d := InitCaches(Deps{Jobs: jobs, Store: st})
+	d.reconcileYtdlOnce(context.Background())
+
+	got, _ := st.GetYtdlDownload(id)
+	if got.State != "failed" || got.Reason != "the download did not complete" {
+		t.Fatalf("record = %q %q, want failed with the generic reason", got.State, got.Reason)
+	}
+}
+
+// Spec 2035. Somebody looking at the list can record a failure first — the
+// list reads the Job too — and it can only say the generic thing. The worker's
+// own reason must still win, before the Job and its output are removed.
+func TestReconcile_AFailureRecordedByTheListStillGetsTheWorkersReason(t *testing.T) {
+	jobs := &fakeJobs{}
+	h, st := newYtdlRouter(t, jobs, ytdlCfg())
+	admin := adminAfterSetup(t, h)
+	id := ytdlRunning(t, h, jobs, st, admin, "https://youtu.be/abc")
+	jobs.emitFor(id, "ERROR: unable to download video data: HTTP Error 403: Forbidden")
+	jobs.setStatus(t, id, k8s.JobStatus{Failed: 1})
+
+	_ = listYtdl2(t, h, admin) // records it, generically
+	if got, _ := st.GetYtdlDownload(id); got.State != "failed" {
+		t.Fatalf("precondition: the list did not record the failure (%q)", got.State)
+	}
+
+	d := InitCaches(Deps{Jobs: jobs, Store: st})
+	d.reconcileYtdlOnce(context.Background())
+	got, _ := st.GetYtdlDownload(id)
+	if got.Reason != ytdl.ReasonRefused {
+		t.Fatalf("reason = %q, want the worker's own", got.Reason)
+	}
+}
