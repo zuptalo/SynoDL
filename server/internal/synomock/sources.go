@@ -168,7 +168,7 @@ func zarMockAdvancedForm() string {
 	}
 	b.WriteString(`</select><select name="search_order"><option value="0">order</option><option value="1">newest</option><option value="2">views</option><option value="6">imdb</option></select>`)
 	b.WriteString(`<select name="languageSearch"><option value="0">language</option><option value="all">all</option><option value="English">English</option><option value="Korean">Korean</option><option value="Klingon">Klingon</option></select>`)
-	b.WriteString(`<select name="advscountry"><option value="0">country</option><option value="all">all</option><option value="mock-us">Mockland</option><option value="mock-jp">Japan</option></select>`)
+	b.WriteString(`<select name="advscountry"><option value="0">country</option><option value="all">all</option><option value="mock-us">آمریکا</option><option value="mock-jp">ژاپن</option><option value="mock-xx">Mockland</option></select>`)
 	b.WriteString(`<select name="advsqulity"><option value="">quality</option><option value="all">all</option><option value="BluRay 1080p">BluRay 1080p</option><option value="WEB-DL 720p">WEB-DL 720p</option></select>`)
 	b.WriteString(`<input type="hidden" name="advsearch" value="on"></form>`)
 	env, _ := json.Marshal(map[string]string{"stat": "ok", "html": b.String()})
@@ -488,10 +488,13 @@ func (s *Server) handleTNMock(w http.ResponseWriter, r *http.Request) {
 					{"name": "Movie", "value": "movie", "slug": "movie"},
 					{"name": "Series", "value": "series", "slug": "series"},
 				},
-				"score":    []map[string]any{{"name": "8+", "value": "8"}, {"name": "7+", "value": "7"}},
-				"quality":  []map[string]any{{"name": "BluRay", "value": "bluray", "slug": "bluray"}},
-				"country":  []map[string]any{},
-				"language": []map[string]any{},
+				"score":   []map[string]any{{"name": "8+", "value": "8"}, {"name": "7+", "value": "7"}},
+				"quality": []map[string]any{{"name": "BluRay", "value": "bluray", "slug": "bluray"}},
+				// Persian labels and ISO codes, the way the real API answers: a
+				// country joins the other fake by its label, a language by its code
+				// (spec 1047).
+				"country":  []map[string]any{{"name": "ژاپن", "value": "JP"}, {"name": "آمریکا", "value": "US"}},
+				"language": []map[string]any{{"name": "انگلیسی", "value": "en"}, {"name": "کره‌ای", "value": "ko"}},
 				"channel":  []map[string]any{},
 				"encoder":  []string{"MockEnc"},
 				"age":      []string{"G"},

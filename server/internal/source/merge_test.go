@@ -466,3 +466,64 @@ func TestBreakerSuccessClearsTheRememberedReason(t *testing.T) {
 		t.Fatalf("reason = %q, want %q", res.Degraded[0].Reason, ReasonUnreachable)
 	}
 }
+
+// Spec 1047. Every source reports an IMDb rating, so an IMDb ordering across
+// sources can be exact rather than the round-robin approximation.
+func TestMergeByScoreOrdersAcrossSources(t *testing.T) {
+	a := []CatalogTitle{{ID: "a1", IMDbScore: 9.8}, {ID: "a2", IMDbScore: 9.5}, {ID: "a3"}}
+	b := []CatalogTitle{{ID: "b1", IMDbScore: 9.6}, {ID: "b2", IMDbScore: 7.1}}
+	got := ids(MergeByScore([][]CatalogTitle{a, b}, false))
+	want := []string{"a1", "b1", "a2", "b2", "a3"}
+	if fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Fatalf("desc = %v, want %v (unrated last)", got, want)
+	}
+	got = ids(MergeByScore([][]CatalogTitle{a, b}, true))
+	want = []string{"b2", "a2", "b1", "a1", "a3"}
+	if fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Fatalf("asc = %v, want %v (unrated still last)", got, want)
+	}
+}
+
+func TestSearchAllMergesByScoreForTheIMDbOrdering(t *testing.T) {
+	refs := []SourceRef{
+		ref(1, "one", fakeProvider{kind: "one", pages: 1, items: []CatalogTitle{{ID: "x", IMDbScore: 6}, {ID: "y", IMDbScore: 5}}}),
+		ref(2, "two", fakeProvider{kind: "two", pages: 1, items: []CatalogTitle{{ID: "p", IMDbScore: 9}, {ID: "q", IMDbScore: 5.5}}}),
+	}
+	got := ids(SearchAll(context.Background(), NewClient(), refs, SearchQuery{Page: 1, Sort: "imdb"}).Items)
+	want := []string{"2:p", "1:x", "2:q", "1:y"}
+	if fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Fatalf("imdb ordering = %v, want %v", got, want)
+	}
+	// Any other ordering keeps the interleave: sources alternate.
+	got = ids(SearchAll(context.Background(), NewClient(), refs, SearchQuery{Page: 1, Sort: "date"}).Items)
+	want = []string{"1:x", "2:p", "1:y", "2:q"}
+	if fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Fatalf("date ordering = %v, want %v", got, want)
+	}
+}
+
+// Spec 1047. Two sources label a country in Persian on different keyboards.
+func TestNormalizeFacetFoldsPersianVariants(t *testing.T) {
+	if normalizeFacet("چين") != normalizeFacet("چین") {
+		t.Fatal("Arabic and Persian yeh must fold together")
+	}
+	if normalizeFacet("كره جنوبی") != normalizeFacet("کره جنوبی") {
+		t.Fatal("Arabic and Persian kaf must fold together")
+	}
+	if normalizeFacet("کره‌ای") != normalizeFacet("کره ای") {
+		t.Fatal("a zero-width non-joiner separates like a space")
+	}
+}
+
+// Spec 1047. The option shown for a shared choice carries the slug when any
+// source has one, so the client can label it whichever source came first.
+func TestIntersectParametersPrefersTheSluggedOption(t *testing.T) {
+	words := SearchParameters{Types: []FacetOption{{Value: "movie", Name: "movie"}}}
+	codes := SearchParameters{Types: []FacetOption{{Value: "15", Name: "فیلم", Slug: "movie"}}}
+	// The first source's option has no slug and the second's does: joined by
+	// the label that equals the slug, the slugged one is shown.
+	got := IntersectParameters([]SearchParameters{words, codes})
+	if len(got.Types) != 1 || got.Types[0].Slug != "movie" || got.Types[0].Value != "15" {
+		t.Fatalf("types = %+v", got.Types)
+	}
+}

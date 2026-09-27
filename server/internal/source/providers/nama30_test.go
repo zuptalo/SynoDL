@@ -858,3 +858,32 @@ func TestThirtynamaTitleSurvivesCreditsFailure(t *testing.T) {
 		t.Fatalf("a failed lookup invented data: %+v", td)
 	}
 }
+
+// Spec 1047. The provider codes its types numerically and labels them in
+// Persian; the canonical ones carry the slug every driver speaks. Languages
+// are ISO codes already, so the code is the identity.
+func TestThirtynamaTypesAndLanguagesCarryIdentities(t *testing.T) {
+	cfg, done := fakeProvider(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Write(fixture(t, "advanced_search_parametres.json"))
+	})
+	defer done()
+	p, err := nama30{}.Parameters(context.Background(), source.NewClient(), cfg, source.Session{})
+	if err != nil {
+		t.Fatalf("Parameters: %v", err)
+	}
+	if o, ok := facetByValue(p.Types, "15"); !ok || o.Slug != "movie" {
+		t.Fatalf("type 15 = %+v, want slug movie", o)
+	}
+	if o, ok := facetByValue(p.Types, "16"); !ok || o.Slug != "series" {
+		t.Fatalf("type 16 = %+v, want slug series", o)
+	}
+	if o, ok := facetByValue(p.Types, "17&124913"); !ok || o.Slug != "" {
+		t.Fatalf("a code with no canonical name must keep its label as identity: %+v", o)
+	}
+	if o, ok := facetByValue(p.Languages, "en"); !ok || o.Slug != "en" {
+		t.Fatalf("language en = %+v", o)
+	}
+	if o, ok := facetByValue(p.Scores, "-5"); !ok || o.Slug != "score-under-5" {
+		t.Fatalf("below-5 band = %+v", o)
+	}
+}

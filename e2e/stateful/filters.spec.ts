@@ -152,3 +152,37 @@ test("the sort control offers the live orderings", async ({ page }) => {
   await expect(page.getByRole("radio", { name: "IMDb rating" })).toBeVisible();
   await expect(page.getByRole("radio", { name: "Release year" })).toHaveCount(0);
 });
+
+// Spec 1047. Combined browsing used to offer nothing but the two sources'
+// common ground, and after the second source's redesign that ground was
+// empty — even Movie/Series was gone, because one source names its types in
+// Persian codes and the other in English. The shared vocabulary is a real one.
+test("combined browsing offers type, language and country from both sources", async () => {
+  await addSource(token, "Words Source", 0, "zarfilm");
+  await addSource(token, "Codes Source", 1, "30nama");
+
+  const combined = await apiParameters(token);
+  expect(slugs(combined.types)).toEqual(expect.arrayContaining(["movie", "series"]));
+  // A language joins by ISO code: one source's "Korean" is the other's "ko".
+  expect(slugs(combined.languages)).toContain("ko");
+  // A country joins by its Persian label — the one word both sources use.
+  expect((combined.countries ?? []).map((c) => c.name)).toContain("ژاپن");
+  // A choice made from that sheet reaches BOTH sources.
+  const movie = combined.types.find((t) => t.slug === "movie")!;
+  const items = await apiSearch(token, { page: 1, filters: { type: movie.value } });
+  const contributors = new Set(items.map((i) => i.sourceName));
+  expect(contributors).toContain("Words Source");
+  expect(contributors).toContain("Codes Source");
+  for (const item of items) expect(item.type).toBe("movie");
+});
+
+test("the IMDb ordering is exact across sources, not alternated", async () => {
+  await addSource(token, "Words Source", 0, "zarfilm");
+  await addSource(token, "Codes Source", 1, "30nama");
+
+  const items = await apiSearch(token, { page: 1, sort: "imdb" });
+  const scores = items.map((i) => i.imdbScore ?? 0);
+  expect(scores.length).toBeGreaterThan(2);
+  expect(scores).toEqual([...scores].sort((a, b) => b - a));
+  expect(new Set(items.map((i) => i.sourceName)).size).toBe(2);
+});

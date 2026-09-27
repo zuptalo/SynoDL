@@ -232,11 +232,11 @@ func (p nama30) Parameters(ctx context.Context, c *source.Client, cfg source.Con
 	}
 	return source.SearchParameters{
 		Genres:    facetOptions(r.Genre),
-		Types:     facetOptions(r.Type),
+		Types:     typeFacets(r.Type),
 		Qualities: facetOptions(r.Quality),
 		Scores:    scoreFacets(r.Score),
 		Sorts:     nama30Sorts(),
-		Languages: facetOptions(r.Language),
+		Languages: isoFacets(r.Language),
 		Countries: facetOptions(r.Country),
 		Channels:  facetOptions(r.Channel),
 		Encoders:  stringFacets(r.Encoder),
@@ -267,6 +267,40 @@ func nama30Sorts() []source.FacetOption {
 	return out
 }
 
+// typeFacets gives the canonical types the identity every driver already speaks
+// (spec 1047). The provider labels them in Persian and codes them numerically,
+// which joined with nothing: another source's "movie" and this one's "فیلم"
+// are the same choice, and only a slug can say so. Codes with no canonical
+// counterpart (mini-series, concerts…) keep their label as their identity and
+// are offered when this source is browsed alone.
+func typeFacets(in []tnFacet) []source.FacetOption {
+	out := facetOptions(in)
+	for i := range out {
+		if out[i].Slug != "" {
+			continue
+		}
+		for name, code := range typeCodes {
+			if out[i].Value == code {
+				out[i].Slug = name
+			}
+		}
+	}
+	return out
+}
+
+// isoFacets is facetOptions for a facet whose values are ISO codes already —
+// the language list — so the code doubles as the cross-source identity. Without
+// it the join key was the Persian label, which no other source shares.
+func isoFacets(in []tnFacet) []source.FacetOption {
+	out := facetOptions(in)
+	for i := range out {
+		if out[i].Slug == "" {
+			out[i].Slug = out[i].Value
+		}
+	}
+	return out
+}
+
 // scoreFacets is facetOptions plus an identity derived from the band's MEANING,
 // so "8 and above" here and "8 and above" on another source are recognised as the
 // same choice. Without it the two would be compared by their Persian labels,
@@ -274,8 +308,14 @@ func nama30Sorts() []source.FacetOption {
 func scoreFacets(in []tnFacet) []source.FacetOption {
 	out := facetOptions(in)
 	for i := range out {
-		if out[i].Slug == "" && isScoreBand(out[i].Value) {
-			out[i].Slug = "score-" + out[i].Value
+		switch v := out[i].Value; {
+		case out[i].Slug != "":
+		case isScoreBand(v):
+			out[i].Slug = "score-" + v
+		case strings.HasPrefix(v, "-") && isScoreBand(v[1:]):
+			// The one band that means "below": its value is the negative of the
+			// bound, and its identity says so rather than being a Persian label.
+			out[i].Slug = "score-under-" + v[1:]
 		}
 	}
 	return out

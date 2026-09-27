@@ -180,3 +180,23 @@ func TestSourceCapsDoNotCacheFailures(t *testing.T) {
 		t.Fatalf("asked %d times, want 3 — failures must not be cached", asked)
 	}
 }
+
+// Spec 1047. One driver declares its types as the site's own numeric codes, so
+// the combined sheet offers "15" — which the other driver cannot read. Type is
+// translated like any other facet, by slug.
+func TestPerSourceFiltersTranslatesType(t *testing.T) {
+	codes := source.SourceRef{ID: 1, Name: "codes", Driver: capsProvider{params: source.SearchParameters{
+		Types: []source.FacetOption{{Value: "15", Name: "فیلم", Slug: "movie"}, {Value: "16", Name: "سریال", Slug: "series"}},
+	}}}
+	words := source.SourceRef{ID: 2, Name: "words", Driver: capsProvider{params: source.SearchParameters{
+		Types: []source.FacetOption{{Value: "movie", Slug: "movie"}, {Value: "series", Slug: "series"}},
+	}}}
+	d := Deps{caps: &capsCache{}}
+	got := d.perSourceFilters(context.Background(), []source.SourceRef{codes, words}, source.SearchFilters{Type: "15"})
+	if got[1] == nil || got[1].Type != "15" {
+		t.Fatalf("code source got %+v", got[1])
+	}
+	if got[2] == nil || got[2].Type != "movie" {
+		t.Fatalf("word source got %+v, want its own word", got[2])
+	}
+}
