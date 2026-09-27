@@ -120,3 +120,4 @@ Specs are grouped by category band; status moves
 | [2036](specs/2036-filter-sheet-scrolls-desktop/spec.md) | The filter sheet scrolls with a mouse wheel on desktop | 🟢 shipped |
 | [2037](specs/2037-zarfilm-new-card-layout/spec.md) | ZarFilm's catalog shows titles again after the site's redesign | 🟢 shipped |
 | [2038](specs/2038-notification-opens-right-download/spec.md) | Tapping a YouTube notification opens that download | 🟢 shipped |
+| [2040](specs/2040-live-list-misses/spec.md) | The live Tasks list no longer misses a download that finished just as you opened it | 🟡 in-progress |
