@@ -25,3 +25,28 @@ func TestSummarizeFailures(t *testing.T) {
 		})
 	}
 }
+
+// Spec 1050. Only failures a retry cannot change count as permanent, and a
+// playlist is "all permanent" only when it has failures and every one is.
+func TestAllPermanent(t *testing.T) {
+	cases := []struct {
+		name string
+		in   []ReasonCount
+		want bool
+	}{
+		{"nothing failed", nil, false},
+		{"zero counts only", []ReasonCount{{ReasonUnavailable, 0}}, false},
+		{"all gone or gated", []ReasonCount{{ReasonUnavailable, 3}, {ReasonAgeRestricted, 1}, {ReasonPaid, 1}, {ReasonRegion, 1}}, true},
+		{"one refusal among them", []ReasonCount{{ReasonUnavailable, 3}, {ReasonRefused, 1}}, false},
+		{"a refusal being retried", []ReasonCount{{ReasonRefusedRetrying, 1}}, false},
+		{"an unexplained failure", []ReasonCount{{ReasonUnavailable, 2}, {ReasonGeneric, 1}}, false},
+	}
+	for _, c := range cases {
+		if got := AllPermanent(c.in); got != c.want {
+			t.Errorf("%s: AllPermanent = %v, want %v", c.name, got, c.want)
+		}
+	}
+	if Permanent(ReasonGeneric) || Permanent(ReasonRefused) || !Permanent(ReasonUnavailable) {
+		t.Error("Permanent mis-classifies a reason")
+	}
+}

@@ -82,3 +82,36 @@ func shortReason(reason string) string {
 	}
 	return "did not complete"
 }
+
+// Permanent reports whether a failure reason is one a retry cannot change.
+//
+// YouTube removing a video, or gating it behind age, payment or region, is a
+// fact about the video; only a refusal (a bot check, a 403/429) is a fact about
+// the moment. "The download did not complete" says nothing either way, so it is
+// treated as retryable — dismissing on a guess would throw away something that
+// might well save next time.
+func Permanent(reason string) bool {
+	switch reason {
+	case ReasonUnavailable, ReasonAgeRestricted, ReasonPaid, ReasonRegion:
+		return true
+	}
+	return false
+}
+
+// AllPermanent reports whether every counted failure is permanent — the test
+// for a playlist that can never reach Finished, however often it is retried
+// (spec 1050). No failures at all is not "all permanent": there is nothing to
+// give up on.
+func AllPermanent(counts []ReasonCount) bool {
+	total := 0
+	for _, c := range counts {
+		if c.N <= 0 {
+			continue
+		}
+		if !Permanent(c.Reason) {
+			return false
+		}
+		total += c.N
+	}
+	return total > 0
+}

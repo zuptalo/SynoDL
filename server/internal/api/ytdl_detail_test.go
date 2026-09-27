@@ -8,6 +8,7 @@ import (
 
 	"synodl/server/internal/k8s"
 	"synodl/server/internal/store"
+	"synodl/server/internal/ytdl"
 )
 
 type ytdlDetailResp struct {
@@ -324,5 +325,56 @@ func TestYtdlItems_HonoursLimitAndPages(t *testing.T) {
 	more := get("?limit=50&cursor=" + rest.NextCursor)
 	if n := len(first.Items) + len(rest.Items) + len(more.Items); n != 120 || more.NextCursor != "" {
 		t.Fatalf("three pages = %d items, last cursor %q; want 120 and none", n, more.NextCursor)
+	}
+}
+
+// Spec 1050. A failed playlist is unrecoverable only when nothing is left to
+// run and every remaining failure is permanent. One with a refused track is
+// not: that may save next time, so "Clear failed for good" must leave it.
+func TestYtdlList_MarksUnrecoverablePlaylists(t *testing.T) {
+	jobs := &fakeJobs{}
+	h, st := newYtdlRouter(t, jobs, ytdlCfg())
+	admin := adminAfterSetup(t, h)
+	owner := adminUserID(t, st)
+
+	mk := func(gid string, reasons ...string) {
+		if err := st.CreateYtdlDownload(store.YtdlDownload{
+			RequestID: gid, Kind: store.YtdlKindGroup, UserID: &owner,
+			SourceURL: "https://www.youtube.com/@" + gid, Mode: "music", Scope: "channel",
+			State: "failed", Title: gid,
+		}); err != nil {
+			t.Fatalf("create group: %v", err)
+		}
+		for i, r := range reasons {
+			it := store.YtdlDownload{
+				RequestID: fmt.Sprintf("%s-%d", gid, i), Kind: store.YtdlKindItem, ParentID: gid, UserID: &owner,
+				SourceURL: "https://youtu.be/" + gid, VideoID: gid, Mode: "music", Scope: "single",
+				State: "completed", Origin: store.YtdlOriginExpanded, GroupName: gid,
+			}
+			if r != "" {
+				it.State, it.Reason = "failed", r
+			}
+			if err := st.CreateYtdlDownload(it); err != nil {
+				t.Fatalf("create item: %v", err)
+			}
+		}
+	}
+	mk("gone", "", "", ytdl.ReasonUnavailable, ytdl.ReasonAgeRestricted)
+	mk("refused", "", ytdl.ReasonUnavailable, ytdl.ReasonRefused)
+	mk("unexplained", "", ytdl.ReasonGeneric)
+
+	list := listYtdl(t, h, admin)
+	got := map[string]bool{}
+	for _, d := range list.Downloads {
+		got[d.RequestID] = d.Unrecoverable
+	}
+	if !got["gone"] {
+		t.Error("a playlist whose only failures are permanent was not marked unrecoverable")
+	}
+	if got["refused"] {
+		t.Error("a playlist with a refused track was marked unrecoverable; a retry may well save it")
+	}
+	if got["unexplained"] {
+		t.Error("a playlist with an unexplained failure was marked unrecoverable")
 	}
 }

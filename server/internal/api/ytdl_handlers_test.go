@@ -266,15 +266,16 @@ type ytdlSubmitResp struct {
 
 type ytdlListResp struct {
 	Downloads []struct {
-		RequestID   string `json:"requestId"`
-		URL         string `json:"url"`
-		Mode        string `json:"mode"`
-		Scope       string `json:"scope"`
-		State       string `json:"state"`
-		Title       string `json:"title"`
-		Uploader    string `json:"uploader"`
-		SubmittedBy string `json:"submittedBy"`
-		Reason      string `json:"reason"`
+		RequestID     string `json:"requestId"`
+		URL           string `json:"url"`
+		Mode          string `json:"mode"`
+		Scope         string `json:"scope"`
+		State         string `json:"state"`
+		Title         string `json:"title"`
+		Uploader      string `json:"uploader"`
+		SubmittedBy   string `json:"submittedBy"`
+		Reason        string `json:"reason"`
+		Unrecoverable bool   `json:"unrecoverable"`
 	} `json:"downloads"`
 	Degraded bool `json:"degraded"`
 }
