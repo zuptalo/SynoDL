@@ -2,6 +2,7 @@ package push
 
 import (
 	"context"
+	"encoding/json"
 	"path/filepath"
 	"testing"
 	"time"
@@ -386,5 +387,23 @@ func TestUnfinishedDestinationsIncludePausedAndErrored(t *testing.T) {
 	}
 	if !active["movie/Downloading"] {
 		t.Error("a downloading task should still read as active")
+	}
+}
+
+// Spec 2038. A YouTube download's notification says what its id names, so a
+// tap opens the download rather than a NAS task that does not exist.
+func TestPayloadSaysWhatKindOfThingTheIDNames(t *testing.T) {
+	var nas, dl map[string]string
+	if err := json.Unmarshal(payload("t", "b", "dbid_7", ""), &nas); err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(payload("t", "b", "0123456789abcdef", "download"), &dl); err != nil {
+		t.Fatal(err)
+	}
+	if _, has := nas["kind"]; has {
+		t.Fatalf("a NAS task carries no kind: %v", nas)
+	}
+	if dl["kind"] != "download" || dl["taskId"] != "0123456789abcdef" {
+		t.Fatalf("download payload = %v", dl)
 	}
 }

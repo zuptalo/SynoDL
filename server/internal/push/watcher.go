@@ -297,7 +297,7 @@ func (w *Watcher) maybeNotifyUpdate(ctx context.Context) {
 		return
 	}
 	if last != w.version {
-		w.fanOut(ctx, payload("SynoDL updated", "A new version is available.", ""))
+		w.fanOut(ctx, payload("SynoDL updated", "A new version is available.", "", ""))
 		_ = w.store.SetLastVersionNotified(w.version)
 	}
 }
@@ -306,12 +306,18 @@ func (w *Watcher) maybeNotifyUpdate(ctx context.Context) {
 // enable that event and whose scope covers this task (any user's, or — when the
 // task is attributed to them — their own).
 func (w *Watcher) notifyEvent(ctx context.Context, event string, ownerUserID int64, taskID, title, body string) {
+	w.notifyEventOf(ctx, event, ownerUserID, taskID, "", title, body)
+}
+
+// notifyEventOf is notifyEvent with the id's kind: "" for a NAS task, "download"
+// for a YouTube download.
+func (w *Watcher) notifyEventOf(ctx context.Context, event string, ownerUserID int64, taskID, kind, title, body string) {
 	subs, err := w.store.OptedInSubscriptions()
 	if err != nil {
 		return
 	}
 	body = truncate(body, 120)
-	msg := payload(title, body, taskID)
+	msg := payload(title, body, taskID, kind)
 	// Resolve the owner's username once, for the attribution suffix shown only to
 	// all-scope (admin/owner) subscribers about someone else's download.
 	ownerName := ""
@@ -347,7 +353,7 @@ func (w *Watcher) notifyEvent(ctx context.Context, event string, ownerUserID int
 		// non-admin ("own" scope) never reaches here for another user's task.
 		out := msg
 		if scope == "any" && ownerName != "" && sub.UserID != ownerUserID {
-			out = payload(title, body+" · added by "+ownerName, taskID)
+			out = payload(title, body+" · added by "+ownerName, taskID, kind)
 		}
 		w.send(ctx, sub, out)
 	}
@@ -360,8 +366,12 @@ func (w *Watcher) notifyEvent(ctx context.Context, event string, ownerUserID int
 // stands. Introducing a second set of switches for YouTube downloads would
 // surprise anyone who has already chosen to be told when a download finishes;
 // they asked about DOWNLOADS, not about which subsystem performed one.
+//
+// The payload says what KIND of thing the id names (spec 2038): a YouTube
+// download's id is not a NAS task id, and a tapped notification that opened
+// the NAS task sheet with it found "no longer available".
 func (w *Watcher) NotifyDownload(ctx context.Context, event string, ownerUserID int64, id, title, body string) {
-	w.notifyEvent(ctx, event, ownerUserID, id, title, body)
+	w.notifyEventOf(ctx, event, ownerUserID, id, "download", title, body)
 }
 
 func prefEnabled(p store.NotificationPrefs, event string) bool {
@@ -401,11 +411,16 @@ func (w *Watcher) send(ctx context.Context, sub store.Subscription, body []byte)
 
 // payload is the JSON the service worker reads to show a plain-text
 // notification. taskId (empty for instance-level notices like app updates) lets
-// the client deep-link a tapped notification to that task's detail.
-func payload(title, body, taskID string) []byte {
+// the client deep-link a tapped notification to that task's detail; kind says
+// which detail — absent for a NAS task, "download" for a YouTube download
+// (spec 2038).
+func payload(title, body, taskID, kind string) []byte {
 	m := map[string]string{"title": title, "body": body}
 	if taskID != "" {
 		m["taskId"] = taskID
+	}
+	if kind != "" {
+		m["kind"] = kind
 	}
 	b, _ := json.Marshal(m)
 	return b
