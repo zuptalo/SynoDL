@@ -77,12 +77,11 @@ func (d Deps) invalidateCaps(id int64) {
 // translatedFacets are the facets whose values differ between sources and so have
 // to be rewritten per source.
 //
-// Type is deliberately absent: its values are already canonical ("movie",
-// "series", "anime") and every driver reads them directly, so translating it
-// would replace a working shared vocabulary with a per-source one. The rest of
-// the facets are offered by one source only, so they never reach a second source
-// that would need them translated — but they are listed anyway, because a third
-// source could offer them tomorrow and the alternative is a silent mismatch.
+// Type is here too (spec 1047). It was left out on the grounds that its values
+// were already canonical — but one driver's declared type options are the
+// site's own numeric codes, which the combined sheet then offered and the other
+// driver could not read. Every facet a source may declare in its own words is
+// translated; the join is by slug, so a value shared verbatim round-trips.
 type facetAccessor struct {
 	name string
 	opts func(source.SearchParameters) []source.FacetOption
@@ -92,6 +91,12 @@ type facetAccessor struct {
 
 func translatedFacets() []facetAccessor {
 	return []facetAccessor{
+		{
+			name: "type",
+			opts: func(p source.SearchParameters) []source.FacetOption { return p.Types },
+			get:  func(f source.SearchFilters) []string { return oneOf(f.Type) },
+			set:  func(f *source.SearchFilters, v []string) { f.Type = firstOf(v) },
+		},
 		{
 			name: "genre",
 			opts: func(p source.SearchParameters) []source.FacetOption { return p.Genres },

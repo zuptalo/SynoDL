@@ -83,8 +83,9 @@ immediately and needs no SynoDL update.
 
 **Combined browsing.** With "All sources" selected, results are drawn from every
 healthy source in turn, so each one is represented from the first screenful.
-Ordering is exact within a source and approximate across them — pick a single
-source from the selector when you want its exact order.
+Ordering is exact within a source and approximate across them — except the IMDb
+ordering, which is merged by rating across sources — so pick a single source
+from the selector when you want its exact order under another sort.
 
 **The same film twice.** Sources carry overlapping catalogs, so a popular film
 will appear once per source, each labelled with where it came from. That is
@@ -97,8 +98,13 @@ disappears from the sources that are healthy.
 
 **Filters.** In combined mode the filter sheet offers only the filters every
 source understands, so anything you apply really does apply to everything on
-screen. Select a single source to get that source's own extra filters; switching
-back drops any that the others cannot honour, and tells you it did.
+screen. With 30nama and ZarFilm together that is type, genre, language,
+country, IMDb rating, year range and the shared orderings (recently added,
+most popular, IMDb rating); a choice is passed to each source in its own words.
+Select a single source to get that source's own extra filters — release
+quality, channel, encoder, age rating on 30nama; exact release labels and 3D
+on ZarFilm; switching back drops any that the others cannot honour, and tells
+you it did.
 
 ## Keeping a source working
 

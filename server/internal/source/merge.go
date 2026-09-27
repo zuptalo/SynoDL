@@ -227,7 +227,33 @@ func SearchAll(ctx context.Context, c *Client, refs []SourceRef, q SearchQuery) 
 	// Pages is the maximum across contributing sources: the list ends when every
 	// source is exhausted, not when the shortest one is.
 	out.Pages = maxPages
-	out.Items = Interleave(pages)
+	if q.Sort == "imdb" {
+		// Every source reports an IMDb rating, so an IMDb ordering can be exact
+		// across sources rather than approximate (spec 1047): a page of 9.8s
+		// from one source and 7s from the other reads as nonsense interleaved.
+		out.Items = MergeByScore(pages, q.Order == "asc")
+	} else {
+		out.Items = Interleave(pages)
+	}
+	return out
+}
+
+// MergeByScore merges per-source pages into one list ordered by IMDb rating —
+// descending unless asc — keeping each source's own order among equal scores
+// and alternating sources as Interleave does within a tie. A title with no
+// rating (0) sorts last either way: "unknown" is not a low score.
+func MergeByScore(pages [][]CatalogTitle, asc bool) []CatalogTitle {
+	out := Interleave(pages)
+	sort.SliceStable(out, func(i, j int) bool {
+		a, b := out[i].IMDbScore, out[j].IMDbScore
+		if a == 0 || b == 0 {
+			return a != 0 && b == 0
+		}
+		if asc {
+			return a < b
+		}
+		return a > b
+	})
 	return out
 }
 
@@ -341,7 +367,11 @@ func IntersectParameters(sets []SearchParameters) SearchParameters {
 				}
 				seen[k] = true
 				counts[k]++
-				if _, ok := keep[k]; !ok {
+				// The option shown for a shared choice is the first source's —
+				// unless a later source carries a slug and the first does not,
+				// since a slug is what lets the client label the option in English
+				// (an ISO code for a country, say) whichever source came first.
+				if prev, ok := keep[k]; !ok || (prev.Slug == "" && o.Slug != "") {
 					keep[k] = o
 				}
 			}
@@ -405,10 +435,21 @@ func facetKey(o FacetOption) string {
 // with every run of non-alphanumerics (spaces, hyphens, punctuation) collapsed to
 // a single hyphen. Unicode letters and digits are kept as they are, so a
 // non-English label normalizes rather than vanishing.
+//
+// Persian labels are folded a little further (spec 1047): the Arabic yeh and
+// kaf are the Persian ones — two sources typing ژاپن with different keyboards
+// mean the same country. (A zero-width non-joiner is already a separator here,
+// like a space: it is not a letter.)
 func normalizeFacet(s string) string {
 	var b strings.Builder
 	dash := false
 	for _, r := range strings.ToLower(strings.TrimSpace(s)) {
+		switch r {
+		case 'ي':
+			r = 'ی'
+		case 'ك':
+			r = 'ک'
+		}
 		if unicode.IsLetter(r) || unicode.IsDigit(r) {
 			if dash && b.Len() > 0 {
 				b.WriteByte('-')

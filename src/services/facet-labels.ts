@@ -84,8 +84,12 @@ function scoreLabel(value: string): string {
   return Number.isNaN(n) ? value : `${n.toFixed(1)}+`;
 }
 
+// The label is resolved from the SLUG first, then the value (spec 1047). In
+// combined mode the option shown is one source's, and its value is that
+// source's own word — a Persian country name, say — while the slug is the
+// cross-source identity, an ISO code, which is what Intl can name.
 function localize(f: SourceFacet, resolve: (v: string) => string): Option {
-  const label = resolve(f.value) || f.name || f.value;
+  const label = (f.slug ? resolve(f.slug) : '') || resolve(f.value) || f.name || f.value;
   return { value: f.value, label };
 }
 
@@ -100,8 +104,11 @@ export function genreOptions(facets: SourceFacet[]): Option[] {
     facets.map((f) => ({ value: f.value, label: f.slug ? titleCase(f.slug) : f.name || f.value })),
   );
 }
+// A type's slug is the canonical name ("movie"); a value is either that or a
+// provider code, which the small map covers.
+const TYPE_SLUG_LABELS: Record<string, string> = { movie: 'Movies', series: 'Series', anime: 'Anime' };
 export function typeOptions(facets: SourceFacet[]): Option[] {
-  return sorted(facets.map((f) => localize(f, (v) => TYPE_LABELS[v] ?? '')));
+  return sorted(facets.map((f) => localize(f, (v) => TYPE_SLUG_LABELS[v] ?? TYPE_LABELS[v] ?? '')));
 }
 export function qualityOptions(facets: SourceFacet[]): Option[] {
   return sorted(facets.map((f) => ({ value: f.value, label: f.value })));
