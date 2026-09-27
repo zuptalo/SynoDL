@@ -114,6 +114,13 @@ type Config struct {
 	// Requests beyond it wait in a durable queue instead of piling onto the
 	// cluster, which is what makes an uncapped channel expansion safe.
 	YtdlMaxParallel int
+	// YtdlAutoRetryAfterSeconds is how long a download YouTube turned away waits
+	// before it goes back in the queue by itself (spec 1043). Multiplied by the
+	// attempts made so far, so a second wait is longer than the first.
+	YtdlAutoRetryAfterSeconds int64
+	// YtdlAutoRetryMaxAttempts is how many attempts a turned-away download gets
+	// in total, the first included. 1 (or less) switches automatic retry off.
+	YtdlAutoRetryMaxAttempts int
 }
 
 // YtdlConfigured reports whether the operator has set this feature up. When it
@@ -153,6 +160,9 @@ func Load() (Config, error) {
 		YtdlTTLSeconds:         int32(envInt("YTDL_TTL_SECONDS", 86400)),
 		YtdlMinDurationSeconds: envInt("YTDL_MIN_DURATION_SECONDS", 90),
 		YtdlMaxParallel:        ytdlMaxParallel(envInt("YTDL_MAX_PARALLEL", defaultYtdlMaxParallel)),
+
+		YtdlAutoRetryAfterSeconds: int64(envInt("YTDL_AUTO_RETRY_AFTER_SECONDS", 1800)),
+		YtdlAutoRetryMaxAttempts:  envInt("YTDL_AUTO_RETRY_MAX_ATTEMPTS", 3),
 	}
 
 	if cfg.Env == "dev" && cfg.SynoURL == "" {

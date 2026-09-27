@@ -72,6 +72,7 @@ Specs are grouped by category band; status moves
 | [1040](specs/1040-upload-music/spec.md) | Uploading music and music videos into the library | 🟢 shipped |
 | [1041](specs/1041-discover-resume/spec.md) | Discover opens where you left it, and a search can be called off | 🟢 shipped |
 | [1042](specs/1042-tasks-list-sections/spec.md) | Every task says where it came from, and an upload says what it is | 🟢 shipped |
+| [1043](specs/1043-retry-refused-youtube/spec.md) | A YouTube download that YouTube turned away tries again by itself | 🟡 in-progress |
 
 ## 🐛 Hotfixes & Bug Fixes (2001+)
 

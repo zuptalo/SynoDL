@@ -18,11 +18,15 @@ const (
 	// reads when the worker's output is gone or unrecognised.
 	ReasonGeneric = "the download did not complete"
 
-	ReasonRefused       = "YouTube turned the request away — trying again later usually works"
-	ReasonUnavailable   = "this video is no longer available on YouTube"
-	ReasonAgeRestricted = "YouTube only plays this to signed-in adults"
-	ReasonRegion        = "YouTube does not offer this video in this region"
-	ReasonPaid          = "YouTube only plays this to paying members"
+	ReasonRefused = "YouTube turned the request away — trying again later usually works"
+	// ReasonRefusedRetrying is a refusal SynoDL will retry by itself once the
+	// cool-down has passed (spec 1043). Its own text so the row says what is
+	// going to happen rather than asking somebody to do it.
+	ReasonRefusedRetrying = "YouTube turned the request away — trying again automatically"
+	ReasonUnavailable     = "this video is no longer available on YouTube"
+	ReasonAgeRestricted   = "YouTube only plays this to signed-in adults"
+	ReasonRegion          = "YouTube does not offer this video in this region"
+	ReasonPaid            = "YouTube only plays this to paying members"
 )
 
 // FailureFromOutput reads the LAST error a worker printed and names it.

@@ -2,7 +2,6 @@ package api
 
 import (
 	"context"
-	"time"
 
 	"synodl/server/internal/k8s"
 	"synodl/server/internal/store"
@@ -70,7 +69,7 @@ func (d Deps) captureTerminal(rec store.YtdlDownload, state, reason string) bool
 		}
 		return true
 	}
-	now := time.Now().Unix()
+	now := d.clock().Unix()
 	if err := d.Store.SetYtdlState(rec.RequestID, state, reason, &now); err != nil {
 		// FR-006b: a download that saved its files is not failed because a row
 		// could not be written. Nothing is announced either — announcing an
@@ -78,6 +77,12 @@ func (d Deps) captureTerminal(rec store.YtdlDownload, state, reason string) bool
 		return false
 	}
 	rec.State, rec.Reason = state, reason
+	if reason == ytdl.ReasonRefusedRetrying {
+		// Not the outcome yet: it will be tried again by itself (spec 1043).
+		// Telling somebody it failed now would be followed by telling them it
+		// saved.
+		return true
+	}
 	d.notifyFinished(context.Background(), rec, state)
 	return true
 }
