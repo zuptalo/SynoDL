@@ -517,3 +517,25 @@ test("a playlist row shows how much is saved, and whether anything is running", 
     })
     .toBe(0.5);
 });
+
+// Spec 2038. A tapped notification opens /tabs/tasks?download=<id>. It used to
+// open ?task=<id>, the NAS task sheet, which found "no longer available".
+test("a download's deep link opens its own sheet, group or single", async ({ page }) => {
+  const { requestId: gid } = await submit(token, "https://www.youtube.com/@lofi");
+  await emitEntries(gid, ["aaaaaaaaaaa", "bbbbbbbbbbb"]);
+  await expect
+    .poll(() => items(token, gid).then((i) => i.length), { timeout: 30_000 })
+    .toBe(2);
+  const [a] = await items(token, gid);
+
+  await login(page);
+  await page.goto(`/tabs/tasks?download=${gid}`);
+  await expect(page.getByTestId("ytdl-group-items")).toBeVisible();
+  await expect(page.getByTestId("ytdl-group-item")).toHaveCount(2);
+  await expect(page.getByText("This task is no longer available.")).toHaveCount(0);
+  await page.getByTestId("ytdl-group-close").click();
+
+  await page.goto(`/tabs/tasks?download=${a.requestId}`);
+  await expect(page.getByTestId("ytdl-detail")).toBeVisible();
+  await expect(page.getByTestId("ytdl-detail-gone")).toHaveCount(0);
+});

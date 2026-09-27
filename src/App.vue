@@ -56,8 +56,12 @@ window.addEventListener('focus', clearBadge);
 // live.
 const inAppMsg = ref('');
 const inAppTaskId = ref('');
-function openTask(taskId: string): void {
-  void router.push({ path: '/tabs/tasks', query: taskId ? { task: taskId } : {} });
+// What the id names (spec 2038): '' for a NAS task, 'download' for a YouTube
+// download — each opens its own sheet on the Tasks page.
+const inAppKind = ref('');
+function openTask(taskId: string, kind = ''): void {
+  const key = kind === 'download' ? 'download' : 'task';
+  void router.push({ path: '/tabs/tasks', query: taskId ? { [key]: taskId } : {} });
 }
 // Tapping "View" opens the notification's task detail (or the Tasks list when
 // there's no task). Swipe up dismisses; the button also dismisses.
@@ -67,20 +71,20 @@ const toastButtons = [
     handler: (): void => {
       const id = inAppTaskId.value;
       inAppMsg.value = '';
-      openTask(id);
+      openTask(id, inAppKind.value);
     },
   },
 ];
 const onSwMessage = (e: MessageEvent): void => {
   const d = e.data as
-    | { type?: string; title?: string; body?: string; taskId?: string }
+    | { type?: string; title?: string; body?: string; taskId?: string; kind?: string }
     | undefined;
   if (!d) return;
   // A tapped OS notification (app already open). An app-update notice carries no
   // task id — re-check for the waiting worker so the update page surfaces here,
   // rather than navigating to Tasks.
   if (d.type === 'open-task') {
-    if (d.taskId) openTask(d.taskId);
+    if (d.taskId) openTask(d.taskId, d.kind ?? '');
     else checkForUpdate();
     return;
   }
@@ -94,6 +98,7 @@ const onSwMessage = (e: MessageEvent): void => {
   }
   if (router.currentRoute.value.path.startsWith('/tabs/tasks')) return;
   inAppTaskId.value = d.taskId;
+  inAppKind.value = d.kind ?? '';
   inAppMsg.value = d.body ? `${d.title}: ${d.body}` : (d.title ?? '');
 };
 navigator.serviceWorker?.addEventListener('message', onSwMessage);

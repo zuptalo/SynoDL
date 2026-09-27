@@ -118,3 +118,4 @@ Specs are grouped by category band; status moves
 | [2035](specs/2035-playlist-retry-and-status/spec.md) | A playlist's failed tracks are one tap to retry, and the playlist always says what its tracks add up to | 🟢 shipped |
 | [2036](specs/2036-filter-sheet-scrolls-desktop/spec.md) | The filter sheet scrolls with a mouse wheel on desktop | 🟢 shipped |
 | [2037](specs/2037-zarfilm-new-card-layout/spec.md) | ZarFilm's catalog shows titles again after the site's redesign | 🟢 shipped |
+| [2038](specs/2038-notification-opens-right-download/spec.md) | Tapping a YouTube notification opens that download | 🟡 in-progress |
