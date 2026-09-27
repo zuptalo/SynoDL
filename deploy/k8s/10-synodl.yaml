@@ -85,6 +85,12 @@ data:
   # 2, not 4: at 4, a sustained run of a few hundred tracks started drawing
   # refusals from YouTube after about an hour (2026-09-27).
   YTDL_MAX_PARALLEL: "2"
+  # A download YouTube turned away (403/429, bot check) goes back in the queue by
+  # itself after this many seconds — times the attempts made so far — up to
+  # YTDL_AUTO_RETRY_MAX_ATTEMPTS attempts in total ("1" switches it off). A video
+  # that is gone, private, paid or age-restricted is never retried by itself.
+  YTDL_AUTO_RETRY_AFTER_SECONDS: "1800"
+  YTDL_AUTO_RETRY_MAX_ATTEMPTS: "3"
   # STATIC_DIR (=/app/web, single-container mode) is baked into the image; no need
   # to repeat it here.
 ---

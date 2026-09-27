@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"synodl/server/internal/config"
 	"synodl/server/internal/k8s"
 	"synodl/server/internal/store"
 	"synodl/server/internal/ytdl"
@@ -1094,7 +1095,7 @@ func TestGroup_ASettledGroupIsLeftAlone(t *testing.T) {
 	d.reconcileYtdlOnce(context.Background())
 	first, _ := st.GetYtdlDownload(gid)
 
-	groups, err := st.ListYtdlActiveGroups()
+	groups, err := st.ListYtdlActiveGroups([2]string{ytdl.ReasonRefused, ytdl.ReasonRefusedRetrying}, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1167,5 +1168,165 @@ func TestReconcile_AFailureRecordedByTheListStillGetsTheWorkersReason(t *testing
 	got, _ := st.GetYtdlDownload(id)
 	if got.Reason != ytdl.ReasonRefused {
 		t.Fatalf("reason = %q, want the worker's own", got.Reason)
+	}
+}
+
+// autoRetryCfg is ytdlCfg with automatic retry switched on and a cool-down
+// short enough to test with.
+func autoRetryCfg() config.Config {
+	c := ytdlCfg()
+	c.YtdlAutoRetryAfterSeconds = 60
+	c.YtdlAutoRetryMaxAttempts = 3
+	return c
+}
+
+// failRefused drives a download's worker to a refusal and records it.
+func failRefused(t *testing.T, d Deps, jobs *fakeJobs, id string) {
+	t.Helper()
+	jobs.attachPod(id)
+	jobs.emitFor(id, "ERROR: unable to download video data: HTTP Error 403: Forbidden")
+	jobs.setStatus(t, id, k8s.JobStatus{Failed: 1})
+	d.reconcileYtdlOnce(context.Background())
+}
+
+// Spec 1043. YouTube turning a request away is usually over in minutes; the
+// download goes back in the queue by itself once the cool-down has passed.
+func TestAutoRetry_ARefusalIsRetriedAfterTheCoolDown(t *testing.T) {
+	jobs := &fakeJobs{}
+	h, st := newYtdlRouter(t, jobs, autoRetryCfg())
+	admin := adminAfterSetup(t, h)
+	id := ytdlRunning(t, h, jobs, st, admin, "https://youtu.be/abc")
+
+	now := time.Unix(1_800_000_000, 0)
+	d := InitCaches(Deps{Cfg: autoRetryCfg(), Jobs: jobs, Store: st})
+	d.now = func() time.Time { return now }
+	failRefused(t, d, jobs, id)
+
+	got, _ := st.GetYtdlDownload(id)
+	if got.State != "failed" || got.Reason != ytdl.ReasonRefusedRetrying {
+		t.Fatalf("record = %q %q, want failed and saying it will try again", got.State, got.Reason)
+	}
+
+	// Inside the cool-down: left alone.
+	now = time.Unix(*got.FinishedAt+30, 0)
+	d.reconcileYtdlOnce(context.Background())
+	if got, _ := st.GetYtdlDownload(id); got.State != "failed" {
+		t.Fatalf("state = %q inside the cool-down, want still failed", got.State)
+	}
+
+	// Past it: back in line, as a second attempt of the same download.
+	now = time.Unix(*got.FinishedAt+61, 0)
+	d.reconcileYtdlOnce(context.Background())
+	got, _ = st.GetYtdlDownload(id)
+	if got.State == "failed" || got.Attempts != 2 {
+		t.Fatalf("record = %q attempt %d past the cool-down, want requeued as attempt 2", got.State, got.Attempts)
+	}
+}
+
+// Bounded: after the last attempt it stays failed, and says so plainly.
+func TestAutoRetry_StopsAfterTheLastAttempt(t *testing.T) {
+	jobs := &fakeJobs{}
+	h, st := newYtdlRouter(t, jobs, autoRetryCfg())
+	admin := adminAfterSetup(t, h)
+	id := ytdlRunning(t, h, jobs, st, admin, "https://youtu.be/abc")
+
+	now := time.Unix(1_800_000_000, 0)
+	d := InitCaches(Deps{Cfg: autoRetryCfg(), Jobs: jobs, Store: st})
+	d.now = func() time.Time { return now }
+
+	for attempt := 1; attempt <= 3; attempt++ {
+		failRefused(t, d, jobs, id)
+		got, _ := st.GetYtdlDownload(id)
+		if got.Attempts != attempt {
+			t.Fatalf("attempts = %d, want %d", got.Attempts, attempt)
+		}
+		now = now.Add(24 * time.Hour)
+		d.reconcileYtdlOnce(context.Background()) // retry, if it will
+		d.reconcileYtdlOnce(context.Background()) // admit
+	}
+	got, _ := st.GetYtdlDownload(id)
+	if got.State != "failed" || got.Reason != ytdl.ReasonRefused || got.Attempts != 3 {
+		t.Fatalf("record = %q %q attempt %d, want failed for good after 3", got.State, got.Reason, got.Attempts)
+	}
+}
+
+// Only a refusal. A video that is gone is gone, and asking again is just
+// another request for YouTube to count.
+func TestAutoRetry_APermanentFailureIsNeverRetried(t *testing.T) {
+	jobs := &fakeJobs{}
+	h, st := newYtdlRouter(t, jobs, autoRetryCfg())
+	admin := adminAfterSetup(t, h)
+	id := ytdlRunning(t, h, jobs, st, admin, "https://youtu.be/abc")
+
+	now := time.Unix(1_800_000_000, 0)
+	d := InitCaches(Deps{Cfg: autoRetryCfg(), Jobs: jobs, Store: st})
+	d.now = func() time.Time { return now }
+	jobs.emitFor(id, "ERROR: [youtube] abc: Video unavailable")
+	jobs.setStatus(t, id, k8s.JobStatus{Failed: 1})
+	d.reconcileYtdlOnce(context.Background())
+
+	now = now.Add(24 * time.Hour)
+	d.reconcileYtdlOnce(context.Background())
+	got, _ := st.GetYtdlDownload(id)
+	if got.State != "failed" || got.Attempts != 1 {
+		t.Fatalf("record = %q attempt %d, want left failed", got.State, got.Attempts)
+	}
+}
+
+// Switched off, a refusal reads as before and nothing is retried.
+func TestAutoRetry_OffMeansOff(t *testing.T) {
+	jobs := &fakeJobs{}
+	h, st := newYtdlRouter(t, jobs, ytdlCfg())
+	admin := adminAfterSetup(t, h)
+	id := ytdlRunning(t, h, jobs, st, admin, "https://youtu.be/abc")
+
+	now := time.Unix(1_800_000_000, 0)
+	d := InitCaches(Deps{Cfg: ytdlCfg(), Jobs: jobs, Store: st})
+	d.now = func() time.Time { return now }
+	failRefused(t, d, jobs, id)
+	now = now.Add(24 * time.Hour)
+	d.reconcileYtdlOnce(context.Background())
+
+	got, _ := st.GetYtdlDownload(id)
+	if got.State != "failed" || got.Reason != ytdl.ReasonRefused || got.Attempts != 1 {
+		t.Fatalf("record = %q %q attempt %d, want failed and not retried", got.State, got.Reason, got.Attempts)
+	}
+}
+
+// A playlist with a track waiting for its automatic retry has not finished:
+// it neither reports failed nor notifies until that track settles.
+func TestAutoRetry_APlaylistWaitsForItsRetriesBeforeFinishing(t *testing.T) {
+	jobs := &fakeJobs{}
+	h, st := newYtdlRouter(t, jobs, autoRetryCfg())
+	admin := adminAfterSetup(t, h)
+	gid := submitGroup(t, h, admin, "https://www.youtube.com/@lofi")
+
+	now := time.Unix(1_800_000_000, 0)
+	d := InitCaches(Deps{Cfg: autoRetryCfg(), Store: st, Jobs: jobs})
+	d.now = func() time.Time { return now }
+	d.reconcileYtdlOnce(context.Background())
+	expandName := ytdl.ExpandJobName(gid)
+	jobs.setStatusByName(t, expandName, k8s.JobStatus{Succeeded: 1})
+	jobs.attachPodFor(expandName, gid, ytdl.JobKindExpand)
+	jobs.logs[expandName+"-worker"] = expansionOutput("Lo-fi Beats", "aaaaaaaaaaa", "bbbbbbbbbbb")
+	d.reconcileYtdlOnce(context.Background())
+	items, _, _ := st.ListYtdlItems(gid, "", 100)
+	d.reconcileYtdlOnce(context.Background())
+
+	jobs.setStatus(t, items[1].RequestID, k8s.JobStatus{Succeeded: 1})
+	failRefused(t, d, jobs, items[0].RequestID)
+
+	if g, _ := st.GetYtdlDownload(gid); g.State != "downloading" {
+		t.Fatalf("group = %q with a retry pending, want downloading", g.State)
+	}
+
+	// The retry works: the playlist finishes, saved.
+	now = now.Add(time.Hour)
+	d.reconcileYtdlOnce(context.Background()) // requeue
+	d.reconcileYtdlOnce(context.Background()) // admit
+	jobs.setStatus(t, items[0].RequestID, k8s.JobStatus{Succeeded: 1})
+	d.reconcileYtdlOnce(context.Background())
+	if g, _ := st.GetYtdlDownload(gid); g.State != "completed" {
+		t.Fatalf("group = %q once the retry saved, want completed", g.State)
 	}
 }

@@ -6,6 +6,7 @@ import (
 	"context"
 	"log/slog"
 	"net/http"
+	"time"
 
 	"synodl/server/internal/config"
 	"synodl/server/internal/httpx"
@@ -66,6 +67,10 @@ type Deps struct {
 	// so the start and end of an outage are each logged once (spec 2034). A
 	// POINTER for the same reason ytdlProgress is.
 	ytdlListHealth *listHealth
+
+	// now is the reconciler's clock; nil means the real one. A test seam, so a
+	// retry cool-down can be tested without waiting it out.
+	now func() time.Time
 
 	// ytdlHub fans a change out to whoever is watching (spec 1038), and
 	// ytdlSeen is what was last said about each download so the reconciler can

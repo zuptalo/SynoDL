@@ -114,6 +114,7 @@ func (d Deps) reconcileYtdlOnce(ctx context.Context) {
 	d.captureFinished(ctx, live)
 	d.resolveVanished(live)
 	d.resolveExpansions(ctx, jobs)
+	d.retryRefused()
 	d.refreshGroups(ctx)
 	d.sweepDismissed(ctx, jobs)
 	d.admitQueued(ctx)
@@ -174,7 +175,8 @@ func (d Deps) refreshGroups(ctx context.Context) {
 	if d.Store == nil {
 		return
 	}
-	groups, err := d.Store.ListYtdlActiveGroups()
+	reasons, maxAttempts := d.retryPolicy()
+	groups, err := d.Store.ListYtdlActiveGroups(reasons, maxAttempts)
 	if err != nil {
 		return
 	}
@@ -183,7 +185,15 @@ func (d Deps) refreshGroups(ctx context.Context) {
 		if err != nil || c.Total == 0 {
 			continue
 		}
-		if c.Remaining > 0 {
+		// A track waiting out its cool-down before an automatic retry has not
+		// finished either (spec 1043). Reporting the playlist failed now would
+		// be announcing an outcome that is about to change — and then
+		// announcing it again.
+		waiting, err := d.Store.CountYtdlAwaitingRetry(g.RequestID, reasons, maxAttempts)
+		if err != nil {
+			continue
+		}
+		if c.Remaining > 0 || waiting > 0 {
 			// Still working — including a group that had finished and has had
 			// an item retried since. It reads as downloading again until that
 			// settles, rather than keeping an ending that is no longer true.
@@ -558,6 +568,9 @@ func (d Deps) captureFinished(ctx context.Context, live map[string]k8s.Job) {
 				}
 			}
 		}
+		if reason == ytdl.ReasonRefused && d.willRetry(rec.Attempts) {
+			reason = ytdl.ReasonRefusedRetrying
+		}
 		if d.captureTerminal(rec, string(state), reason) && d.Jobs != nil {
 			// Recorded, so the Job has nothing left to tell anybody: the list,
 			// the detail view and history all read the record from here on. It
@@ -728,6 +741,65 @@ func (d Deps) workerFailure(ctx context.Context, requestID string) (string, bool
 		}
 	}
 	return "", false
+}
+
+// clock is the reconciler's notion of now.
+func (d Deps) clock() time.Time {
+	if d.now != nil {
+		return d.now()
+	}
+	return time.Now()
+}
+
+// retryPolicy is what counts as awaiting an automatic retry (spec 1043): the
+// two refusal reasons, and the attempts a download may have in total. With
+// automatic retry off the limit is 0, which nothing is below.
+func (d Deps) retryPolicy() ([2]string, int) {
+	reasons := [2]string{ytdl.ReasonRefused, ytdl.ReasonRefusedRetrying}
+	if d.Cfg.YtdlAutoRetryMaxAttempts <= 1 {
+		return reasons, 0
+	}
+	return reasons, d.Cfg.YtdlAutoRetryMaxAttempts
+}
+
+// willRetry reports whether a refusal on the given attempt will be retried
+// automatically.
+func (d Deps) willRetry(attempts int) bool {
+	_, maxAttempts := d.retryPolicy()
+	return attempts < maxAttempts
+}
+
+// retryRefused sends back to the queue each download YouTube turned away whose
+// cool-down has passed (spec 1043).
+//
+// Only refusals: they are YouTube saying "not now" — HTTP 403/429 or its bot
+// check — and nearly all of them work a while later. A video that is gone,
+// private, paid or age-restricted is not asked for again; that would only be
+// another request for YouTube to hold against this address. The wait grows
+// with each attempt, and the attempts are bounded, so an address YouTube has
+// taken against is not kept knocking.
+//
+// A retried download joins the BACK of the queue, like a user's retry: the
+// queue itself is part of the cool-down.
+func (d Deps) retryRefused() {
+	if d.Store == nil {
+		return
+	}
+	reasons, maxAttempts := d.retryPolicy()
+	if maxAttempts == 0 {
+		return
+	}
+	after := d.Cfg.YtdlAutoRetryAfterSeconds
+	if after < 0 {
+		after = 0
+	}
+	due, err := d.Store.ListYtdlRetryDue(reasons, maxAttempts, after, d.clock().Unix())
+	if err != nil {
+		return
+	}
+	for _, id := range due {
+		_, _ = d.Store.RequeueYtdl(id)
+	}
 }
 
 // podsFor is the selector for one request's pods: this feature's own, narrowed

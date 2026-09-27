@@ -224,3 +224,27 @@ func TestLoad_YtdlMaxParallel(t *testing.T) {
 		})
 	}
 }
+
+// Automatic retry of a refused YouTube download (spec 1043) is on by default,
+// with a cool-down worth waiting for, and an operator can switch it off.
+func TestLoad_YtdlAutoRetry(t *testing.T) {
+	t.Setenv("YTDL_AUTO_RETRY_AFTER_SECONDS", "")
+	t.Setenv("YTDL_AUTO_RETRY_MAX_ATTEMPTS", "")
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.YtdlAutoRetryAfterSeconds != 1800 || cfg.YtdlAutoRetryMaxAttempts != 3 {
+		t.Fatalf("defaults = %ds / %d attempts, want 1800s / 3", cfg.YtdlAutoRetryAfterSeconds, cfg.YtdlAutoRetryMaxAttempts)
+	}
+
+	t.Setenv("YTDL_AUTO_RETRY_AFTER_SECONDS", "600")
+	t.Setenv("YTDL_AUTO_RETRY_MAX_ATTEMPTS", "1")
+	cfg, err = Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.YtdlAutoRetryAfterSeconds != 600 || cfg.YtdlAutoRetryMaxAttempts != 1 {
+		t.Fatalf("override = %ds / %d attempts, want 600s / 1 (off)", cfg.YtdlAutoRetryAfterSeconds, cfg.YtdlAutoRetryMaxAttempts)
+	}
+}

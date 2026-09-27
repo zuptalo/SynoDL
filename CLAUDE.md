@@ -148,7 +148,10 @@ release build has no such branch, so that lookup's two-host allowlist is
 structural.
 
 `YTDL_MAX_PARALLEL` (default 4) bounds how many YouTube downloads run at once
-for the whole instance; everything beyond it waits in a durable queue.
+for the whole instance; everything beyond it waits in a durable queue. A
+download YouTube turned away (403/429, bot check) is re-queued by itself after
+`YTDL_AUTO_RETRY_AFTER_SECONDS` × attempts, up to `YTDL_AUTO_RETRY_MAX_ATTEMPTS`
+(default 1800 / 3; `1` = off) — refusals only, never a permanent failure.
 
 The production container still listens on the conventional **8080**
 internally — only dev listeners and the compose *host* port use the block.

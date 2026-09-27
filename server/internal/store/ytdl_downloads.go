@@ -367,10 +367,12 @@ func (s *Store) MarkYtdlAdmitted(requestID string) (bool, error) {
 
 // RequeueYtdl sends a failed download back to the queue for another attempt.
 //
-// The one edge out of a final state (FR-013c), and only ever from an explicit
-// user action — nothing in the server calls this on its own (0012 FR-021, which
-// spec 0013 keeps). Conditional on the row still being failed, so a double-tap
-// cannot count as two attempts.
+// The one edge out of a final state (FR-013c). A user's retry, or — since spec
+// 1043, and ONLY for a download YouTube turned away, with attempts left — the
+// reconciler's. That narrows 0012 FR-021 rather than dropping it: the rule was
+// that a partially completed run is never repeated on its own, and a refused
+// download completed nothing. Conditional on the row still being failed, so a
+// double-tap cannot count as two attempts.
 func (s *Store) RequeueYtdl(requestID string) (bool, error) {
 	res, err := s.db.Exec(
 		`UPDATE ytdl_downloads
@@ -383,6 +385,48 @@ func (s *Store) RequeueYtdl(requestID string) (bool, error) {
 	}
 	n, err := res.RowsAffected()
 	return n > 0, err
+}
+
+// ytdlAwaitingRetry is the predicate for a download SynoDL will retry by itself
+// (spec 1043): failed because YouTube turned it away, with attempts left. The
+// reasons are passed in rather than spelled here, so the words stay in one
+// place (internal/ytdl). It covers refusals recorded before automatic retry
+// existed too — those read ReasonRefused with attempts to spare.
+const ytdlAwaitingRetry = `state = 'failed' AND kind <> 'group' AND reason IN (?, ?) AND attempts < ?`
+
+// ListYtdlRetryDue returns the downloads awaiting an automatic retry whose
+// cool-down — afterSeconds for each attempt already made — has passed by now.
+func (s *Store) ListYtdlRetryDue(reasons [2]string, maxAttempts int, afterSeconds, now int64) ([]string, error) {
+	rows, err := s.db.Query(
+		`SELECT request_id FROM ytdl_downloads
+		  WHERE `+ytdlAwaitingRetry+`
+		    AND COALESCE(finished_at, 0) + ? * attempts <= ?
+		  ORDER BY finished_at ASC`,
+		reasons[0], reasons[1], maxAttempts, afterSeconds, now)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		out = append(out, id)
+	}
+	return out, rows.Err()
+}
+
+// CountYtdlAwaitingRetry reports how many of a group's items are waiting for an
+// automatic retry — which means the group has not finished yet. The same
+// condition is spelled out, per item, inside ListYtdlActiveGroups.
+func (s *Store) CountYtdlAwaitingRetry(parentID string, reasons [2]string, maxAttempts int) (int, error) {
+	var n int
+	err := s.db.QueryRow(
+		`SELECT COUNT(*) FROM ytdl_downloads WHERE parent_id = ? AND `+ytdlAwaitingRetry,
+		parentID, reasons[0], reasons[1], maxAttempts).Scan(&n)
+	return n, err
 }
 
 // FindYtdlInFlight returns the request id of a download for this item and mode
@@ -430,15 +474,22 @@ func (s *Store) ListYtdlResolving() ([]YtdlDownload, error) {
 // retry reopens it — so "once final they stay final" left a playlist saying
 // failed after its last failure had been retried and saved. A settled group
 // matches none of these, so it is still not re-derived every three seconds.
-func (s *Store) ListYtdlActiveGroups() ([]YtdlDownload, error) {
+//
+// A group with an item awaiting an automatic retry (spec 1043) counts as
+// disagreeing too if it is stored as finished: it has not finished.
+func (s *Store) ListYtdlActiveGroups(retryReasons [2]string, maxAttempts int) ([]YtdlDownload, error) {
 	return s.listYtdlWhere(`kind = 'group' AND state <> 'resolving' AND (
 		state NOT IN ('completed','failed')
 		OR EXISTS (SELECT 1 FROM ytdl_downloads i WHERE i.parent_id = ytdl_downloads.request_id
 		           AND i.state NOT IN ('completed','failed'))
+		OR (state IN ('completed','failed') AND EXISTS (SELECT 1 FROM ytdl_downloads i
+		           WHERE i.parent_id = ytdl_downloads.request_id AND i.state = 'failed'
+		             AND i.reason IN (?, ?) AND i.attempts < ?))
 		OR (state = 'failed' AND NOT EXISTS (SELECT 1 FROM ytdl_downloads i
 		           WHERE i.parent_id = ytdl_downloads.request_id AND i.state = 'failed'))
 		OR (state = 'completed' AND EXISTS (SELECT 1 FROM ytdl_downloads i
-		           WHERE i.parent_id = ytdl_downloads.request_id AND i.state = 'failed')))`)
+		           WHERE i.parent_id = ytdl_downloads.request_id AND i.state = 'failed')))`,
+		retryReasons[0], retryReasons[1], maxAttempts)
 }
 
 // ReopenYtdlGroup puts a finished group back to downloading, clearing its
@@ -451,8 +502,8 @@ func (s *Store) ReopenYtdlGroup(requestID string) error {
 	return err
 }
 
-func (s *Store) listYtdlWhere(where string) ([]YtdlDownload, error) {
-	rows, err := s.db.Query(`SELECT ` + ytdlCols + ` FROM ytdl_downloads WHERE ` + where + ` ORDER BY queue_seq ASC`)
+func (s *Store) listYtdlWhere(where string, args ...any) ([]YtdlDownload, error) {
+	rows, err := s.db.Query(`SELECT `+ytdlCols+` FROM ytdl_downloads WHERE `+where+` ORDER BY queue_seq ASC`, args...)
 	if err != nil {
 		return nil, err
 	}

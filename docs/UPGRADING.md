@@ -81,6 +81,27 @@ usually the real ceiling before the cluster is.
 **Nothing to do about the database.** The upgrade adds one table and migrates
 your existing failure records into it on first start.
 
+### Upgrading to 0.19.0 (automatic retry of refused YouTube downloads)
+
+Nothing is required. A YouTube download that YouTube turned away (HTTP 403/429
+or its "confirm you're not a bot" check) now goes back in the queue by itself
+after a cool-down, a bounded number of times. Downloads that failed for a
+permanent reason — the video is gone, private, paid or age-restricted — are
+never retried automatically. Refusals recorded before the upgrade are picked up
+too. Two optional knobs:
+
+```yaml
+  # Seconds before the first automatic retry; each later one waits that much
+  # longer again (30 min, then 60 min, …).
+  YTDL_AUTO_RETRY_AFTER_SECONDS: "1800"
+  # Attempts in total, the first included. "1" switches automatic retry off.
+  YTDL_AUTO_RETRY_MAX_ATTEMPTS: "3"
+```
+
+If refusals keep coming, lowering `YTDL_MAX_PARALLEL` spreads the same work over
+more time; YouTube reacts to the volume from one address more than to how many
+downloads overlap.
+
 ## Upgrading
 
 ```sh
