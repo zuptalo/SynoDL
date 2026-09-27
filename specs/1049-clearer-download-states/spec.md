@@ -18,9 +18,11 @@
 A YouTube download's state chip said "saved", "waiting its turn", "starting"
 in lower case, next to NAS task chips that say "Finished", "Waiting", "Paused".
 The two lists sit on one screen and read as one, so a track and a torrent that
-are both done should be called the same thing, spelt the same way. The row chip
-and the detail sheet each carried their own copy of the words, so they could
-drift — and an unmapped state rendered as an empty chip.
+are both done should be called the same thing, spelt the same way — and
+"waiting its turn" did not read as a state at all, so a queued download looked
+as if it had none. The row chip and the detail sheet each carried their own
+copy of the words, so they could drift, and a state added later would render
+as an empty chip.
 
 Retrying failed downloads was per row (a swipe) or per playlist (a button
 inside it, spec 2035). With several failed playlists, that is still one visit
