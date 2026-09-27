@@ -77,6 +77,10 @@ const editingProvider = computed(() =>
 );
 const isNew = computed(() => editing.value === 'new');
 const currentKind = computed(() => kinds.value.find((k) => k.kind === formKind.value));
+// A source with no address of its own must be told where the site is now
+// (spec 1045) — its field is then the site's address, required, not an
+// optional override of a built-in one.
+const addressRequired = computed(() => currentKind.value?.addressRequired === true);
 // The driver's proper name for a configured source. `kind` is an internal
 // registry key ("thirtynama") that exists only so a row can find its driver —
 // it is not what the site is called, and showing it raw made 30nama read as
@@ -253,6 +257,8 @@ async function save(): Promise<void> {
   } catch (e) {
     if (e instanceof ApiError && e.code === 'verify_failed') {
       errorMsg.value = verifyMessage(e.reason);
+    } else if (e instanceof ApiError && e.code === 'address_required') {
+      errorMsg.value = "Enter the site's current address, e.g. https://example.com.";
     } else if (e instanceof ApiError && (e.code === 'bad_base' || e.code === 'bad_alt_base')) {
       errorMsg.value = e.reason ?? 'That address is not usable.';
     } else if (e instanceof ApiError && e.code === 'unknown_provider') {
@@ -390,11 +396,18 @@ async function saveMaxSize(): Promise<void> {
           <ion-item>
             <ion-input
               v-model="mainBase"
-              label="Main address (optional)"
+              :label="addressRequired ? 'Site address' : 'Main address (optional)'"
               label-placement="stacked"
-              placeholder="leave blank to use the built-in address"
+              :placeholder="addressRequired ? 'https://zhomis.info' : 'leave blank to use the built-in address'"
+              :required="addressRequired"
+              data-testid="source-main-base"
             />
           </ion-item>
+          <ion-note v-if="addressRequired" class="hint">
+            This site moves between addresses, so SynoDL has none built in. Enter the one it
+            is at now, and paste the sign-in from a browser signed in at that same address —
+            a sign-in from another address does not carry over.
+          </ion-note>
           <ion-item>
             <ion-input
               v-model="altBase"

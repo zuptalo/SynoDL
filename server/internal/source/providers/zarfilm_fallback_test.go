@@ -49,9 +49,6 @@ func newTwoSites(t *testing.T) *twoSites {
 	mainURL, altURL = ts.main.URL, ts.mirror.URL
 	t.Cleanup(func() { ts.main.Close(); ts.mirror.Close() })
 
-	old := zarBase
-	zarBase = ts.main.URL
-	t.Cleanup(func() { zarBase = old })
 	ResetBasePrefs()
 	return ts
 }
@@ -59,6 +56,7 @@ func newTwoSites(t *testing.T) *twoSites {
 func (ts *twoSites) cfg() source.Config {
 	c := zarfilm{}.Hosts()
 	c.APIHosts = []string{"127.0.0.1"}
+	c.MainBase = ts.main.URL
 	c.AltBase = ts.mirror.URL
 	return c
 }
@@ -110,10 +108,11 @@ func TestDoesNotFailOverOnAuthFailure(t *testing.T) {
 		_, _ = w.Write([]byte(`<script>var ajax_var = {"u":"0","logged":""};</script>`))
 	}))
 	defer loggedOut.Close()
-	zarBase = loggedOut.URL
+	cfg := ts.cfg()
+	cfg.MainBase = loggedOut.URL
 
 	before := ts.altHits.Load()
-	_, err := zarfilm{}.Search(context.Background(), source.NewClient(), ts.cfg(), sess(),
+	_, err := zarfilm{}.Search(context.Background(), source.NewClient(), cfg, sess(),
 		source.SearchQuery{Page: 1})
 	if _, ok := source.AsNeedsRefresh(err); !ok {
 		t.Fatalf("expected a needs-refresh, got %v", err)

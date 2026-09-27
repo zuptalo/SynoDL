@@ -589,6 +589,23 @@ type Provider interface {
 	ResolveDownload(ctx context.Context, c *Client, cfg Config, s Session, titleID, qualityID string) (links []string, size string, err error)
 }
 
+// AddressRequirer is the optional capability of a driver that has NO address of
+// its own and must be told where the site is (spec 1045).
+//
+// A site of the kind SynoDL scrapes changes its address on its own schedule;
+// one that does it often enough makes a built-in address a liability — a
+// source that silently points at a dead domain until the next release. For
+// such a driver the operator's address is the only one, so it is required.
+type AddressRequirer interface {
+	RequiresAddress() bool
+}
+
+// RequiresAddress reports whether p needs an operator-supplied main address.
+func RequiresAddress(p Provider) bool {
+	r, ok := p.(AddressRequirer)
+	return ok && r.RequiresAddress()
+}
+
 var (
 	regMu    sync.RWMutex
 	registry = map[string]Provider{}

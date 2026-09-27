@@ -2,7 +2,11 @@
 
 package providers
 
-import "testing"
+import (
+	"testing"
+
+	"synodl/server/internal/source"
+)
 
 // FR-025 / the credential-safety checklist: redirecting a driver at a fake site
 // must be impossible in a production build. It is a build-tag capability, so in
@@ -26,7 +30,10 @@ func TestMockBaseIsUnavailableInAProductionBuild(t *testing.T) {
 		}
 	}
 	drv := zarfilm{}
-	if got := drv.base(); got != zarBase {
-		t.Fatalf("driver base was redirected: %q", got)
+	if got := drv.bases(source.Config{}); len(got) != 0 {
+		t.Fatalf("driver was redirected somewhere with no address configured: %q", got)
+	}
+	if !drv.RequiresAddress() {
+		t.Fatal("a production build must require the operator's address")
 	}
 }

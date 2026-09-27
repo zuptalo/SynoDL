@@ -15,18 +15,18 @@ import (
 func TestMockBaseRedirectsUnderDevTag(t *testing.T) {
 	t.Setenv("SOURCE_MOCK_ZARFILM", "http://localhost:8291/mocksrc/zar")
 	drv := zarfilm{}
-	if got := drv.base(); got != "http://localhost:8291/mocksrc/zar" {
-		t.Fatalf("base = %q", got)
+	if got := drv.bases(source.Config{}); len(got) != 1 || got[0] != "http://localhost:8291/mocksrc/zar" {
+		t.Fatalf("bases = %q", got)
+	}
+	if drv.RequiresAddress() {
+		t.Fatal("the fake site stands in for the address in a dev build")
 	}
 	cfg := drv.Hosts()
 	if !source.HostAllowed("localhost", cfg.APIHosts) {
 		t.Fatalf("fake host not allowlisted: %v", cfg.APIHosts)
 	}
-	// The real hosts must still be allowed — a dev build is not a different
-	// driver, just one that can additionally reach a fake.
-	if !source.HostAllowed(zarHost, cfg.APIHosts) {
-		t.Fatalf("real host lost from allowlist: %v", cfg.APIHosts)
-	}
+	// The real download host must still be allowed — a dev build is not a
+	// different driver, just one that can additionally reach a fake.
 	if !strings.Contains(strings.Join(cfg.DownloadHosts, ","), zarDownload) {
 		t.Fatalf("real download host lost: %v", cfg.DownloadHosts)
 	}

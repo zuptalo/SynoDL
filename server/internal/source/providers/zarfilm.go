@@ -12,7 +12,14 @@ import (
 	"synodl/server/internal/source"
 )
 
-// zarfilm drives zarfilm.com (spec 0007).
+// zarfilm drives the ZarFilm site (spec 0007), at whatever address the operator
+// says it currently lives (spec 1045).
+//
+// It has NO built-in address. The site's original domain went down often enough
+// to make the source unreliable, and the site keeps moving; an address compiled
+// into a release is wrong on the site's schedule rather than ours. So the
+// operator supplies the current one — today https://zhomis.info — together with
+// the sign-in material issued BY that address, and the driver goes nowhere else.
 //
 // Unlike the other provider this site publishes no API: no REST endpoint, no
 // JSON, no separate API host. Everything is read from the pages a browser gets,
@@ -23,14 +30,10 @@ type zarfilm struct{}
 
 func init() { source.Register(zarfilm{}) }
 
-const (
-	zarHost     = "zarfilm.com"
-	zarDownload = "indllserver.info"
-)
-
-// zarBase is the site root. A var only so tests can point the driver at an
-// httptest server; production always uses the real host.
-var zarBase = "https://" + zarHost
+// zarDownload is the storage domain signed download links are served from. It
+// does not depend on which address served the page (spec 1020), so it stays a
+// fixed, provider-declared host even though the site's own address is not.
+const zarDownload = "indllserver.info"
 
 func (zarfilm) Kind() string { return "zarfilm" }
 
@@ -119,11 +122,14 @@ func (zarfilm) auth(s source.Session) (headers, cookies map[string]string) {
 // Deliberately NOT included: the host this site dns-prefetches on title pages.
 // It is a hint, not the download host, and allowlisting it would widen the
 // outbound surface for nothing.
+//
+// The site's own host is NOT here: it is whatever the operator configured, and
+// that address widens only this source's allowlist — and the image proxy's, for
+// the posters the site serves itself — where the source is configured
+// (spec 1045, 1020 FR-010).
 func (zarfilm) Hosts() source.Config {
 	cfg := source.Config{
-		APIHosts:      []string{zarHost},
 		DownloadHosts: []string{zarDownload},
-		ImageHosts:    []string{zarHost}, // posters are served from the site itself
 	}
 	// Dev/e2e only, and only in a build made with the `sourcemock` tag: allow the
 	// fake site's host so the driver can be exercised without real credentials.
@@ -138,20 +144,10 @@ func (zarfilm) Hosts() source.Config {
 	return cfg
 }
 
-// DefaultAltBase is the mirror this driver currently knows about, offered to the
-// administrator as a starting value. It is only a default: the site changes its
-// mirror on its own schedule, so the operator can replace it without waiting for
-// a release (FR-002).
-func (zarfilm) DefaultAltBase() string { return "https://zhomis.info" }
-
-// base is where this driver's requests go: the real site, or a fake one in a
-// dev/e2e build.
-func (zarfilm) base() string {
-	if b := mockBase("zarfilm"); b != "" {
-		return b
-	}
-	return zarBase
-}
+// RequiresAddress: there is no built-in address to fall back to (spec 1045).
+// Except in a dev/e2e build pointed at the in-repo fake site, which stands in
+// for the address so that path needs no configuration.
+func (zarfilm) RequiresAddress() bool { return mockBase("zarfilm") == "" }
 
 func hostOf(raw string) string {
 	u, err := url.Parse(raw)
@@ -193,12 +189,23 @@ func (p zarfilm) get(ctx context.Context, c *source.Client, cfg source.Config, s
 
 // bases lists the addresses to try, preferred first. The main domain leads
 // unless a recent success says the mirror is the one currently answering.
+//
+// The main address is the operator's (spec 1045). With none — a source saved
+// before the address was required — an alternate one is used in its place, and
+// with neither there is nowhere to go: the list is empty and every request
+// fails as unavailable rather than guessing.
 func (p zarfilm) bases(cfg source.Config) []string {
 	primary := strings.TrimRight(strings.TrimSpace(cfg.MainBase), "/")
-	if primary == "" {
-		primary = p.base()
-	}
 	alt := strings.TrimRight(strings.TrimSpace(cfg.AltBase), "/")
+	if primary == "" {
+		primary = mockBase("zarfilm")
+	}
+	if primary == "" {
+		primary, alt = alt, ""
+	}
+	if primary == "" {
+		return nil
+	}
 	// In a dev/e2e build the driver is pointed at a fake site; there is no mirror
 	// of a fake, and adding one would only make those runs slower and stranger.
 	if mockBase("zarfilm") != "" || alt == "" || alt == primary {
@@ -244,11 +251,30 @@ func (p zarfilm) getFrom(ctx context.Context, c *source.Client, cfg source.Confi
 // three outcomes that need different advice: not logged in (re-paste), logged in
 // but not entitled to download (subscribe — re-pasting would not help), and
 // unreachable.
+//
+// It checks the addresses the source is CONFIGURED with, in the same order a
+// page fetch would, with each address's own material (spec 1045). It used to
+// check the driver's built-in address whatever was configured — so with that
+// domain down, a source working perfectly on its mirror was verified as
+// unreachable and, after a few keep-alive probes, marked as needing a new
+// sign-in.
 func (p zarfilm) VerifySession(ctx context.Context, c *source.Client, cfg source.Config, s source.Session) error {
-	headers, cookies := p.auth(s)
-	resp, err := c.Do(ctx, s, cfg.APIHosts, source.Req{
-		Method: "GET", URL: p.base() + "/", Headers: headers, Cookies: cookies,
-	})
+	var resp *source.Resp
+	var err error
+	for _, base := range p.bases(cfg) {
+		bs := cfg.SessionFor(base, s)
+		headers, cookies := p.auth(bs)
+		resp, err = c.Do(ctx, bs, cfg.APIHosts, source.Req{
+			Method: "GET", URL: base + "/", Headers: headers, Cookies: cookies,
+		})
+		if err == nil || !source.IsUnavailable(err) {
+			break
+		}
+	}
+	if resp == nil && err == nil {
+		// No address at all: nothing to verify against.
+		return &source.ErrProviderVerify{Reason: source.ReasonUnreachable}
+	}
 	if err != nil {
 		if _, ok := source.AsNeedsRefresh(err); ok {
 			return &source.ErrProviderVerify{Reason: source.ReasonNeedsRefresh}
@@ -305,8 +331,7 @@ func (p zarfilm) listing(ctx context.Context, c *source.Client, cfg source.Confi
 	// Page links are absolute and name whichever host served them — the mirror's
 	// pages link to the mirror. All the addresses this source may legitimately be
 	// reached at are accepted; anything else is still off-site and rejected.
-	bases := append(p.bases(cfg), zarBase, "https://"+zarHost)
-	items, err := parseListing(body, bases...)
+	items, err := parseListing(body, p.linkBases(cfg)...)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -715,12 +740,11 @@ func (p zarfilm) applyCredits(td *source.TitleDetail, body []byte, cfg source.Co
 	td.Writers = source.ClampPeople(byRole[zarRoleWriter], source.MaxCrew)
 }
 
-// linkBases is every address a link on one of this site's pages might name. A
-// page's links are absolute and always name the canonical host, even when the
-// driver reached the page by another address, so all of them are accepted — and
-// nothing else is.
+// linkBases is every address a link on one of this site's pages might name: the
+// addresses the source is configured with, and nothing else (spec 1045 — the
+// old built-in domain is no longer one of them).
 func (p zarfilm) linkBases(cfg source.Config) []string {
-	return append(p.bases(cfg), zarBase, "https://"+zarHost)
+	return p.bases(cfg)
 }
 
 // ResolvePerson learns who somebody is from their own page on this site.
