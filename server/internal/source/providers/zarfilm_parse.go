@@ -1,6 +1,8 @@
 package providers
 
 import (
+	"encoding/json"
+	"errors"
 	"net/url"
 	"path"
 	"regexp"
@@ -548,76 +550,73 @@ type zarFacet struct {
 	Label string // the site's own (Persian) wording
 }
 
-// zarPanel is the archive's declared filtering ability.
-type zarPanel struct {
-	Sorts  []zarFacet
-	Scores []zarFacet
-	Genres []zarFacet
+// zarAdvancedForm is what the site's advanced search offers (spec 1046). It is
+// read from the form the site builds for its own search dialog — fetched, like
+// the dialog does, from the site's AJAX endpoint — rather than from any archive
+// page, because the redesign left the archive pages without a filter panel.
+type zarAdvancedForm struct {
+	Types     []zarFacet // the type buttons: movie / series ("all" is the absence of a choice)
+	Genres    []zarFacet // Persian genre names — the value IS the label
+	Orders    []zarFacet // the site's numeric ordering codes
+	Languages []zarFacet // English language names
+	Countries []zarFacet // Persian country names
+	Qualities []zarFacet // exact release labels ("BluRay 1080p x265")
 }
 
-// zarSortValues are the site's own ordering keywords. They identify the sort
-// group by the SHAPE of its values rather than by its heading: the headings are
-// Persian prose and a redesign could reword them, but these values are what the
-// query parameter accepts and cannot change without the filter breaking anyway.
-var zarSortValues = map[string]bool{
-	"newest": true, "modified": true, "popular": true, "imdb_rate": true, "release": true,
-}
-
-// parseFilterPanel reads what an archive page says it can filter and sort by.
-// A page with no panel yields an empty result, never an error — most pages on the
-// site have none, and a source that cannot report its abilities must degrade to
-// offering nothing rather than failing the browse (FR-011).
-func parseFilterPanel(body []byte) zarPanel {
-	doc, err := parseHTML(body)
-	if err != nil {
-		return zarPanel{}
+// parseAdvancedForm reads the form out of the site's JSON reply, which wraps the
+// dialog's HTML as {"stat":"ok","html":"…"}.
+//
+// Each list's placeholder entries — the field's own name, and the site's "all"
+// — are dropped: they are the absence of a filter, not values to offer. The
+// query parameters take the option VALUES verbatim, so those are kept exactly as
+// served, Persian and all.
+func parseAdvancedForm(raw []byte) (zarAdvancedForm, error) {
+	var env struct {
+		HTML string `json:"html"`
 	}
-	var out zarPanel
-	for _, box := range findAll(doc, byClass("filter_orderby_selecr")) {
-		var opts []zarFacet
-		digits := true
-		sortish := false
-		for _, item := range findAll(box, byClass("item_filter_orderby")) {
-			v := strings.TrimSpace(attr(item, "data-filter"))
-			// The empty entry is the panel's "all" affordance — a way to CLEAR the
-			// filter, not a value to offer.
-			if v == "" {
+	if err := json.Unmarshal(raw, &env); err != nil {
+		return zarAdvancedForm{}, err
+	}
+	if strings.TrimSpace(env.HTML) == "" {
+		return zarAdvancedForm{}, errors.New("zarfilm: advanced-search form is empty")
+	}
+	doc, err := parseHTML([]byte(env.HTML))
+	if err != nil {
+		return zarAdvancedForm{}, err
+	}
+	selects := map[string][]zarFacet{}
+	for _, sel := range findAll(doc, byTag("select")) {
+		name := attr(sel, "name")
+		for _, opt := range findAll(sel, byTag("option")) {
+			v := strings.TrimSpace(attr(opt, "value"))
+			if v == "" || v == "0" || v == "all" {
 				continue
 			}
-			if zarSortValues[v] {
-				sortish = true
-			}
-			if !isASCIIDigits(v) {
-				digits = false
-			}
-			label := strings.TrimSpace(text(item))
+			label := strings.TrimSpace(text(opt))
 			if label == "" {
 				label = v
 			}
-			opts = append(opts, zarFacet{Value: v, Label: label})
+			selects[name] = append(selects[name], zarFacet{Value: v, Label: label})
 		}
-		if len(opts) == 0 {
+	}
+	out := zarAdvancedForm{
+		Genres:    selects["mobile_advsgenre"],
+		Orders:    selects["search_order"],
+		Languages: selects["languageSearch"],
+		Countries: selects["advscountry"],
+		Qualities: selects["advsqulity"],
+	}
+	for _, b := range findAll(doc, byClass("mtBtn")) {
+		v := strings.TrimSpace(attr(b, "data-value"))
+		if v == "" || v == "all" {
 			continue
 		}
-		switch {
-		case sortish:
-			out.Sorts = append(out.Sorts, opts...)
-		case digits:
-			out.Scores = append(out.Scores, opts...)
-		default:
-			out.Genres = append(out.Genres, opts...)
-		}
+		out.Types = append(out.Types, zarFacet{Value: v, Label: strings.TrimSpace(text(b))})
 	}
-	return out
-}
-
-func isASCIIDigits(s string) bool {
-	for _, r := range s {
-		if r < '0' || r > '9' {
-			return false
-		}
+	if len(out.Genres) == 0 && len(out.Orders) == 0 {
+		return zarAdvancedForm{}, errors.New("zarfilm: advanced-search form has no options")
 	}
-	return s != ""
+	return out, nil
 }
 
 // reZarGenreRoute matches the archive's own genre links. Only an ASCII slug is
