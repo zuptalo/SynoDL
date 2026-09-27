@@ -475,3 +475,34 @@ func TestParsePersonPage(t *testing.T) {
 		t.Fatal("a real portrait was there to take")
 	}
 }
+
+// Spec 2037. The site moved to a new theme: every result card is now a
+// .zf-card-item, and the old markup the parser looked for no longer appears
+// anywhere. Browse and search both came back logged in, 1338 pages long — and
+// with not a single result.
+func TestParseListingReadsTheCurrentCards(t *testing.T) {
+	items, err := parseListing(zarFixture(t, "archive_zf_cards.html"), "https://zhomis.info")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 3 {
+		t.Fatalf("parsed %d items, want 3: %+v", len(items), items)
+	}
+	asad := items[0]
+	if asad.ID != "asad-2026" || asad.Title != "Asad" || asad.Year != "2026" || asad.Rating != 7.2 || asad.IsSeries {
+		t.Errorf("movie card = %+v", asad)
+	}
+	if asad.PosterURL != "https://zhomis.info/wp-content/uploads/2026/09/tt38947228-poster-210x280.jpg" {
+		t.Errorf("poster = %q", asad.PosterURL)
+	}
+	if strings.Join(asad.Genres, ",") != "اکشن,تاریخی,درام" {
+		t.Errorf("genres = %q", asad.Genres)
+	}
+	vivant := items[2]
+	if vivant.ID != "series/vivant" || !vivant.IsSeries || vivant.Title != "Vivant" || vivant.Rating != 7.0 {
+		t.Errorf("series card = %+v", vivant)
+	}
+	if got := parsePageCount(zarFixture(t, "archive_zf_cards.html")); got != 1338 {
+		t.Errorf("page count = %d", got)
+	}
+}
