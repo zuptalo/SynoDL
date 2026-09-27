@@ -75,8 +75,8 @@ Specs are grouped by category band; status moves
 | [1043](specs/1043-retry-refused-youtube/spec.md) | A YouTube download that YouTube turned away tries again by itself | 🟢 shipped |
 | [1044](specs/1044-playlist-progress-and/spec.md) | A playlist shows how much of it is saved, and sorting by status puts what is running on top | 🟢 shipped |
 | [1045](specs/1045-zarfilm-uses-operator/spec.md) | ZarFilm is reached only at the address the operator gives | 🟢 shipped |
-| [1046](specs/1046-zarfilm-browses-through/spec.md) | ZarFilm browses through the site's advanced search | 🟡 in-progress |
-| [1047](specs/1047-filters-work-across/spec.md) | Filters that work across every source | 🟡 in-progress |
+| [1046](specs/1046-zarfilm-browses-through/spec.md) | ZarFilm browses through the site's advanced search | 🟢 shipped |
+| [1047](specs/1047-filters-work-across/spec.md) | Filters that work across every source | 🟢 shipped |
 
 ## 🐛 Hotfixes & Bug Fixes (2001+)
 
