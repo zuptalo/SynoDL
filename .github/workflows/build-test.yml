@@ -29,7 +29,7 @@ jobs:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5
         with:
-          node-version: 22
+          node-version: 24
           cache: npm
       - run: npm ci
       # `npm run build` is `vue-tsc --noEmit && vite build`: typecheck then bundle.
@@ -47,7 +47,7 @@ jobs:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5
         with:
-          node-version: 22
+          node-version: 24
           cache: npm
       - run: npm ci
       # Vitest unit tests for the pure modules + idb wrapper, with the coverage
@@ -64,7 +64,7 @@ jobs:
       - uses: actions/checkout@v5
       - uses: actions/setup-go@v6
         with:
-          go-version: '1.26'
+          go-version: '1.27'
           cache-dependency-path: server/go.mod
       - run: go build ./...
       - run: go vet ./...
@@ -95,11 +95,11 @@ jobs:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5
         with:
-          node-version: 22
+          node-version: 24
           cache: npm
       - uses: actions/setup-go@v6
         with:
-          go-version: '1.26'
+          go-version: '1.27'
           cache-dependency-path: server/go.mod
       - run: npm ci
       # global-setup.ts builds + launches the isolated test stacks itself — a

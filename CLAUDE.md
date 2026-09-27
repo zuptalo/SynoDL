@@ -44,7 +44,7 @@ One repo, two parts, shipped as a single container.
     change-notification bus; `useLiveQuery` subscribes for reactivity.
   - `src/sw.ts` — minimal service worker (app-shell precache + prompt updates).
   - `src/router/index.ts` — routes + the session gate.
-- **Server** (`server/`) — `synodl`, a Go 1.26 service on stdlib `net/http`
+- **Server** (`server/`) — `synodl`, a Go 1.27 service on stdlib `net/http`
   (no web framework). Dependencies are kept deliberately few and each one is a
   spec-level decision, not an implementation detail: currently a pure-Go SQLite
   driver (`modernc.org/sqlite`, for the single-volume store) and an HTML
@@ -94,7 +94,7 @@ dev, Vite serves the client and proxies the API to a local `synodl`.
 
 ## Local development
 
-Requires **Go 1.26** and **Node 22**. No Docker needed for dev.
+Requires **Go 1.27** and **Node 24**. No Docker needed for dev.
 
 ```sh
 make start      # mock DSM (:8291, TLS) + synodl (air hot-reload, :8280) + Vite (:5273)
