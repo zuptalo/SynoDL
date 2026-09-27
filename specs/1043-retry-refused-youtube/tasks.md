@@ -15,5 +15,5 @@ under a bounded, reason-gated policy.
 - [x] T005 Reconciler: `retryRefused` before `refreshGroups`; `ReasonRefusedRetrying` while waiting; no notification for a pending retry (FR-001–FR-005)
 - [x] T006 Document the knobs: `deploy/k8s/10-synodl.yaml`, `docs/UPGRADING.md`, `CLAUDE.md`
 - [x] T007 Gate: `go build/vet/test`, `npm run build`, unit coverage, stateful ytdl e2e
-- [ ] T008 Merge; confirm in production that refused downloads are re-queued after the cool-down and settle
-- [ ] T009 Set `**Status**: shipped` and run `make roadmap`
+- [x] T008 Merge; confirm in production that refused downloads are re-queued after the cool-down and settle
+- [x] T009 Set `**Status**: shipped` and run `make roadmap`
