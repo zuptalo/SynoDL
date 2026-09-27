@@ -81,6 +81,19 @@ usually the real ceiling before the cluster is.
 **Nothing to do about the database.** The upgrade adds one table and migrates
 your existing failure records into it on first start.
 
+### Upgrading to 0.21.0 (ZarFilm needs its current address)
+
+SynoDL no longer knows any address for ZarFilm: its old domain was down too
+often, and the site keeps moving. A ZarFilm source now needs **Site address**
+set to where the site is today (currently `https://zhomis.info`), with the
+sign-in pasted from a browser signed in at that address.
+
+- A ZarFilm source that already has a main address keeps working unchanged.
+- One that had only an **alternate** address keeps working: that address is used
+  as its site address.
+- One with neither — it relied on the old built-in domain — stops answering
+  until you edit it and enter the site address.
+
 ### Upgrading to 0.19.0 (automatic retry of refused YouTube downloads)
 
 Nothing is required. A YouTube download that YouTube turned away (HTTP 403/429

@@ -359,6 +359,13 @@ func handleSourceSession(d Deps) http.Handler {
 			}
 		}
 		hosts := drv.Hosts()
+		// This older route has no address fields. A driver with no address of
+		// its own cannot be configured through it (spec 1045).
+		if source.RequiresAddress(drv) {
+			httpx.JSON(w, http.StatusUnprocessableEntity,
+				map[string]any{"error": "address_required", "reason": errAddressRequired.Error()})
+			return
+		}
 
 		// Verify against the provider BEFORE persisting anything.
 		if err := drv.VerifySession(r.Context(), sourceHTTP, hosts, sess); err != nil {

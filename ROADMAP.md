@@ -74,6 +74,7 @@ Specs are grouped by category band; status moves
 | [1042](specs/1042-tasks-list-sections/spec.md) | Every task says where it came from, and an upload says what it is | 🟢 shipped |
 | [1043](specs/1043-retry-refused-youtube/spec.md) | A YouTube download that YouTube turned away tries again by itself | 🟢 shipped |
 | [1044](specs/1044-playlist-progress-and/spec.md) | A playlist shows how much of it is saved, and sorting by status puts what is running on top | 🟡 in-progress |
+| [1045](specs/1045-zarfilm-uses-operator/spec.md) | ZarFilm is reached only at the address the operator gives | 🟡 in-progress |
 
 ## 🐛 Hotfixes & Bug Fixes (2001+)
 

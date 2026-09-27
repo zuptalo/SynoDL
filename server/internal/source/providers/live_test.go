@@ -64,18 +64,21 @@ func TestLiveThirtynama(t *testing.T) {
 }
 
 // TestLiveZarfilm exercises the zarfilm driver against the REAL site using a
-// session supplied via env vars. It SKIPS unless LIVE_ZAR_COOKIE is set, so it
-// never runs in CI — no credentials there, and no stable public address.
+// session supplied via env vars. It SKIPS unless LIVE_ZAR_COOKIE and
+// LIVE_ZAR_BASE are set, so it never runs in CI — no credentials there, and no
+// stable public address. The address is the site's CURRENT one, whose sign-in
+// material the cookie must be (spec 1045).
 //
-//	LIVE_ZAR_COOKIE='wordpress_logged_in_xxx=yyy' LIVE_ZAR_VARY='...' LIVE_ZAR_UA='...' \
+//	LIVE_ZAR_BASE='https://zhomis.info' LIVE_ZAR_COOKIE='wordpress_logged_in_xxx=yyy' \
+//	  LIVE_ZAR_VARY='...' LIVE_ZAR_UA='...' \
 //	  go test ./internal/source/providers/ -run TestLiveZarfilm -v
 //
 // This is the check that catches the site changing its markup, which unit tests
 // against captured fixtures cannot.
 func TestLiveZarfilm(t *testing.T) {
-	cookie := os.Getenv("LIVE_ZAR_COOKIE")
-	if cookie == "" {
-		t.Skip("no LIVE_ZAR_COOKIE — skipping live zarfilm test")
+	cookie, base := os.Getenv("LIVE_ZAR_COOKIE"), os.Getenv("LIVE_ZAR_BASE")
+	if cookie == "" || base == "" {
+		t.Skip("no LIVE_ZAR_COOKIE / LIVE_ZAR_BASE — skipping live zarfilm test")
 	}
 	s := source.Session{
 		UserAgent: os.Getenv("LIVE_ZAR_UA"),
@@ -86,6 +89,8 @@ func TestLiveZarfilm(t *testing.T) {
 	}
 	p := zarfilm{}
 	cfg := p.Hosts()
+	cfg.MainBase = base
+	cfg.APIHosts = append(cfg.APIHosts, hostOf(base))
 	c := source.NewClient()
 	ctx := context.Background()
 
@@ -132,40 +137,4 @@ func TestLiveZarfilm(t *testing.T) {
 	// Never log the link itself: it embeds the account id and grants
 	// unauthenticated access until it expires.
 	t.Logf("resolved %d link(s), size %s", len(links), size)
-}
-
-// TestLiveZarfilmMirror exercises the real alternate domain by pointing the main
-// address at a host that cannot resolve, so the fallback path runs against the
-// actual mirror rather than a stand-in. Skips without credentials, like the rest.
-//
-// This is the check that catches the published mirror changing or dying —
-// which, being the thing we fall back TO, would otherwise only be discovered
-// during an outage, at the worst possible moment.
-func TestLiveZarfilmMirror(t *testing.T) {
-	cookie := os.Getenv("LIVE_ZAR_COOKIE")
-	if cookie == "" {
-		t.Skip("no LIVE_ZAR_COOKIE — skipping live mirror test")
-	}
-	ResetBasePrefs()
-	old := zarBase
-	zarBase = "https://zarfilm-main-is-down.invalid"
-	defer func() { zarBase = old }()
-
-	p := zarfilm{}
-	cfg := p.Hosts()
-	cfg.AltBase = p.DefaultAltBase()
-	cfg.APIHosts = append(cfg.APIHosts, "zhomis.info", "zarfilm-main-is-down.invalid")
-	s := source.Session{
-		UserAgent: os.Getenv("LIVE_ZAR_UA"),
-		Fields:    map[string]string{zarFieldCookie: cookie, zarFieldVary: os.Getenv("LIVE_ZAR_VARY")},
-	}
-
-	res, err := p.Search(context.Background(), source.NewClient(), cfg, s, source.SearchQuery{Page: 1})
-	if err != nil {
-		t.Fatalf("fallback to the mirror failed: %v", err)
-	}
-	if len(res.Items) == 0 {
-		t.Fatal("the mirror returned no items")
-	}
-	t.Logf("mirror served %d items (of %d pages)", len(res.Items), res.Pages)
 }

@@ -612,6 +612,9 @@ export interface SourceKind {
   sessionFields: SourceSessionField[];
   /** The mirror SynoDL currently knows about for this kind, offered as a default. */
   defaultAltBase?: string;
+  /** The driver has no address of its own: the site's current one must be
+   *  given (spec 1045). */
+  addressRequired?: boolean;
 }
 export interface SourceProviderInput {
   kind?: string;

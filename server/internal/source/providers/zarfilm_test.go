@@ -1,6 +1,7 @@
 package providers
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"net/http"
@@ -43,6 +44,13 @@ type zarFakeSite struct {
 	emptyArchive bool
 }
 
+// own makes a captured page link to THIS fake, the way a live site's pages link
+// to the address that served them. The fixtures were captured on the site's old
+// domain, which the driver no longer accepts links on (spec 1045).
+func (site *zarFakeSite) own(page []byte) []byte {
+	return bytes.ReplaceAll(page, []byte("https://zarfilm.com"), []byte(site.URL))
+}
+
 func newZarFakeSite(t *testing.T) *zarFakeSite {
 	t.Helper()
 	site := &zarFakeSite{}
@@ -60,30 +68,27 @@ func newZarFakeSite(t *testing.T) *zarFakeSite {
 			return
 		}
 		if site.meta != "" {
-			w.Write(mustFixture(t, site.meta))
+			w.Write(site.own(mustFixture(t, site.meta)))
 		}
 		switch {
 		case site.anonymous:
-			w.Write(mustFixture(t, "logged_out.html"))
+			w.Write(site.own(mustFixture(t, "logged_out.html")))
 		case strings.Contains(r.URL.Path, "/series/the-loyalty-game"):
-			w.Write(mustFixture(t, "series_subscribed.html"))
+			w.Write(site.own(mustFixture(t, "series_subscribed.html")))
 		case strings.Contains(r.URL.Path, "/all-movie/"), r.URL.Path == "/":
 			// A real archive page carries the filter panel above its cards; that is
 			// where the driver learns what it may filter and sort by.
 			if !site.noPanel {
-				w.Write(mustFixture(t, "archive_filters.html"))
+				w.Write(site.own(mustFixture(t, "archive_filters.html")))
 			}
-			w.Write(mustFixture(t, "archive_page1.html"))
+			w.Write(site.own(mustFixture(t, "archive_page1.html")))
 		case site.paywalled:
-			w.Write(mustFixture(t, "movie_unsubscribed.html"))
+			w.Write(site.own(mustFixture(t, "movie_unsubscribed.html")))
 		default:
-			w.Write(mustFixture(t, "movie_subscribed.html"))
+			w.Write(site.own(mustFixture(t, "movie_subscribed.html")))
 		}
 	}))
-	// Point the driver at the fake and allow its host.
-	old := zarBase
-	zarBase = site.URL
-	t.Cleanup(func() { zarBase = old; site.Close() })
+	t.Cleanup(site.Close)
 	return site
 }
 
@@ -92,8 +97,11 @@ func mustFixture(t *testing.T, name string) []byte {
 	return zarFixture(t, name)
 }
 
+// zarCfg points the driver at the fake the way an operator points it at the
+// real site: by configuring its address (spec 1045 — there is no built-in one).
 func zarCfg(site *zarFakeSite) source.Config {
 	cfg := zarfilm{}.Hosts()
+	cfg.MainBase = site.URL
 	cfg.APIHosts = []string{"127.0.0.1"} // the httptest host
 	return cfg
 }
@@ -353,6 +361,42 @@ func TestZarfilmHostAllowlist(t *testing.T) {
 	}
 	if source.HostAllowed("evil.example", cfg.APIHosts) {
 		t.Fatal("api allowlist too wide")
+	}
+}
+
+// Spec 1045. The site's old domain is gone from the driver entirely: nothing
+// may be fetched from it, and no poster may be proxied from it, unless an
+// operator configures it as the address.
+func TestZarfilmHasNoBuiltInAddress(t *testing.T) {
+	cfg := zarfilm{}.Hosts()
+	for _, h := range []string{"zarfilm.com", "www.zarfilm.com", "zhomis.info"} {
+		if source.HostAllowed(h, cfg.APIHosts) || source.HostAllowed(h, cfg.ImageHosts) {
+			t.Fatalf("%q is reachable without being configured", h)
+		}
+	}
+}
+
+// With no address configured there is nowhere to go, and the driver says so
+// rather than reaching for one of its own.
+func TestZarfilmWithNoAddressIsUnavailable(t *testing.T) {
+	_, err := zarfilm{}.Search(context.Background(), source.NewClient(), zarfilm{}.Hosts(),
+		zarSession("abc"), source.SearchQuery{Page: 1})
+	if !source.IsUnavailable(err) {
+		t.Fatalf("err = %v, want unavailable", err)
+	}
+	if err := (zarfilm{}).VerifySession(context.Background(), source.NewClient(), zarfilm{}.Hosts(), zarSession("abc")); err == nil {
+		t.Fatal("a source with no address verified")
+	}
+}
+
+// Spec 1045. Verification checks the address the source is CONFIGURED with. It
+// used to check the built-in domain whatever was configured, so a source working
+// on its current address verified as unreachable while the old one was down.
+func TestZarfilmVerifiesTheConfiguredAddress(t *testing.T) {
+	site := newZarFakeSite(t)
+	cfg := zarCfg(site)
+	if err := (zarfilm{}).VerifySession(context.Background(), source.NewClient(), cfg, zarSession("abc")); err != nil {
+		t.Fatalf("verify against the configured address: %v", err)
 	}
 }
 

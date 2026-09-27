@@ -95,6 +95,17 @@ func (d Deps) sourceRefs() (refs []source.SourceRef, skipped []source.DegradedSo
 			APIHosts: hosts, DownloadHosts: p.DownloadHosts,
 			AltBase: p.AltBase, MainBase: p.MainBase,
 		}
+		// A source saved before its driver required an address (spec 1045) may
+		// have only an alternate one. That is the address it has been working
+		// at, so it stands in as the main one; its own sign-in material, if it
+		// had some, goes with it.
+		if cfg.MainBase == "" && cfg.AltBase != "" && source.RequiresAddress(drv) {
+			cfg.MainBase, cfg.AltBase = cfg.AltBase, ""
+			if sess.Alt != nil {
+				promoted := *sess.Alt
+				sess = &promoted
+			}
+		}
 		// Material belonging to the alternate address, when it was given its own.
 		if sess.Alt != nil {
 			alt := toSession(sess.Alt)
@@ -169,7 +180,11 @@ func (d Deps) resolveTitleID(wire string) (ref source.SourceRef, titleID string,
 }
 
 // altBaseFor validates an operator-supplied alternate address, or falls back to
-// the mirror the driver itself knows about.
+// the mirror the driver itself knows about. validBase is the same check with no
+// fallback, which is what a MAIN address gets: an empty main address means "the
+// driver's own", never "the driver's mirror" (spec 1045 — it used to fill an
+// empty main address with the mirror, so the form's two fields quietly became
+// one).
 //
 // This is the one outbound host a source can reach that is not
 // provider-declared, so it is checked rather than trusted: https only (the
@@ -178,6 +193,9 @@ func (d Deps) resolveTitleID(wire string) (ref source.SourceRef, titleID string,
 func altBaseFor(drv source.Provider, raw string) (string, error) {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
+		if drv == nil {
+			return "", nil
+		}
 		if d, ok := drv.(interface{ DefaultAltBase() string }); ok {
 			return d.DefaultAltBase(), nil
 		}
@@ -242,6 +260,9 @@ type kindView struct {
 	SessionFields []source.SessionField `json:"sessionFields"`
 	// The mirror this driver currently knows about, offered as a starting value.
 	DefaultAltBase string `json:"defaultAltBase,omitempty"`
+	// AddressRequired: the driver has no address of its own, so the form must
+	// ask for the site's current one (spec 1045).
+	AddressRequired bool `json:"addressRequired,omitempty"`
 }
 
 // handleListProviders lists configured sources plus the kinds available to add.
@@ -297,7 +318,8 @@ func handleListProviders(d Deps) http.Handler {
 		kinds := make([]kindView, 0)
 		for _, k := range source.Kinds() {
 			if drv, ok := source.Get(k); ok {
-				kv := kindView{Kind: k, Name: drv.DisplayName(), SessionFields: drv.SessionFields()}
+				kv := kindView{Kind: k, Name: drv.DisplayName(), SessionFields: drv.SessionFields(),
+					AddressRequired: source.RequiresAddress(drv)}
 				if d, ok := drv.(interface{ DefaultAltBase() string }); ok {
 					kv.DefaultAltBase = d.DefaultAltBase()
 				}
@@ -336,8 +358,29 @@ func altSessionFrom(posted map[string]string, existing *store.SourceSession) *st
 	return &alt
 }
 
+// baseErrorCode is the error code for a refused address: a missing required
+// one is its own case, so the form can say which field needs filling in.
+func baseErrorCode(err error) string {
+	if errors.Is(err, errAddressRequired) {
+		return "address_required"
+	}
+	return "bad_base"
+}
+
+func validBase(raw string) (string, error) {
+	return altBaseFor(nil, raw)
+}
+
+// errAddressRequired is a save with no address for a driver that has none of
+// its own (spec 1045).
+var errAddressRequired = errors.New("this source needs the site's current address, e.g. https://example.com")
+
 // resolveBases settles the two addresses. The same address given twice is one
 // address, and an unparseable one is refused here rather than at browse time.
+//
+// For a driver with no address of its own, a main address is required. An
+// alternate given without one is promoted to main rather than refused: it is
+// the only address the operator gave, so it is the one they meant.
 func resolveBases(drv source.Provider, rawAlt *string, curAlt string, rawMain *string, curMain string) (alt, main string, err error) {
 	alt, main = curAlt, curMain
 	if rawAlt != nil {
@@ -346,12 +389,18 @@ func resolveBases(drv source.Provider, rawAlt *string, curAlt string, rawMain *s
 		}
 	}
 	if rawMain != nil {
-		if main, err = altBaseFor(drv, *rawMain); err != nil {
+		if main, err = validBase(*rawMain); err != nil {
 			return "", "", err
 		}
 	}
 	if main != "" && main == alt {
 		alt = ""
+	}
+	if source.RequiresAddress(drv) && main == "" {
+		if alt == "" {
+			return "", "", errAddressRequired
+		}
+		main, alt = alt, ""
 	}
 	return alt, main, nil
 }
@@ -417,7 +466,7 @@ func handleCreateProvider(d Deps) http.Handler {
 		alt, main, err := resolveBases(drv, body.AltBase, "", body.MainBase, "")
 		if err != nil {
 			httpx.JSON(w, http.StatusUnprocessableEntity,
-				map[string]any{"error": "bad_base", "reason": err.Error()})
+				map[string]any{"error": baseErrorCode(err), "reason": err.Error()})
 			return
 		}
 		hosts.AltBase, hosts.MainBase = alt, main
@@ -521,7 +570,7 @@ func handleUpdateProvider(d Deps) http.Handler {
 		alt, main, err := resolveBases(drv, body.AltBase, p.AltBase, body.MainBase, p.MainBase)
 		if err != nil {
 			httpx.JSON(w, http.StatusUnprocessableEntity,
-				map[string]any{"error": "bad_base", "reason": err.Error()})
+				map[string]any{"error": baseErrorCode(err), "reason": err.Error()})
 			return
 		}
 		hosts.AltBase, hosts.MainBase = alt, main

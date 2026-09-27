@@ -55,8 +55,15 @@ are told which of these it was:
 ## When a site changes address
 
 Sites of this kind get blocked periodically and publish an alternate address to
-reach them at. Each source has an **Alternate address** field for that, pre-filled
-with the mirror SynoDL currently knows about.
+reach them at. Each source has an **Alternate address** field for that.
+
+**ZarFilm has no built-in address at all.** Its original domain went down too
+often to rely on, and the site keeps moving, so you enter the address it is at
+now in **Site address** — currently `https://zhomis.info` — and paste the
+sign-in from a browser signed in at that same address. When the site moves,
+edit the field and paste a fresh sign-in from the new address; nothing else
+changes. (A ZarFilm source saved earlier with only an alternate address keeps
+working: that address is used as its site address.)
 
 When the main address stops answering, SynoDL retries the same request against
 the alternate one, and browsing carries on as normal. It goes back to the main
