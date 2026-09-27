@@ -279,17 +279,56 @@ func TestWatch_NewAndNestedAreDistinguishable(t *testing.T) {
 
 // FR-010 / SC-002a. The diff exists for watchers; with none, it must cost
 // nothing at all.
-func TestWatch_CostsNothingWhenNobodyIsWatching(t *testing.T) {
+// Spec 2040. The fingerprints are taken whether or not anybody is watching, so
+// a download that finishes between somebody connecting and the next cycle is
+// still announced. It used to be skipped: unfinished during an unwatched cycle
+// (no fingerprint), finished before the first watched one (not unfinished any
+// more), so the watched cycle had nothing to compare and said nothing — and the
+// page kept "Starting" for as long as the stream stayed up.
+func TestWatch_AFinishStraddlingTheFirstWatchedCycleIsAnnounced(t *testing.T) {
 	jobs := &fakeJobs{}
 	h, st := newYtdlRouter(t, jobs, ytdlCfg())
 	admin := adminAfterSetup(t, h)
-	ytdlRunning(t, h, jobs, st, admin, "https://youtu.be/abc")
+	id := ytdlRunning(t, h, jobs, st, admin, "https://youtu.be/abc")
+
+	d := InitCaches(Deps{Cfg: ytdlCfg(), Jobs: jobs, Store: st})
+	d.reconcileYtdlOnce(context.Background()) // nobody watching
+	if _, held := d.ytdlSeen.seen[id]; !held {
+		t.Fatal("an unwatched cycle took no fingerprint, so the next change has nothing to be compared against")
+	}
+
+	// Somebody connects, and the download fails before the next cycle.
+	drain := watchOn(t, d, 1, true)
+	jobs.setStatus(t, id, k8s.JobStatus{Failed: 1})
+	d.reconcileYtdlOnce(context.Background())
+
+	c, ok := changeFor(drain(), id)
+	if !ok {
+		t.Fatal("a download failed just after somebody connected and they were never told")
+	}
+	if s := stateIn(t, c); s != "failed" {
+		t.Fatalf("published state = %q, want failed", s)
+	}
+}
+
+// Nothing is published to nobody, and nothing is held back for later: a cycle
+// with no subscriber updates the fingerprints and drops its changes, so the
+// next subscriber's own snapshot is the only history they need.
+func TestWatch_PublishesNothingToNobody(t *testing.T) {
+	jobs := &fakeJobs{}
+	h, st := newYtdlRouter(t, jobs, ytdlCfg())
+	admin := adminAfterSetup(t, h)
+	id := ytdlRunning(t, h, jobs, st, admin, "https://youtu.be/abc")
 
 	d := InitCaches(Deps{Cfg: ytdlCfg(), Jobs: jobs, Store: st})
 	d.reconcileYtdlOnce(context.Background())
+	jobs.emitFor(id, "[synodl] status=downloading downloaded=55 total=100")
+	d.reconcileYtdlOnce(context.Background()) // a change, with nobody to tell
 
-	if len(d.ytdlSeen.seen) != 0 || d.ytdlSeen.spoken {
-		t.Fatal("the diff ran and held state with nobody watching")
+	drain := watchOn(t, d, 1, true)
+	d.reconcileYtdlOnce(context.Background()) // nothing changed since
+	if _, replayed := changeFor(drain(), id); replayed {
+		t.Fatal("a change made while nobody watched was replayed to a later subscriber, whose snapshot already had it")
 	}
 }
 

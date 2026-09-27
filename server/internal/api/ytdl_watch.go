@@ -72,27 +72,23 @@ func newYtdlFingerprints() *ytdlFingerprints {
 
 // watchYtdl publishes what changed this cycle.
 //
-// Returns immediately unless somebody is watching. That is not an optimisation
-// so much as a promise: a server nobody is looking at does exactly what it did
-// before this feature existed — no extra query, no projection, no memory held —
-// and the reconciler runs every three seconds for the life of the process.
+// The fingerprints are kept current on EVERY cycle, watched or not; only the
+// publishing waits for somebody to tell (spec 2040). It used to return before
+// either when nobody was subscribed, as a promise that an unwatched server did
+// no extra work — and that promise had a hole in it. A download that was
+// unfinished during a cycle nobody watched had no fingerprint; if somebody then
+// connected and it finished before the next cycle, that cycle found it neither
+// among the unfinished (done) nor among the fingerprints (never taken), and
+// said nothing. The page kept the state from its first read — "Starting" — for
+// as long as the stream stayed healthy, which is indefinitely. The gap is the
+// few seconds after opening the page: exactly when the person who has just
+// added something is looking.
+//
+// What an unwatched cycle costs now is one read of the unfinished rows and
+// their projection, in memory, beside a reconciler that already lists every
+// Job over the network to run at all. Nothing is stored (Principle III).
 func (d Deps) watchYtdl(live map[string]k8s.Job) {
 	if d.Store == nil || d.ytdlHub == nil || d.ytdlSeen == nil {
-		return
-	}
-	if !d.ytdlHub.hasSubscribers() {
-		// Nobody watching: no query, no projection, nothing held. A server nobody
-		// is looking at does exactly what it did before this feature existed.
-		//
-		// What was already remembered is deliberately KEPT rather than cleared.
-		// An earlier version cleared it and re-seeded on the first cycle after
-		// somebody connected — publishing nothing on that cycle — which silently
-		// swallowed everything that happened between the client fetching its list
-		// and that seed. It showed up as a download whose progress arrived inside
-		// exactly that window and was then never mentioned again, because from the
-		// next cycle on it matched. Keeping the map means the first cycle back
-		// reports what changed while nobody was looking, which is both correct and
-		// smaller than a re-seed would have been.
 		return
 	}
 
