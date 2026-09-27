@@ -3,8 +3,11 @@ package k8s
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -147,5 +150,66 @@ func TestCreateJob_ConflictIsRecognisable(t *testing.T) {
 	_, err := c.CreateJob(context.Background(), &Job{Metadata: ObjectMeta{Name: "x"}})
 	if !IsConflict(err) {
 		t.Errorf("want a recognisable conflict, got %v", err)
+	}
+}
+
+// Spec 2034: the list that stalled production. 700 finished Jobs came to just
+// over 4 MiB, the read was cut off at the cap, and the truncated body failed to
+// decode — every cycle, silently. The list has to arrive whole however many
+// Jobs there are, so it is asked for in pages, each far below the cap.
+func TestListJobs_LargerThanTheReadCapStillArrivesWhole(t *testing.T) {
+	const total = 900
+	pad := strings.Repeat("x", 6<<10) // roughly what one real Job weighs
+	var pages int
+	c, _ := testClient(t, func(w http.ResponseWriter, r *http.Request) {
+		pages++
+		q := r.URL.Query()
+		if q.Get("labelSelector") != "a=b" {
+			t.Errorf("page %d lost the selector: %q", pages, q.Get("labelSelector"))
+		}
+		limit, _ := strconv.Atoi(q.Get("limit"))
+		if limit <= 0 {
+			// No limit: answer the way the API server does, with everything.
+			limit = total
+		}
+		start, _ := strconv.Atoi(q.Get("continue"))
+		end := min(start+limit, total)
+		out := JobList{}
+		for i := start; i < end; i++ {
+			out.Items = append(out.Items, Job{Metadata: ObjectMeta{
+				Name:        fmt.Sprintf("job-%d", i),
+				Annotations: map[string]string{"pad": pad},
+			}})
+		}
+		if end < total {
+			out.Metadata.Continue = strconv.Itoa(end)
+		}
+		_ = json.NewEncoder(w).Encode(out)
+	})
+
+	jobs, err := c.ListJobs(context.Background(), "a=b")
+	if err != nil {
+		t.Fatalf("ListJobs: %v", err)
+	}
+	if len(jobs) != total {
+		t.Fatalf("got %d jobs, want %d", len(jobs), total)
+	}
+	if jobs[0].Metadata.Name != "job-0" || jobs[total-1].Metadata.Name != fmt.Sprintf("job-%d", total-1) {
+		t.Errorf("pages not stitched in order: first %q last %q", jobs[0].Metadata.Name, jobs[total-1].Metadata.Name)
+	}
+	if pages < 2 {
+		t.Errorf("fetched in %d request(s); a list this size must be paged", pages)
+	}
+}
+
+// A response that does outgrow the cap is reported as exactly that, not as a
+// JSON syntax error nobody could act on.
+func TestDo_OversizedResponseIsNamed(t *testing.T) {
+	c, _ := testClient(t, func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"items":[],"pad":"` + strings.Repeat("x", maxResponseBytes) + `"}`))
+	})
+	_, err := c.CreateJob(context.Background(), &Job{})
+	if !errors.Is(err, ErrResponseTooLarge) {
+		t.Fatalf("err = %v, want ErrResponseTooLarge", err)
 	}
 }

@@ -2,6 +2,7 @@ package k8s
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -170,5 +171,34 @@ func TestPodLog_ErrorCarriesNoToken(t *testing.T) {
 	}
 	if !IsForbidden(err) {
 		t.Fatalf("err = %v, want it to report as forbidden — in practice a missing RBAC verb", err)
+	}
+}
+
+// Spec 2034: the pods list outgrew the read cap alongside the Jobs list (5 MiB
+// at 700 finished workers), which silently stopped progress and — worse — made
+// a finished expansion unreadable. It is paged the same way.
+func TestListPods_IsPaged(t *testing.T) {
+	var conts []string
+	c, _ := testClient(t, func(w http.ResponseWriter, r *http.Request) {
+		q := r.URL.Query()
+		if q.Get("limit") == "" {
+			t.Errorf("pods listed without a page limit")
+		}
+		conts = append(conts, q.Get("continue"))
+		out := PodList{Items: []Pod{{Metadata: ObjectMeta{Name: "p" + q.Get("continue")}}}}
+		if q.Get("continue") == "" {
+			out.Metadata.Continue = "next"
+		}
+		_ = json.NewEncoder(w).Encode(out)
+	})
+	pods, err := c.ListPods(context.Background(), "a=b")
+	if err != nil {
+		t.Fatalf("ListPods: %v", err)
+	}
+	if len(pods) != 2 || pods[0].Metadata.Name != "p" || pods[1].Metadata.Name != "pnext" {
+		t.Errorf("pods = %+v", pods)
+	}
+	if len(conts) != 2 || conts[1] != "next" {
+		t.Errorf("continue tokens sent = %q", conts)
 	}
 }

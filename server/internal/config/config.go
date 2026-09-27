@@ -100,8 +100,10 @@ type Config struct {
 	// YtdlDeadlineSeconds bounds a single download. Nothing may run forever.
 	YtdlDeadlineSeconds int64
 	// YtdlTTLSeconds is how long a finished job lingers before the cluster
-	// sweeps it. It doubles as the visibility window for a SUCCESSFUL download;
-	// failures are recorded durably and are unaffected by it.
+	// sweeps it. It is a BACKSTOP now: a download's job is deleted as soon as
+	// its outcome is recorded (spec 2034), so this only reaches a job the
+	// server never got to — one finished while it was down, or an enumeration
+	// or tagging worker. Visibility comes from the record, not from the job.
 	YtdlTTLSeconds int32
 	// YtdlMinDurationSeconds separates a track from a clip in bulk runs. A
 	// LOWER bound only — a long compilation is legitimate content.

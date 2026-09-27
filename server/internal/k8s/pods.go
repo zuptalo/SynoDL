@@ -32,7 +32,7 @@ import (
 // A worker's output is small — a few hundred progress lines — but it is
 // produced by a third-party program fetching from a third-party site, so its
 // size is not ours to assume. This is the same instinct as the 4 MiB cap on
-// control-plane responses: read what could plausibly be needed, and drop the
+// control-plane responses (maxResponseBytes): read what could plausibly be needed, and drop the
 // rest rather than allocate it.
 const maxPodLogBytes = 256 << 10
 
@@ -61,16 +61,20 @@ func (c *Client) podsURL(suffix string, q url.Values) string {
 //
 // The selector is what keeps this from ever seeing a pod SynoDL did not create:
 // callers pass the same ManagedBy + Kind selector the Jobs list uses.
+//
+// Paged exactly as ListJobs is: a pod outlives its worker as long as the Job
+// does, so this list grows at the same rate (spec 2034).
 func (c *Client) ListPods(ctx context.Context, selector string) ([]Pod, error) {
-	q := url.Values{}
-	if selector != "" {
-		q.Set("labelSelector", selector)
-	}
-	var out PodList
-	if err := c.do(ctx, http.MethodGet, c.podsURL("", q), nil, &out); err != nil {
-		return nil, err
-	}
-	return out.Items, nil
+	var all []Pod
+	err := listPaged(selector, func(q url.Values) (string, error) {
+		var page PodList
+		if err := c.do(ctx, http.MethodGet, c.podsURL("", q), nil, &page); err != nil {
+			return "", err
+		}
+		all = append(all, page.Items...)
+		return page.Metadata.Continue, nil
+	})
+	return all, err
 }
 
 // PodLog returns one pod's output, bounded.

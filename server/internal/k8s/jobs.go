@@ -11,9 +11,33 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 )
+
+// maxResponseBytes bounds one control-plane response.
+//
+// It stops a misbehaving endpoint from becoming a memory problem, and it is
+// NOT a statement that a response is small. A Job weighs about 6 KiB, so an
+// unpaged list reaches this at around 700 of them — which a single channel
+// expansion produces in a couple of hours. That is exactly how spec 2034
+// happened: the cut-off body failed to decode on every cycle and the queue
+// stood still for a day. Lists are therefore paged (listPageSize), and this
+// cap only has to hold one page.
+const maxResponseBytes = 4 << 20
+
+// listPageSize is how many objects one list request asks for. At ~6 KiB a Job
+// (a pod is a little heavier) a page stays around a quarter of the cap, so a
+// heavier-than-expected object has plenty of room before it matters.
+const listPageSize = 150
+
+// ErrResponseTooLarge reports a response that outgrew maxResponseBytes.
+//
+// Named rather than surfaced as whatever the JSON decoder makes of a truncated
+// body: "unexpected end of JSON input" sent spec 2034's diagnosis looking for a
+// broken API server rather than a full one.
+var ErrResponseTooLarge = errors.New("k8s: response exceeds the read limit")
 
 // Client talks to ONE namespace and knows only about Jobs.
 type Client struct {
@@ -126,11 +150,14 @@ func (c *Client) do(ctx context.Context, method, url string, body, out any) erro
 	}
 	defer resp.Body.Close()
 
-	// Bounded read: a control-plane response is small, and this stops a
-	// misbehaving endpoint from becoming a memory problem.
-	raw, err := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
+	// Bounded read, one byte past the cap so a body that exceeds it is told
+	// apart from one that fits exactly.
+	raw, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseBytes+1))
 	if err != nil {
 		return fmt.Errorf("k8s: read response: %w", err)
+	}
+	if len(raw) > maxResponseBytes {
+		return fmt.Errorf("%w (%s %s)", ErrResponseTooLarge, method, req.URL.Path)
 	}
 
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
@@ -163,16 +190,53 @@ func (c *Client) CreateJob(ctx context.Context, j *Job) (*Job, error) {
 // This is the single call behind the whole task list: state is derived from it
 // rather than mirrored into the database, which is why a server restart cannot
 // desynchronise anything (FR-019).
+//
+// It is fetched in pages. Finished Jobs linger until the cluster sweeps them,
+// and a bulk expansion can leave hundreds; asking for them all at once is what
+// outgrew the read cap in spec 2034.
 func (c *Client) ListJobs(ctx context.Context, selector string) ([]Job, error) {
-	q := url.Values{}
-	if selector != "" {
-		q.Set("labelSelector", selector)
+	var all []Job
+	err := listPaged(selector, func(q url.Values) (string, error) {
+		var page JobList
+		if err := c.do(ctx, http.MethodGet, c.jobsURL("", q), nil, &page); err != nil {
+			return "", err
+		}
+		all = append(all, page.Items...)
+		return page.Metadata.Continue, nil
+	})
+	return all, err
+}
+
+// listPaged walks a paged list: it asks for listPageSize objects at a time and
+// follows the continue token until the API server stops handing one out.
+//
+// The selector goes on EVERY page. A continue token encodes where to resume,
+// not what was being asked for, and a page fetched without the selector would
+// be one that includes objects SynoDL did not create.
+//
+// A token the server has expired (410 Gone, after a long pause between pages)
+// fails the whole list rather than returning the pages already read: a partial
+// list would look to the reconciler like Jobs that have vanished.
+func listPaged(selector string, fetch func(q url.Values) (next string, err error)) error {
+	cont := ""
+	for {
+		q := url.Values{}
+		if selector != "" {
+			q.Set("labelSelector", selector)
+		}
+		q.Set("limit", strconv.Itoa(listPageSize))
+		if cont != "" {
+			q.Set("continue", cont)
+		}
+		next, err := fetch(q)
+		if err != nil {
+			return err
+		}
+		if next == "" {
+			return nil
+		}
+		cont = next
 	}
-	var out JobList
-	if err := c.do(ctx, http.MethodGet, c.jobsURL("", q), nil, &out); err != nil {
-		return nil, err
-	}
-	return out.Items, nil
 }
 
 // DeleteJob removes a Job and the pod it created.
