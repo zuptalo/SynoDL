@@ -14,5 +14,5 @@ everything else is presentation and a pure sort function.
 - [x] T005 `YtdlItem.vue`: saved ÷ total bar for a playlist; "waiting its turn" when nothing in it is running (FR-002, FR-003)
 - [x] T006 e2e in `e2e/stateful/ytdl-expand.spec.ts`: a playlist waiting behind full slots says so; once a track runs it says downloading, with its bar at the saved fraction
 - [x] T007 Gate: `npm run build`, unit coverage, `go build/vet/test`, stateful ytdl e2e
-- [ ] T008 Merge; confirm in production
-- [ ] T009 Set `**Status**: shipped` and run `make roadmap`
+- [x] T008 Merge; confirm in production
+- [x] T009 Set `**Status**: shipped` and run `make roadmap`

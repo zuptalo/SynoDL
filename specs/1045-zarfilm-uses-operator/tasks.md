@@ -17,5 +17,5 @@ no `checklist` run: nothing widens the credential boundary.
 - [x] T006 Form: required "Site address" with guidance; `address_required` message
 - [x] T007 Docs: `docs/DOWNLOAD-SOURCES.md`, `docs/UPGRADING.md`
 - [x] T008 Gate: `go build/vet/test` (both tags), `npm run build`, unit coverage, e2e
-- [ ] T009 Merge; confirm the deploy, and that the add-source form asks for the site address
-- [ ] T010 Set `**Status**: shipped` and run `make roadmap`
+- [x] T009 Merge; confirm the deploy, and that the add-source form asks for the site address
+- [x] T010 Set `**Status**: shipped` and run `make roadmap`
