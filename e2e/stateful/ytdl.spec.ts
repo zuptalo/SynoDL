@@ -127,8 +127,13 @@ test("a failed download stays failed, even after its job is swept away", async (
   await expect.poll(() => rowState(page), { timeout: 20_000 }).toBe("failed");
 
   // The job disappears WITHOUT a terminal condition, exactly as TTL cleanup
-  // would leave it.
-  await drive(requestId, "vanish");
+  // would leave it. Since spec 2034 the server deletes a download's job itself
+  // once the outcome is recorded, so it may already be gone — a 404 here is
+  // that, and is the same situation this test is about.
+  const res = await fetch(`${K8S}/__mock/jobs/${requestId}/vanish`, {
+    method: "POST",
+  });
+  expect([200, 204, 404]).toContain(res.status);
   await page.waitForTimeout(6_000);
   expect(await rowState(page)).toBe("failed");
 });
