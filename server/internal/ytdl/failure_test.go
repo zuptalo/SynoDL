@@ -12,6 +12,11 @@ func TestFailureFromOutput(t *testing.T) {
 	}{
 		{"age gate", "[youtube] x: Downloading webpage\nERROR: [youtube] qpgTC9MDx1o: Sign in to confirm your age. This video may be inappropriate for some users.", ReasonAgeRestricted, true},
 		{"bot check", "ERROR: [youtube] abc: Sign in to confirm you’re not a bot. Use --cookies-from-browser", ReasonRefused, true},
+		// Spec 1051: the wording yt-dlp actually printed for vKNZqM0d-xo, which the
+		// old "video unavailable" match missed for eight retries.
+		{"is unavailable", "[youtube] vKNZqM0d-xo: Downloading webpage\nERROR: [youtube] vKNZqM0d-xo: This video is unavailable", ReasonUnavailable, true},
+		{"isn't available anymore", "ERROR: [youtube] abc: This video isn't available anymore", ReasonUnavailable, true},
+		{"no longer available", "ERROR: [youtube] abc: This video is no longer available", ReasonUnavailable, true},
 		{"403", "[download] 12.0%\nERROR: unable to download video data: HTTP Error 403: Forbidden", ReasonRefused, true},
 		{"429", "ERROR: [youtube] abc: HTTP Error 429: Too Many Requests", ReasonRefused, true},
 		{"unavailable", "ERROR: [youtube] QMP-o8WXSPM: Video unavailable", ReasonUnavailable, true},

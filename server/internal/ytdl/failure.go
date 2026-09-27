@@ -60,7 +60,15 @@ func FailureFromOutput(raw []byte) (string, bool) {
 		return ReasonRefused, true
 	case has("in your country", "from your location"):
 		return ReasonRegion, true
-	case has("video unavailable", "private video", "has been removed", "account associated with this video has been terminated"):
+	// YouTube words a removal several ways, and yt-dlp passes the wording
+	// through: "Video unavailable", "This video is unavailable", "This video
+	// isn't available anymore", "This video is no longer available". A track in
+	// production sat on "did not complete" through eight retries because only
+	// the first form was known (spec 1051) — so the match is on the two words
+	// that every form shares, in either order, rather than on one phrase.
+	case has("video unavailable", "video is unavailable", "isn't available", "is not available",
+		"no longer available", "not available anymore", "private video", "has been removed",
+		"account associated with this video has been terminated"):
 		return ReasonUnavailable, true
 	}
 	return "", false

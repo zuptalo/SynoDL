@@ -116,3 +116,33 @@ export function applyYtdlFilter(
     return a.requestId < b.requestId ? 1 : -1;
   });
 }
+
+/**
+ * The order of a playlist's tracks in its sheet (spec 1051): failed first, then
+ * in progress, then waiting, then finished — the Tasks list's own order with
+ * failed brought to the top. In the list a failed row belongs at the bottom
+ * because it is over; inside a playlist the failed tracks are the only ones
+ * there is anything to do about, and they used to sit under a few hundred
+ * saved ones. Stable within each band, so the queue order the server gave is
+ * kept where it still means something.
+ */
+export function sortPlaylistItems<T extends { state: YtdlState }>(items: readonly T[]): T[] {
+  const band = (s: YtdlState): number => {
+    switch (s) {
+      case 'failed':
+        return 0;
+      case 'downloading':
+      case 'scheduled':
+      case 'resolving':
+        return 1;
+      case 'queued':
+        return 2;
+      default:
+        return 3; // completed
+    }
+  };
+  return items
+    .map((item, i) => ({ item, i, b: band(item.state) }))
+    .sort((x, y) => x.b - y.b || x.i - y.i)
+    .map((x) => x.item);
+}

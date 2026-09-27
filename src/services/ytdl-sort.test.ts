@@ -233,3 +233,25 @@ describe('the default order', () => {
     ]);
   });
 });
+
+describe('sortPlaylistItems', () => {
+  const t = (id: string, state: string) => ({ requestId: id, state }) as never as { requestId: string; state: import('./api').YtdlState };
+  it('puts failed tracks first, then active, waiting, finished — keeping queue order inside each band', async () => {
+    const { sortPlaylistItems } = await import('./ytdl-sort');
+    const out = sortPlaylistItems([
+      t('done1', 'completed'),
+      t('wait1', 'queued'),
+      t('fail1', 'failed'),
+      t('run1', 'downloading'),
+      t('done2', 'completed'),
+      t('fail2', 'failed'),
+      t('start1', 'scheduled'),
+    ]).map((x) => x.requestId);
+    expect(out).toEqual(['fail1', 'fail2', 'run1', 'start1', 'wait1', 'done1', 'done2']);
+  });
+  it('leaves an all-finished playlist in its own order', async () => {
+    const { sortPlaylistItems } = await import('./ytdl-sort');
+    const out = sortPlaylistItems([t('a', 'completed'), t('b', 'completed')]).map((x) => x.requestId);
+    expect(out).toEqual(['a', 'b']);
+  });
+});

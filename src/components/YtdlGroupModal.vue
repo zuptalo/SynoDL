@@ -24,6 +24,7 @@ import {
 } from '@ionic/vue';
 import { computed, onUnmounted, ref, watch } from 'vue';
 import { YTDL_PAGE, api, type YtdlDownload } from '@/services/api';
+import { sortPlaylistItems } from '@/services/ytdl-sort';
 import { onYtdlUpdate } from '@/composables/useYtdl';
 import { mergeYtdlUpdate, updateTouchesGroup } from '@/services/ytdl-merge';
 import YtdlItem from '@/components/YtdlItem.vue';
@@ -37,6 +38,8 @@ const emit = defineEmits<{
 }>();
 
 const items = ref<YtdlDownload[]>([]);
+// Failed first (spec 1051): what there is anything to do about leads the sheet.
+const shown = computed(() => sortPlaylistItems(items.value));
 const loading = ref(false);
 
 /**
@@ -176,7 +179,7 @@ function retryFailed(): void {
              respect the reader cares about, so it is rendered by the same
              component rather than by a thinner copy of it (FR-003, FR-004). -->
         <YtdlItem
-          v-for="item in items"
+          v-for="item in shown"
           :key="item.requestId"
           :download="item"
           data-testid="ytdl-group-item"
