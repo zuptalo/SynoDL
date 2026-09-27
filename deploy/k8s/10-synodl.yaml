@@ -69,9 +69,10 @@ data:
   # Nothing may run forever. A large channel is slow, not infinite; past this a
   # download is stopped and reported as failed.
   YTDL_DEADLINE_SECONDS: "7200"
-  # How long a FINISHED job lingers before the cluster sweeps it. This doubles as
-  # the visibility window for a successful download — a failure is recorded in
-  # the database and is unaffected by it.
+  # How long a FINISHED job lingers before the cluster sweeps it. A backstop only:
+  # SynoDL deletes a download's job itself once its outcome is recorded, so this
+  # reaches just the jobs it never got to (e.g. ones that finished while it was
+  # down). Visibility comes from the database record, not the job.
   YTDL_TTL_SECONDS: "86400"
   # Below this, an item in a playlist or channel is a clip rather than a track.
   # A lower bound only: long compilations are legitimate content.
@@ -81,7 +82,9 @@ data:
   # of accounts. Everything beyond it waits in a queue that survives a restart —
   # which is what makes expanding a channel of any size safe. Raise it if the
   # cluster has room; the source's own rate limiting is usually the real ceiling.
-  YTDL_MAX_PARALLEL: "4"
+  # 2, not 4: at 4, a sustained run of a few hundred tracks started drawing
+  # refusals from YouTube after about an hour (2026-09-27).
+  YTDL_MAX_PARALLEL: "2"
   # STATIC_DIR (=/app/web, single-container mode) is baked into the image; no need
   # to repeat it here.
 ---
