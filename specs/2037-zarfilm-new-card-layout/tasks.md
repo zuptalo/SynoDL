@@ -6,5 +6,5 @@
 - [x] T002 Fixture `testdata/zarfilm/archive_zf_cards.html` from the live markup; failing test `TestParseListingReadsTheCurrentCards` (`parsed 0 items`)
 - [x] T003 `parseZfCard` alongside the old card in `parseListing` (FR-001, FR-002)
 - [x] T004 Gate: `go test` (both tags), `npm run build`
-- [ ] T005 Merge; confirm in production that Discover lists ZarFilm titles
-- [ ] T006 Set `**Status**: shipped` and run `make roadmap`
+- [x] T005 Merge; confirm in production that Discover lists ZarFilm titles
+- [x] T006 Set `**Status**: shipped` and run `make roadmap`

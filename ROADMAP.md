@@ -73,8 +73,8 @@ Specs are grouped by category band; status moves
 | [1041](specs/1041-discover-resume/spec.md) | Discover opens where you left it, and a search can be called off | 🟢 shipped |
 | [1042](specs/1042-tasks-list-sections/spec.md) | Every task says where it came from, and an upload says what it is | 🟢 shipped |
 | [1043](specs/1043-retry-refused-youtube/spec.md) | A YouTube download that YouTube turned away tries again by itself | 🟢 shipped |
-| [1044](specs/1044-playlist-progress-and/spec.md) | A playlist shows how much of it is saved, and sorting by status puts what is running on top | 🟡 in-progress |
-| [1045](specs/1045-zarfilm-uses-operator/spec.md) | ZarFilm is reached only at the address the operator gives | 🟡 in-progress |
+| [1044](specs/1044-playlist-progress-and/spec.md) | A playlist shows how much of it is saved, and sorting by status puts what is running on top | 🟢 shipped |
+| [1045](specs/1045-zarfilm-uses-operator/spec.md) | ZarFilm is reached only at the address the operator gives | 🟢 shipped |
 
 ## 🐛 Hotfixes & Bug Fixes (2001+)
 
@@ -113,5 +113,5 @@ Specs are grouped by category band; status moves
 | [2033](specs/2033-people-section-title-sheet/spec.md) | The last title's cast stops appearing on the next one | 🟢 shipped |
 | [2034](specs/2034-download-queue-stalls/spec.md) | YouTube downloads stop waiting forever once a few hundred have run | 🟢 shipped |
 | [2035](specs/2035-playlist-retry-and-status/spec.md) | A playlist's failed tracks are one tap to retry, and the playlist always says what its tracks add up to | 🟢 shipped |
-| [2036](specs/2036-filter-sheet-scrolls-desktop/spec.md) | The filter sheet scrolls with a mouse wheel on desktop | 🟡 in-progress |
-| [2037](specs/2037-zarfilm-new-card-layout/spec.md) | ZarFilm's catalog shows titles again after the site's redesign | 🟡 in-progress |
+| [2036](specs/2036-filter-sheet-scrolls-desktop/spec.md) | The filter sheet scrolls with a mouse wheel on desktop | 🟢 shipped |
+| [2037](specs/2037-zarfilm-new-card-layout/spec.md) | ZarFilm's catalog shows titles again after the site's redesign | 🟢 shipped |

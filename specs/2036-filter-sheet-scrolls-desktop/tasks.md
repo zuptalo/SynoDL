@@ -6,4 +6,4 @@
 - [x] T002 Failing regression in `e2e/filter-sort.spec.ts`: wheel-scroll (not `click()`, which scrolls programmatically) must bring the end of the list into view — confirmed failing on the old sheet
 - [x] T003 `:expand-to-scroll="false"` on `TaskFilterSheet.vue` and `SourceFilterSheet.vue` (FR-001)
 - [x] T004 Gate: `npm run build`, unit coverage, filter e2e
-- [ ] T005 Merge and set `**Status**: shipped`
+- [x] T005 Merge and set `**Status**: shipped`
