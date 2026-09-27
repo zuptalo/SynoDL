@@ -213,7 +213,71 @@ func parseListing(body []byte, bases ...string) ([]zarListItem, error) {
 		}
 		out = append(out, it)
 	}
+	// The site's current theme (spec 2037). Read as well as, not instead of, the
+	// older card: a theme rolls out page by page and the site has served both.
+	for _, card := range findAll(doc, byClass("zf-card-item")) {
+		if it, ok := parseZfCard(card, bases...); ok {
+			out = append(out, it)
+		}
+	}
 	return out, nil
+}
+
+// parseZfCard reads one result card in the site's current theme:
+//
+//	.zf-card-item > article.zf-media-card[.zf-card-series]
+//	  a.zf-card-link[href]           the title page (an overlay, no text)
+//	  img.zf-card-image[src]         poster
+//	  .zf-card-genre-chips > span    genres
+//	  h3.zf-card-title               title
+//	  .zf-card-rating > b            IMDb rating
+//	  .zf-card-year                  year (absent on most series)
+func parseZfCard(card *html.Node, bases ...string) (zarListItem, bool) {
+	link := findFirst(card, byClass("zf-card-link"))
+	if link == nil {
+		return zarListItem{}, false
+	}
+	id := pathFromURL(attr(link, "href"), bases...)
+	if id == "" {
+		return zarListItem{}, false
+	}
+	it := zarListItem{ID: id, IsSeries: strings.HasPrefix(id, "series/")}
+	if t := findFirst(card, byClass("zf-card-title")); t != nil {
+		it.Title = text(t)
+	}
+	// A card without a title is a template or a placeholder, not a result.
+	if it.Title == "" {
+		return zarListItem{}, false
+	}
+	if y := findFirst(card, byClass("zf-card-year")); y != nil {
+		it.Year = text(y)
+	}
+	if it.Year == "" && !it.IsSeries {
+		// A movie's slug ends in its year ("asad-2026"); a series' does not.
+		if m := reYear.FindStringSubmatch(id); m != nil {
+			it.Year = m[1]
+		}
+	}
+	if r := findFirst(card, byClass("zf-card-rating")); r != nil {
+		if b := findFirst(r, byTag("b")); b != nil {
+			it.Rating, _ = strconv.ParseFloat(strings.TrimSpace(text(b)), 64)
+		}
+	}
+	img := findFirst(card, byClass("zf-card-image"))
+	if img == nil {
+		img = findFirst(card, byTag("img"))
+	}
+	if img != nil {
+		it.PosterURL = attr(img, "src")
+	}
+	if g := findFirst(card, byClass("zf-card-genre-chips")); g != nil {
+		for _, sp := range findAll(g, byTag("span")) {
+			if v := text(sp); v != "" {
+				it.Genres = append(it.Genres, v)
+			}
+		}
+	}
+	return it, true
 }
 
 // pathFromURL turns an absolute site URL into the driver-side id: the path with
