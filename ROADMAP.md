@@ -78,7 +78,7 @@ Specs are grouped by category band; status moves
 | [1046](specs/1046-zarfilm-browses-through/spec.md) | ZarFilm browses through the site's advanced search | 🟢 shipped |
 | [1047](specs/1047-filters-work-across/spec.md) | Filters that work across every source | 🟢 shipped |
 | [1048](specs/1048-tasks-ordered-what/spec.md) | Tasks ordered by what is happening, and playlists that say why they failed | 🟢 shipped |
-| [1049](specs/1049-clearer-download-states/spec.md) | Download states named plainly, and every failed download retried in one tap | 🟡 in-progress |
+| [1049](specs/1049-clearer-download-states/spec.md) | Download states named plainly, and every failed download retried in one tap | 🟢 shipped |
 | [1050](specs/1050-clear-playlists-cannot/spec.md) | Clear the playlists that can never finish, and retry refused downloads sooner | 🟢 shipped |
 | [1051](specs/1051-unavailable-videos-recognised/spec.md) | Removed videos are recognised however YouTube words it, and failed tracks lead a playlist | 🟢 shipped |
 
