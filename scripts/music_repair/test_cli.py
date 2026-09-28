@@ -117,6 +117,30 @@ class TestApplyCommand(CliBase):
         self.assertIn("lock", err)
 
 
+class TestTermination(CliBase):
+    """Kubernetes ends a Job with SIGTERM (deadline, delete, node drain). Python's default
+    skips `finally`, which would leave the lock behind and lose unflushed lookups."""
+
+    def test_sigterm_releases_the_lock_and_keeps_the_lookups_already_made(self):
+        import signal
+        calls = {"n": 0}
+
+        def transport(url, headers, timeout, max_bytes):
+            calls["n"] += 1
+            if calls["n"] == 5:
+                os.kill(os.getpid(), signal.SIGTERM)
+            return sources.Response(404, {}, b"")
+
+        before = signal.getsignal(signal.SIGTERM)
+        with self.assertRaises(SystemExit) as cm:
+            run(["plan", "--library", self.root, "--repair-dir", self.repair], transport=transport)
+        self.assertEqual(cm.exception.code, 143)
+        self.assertFalse(os.path.exists(os.path.join(self.repair, "lock")), "the lock must not outlive the run")
+        cache = json.loads(read_bytes(os.path.join(self.repair, "cache.json")))
+        self.assertGreater(len(cache["entries"]), 0, "lookups made before the signal were kept")
+        self.assertEqual(signal.getsignal(signal.SIGTERM), before, "the handler is put back")
+
+
 class TestOutbound(CliBase):
     """SC-009 and FR-020, checked over a whole run rather than one function."""
 

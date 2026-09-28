@@ -53,6 +53,30 @@ class TestTagIO(unittest.TestCase):
         tagio.write_tags(self.path, {"title": "T"})
         self.assertEqual(os.stat(self.path).st_mtime_ns, 1_000_000_000 * 10**9)
 
+    def test_a_failure_before_the_swap_leaves_the_original_bytes_and_no_temp_file(self):
+        with open(self.path, "rb") as f:
+            original = f.read()
+        real = os.replace
+
+        def boom(src, dst):
+            raise OSError("pod evicted")
+        tagio.os.replace = boom
+        try:
+            with self.assertRaises(OSError):
+                tagio.write_tags(self.path, {"title": "New"})
+        finally:
+            tagio.os.replace = real
+        with open(self.path, "rb") as f:
+            self.assertEqual(f.read(), original, "the file is either the old one or the new one, never half of each")
+        self.assertEqual(sorted(os.listdir(self.tmp.name)), ["a.mp3"])
+
+    def test_the_marker_and_previous_tags_can_be_read_without_writing(self):
+        self.assertIsNone(tagio.repair_marker(self.path))
+        prev = tagio.read_tags(self.path, ["title", "album"])
+        self.assertEqual(prev, {"title": "Old - Title (Official Video)", "album": "Old Playlist"})
+        tagio.write_tags(self.path, {"repair": "plan9"})
+        self.assertEqual(tagio.repair_marker(self.path), "plan9")
+
     def test_only_the_asked_keys_change(self):
         tagio.write_tags(self.path, {"repair": "p", "repair_status": "no_match"})
         from mutagen.id3 import ID3

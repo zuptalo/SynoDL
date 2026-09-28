@@ -76,6 +76,14 @@ class TestWrapper(unittest.TestCase):
         self.assertIn(f'args: ["apply","--library","/library","--plan","{PLAN_ID}"]', m)
         self.assertNotIn("sh -c", m)
 
+    def test_the_code_configmap_is_owned_by_the_job_not_deleted_on_exit(self):
+        # Ctrl-C stops WATCHING, not the Job: deleting the ConfigMap on exit would pull the
+        # code out from under a Job that is still pending or running.
+        text = open(SCRIPT, encoding="utf-8").read()
+        self.assertIn("ownerReferences", text)
+        self.assertIn("trap - EXIT", text)
+        self.assertLess(text.index("ownerReferences"), text.index("trap - EXIT"))
+
     def test_no_secret_or_service_account_is_mounted(self):
         m = body(sh("plan", dry=True).stdout)
         for word in ("secretKeyRef", "secret:", "serviceAccountName"):

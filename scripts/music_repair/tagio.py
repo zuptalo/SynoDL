@@ -12,6 +12,7 @@ Files keep their modified time, so "how old is this download" survives a retag.
 from __future__ import annotations
 
 import os
+import shutil
 
 from mutagen.id3 import APIC, ID3, TALB, TDRC, TIT2, TPE1, TPE2, TRCK, TXXX, UFID, ID3NoHeaderError
 
@@ -60,10 +61,43 @@ def _load(path: str) -> ID3:
         return ID3()
 
 
-def _save(path: str, tags: ID3):
+def _rewrite(path: str, mutate):
+    """Apply `mutate(tags)` to a COPY of the file, then swap it in atomically.
+
+    mutagen rewrites a file IN PLACE, and when the new tags outgrow the padding
+    that means shifting the whole audio stream — a kill part-way leaves a file
+    that is neither the old one nor the new one. A copy in the same folder and an
+    os.replace() means the file is always one or the other, complete. The cost is
+    one extra read and write of the file; for a library repair that runs once,
+    that is the right trade. The temp file is hidden and removed on any failure.
+    """
     st = os.stat(path)
-    tags.save(path, v2_version=3)   # 2.3: what the library already uses, and what every player reads
-    os.utime(path, ns=(st.st_atime_ns, st.st_mtime_ns))
+    tmp = os.path.join(os.path.dirname(path), f".{os.path.basename(path)}.repair-tmp")
+    shutil.copy2(path, tmp)
+    try:
+        tags = _load(tmp)
+        result = mutate(tags)
+        tags.save(tmp, v2_version=3)   # 2.3: what the library already uses, and what every player reads
+        os.utime(tmp, ns=(st.st_atime_ns, st.st_mtime_ns))
+        os.replace(tmp, path)
+    except BaseException:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
+    return result
+
+
+def read_tags(path: str, keys) -> dict:
+    """The current value of each key, without writing anything."""
+    tags = _load(path)
+    return {k: _read(tags, k) for k in keys}
+
+
+def repair_marker(path: str):
+    """The plan id this file was last repaired by, or None."""
+    return read_tags(path, ["repair"])["repair"]
 
 
 def write_tags(path: str, tags_to_write: dict) -> dict:
@@ -71,35 +105,41 @@ def write_tags(path: str, tags_to_write: dict) -> dict:
     unknown = set(tags_to_write) - set(_TEXT) - set(_TXXX) - {"musicbrainz_recording"}
     if unknown:
         raise ValueError(f"unknown tag keys: {sorted(unknown)}")
-    tags = _load(path)
-    previous = {k: _read(tags, k) for k in tags_to_write}
-    for k, v in tags_to_write.items():
-        _put(tags, k, v)
-    _save(path, tags)
-    return previous
+    def mutate(tags):
+        previous = {k: _read(tags, k) for k in tags_to_write}
+        for k, v in tags_to_write.items():
+            _put(tags, k, v)
+        return previous
+    return _rewrite(path, mutate)
 
 
 def restore_tags(path: str, previous: dict):
-    tags = _load(path)
-    for k, v in previous.items():
-        _put(tags, k, v)
-    _save(path, tags)
+    def mutate(tags):
+        for k, v in previous.items():
+            _put(tags, k, v)
+    _rewrite(path, mutate)
 
 
 def embed_cover(path: str, data: bytes, mime: str):
     """Embed `data` as the front cover; return the (data, mime) it replaced, or None."""
-    tags = _load(path)
-    old = tags.getall("APIC")
-    previous = (old[0].data, old[0].mime) if old else None
-    tags.delall("APIC")
-    tags.add(APIC(encoding=3, mime=mime, type=3, desc="Cover", data=data))
-    _save(path, tags)
-    return previous
+    def mutate(tags):
+        old = tags.getall("APIC")
+        previous = (old[0].data, old[0].mime) if old else None
+        tags.delall("APIC")
+        tags.add(APIC(encoding=3, mime=mime, type=3, desc="Cover", data=data))
+        return previous
+    return _rewrite(path, mutate)
+
+
+def read_cover(path: str):
+    """The embedded cover as (data, mime), or None."""
+    old = _load(path).getall("APIC")
+    return (old[0].data, old[0].mime) if old else None
 
 
 def restore_cover(path: str, previous):
-    tags = _load(path)
-    tags.delall("APIC")
-    if previous:
-        tags.add(APIC(encoding=3, mime=previous[1], type=3, desc="Cover", data=previous[0]))
-    _save(path, tags)
+    def mutate(tags):
+        tags.delall("APIC")
+        if previous:
+            tags.add(APIC(encoding=3, mime=previous[1], type=3, desc="Cover", data=previous[0]))
+    _rewrite(path, mutate)

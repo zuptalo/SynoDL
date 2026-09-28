@@ -4,7 +4,7 @@
 
 **Created**: 2026-09-28
 
-**Status**: planned
+**Status**: in-review
 <!-- SynoDL spec lifecycle: planned → in-progress → in-review → shipped.
      This line is the source of truth for the spec's row in ROADMAP.md;
      bump it as the work moves through the pipeline. The spec id and category
@@ -419,3 +419,47 @@ tagged mp3; one with none is listed in the report and left in place.
 - Changing the download recipe (what new downloads write, skipping songs already
   held, stopping the playlist-as-album naming) is the follow-up spec, and is out
   of scope here.
+
+## Verification (recorded 2026-09-28)
+
+Measured on the live library, read-only (mounted `:ro`, plans written to a scratch folder):
+
+- **Offline plan over the whole library** (5,757 readable tracks, 7,672 other files; 10 minutes): 3,990 distinct
+  songs; **1,763 duplicates** set aside by video id (the filename-based survey estimated 1,770), **13.3 GB**
+  reclaimable; 3,964 moves, 3,990 retags, 88 playlist files, 3,478 orphaned `album.nfo`, **0 conflicts**, and
+  74 same-title/different-video clashes resolved by keeping both (FR-008a). No duplicate destinations, no
+  mount-hostile characters and no path escapes across all ~15,000 actions.
+- **Real lookups on 60 random tracks** (after retries were added): **27 matched (45%)**, of which **14 (23%)** have
+  a known album and cover; 33 (55%) have no confident match; 0 not looked up. Eight of the unmatched had a
+  same-song candidate whose length differed by 4–99 seconds. Expect roughly 75% of songs to land in `Singles`
+  (offline, before any lookup, 95% do). The ±3 s rule was not loosened; this is the number to judge it by.
+- **Real-title cleaning**: video noise left in 198 of 3,990 titles by the first rules, 51 after (the remainder are
+  deliberately kept versions such as "Acoustic Version", "Live", "Remix"); no title gained an unbalanced bracket.
+- **Known limits of the local check**: 10 files (including `Coldplay/Coldplay: Everyday Life`) were unreadable
+  through the AFP mount on this machine — non-ASCII and colon names, the very limit FR-010 exists for. The in-cluster
+  plan over NFS is the real check for those.
+- **Live services**: `MUSIC_REPAIR_LIVE=1` smoke test passes against MusicBrainz, Cover Art Archive (including the
+  two-hop `archive.org` redirect), iTunes Search and Deezer.
+- **Leftovers on the real library**: both `.webm` files already have a same-named `.mp3` beside them, so they are
+  reported and left; both `logo.bin` files are not images and are set aside.
+- **Media server**: whether `Playlists/*.m3u8` is imported automatically is **not verified**.
+
+### Deviations from the first draft, and why
+
+- **FR-005** gained "an already-settled copy wins over a larger new one", so a later run never moves a file a
+  previous run placed.
+- **FR-008a** (both kept, second named by its video id) replaces "neither moves" for same-title clashes: the real
+  library has 74 of them, and leaving both stranded in their old folders was wrong.
+- **Atomic retags**: research R9 promised copy-then-rename and the first implementation rewrote tags in place. A
+  kill between the rewrite and its journal line stranded the file (both the retag and the move were skipped as
+  "changed"); found in review and fixed — tags are now written on a copy and swapped in, the previous values are
+  journaled first, and a file carrying this plan's marker is recognised on resume.
+- **SIGTERM** is turned into a normal exit so the lock is released and the lookups so far are saved.
+
+### Open decision
+
+Single-artist playlists such as `Adele / 30`, `Billie Eilish / HIT ME HARD AND SOFT` and `Anyma / The End Of
+Genesys` are real albums that this version treats as playlists (only `<Artist> - <X>` folders count as albums), so
+their unmatched tracks go to `Singles`. 19 single-artist playlists with four or more songs cover up to 288 songs —
+but the same rule would also turn `Roya / Persian Dance remix …` (59 songs) into an "album". Not decided; see the
+report to the user.

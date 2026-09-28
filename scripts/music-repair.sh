@@ -94,10 +94,21 @@ for f in "${files[@]}"; do
 done
 "${KUBECTL[@]}" create configmap "$code" "${args[@]}" >/dev/null
 
+# Until the Job exists the ConfigMap is ours to clean up. Once it does, the Job OWNS it
+# (below): deleting it on exit — Ctrl-C, or the give-up at the end — would pull the code out
+# from under a Job that is still pending or running.
 cleanup() { "${KUBECTL[@]}" delete configmap "$code" --ignore-not-found >/dev/null 2>&1 || true; }
 trap cleanup EXIT
 
 render "$job" "$code" "$ARGS" | "${KUBECTL[@]}" apply -f - >/dev/null
+uid="$("${KUBECTL[@]}" get "job/$job" -o jsonpath='{.metadata.uid}')"
+if ! "${KUBECTL[@]}" patch configmap "$code" --type merge -p \
+     "{\"metadata\":{\"ownerReferences\":[{\"apiVersion\":\"batch/v1\",\"kind\":\"Job\",\"name\":\"$job\",\"uid\":\"$uid\"}]}}" >/dev/null; then
+  "${KUBECTL[@]}" delete "job/$job" --ignore-not-found >/dev/null 2>&1 || true   # fail closed: no Job without its code
+  echo "could not attach the code to the Job; nothing was left running" >&2
+  exit 3
+fi
+trap - EXIT   # the ConfigMap now lives and dies with the Job (ttlSecondsAfterFinished)
 echo "started Job $job — following its log (Ctrl-C stops watching, not the Job)"
 "${KUBECTL[@]}" wait --for=condition=ready pod -l job-name="$job" --timeout=180s >/dev/null 2>&1 || true
 "${KUBECTL[@]}" logs -f "job/$job" || true

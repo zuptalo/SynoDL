@@ -59,7 +59,7 @@ reads only the JSON.
 
 ## Journal (`journal-<id>.jsonl`)
 
-One line per completed action: `{action_id, status: done|skipped|failed, at, note, previous_tags}` — `previous_tags` holds the value of every tag the step overwrote, so `restore` can revert tags as well as moves (FR-007).
+One line per finished action: `{action_id, status: done|skipped|failed, note, previous_tags, state}`. An in-place edit (retag, cover) is preceded by a `started` line holding what it is about to overwrite, so a kill between the edit and its `done` line can be finished or undone — `previous_tags` holds the value of every tag the step overwrote, so `restore` can revert tags as well as moves (FR-007).
 Resume = skip action ids already `done`. `restore` replays `move`/`trash` in reverse.
 
 ## Lookup cache (`cache.json`)

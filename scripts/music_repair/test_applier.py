@@ -257,6 +257,91 @@ class TestResume(ApplyBase):
         self.assertEqual(file_set(self.root), want)
 
 
+class TestInterruptedRetag(ApplyBase):
+    """A kill between rewriting a file's tags and journaling the step must not strand the file.
+
+    Retagging changes the size, so a resumed run cannot tell "somebody edited this"
+    from "I already did this" by size alone. The file's own repair marker tells it.
+    """
+
+    def growing(self, plan):
+        """Make every retag add ~5 KB, so the file's SIZE changes — the case that strands a file."""
+        for a in plan["actions"]:
+            if a["kind"] == "retag" and "album" in a.get("tags", {}):
+                a["tags"]["featured"] = "x" * 5000
+        return plan
+
+    def interrupt_after_nth_tag_write(self, n):
+        real = applier.tagio.write_tags
+        calls = {"n": 0}
+
+        def flaky(path, tags):
+            out = real(path, tags)
+            calls["n"] += 1
+            if calls["n"] == n:
+                raise KeyboardInterrupt("killed after the write, before the journal")
+            return out
+        applier.tagio.write_tags = flaky
+        return real
+
+    def reference_files(self):
+        reference = tempfile.TemporaryDirectory()
+        try:
+            ref_root = fixtures.build_library(os.path.join(reference.name, "lib"))
+            plan = self.growing(planner.build_plan(inventory.scan(ref_root), {}, plan_id="p1",
+                                                   fs=FakeFs(library=ref_root), created="x").to_dict())
+            applier.apply(plan, ref_root, os.path.join(ref_root, ".repair"), fetch_cover=self.fetch)
+            return file_set(ref_root)
+        finally:
+            reference.cleanup()
+
+    def test_resume_after_a_kill_between_the_tag_write_and_the_journal_reaches_the_same_end_state(self):
+        want = self.reference_files()
+        plan = self.growing(self.make_plan())
+        real = self.interrupt_after_nth_tag_write(3)
+        try:
+            with self.assertRaises(KeyboardInterrupt):
+                self.run_apply(plan)
+        finally:
+            applier.tagio.write_tags = real
+        res = self.run_apply(plan)
+        self.assertEqual(res.failed, [], res.failed)
+        self.assertFalse([s for s in res.skipped if "changed" in s["note"]], res.skipped)
+        self.assertEqual(file_set(self.root), want)
+        live = [t for t in inventory.scan(self.root).tracks if t.video_id]
+        self.assertTrue(all(t.settled for t in live), "every song was actually retagged")
+        self.assertFalse([t.relpath for t in live if "/Singles/" not in t.relpath and "Parachutes" not in t.relpath
+                          and "Everyday Life" not in t.relpath], "no file was left stranded in an old playlist folder")
+
+    def test_restore_after_that_recovery_still_brings_the_old_tags_back(self):
+        from mutagen.id3 import ID3
+        before = {}
+        for t in inventory.scan(self.root).tracks:
+            if t.video_id:
+                before[t.video_id] = t.tag_title
+        plan = self.growing(self.make_plan())
+        real = self.interrupt_after_nth_tag_write(3)
+        try:
+            with self.assertRaises(KeyboardInterrupt):
+                self.run_apply(plan)
+        finally:
+            applier.tagio.write_tags = real
+        self.run_apply(plan)
+        applier.restore("p1", self.root, self.repair)
+        after = {t.video_id: t.tag_title for t in inventory.scan(self.root).tracks if t.video_id}
+        # the copy set aside as a duplicate comes back too, so every id is present with its original title
+        for vid, title in before.items():
+            self.assertEqual(after.get(vid), title, vid)
+
+    def test_a_file_someone_else_edited_is_still_reported_changed(self):
+        plan = self.make_plan()
+        victim = os.path.join(self.root, "ABBA/Party Hits/ABBA - Mamma Mia (Official Music Video).mp3")
+        with open(victim, "ab") as f:
+            f.write(b"an unrelated edit")           # no repair marker: this is not our work
+        res = self.run_apply(plan)
+        self.assertTrue(any("changed" in s["note"] for s in res.skipped), res.skipped)
+
+
 class TestRestore(ApplyBase):
     def test_restore_returns_files_and_previous_tags(self):
         from mutagen.id3 import ID3

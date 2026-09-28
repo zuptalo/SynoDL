@@ -14,6 +14,7 @@ import logging
 import os
 import secrets
 import shutil
+import signal
 import sys
 import time
 
@@ -58,14 +59,16 @@ def cmd_plan(args, transport, fetch_cover) -> int:
             cache = sources.Cache(os.path.join(repair, "cache.json"))
             lookup = sources.Lookup(transport=transport or sources.http_transport, cache=cache)
             todo = [s for s in songs if planner.needs_lookup(s.kept)]
-            for i, s in enumerate(todo, 1):
-                p = planner.parse_kept(s.kept)
-                results[s.key] = lookup.resolve(key=s.key, lead=p.lead, title=p.title,
-                                                duration_s=s.kept.duration_s, featured=p.featured,
-                                                alt_leads=p.leads[1:])
-                if i % 25 == 0 or i == len(todo):
-                    print(f"[plan] looked up {i}/{len(todo)}", flush=True)
-            cache.flush()
+            try:
+                for i, s in enumerate(todo, 1):
+                    p = planner.parse_kept(s.kept)
+                    results[s.key] = lookup.resolve(key=s.key, lead=p.lead, title=p.title,
+                                                    duration_s=s.kept.duration_s, featured=p.featured,
+                                                    alt_leads=p.leads[1:])
+                    if i % 25 == 0 or i == len(todo):
+                        print(f"[plan] looked up {i}/{len(todo)}", flush=True)
+            finally:
+                cache.flush()      # whatever ended the loop, the answers already found are kept
         plan_id = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime()) + "-" + secrets.token_hex(3)
         plan = planner.build_plan(inv, results, plan_id=plan_id)
         doc = plan.to_dict()
@@ -155,14 +158,30 @@ def build_parser():
     return p
 
 
+def _terminate(signum, frame):
+    raise SystemExit(128 + signum)
+
+
 def main(argv=None, *, transport=None, fetch_cover=None) -> int:
     args = build_parser().parse_args(argv)
     logging.basicConfig(level=logging.DEBUG if args.verbose else logging.INFO, format="%(message)s")
-    if args.command == "plan":
-        return cmd_plan(args, transport, fetch_cover)
-    if args.command == "apply":
-        return cmd_apply(args, fetch_cover)
-    return cmd_restore(args)
+    # Kubernetes ends a Job with SIGTERM (its deadline, `kubectl delete`, a node
+    # drain). Python's default action skips `finally` blocks, which would leave
+    # .repair/lock behind and lose the lookups not yet flushed. Turning it into
+    # SystemExit makes every finally run.
+    try:
+        previous = signal.signal(signal.SIGTERM, _terminate)
+    except ValueError:      # not the main thread (e.g. a test runner)
+        previous = None
+    try:
+        if args.command == "plan":
+            return cmd_plan(args, transport, fetch_cover)
+        if args.command == "apply":
+            return cmd_apply(args, fetch_cover)
+        return cmd_restore(args)
+    finally:
+        if previous is not None:
+            signal.signal(signal.SIGTERM, previous)
 
 
 if __name__ == "__main__":

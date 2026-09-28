@@ -60,6 +60,10 @@ scripts/music-repair.sh restore 20260928T201500Z-a1b2c3 # undo it
 
 Then let the media server rescan.
 
+If a `plan` or `apply` Job is stopped (a deadline, a node drain), run the same command again: `plan` resumes from its
+saved lookups and `apply <id>` continues from its journal. A file is only ever the complete old version or the
+complete new one — tags are rewritten on a copy and swapped in atomically.
+
 ### What makes it safe
 
 - **Nothing is deleted.** Removed files go to `.trash/<plan id>/`, keeping their path.
@@ -92,8 +96,10 @@ tag contents (video descriptions can hold personal links), URLs or environment v
 
 ### Media servers
 
-`.trash/` and `.repair/` are dot-folders, which Jellyfin and Plex ignore. `Playlists/` holds
-`.m3u8` files: if your server lists it as an artist, exclude that folder from the music library.
+`.trash/` and `.repair/` are dot-folders, which Jellyfin and Plex are expected to ignore. `Playlists/` holds
+`.m3u8` files. **Not verified against your server:** whether it imports them as playlists automatically, needs
+an import step, or lists the folder as an artist. Check after the first `apply` (and exclude `Playlists/` from the
+music library if it appears as an artist). The songs themselves are unaffected either way.
 
 ## Local, read-only check
 

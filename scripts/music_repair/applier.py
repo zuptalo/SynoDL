@@ -243,8 +243,24 @@ class _Run:
             return None, "source no longer exists"
         want = (st["size"], st["mtime_ns"]) if st else (a.get("size"), a.get("mtime_ns"))
         if want[0] is not None and (info.st_size, info.st_mtime_ns) != tuple(want):
+            # A retag legitimately changes the size. If the run was killed after
+            # rewriting the tags but before journaling it, the file carries THIS
+            # plan's marker: that is our own earlier write, not somebody's edit.
+            if rel.endswith(".mp3") and self._ours(rel):
+                return rel, None
             return None, "source changed since the plan was made"
         return rel, None
+
+    def _ours(self, rel):
+        try:
+            return tagio.repair_marker(self.abs(rel)) == self.id
+        except Exception:
+            return False
+
+    def started(self, action_id):
+        """The journal record written BEFORE an in-place edit, if the run was killed after it."""
+        return next((r for r in reversed(self.journal.records)
+                     if r.get("action_id") == action_id and r.get("status") == "started"), None)
 
     def remember(self, a, rel):
         info = os.stat(self.abs(rel))
@@ -292,7 +308,19 @@ class _Run:
         rel, why = self.current(a)
         if rel is None:
             return "skipped", why, {}
-        previous = tagio.write_tags(self.abs(rel), a["tags"])
+        path = self.abs(rel)
+        begun = self.started(a["id"])
+        if begun and self._ours(rel):
+            # Killed after the write, before the journal: the tags are already
+            # there, and what they REPLACED is in the record written before it.
+            previous = begun["previous_tags"]
+        else:
+            # Journal what is about to be overwritten BEFORE overwriting it, so a
+            # kill at any point leaves enough to finish or to undo.
+            previous = tagio.read_tags(path, list(a["tags"]))
+            self.journal.write({"action_id": a["id"], "kind": "retag", "status": "started", "src": a["src"],
+                                "path": rel, "previous_tags": previous})
+            tagio.write_tags(path, a["tags"])
         return "done", "", {"path": rel, "previous_tags": previous, "state": self.remember(a, rel)}
 
     def do_convert(self, a):
@@ -330,15 +358,22 @@ class _Run:
         if isinstance(got, str):
             return "skipped", f"cover: {got}", {}
         data, mime = got
-        previous = tagio.embed_cover(self.abs(audio), data, mime)
-        stash = None
-        if previous:
-            sha = hashlib.sha1(previous[0]).hexdigest()
-            d = os.path.join(self.repair, f"prev-covers-{self.id}")
-            os.makedirs(d, exist_ok=True)
-            with open(os.path.join(d, sha), "wb") as f:
-                f.write(previous[0])
-            stash = {"sha": sha, "mime": previous[1]}
+        begun = self.started(a["id"])
+        if begun:
+            stash = begun["previous_cover"]      # killed after the embed: what it replaced was journaled first
+        else:
+            previous = tagio.read_cover(self.abs(audio))
+            stash = None
+            if previous:
+                sha = hashlib.sha1(previous[0]).hexdigest()
+                d = os.path.join(self.repair, f"prev-covers-{self.id}")
+                os.makedirs(d, exist_ok=True)
+                with open(os.path.join(d, sha), "wb") as f:
+                    f.write(previous[0])
+                stash = {"sha": sha, "mime": previous[1]}
+            self.journal.write({"action_id": a["id"], "kind": "cover", "status": "started", "src": None,
+                                "audio": audio, "previous_cover": stash})
+        tagio.embed_cover(self.abs(audio), data, mime)
         created = None
         folder_jpg = posixpath.join(a["folder"], "folder.jpg")
         if not os.path.exists(self.abs(folder_jpg)):
@@ -408,6 +443,12 @@ class _Run:
 
 # ---- restore --------------------------------------------------------------
 
+def _has_cover_changed(path: str, rec: dict) -> bool:
+    """For a cover step that only STARTED: is there anything to undo?"""
+    return tagio.read_cover(path) is not None
+
+
+
 def restore(plan_id: str, library: str, repair_dir: str) -> Results:
     journal = Journal(repair_dir, plan_id)
     if not journal.records:
@@ -432,17 +473,23 @@ def restore(plan_id: str, library: str, repair_dir: str) -> Results:
             res.done.append({"action_id": rec["action_id"], "kind": rec["kind"], "src": src, "note": ""})
 
     try:
-        for rec in reversed([r for r in journal.records if r.get("status") == "done"]):
+        finished = {r["action_id"] for r in journal.records if r.get("status") == "done"}
+        # A step whose edit began but whose journal line never landed (the run was
+        # killed) still changed the file, so it is undone too.
+        replay = [r for r in journal.records if r.get("status") == "done"
+                  or (r.get("status") == "started" and r["action_id"] not in finished)]
+        for rec in reversed(replay):
             kind = rec["kind"]
             if kind in ("move", "rename_bin", "sidecar", "trash", "orphan_nfo"):
                 back(rec, rec["src"], rec["dst"])
             elif kind == "retag":
                 path = next((p for p in (rec.get("path"), rec["src"]) if p and os.path.exists(A(p))), None)
-                if path:
+                if path and (rec["status"] == "done" or tagio.repair_marker(A(path)) == plan_id):
                     tagio.restore_tags(A(path), rec["previous_tags"])
                     res.done.append({"action_id": rec["action_id"], "kind": kind, "src": rec["src"], "note": ""})
             elif kind == "cover":
-                if os.path.exists(A(rec["audio"])):
+                if os.path.exists(A(rec["audio"])) and (rec["status"] == "done"
+                                                        or _has_cover_changed(A(rec["audio"]), rec)):
                     prev = None
                     if rec.get("previous_cover"):
                         sha = rec["previous_cover"]["sha"]

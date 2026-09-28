@@ -120,8 +120,12 @@ idempotence check (SC-004).
 
 - Free space (FR-019): sum of new bytes needed (conversions, cover files, m3u8) + 5% margin
   vs `shutil.disk_usage`; refuse with the shortfall.
-- Ordering: write new/retagged file to a temp name in the destination dir, `fsync`, rename
-  over nothing (never overwrite: target exists → conflict, both kept). Sources go to
+- Ordering: a retag or cover embed is applied to a COPY of the file in the same folder and swapped in with
+  `os.replace` (atomic — the file is always the complete old one or the complete new one; implemented in
+  `tagio._rewrite`). Before it starts, the previous values are journaled in a `started` record, and a file
+  carrying THIS plan's `SYNODL_REPAIR` marker is recognised as our own earlier write on resume, so a kill
+  between the write and its journal line cannot strand a file. Moves never overwrite (target exists → that
+  step fails, source stays). Sources go to
   `.trash/<planid>/<original relpath>` by `rename` (same volume, atomic, restorable).
 - Journal: `.repair/journal-<planid>.jsonl`, one line per completed step, so an
   interrupted apply resumes and `restore <planid>` can invert moves.
