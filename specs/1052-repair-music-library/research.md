@@ -65,7 +65,8 @@ not confident against this video.
 **Decision**: among the confident recording's official releases, take the release whose
 release-group has `primary-type = Album` (or `EP`, `Single`) with **no secondary types**
 (no Compilation, Live, Soundtrack, Remix, DJ-mix, Mixtape/Street…), earliest `date`, ties by
-id. If none qualifies, the album is unknown: the song is still confident (ids and year are
+id — and **Album beats EP beats Single** (a song's own single predates its album, and a library
+shelves by album). If none qualifies, the album is unknown: the song is still confident (ids and year are
 kept) but is filed under `Singles`. **A compilation is never used as the album.**
 
 **Expected effect (be honest with the operator)**: YouTube videos are often longer than the
