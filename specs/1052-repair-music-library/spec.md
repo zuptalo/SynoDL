@@ -50,6 +50,7 @@ they stop recreating this, is a separate follow-up spec.
 - Q: What counts as a "confident" match? → A: Strict: the artist AND the cleaned title both match exactly after normalising case and punctuation, AND the recording's length is within ±3 seconds of the file's. A near-miss or a mismatched length is "no match".
 - Q: Which copy of a song is kept? → A: The copy with the largest file size (least likely to be truncated); ties broken by earliest modified time, then by path.
 - Q: What happens to folders that are already real albums (e.g. `Coldplay/Coldplay - Parachutes/`)? → A: A folder named `<Artist> - <X>` whose tracks are all by that artist counts as an album. With no confident match its tracks keep it, as `Artist/<X>/Title.mp3` (no track number is invented), and it still also becomes a playlist file. A confident match to another album wins. Any other old folder is a playlist only, and its unmatched tracks go to `Singles`.
+- Q: Should a single-artist playlist (`Adele / 30`) count as an album too? → A: Yes (operator decision, 2026-09-28). A folder counts as an album when its title exists under exactly ONE artist folder, it holds at least 4 distinct songs, and its title is not an obvious playlist name (playlist, mix, remix, hits, songs, best, top, mashup, compilation). It is still also a playlist file. The name guard exists because the same data holds `Roya / Persian Dance remix … (Playlist Remix …)`, 59 songs by one channel that are not a record.
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -456,7 +457,7 @@ Measured on the live library, read-only (mounted `:ro`, plans written to a scrat
   journaled first, and a file carrying this plan's marker is recognised on resume.
 - **SIGTERM** is turned into a normal exit so the lock is released and the lookups so far are saved.
 
-### Open decision
+### Decision (resolved)
 
 Single-artist playlists such as `Adele / 30`, `Billie Eilish / HIT ME HARD AND SOFT` and `Anyma / The End Of
 Genesys` are real albums that this version treats as playlists (only `<Artist> - <X>` folders count as albums), so

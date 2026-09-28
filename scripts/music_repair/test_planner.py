@@ -299,6 +299,59 @@ class TestMatches(PlannerBase):
         self.one(p, "move", dst="50 Cent/Get Rich or Die Tryin'/05 - In Da Club.mp3")
 
 
+class TestSingleArtistAlbums(unittest.TestCase):
+    """A folder that only one artist has, with real substance, is an album (decided with the operator)."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = tempfile.TemporaryDirectory()
+        r = cls.root = os.path.join(cls.tmp.name, "lib")
+
+        def songs(artist, folder, n, prefix, **kw):
+            for i in range(n):
+                fixtures.make_mp3(os.path.join(r, artist, folder, f"{prefix}{i}.mp3"), title=f"{prefix}{i}",
+                                  artist=artist, album=folder, video_id=f"{prefix}{i}".ljust(11, "_")[:11], **kw)
+        songs("Adele", "30", 4, "adele")                                   # album: unique title, 4 songs
+        songs("Adele", "Small", 3, "small")                                # too small to trust
+        songs("Roya", "Persian Dance remix (Playlist Remix Shad)", 5, "roya")   # obvious playlist name
+        songs("Roya", "Best Hits of 2020", 5, "hits")                      # obvious playlist name
+        songs("Abba", "Shared Mix Title", 4, "abba")                       # same title under two artists
+        songs("Zed", "Shared Mix Title", 4, "zed")
+        songs("Billie", "HIT ME HARD AND SOFT", 4, "billie")               # a real album, no artist prefix
+        cls.plan = planner.build_plan(inventory.scan(r), {}, plan_id="p1", fs=FakeFs(library=r), created="x")
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.tmp.cleanup()
+
+    def dsts(self):
+        return {a["dst"] for a in self.plan.actions if a["kind"] == "move" and a["dst"].endswith(".mp3")}
+
+    def albums(self):
+        return {a["src"]: a["tags"]["album"] for a in self.plan.actions if a["kind"] == "retag"}
+
+    def test_a_unique_folder_with_enough_songs_is_an_album(self):
+        # already at Artist/<Album>/, so there is nothing to MOVE — the album tag and no move to Singles is the proof
+        self.assertEqual(self.albums()["Adele/30/adele0.mp3"], "30")
+        self.assertEqual(self.albums()["Billie/HIT ME HARD AND SOFT/billie0.mp3"], "HIT ME HARD AND SOFT")
+        self.assertFalse([d for d in self.dsts() if d.startswith(("Adele/Singles/adele", "Billie/Singles"))])
+
+    def test_too_few_songs_is_not(self):
+        self.assertIn("Adele/Singles/small0.mp3", self.dsts())
+
+    def test_obvious_playlist_names_are_not(self):
+        self.assertIn("Roya/Singles/roya0.mp3", self.dsts())
+        self.assertIn("Roya/Singles/hits0.mp3", self.dsts())
+
+    def test_a_title_shared_by_two_artists_is_a_playlist(self):
+        self.assertIn("Abba/Singles/abba0.mp3", self.dsts())
+        self.assertIn("Zed/Singles/zed0.mp3", self.dsts())
+
+    def test_it_is_still_also_a_playlist_file(self):
+        titles = [a["title"] for a in self.plan.actions if a["kind"] == "playlist"]
+        self.assertIn("30", titles)
+
+
 class TestSettledCopies(PlannerBase):
     def test_a_settled_kept_copy_wins_and_new_copies_are_trashed_and_join_playlists(self):
         def mutate(inv):

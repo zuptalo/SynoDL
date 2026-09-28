@@ -195,6 +195,33 @@ class _Builder:
                 self.folder_artists.setdefault((t.folder_artist, t.folder_playlist), []).append(
                     names.clean_artist_folder(t.tag_artist or t.folder_artist))
 
+    # A folder title that says "this is a list somebody made", not "this is a record".
+    _PLAYLIST_WORDS = frozenset("playlist playlists mix remix remixes hits songs best top mashup mashups "
+                                "compilation compilations".split())
+    MIN_ALBUM_SONGS = 4
+
+    def _single_artist_albums(self):
+        """Folders that are albums though their name does not say "<Artist> - <X>".
+
+        "Adele / 30" and "Billie Eilish / HIT ME HARD AND SOFT" are records, but the
+        old recipe filed every YouTube playlist the same way. What sets them apart in
+        the data: the TITLE exists under exactly ONE artist folder (a real playlist
+        like "Old TikTok Songs" is scattered across dozens), it holds at least
+        MIN_ALBUM_SONGS distinct songs, and it does not read like a playlist name.
+        """
+        owners: dict[str, set] = {}
+        songs: dict[tuple, set] = {}
+        for t in self.inv.tracks:
+            if t.folder_playlist:
+                owners.setdefault(playlists.key(t.folder_playlist), set()).add(t.folder_artist)
+                songs.setdefault((t.folder_artist, t.folder_playlist), set()).add(t.video_id or t.relpath)
+        self.single_artist_albums = set()
+        for (artist, folder), ids in songs.items():
+            words = set(names.fold(folder).split())
+            if (len(owners[playlists.key(folder)]) == 1 and len(ids) >= self.MIN_ALBUM_SONGS
+                    and not words & self._PLAYLIST_WORDS and folder.casefold() != SINGLES.casefold()):
+                self.single_artist_albums.add((artist, folder))
+
     def album_from_folders(self, copies: list[Track]) -> str | None:
         for c in copies:
             if c.folder_playlist:
@@ -202,6 +229,8 @@ class _Builder:
                     (c.folder_artist, c.folder_playlist), []))
                 if a:
                     return a
+                if (c.folder_artist, c.folder_playlist) in self.single_artist_albums:
+                    return c.folder_playlist
         return None
 
     def twin_of(self, artist: str, folder: str) -> str | None:
@@ -222,6 +251,7 @@ class _Builder:
         self.dirs = {posixpath.dirname(p) for p in self.existing if "/" in p}
         self._canonical_artists()
         self._folder_artists()
+        self._single_artist_albums()
         self.totals["tracks"] = len(inv.tracks)
 
         songs, unidentified = identity.group(inv.tracks)
