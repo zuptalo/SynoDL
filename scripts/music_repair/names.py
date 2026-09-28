@@ -98,9 +98,23 @@ _NOISE = frozenset("""
     oficial officiel ufficiale
 """.split())
 
-_GROUP_RE = re.compile(r"\(([^()]*)\)|\[([^\[\]]*)\]")
+# Words that mark a group as VIDEO METADATA when it starts with one ("Official
+# Video By Someone", "Official video, 2022"), whatever else it says. Anything that
+# names a different recording — a remix, a live take — keeps the group.
+_STRONG = frozenset("official lyric lyrics visualizer visualiser videoclip oficial officiel ufficiale".split())
+_KEEP = frozenset("remix live acoustic instrumental edit mix cover demo session unplugged extended radio".split())
+_EXTRA = frozenset("explicit clean dirty".split())
+# Unambiguous on their own at the end of a title ("... For HD"), unlike "Video"/"Audio".
+_LONE = frozenset("hd hq 4k 8k uhd 1080p 720p".split())
+
+_GROUP_RE = re.compile(r"\(([^()]*)\)|\[([^\[\]]*)\]|\*([^*]*)\*")
 _FEAT_GROUP_RE = re.compile(r"^(?:feat\.?|ft\.?|featuring)\s+(.+)$", re.IGNORECASE)
-_FEAT_TAIL_RE = re.compile(r"\s+(?:feat\.?|ft\.?|featuring)\s+(.+)$", re.IGNORECASE)
+# A bare trailing "feat. X". It must not contain a dash or a bracket: in
+# "Dom Dolla feat. Daya - Dreamin (Anyma Remix)" the feat belongs to the ARTIST
+# half, and an unanchored match once swallowed the whole title after it.
+_FEAT_TAIL_RE = re.compile(r"\s+(?:feat\.?|ft\.?|featuring)\s+([^-\u2013\u2014\u2015\[\](){}]+)$", re.IGNORECASE)
+# yt-dlp joins credits with ", ", and titles use "&" and "x": all of them are credit lists.
+_CREDIT_SPLIT_RE = re.compile(r"\s*(?:,|&|\band\b|\bx\b|\bvs\.?)\s*", re.IGNORECASE)
 _FEAT_SPLIT_RE = re.compile(r"\s*(?:,|&|\band\b)\s*", re.IGNORECASE)
 _SEP_RE = re.compile(r"\s+[-–—―]\s+")
 _QUOTES = ('"', "＂", "“", "”")
@@ -120,13 +134,16 @@ def clean_title(raw: str) -> tuple[str, list[str]]:
     featured: list[str] = []
 
     def group(m: re.Match) -> str:
-        inner = (m.group(1) if m.group(1) is not None else m.group(2)).strip()
+        inner = next(g for g in m.groups() if g is not None).strip()
         fm = _FEAT_GROUP_RE.match(inner)
         if fm:
             featured.extend(_names(fm.group(1)))
             return " "
         words = fold(inner).split()
-        if words and all(w in _NOISE for w in words):
+        if not words or _KEEP & set(words):
+            return m.group(0)
+        if all(w in _NOISE for w in words) or words[0] in _STRONG \
+                or ("official" in words and all(w in _NOISE or w in _EXTRA for w in words)):
             return " "
         return m.group(0)
 
@@ -135,7 +152,7 @@ def clean_title(raw: str) -> tuple[str, list[str]]:
     if tail:
         featured.extend(_names(tail.group(1)))
         title = title[: tail.start()]
-    title = " ".join(title.split())
+    title = _strip_trailing_noise(" ".join(title.split()))
     if len(title) >= 2 and title[0] in _QUOTES and title[-1] in _QUOTES:
         title = title[1:-1].strip()
     if not title or fold(title) == "":
@@ -143,11 +160,53 @@ def clean_title(raw: str) -> tuple[str, list[str]]:
     return title, featured
 
 
+def _strip_trailing_noise(title: str) -> str:
+    """Drop a trailing "Official Video" / "| Official Visualizer" / "HD" run.
+
+    Only a run made entirely of noise words that ALSO contains something
+    unambiguous — "official", "lyrics", "visualizer" — or is nothing but "HD"/"4K",
+    so a title that merely ends in "Video" or "Audio" is left alone.
+    """
+    words = list(re.finditer(r"\S+", title))
+    i = len(words)
+    while i > 0:
+        raw = words[i - 1].group()
+        if any(c in raw for c in "()[]{}"):
+            break                       # "HD)" is the end of a bracket, not the word HD
+        w = fold(raw)
+        if w in ("",) or w in _NOISE or w in _LONE:
+            i -= 1
+        else:
+            break
+    run = [fold(m.group()) for m in words[i:]]
+    run = [w for w in run if w]
+    if not run or i == 0:
+        return title
+    if not (_STRONG & set(run) or set(run) <= _LONE or "music video" in " ".join(run)):
+        return title
+    cut = title[: words[i].start()] if i < len(words) else title
+    return cut.rstrip(" |-\u2013\u2014\u2015").rstrip() or title
+
+
 @dataclass
 class Parsed:
     lead: str
     title: str
     featured: list[str] = field(default_factory=list)
+    # The lead as written, then its first credit when it is a credit list.
+    # MusicBrainz models "Anyma & CamelPhat" as [Anyma, CamelPhat], so a lookup
+    # under the whole name finds nothing while the first credit does.
+    leads: list[str] = field(default_factory=list)
+
+
+def _leads(lead: str) -> list[str]:
+    if not lead:
+        return []
+    parts = [p.strip() for p in _CREDIT_SPLIT_RE.split(lead) if p.strip()]
+    out = [lead]
+    if len(parts) > 1 and fold(parts[0]) != fold(lead):
+        out.append(parts[0])
+    return out
 
 
 def split_artist_title(raw_title: str, tag_artist: str) -> Parsed:
@@ -170,13 +229,16 @@ def split_artist_title(raw_title: str, tag_artist: str) -> Parsed:
             left_lead = left[: m.start()].strip()
             left_feat = _names(m.group(1))
         fl, ft = fold(left), fold(tag)
+        # The tag may itself be a credit list ("Anyma, Sphere"): the prefix agrees
+        # with it if ANY credit is named in the prefix, or the prefix is inside the tag.
+        credits = [fold(c) for c in _CREDIT_SPLIT_RE.split(tag) if fold(c)]
         trusted = not tag or fold(left_lead) == ft or (ft != "" and f" {ft} " in f" {fl} ") \
-            or (fl != "" and f" {fl} " in f" {ft} ")
+            or (fl != "" and f" {fl} " in f" {ft} ") or any(f" {c} " in f" {fl} " for c in credits)
         if trusted and left_lead:
             title, feat = clean_title(right)
-            return Parsed(left_lead, title, left_feat + feat)
+            return Parsed(left_lead, title, left_feat + feat, _leads(left_lead))
     title, feat = clean_title(raw)
-    return Parsed(tag, title, feat)
+    return Parsed(tag, title, feat, _leads(tag))
 
 
 # ---- artist folders -------------------------------------------------------

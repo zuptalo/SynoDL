@@ -28,7 +28,7 @@ import os
 import posixpath
 import subprocess
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 from . import identity, names, playlists
 from .inventory import Inventory, Track
@@ -106,6 +106,16 @@ def needs_lookup(track: Track) -> bool:
     return (not track.settled) or track.repair_status == "not_looked_up"
 
 
+def parse_kept(track: Track) -> names.Parsed:
+    """Artist, title and featured artists for a track — what a lookup asks about.
+
+    The tag artist is cleaned of channel markers FIRST, so "10ccVEVO" can agree with
+    a title that says "10cc - I'm Not in Love".
+    """
+    return names.split_artist_title(track.tag_title or _stem(track.relpath),
+                                    names.clean_artist_folder(track.tag_artist or track.folder_artist))
+
+
 def _stem(rel: str) -> str:
     return posixpath.splitext(posixpath.basename(rel))[0]
 
@@ -134,7 +144,7 @@ class _Builder:
         self.totals = {k: 0 for k in (
             "tracks", "songs", "unidentified", "duplicates_to_trash", "moves", "retags", "covers", "playlists",
             "conversions", "conflicts", "orphan_nfo", "bytes_reclaimed", "bytes_needed", "matched", "no_match",
-            "not_looked_up", "to_singles", "album_known", "already_settled")}
+            "not_looked_up", "to_singles", "album_known", "already_settled", "name_clashes")}
 
     # ---- helpers ---------------------------------------------------------
 
@@ -244,17 +254,19 @@ class _Builder:
         for s in songs:
             kept = s.kept
             res = self.results.get(s.key)
-            parsed = names.split_artist_title(kept.tag_title or _stem(kept.relpath),
-                                              names.clean_artist_folder(kept.tag_artist or kept.folder_artist))
+            parsed = parse_kept(kept)
             replan = (not kept.settled) or kept.repair_status == "not_looked_up"
             if kept.settled and not replan:
                 self.totals["already_settled"] += 1
             match = res.match if res and res.status == "matched" else None
-            if replan and res is not None:
-                self.totals[res.status if res.status in ("matched", "no_match", "not_looked_up") else "no_match"] += 1
+            if replan:
+                # No result at all (a plan made with --no-lookup) is "not looked up",
+                # which a later run retries — never silently "no match".
+                status = res.status if res is not None else "not_looked_up"
+                self.totals[status if status in ("matched", "no_match", "not_looked_up") else "no_match"] += 1
             planned.append((s, kept, res, match, parsed, replan))
 
-        # Destination of each kept file, then conflicts across the whole plan.
+        # Destination of each kept file, then name clashes across the whole plan.
         dest: dict[str, str | None] = {}
         for s, kept, res, match, parsed, replan in planned:
             if not replan:
@@ -264,19 +276,47 @@ class _Builder:
                 dest[s.key] = None            # a settled file never moves back on a non-answer
                 continue
             dest[s.key] = self._destination(s, kept, match, parsed)
+        src_of = {s.key: kept.relpath for s, kept, *_ in planned}
         wanted: dict[str, list[str]] = {}
-        for key, d in dest.items():
+        for key in sorted(dest):
+            if dest[key]:
+                wanted.setdefault(dest[key], []).append(key)
+
+        # Two different videos of one title — "Easy On Me (Official Video)" and
+        # "(Official Lyric Video)" — are two songs to us (identity is the video id)
+        # and want one file name. Both are KEPT: the one that is already there, or
+        # else the first by video id, keeps the plain name, and the others carry
+        # their video id in the file name. The TITLE tag stays clean. Only when even
+        # that name is taken does anything become a conflict, and then nothing moves.
+        clash: dict[str, str] = {}
+        conflicted: set[str] = set()
+        taken = set(self.existing) | set(wanted)
+        for d, keys in sorted(wanted.items()):
+            occupied = d in self.existing and any(src_of[k] != d for k in keys)
+            if len(keys) == 1 and not occupied:
+                continue
+            owner = next((k for k in keys if src_of[k] == d), None)
+            if owner is None and not occupied:
+                owner = keys[0]
+            for k in keys:
+                if k == owner:
+                    continue
+                named = f"{d[: -len('.mp3')]} [{k}].mp3"
+                if named in taken:
+                    conflicted.add(k)
+                    continue
+                taken.add(named)
+                dest[k] = named
+                others = [x for x in keys if x != k]
+                clash[k] = ("same title as " + (f"video {others[0]}" if others else "a file already there")
+                            + "; both are kept, this one named with its video id")
+        for d in dest.values():
             if d:
-                wanted.setdefault(d, []).append(key)
-        conflicted = set()
-        for d, keys in wanted.items():
-            src_of = {s.key: s.kept.relpath for s, *_ in planned}
-            clash = len(keys) > 1 or (d in self.existing and any(src_of[k] != d for k in keys))
-            if clash:
-                conflicted.update(keys)
+                self.taken[d] = "a song"
 
         for s, kept, res, match, parsed, replan in planned:
-            self._one_song(s, kept, res, match, parsed, replan, dest[s.key], s.key in conflicted, wanted)
+            self._one_song(s, kept, res, match, parsed, replan, dest[s.key], s.key in conflicted,
+                           clash.get(s.key), wanted)
 
     def _destination(self, s, kept, match, parsed) -> str:
         album_folder = self.album_from_folders(s.all_copies)
@@ -293,13 +333,11 @@ class _Builder:
         prefix = f"{int(no):02d} - " if isinstance(no, int) and no > 0 else ""
         return f"{adir}/{album_dir}/{prefix}{name}.mp3"
 
-    def _one_song(self, s, kept, res, match, parsed, replan, dst, conflict, wanted):
+    def _one_song(self, s, kept, res, match, parsed, replan, dst, conflict, clash, wanted):
         final = kept.relpath
         if conflict:
-            others = [k for k in wanted.get(dst, []) if k != s.key]
-            self.add("conflict", f"{dst} is wanted by {len(others) + 1} things"
-                     + (f" ({', '.join(others)})" if others else " (a file is already there)")
-                     + "; nothing was moved", src=kept.relpath, dst=dst, track=kept)
+            self.add("conflict", f"{dst} and its video-id name are both taken; nothing was moved",
+                     src=kept.relpath, dst=dst, track=kept)
             self.totals["conflicts"] += 1
             self.staying.add(kept.relpath)
         elif replan:
@@ -315,6 +353,9 @@ class _Builder:
             else:
                 tags = self._tags(kept, parsed, match, dst, status)
                 why = self._why(match, res)
+                if clash:
+                    why += f"; {clash}"
+                    self.totals["name_clashes"] += 1
                 self.add("retag", why, src=kept.relpath, track=kept, tags=tags)
                 self.totals["retags"] += 1
                 if dst != kept.relpath:
@@ -325,7 +366,7 @@ class _Builder:
                     self.staying.add(kept.relpath)
                 if dst.split("/")[1] == SINGLES:
                     self.totals["to_singles"] += 1
-                elif match:
+                elif match and match.album:
                     self.totals["album_known"] += 1
                 if match and match.cover_url and match.album:
                     self.add("cover", f"cover art for {match.album} ({match.source})", src=None, dst=None,
@@ -487,8 +528,6 @@ class _Builder:
                 dst = f"{target}/{posixpath.basename(rel)}"
                 if dst in self.existing or dst in self.taken:
                     self.trash(rel, f"{target} already has its own {posixpath.basename(rel)}")
-                    if rel.endswith(".nfo"):
-                        self.totals["orphan_nfo"] += 0
                 else:
                     self.taken[dst] = rel
                     self.add("move", f"artist folder '{artist}' becomes '{target}'", src=rel, dst=dst)

@@ -72,6 +72,50 @@ class TestCleanTitle(unittest.TestCase):
     def test_never_empty(self):
         self.check("(Official Video)", "(Official Video)")
 
+    def test_real_world_noise_forms_from_the_library(self):
+        # every one of these was left dirty by the first version, on a real library
+        self.check("Close To Mine | Official Visualizer", "Close To Mine")
+        self.check("I'm an Albatraoz | OFFICIAL VIDEO", "I'm an Albatraoz")
+        self.check("Car Keys (Ayla) Official Video", "Car Keys (Ayla)")
+        self.check("Fashion Killa (Explicit - Official Video)", "Fashion Killa")
+        self.check("My Happy Ending (Official Video - Clean)", "My Happy Ending")
+        self.check("Take My Breath Away (Official Video - Top Gun)", "Take My Breath Away")
+        self.check("Claire (Official NFT Music Video)", "Claire")
+        self.check("Demons (Official video, 2022)", "Demons")
+        self.check("You Should See Me (Official Video By Takashi Murakami)", "You Should See Me")
+        self.check('Bomb Thrown *OFFICIAL VIDEO*', "Bomb Thrown")
+        self.check("This Is What You Came For (Lyrics) HD", "This Is What You Came For")
+        self.check("Radio Lana Del Rey Lyrics", "Radio Lana Del Rey")
+        self.check("Must Be Doin' Somethin' Right (Official Music Video - Closed Captioned)",
+                   "Must Be Doin' Somethin' Right")
+
+    def test_versions_survive_even_next_to_official(self):
+        self.check("Song (Official Remix)", "Song (Official Remix)")
+        self.check("Song (Official Live Video)", "Song (Official Live Video)")
+        self.check("Song (Official Acoustic)", "Song (Official Acoustic)")
+        self.check("Song (Radio Edit)", "Song (Radio Edit)")
+
+    def test_a_word_that_carries_a_bracket_is_never_trailing_noise(self):
+        # it once lost its closing bracket: "...remasterisée en HD)" was read as the word HD
+        raw = "On ne change pas (Vidéo officielle remasterisée en HD)"
+        self.check(raw, raw)
+        self.check("Song [4K Upgrade]", "Song [4K Upgrade]")
+
+    def test_trailing_words_that_are_only_sometimes_noise_are_left_alone(self):
+        self.check("Home Video", "Home Video")
+        self.check("Radio Audio", "Radio Audio")
+        self.check("Best HD Ever", "Best HD Ever")
+        self.check("Holiday Video Games", "Holiday Video Games")
+
+    def test_a_feat_in_the_middle_does_not_swallow_the_rest_of_the_title(self):
+        # A real title from the library: it once became just "Dom Dolla".
+        raw = "Dom Dolla feat. Daya - Dreamin (Anyma Remix) [Live at Sphere Las Vegas]"
+        self.check(raw, raw)
+
+    def test_a_trailing_feat_is_still_lifted(self):
+        self.check("Song feat. Bob", "Song", ["Bob"])
+        self.check("Song ft. Bob & Sue", "Song", ["Bob", "Sue"])
+
 
 class TestSplitArtistTitle(unittest.TestCase):
     def test_prefix_equal_to_tag_artist(self):
@@ -98,6 +142,22 @@ class TestSplitArtistTitle(unittest.TestCase):
     def test_already_clean_is_idempotent(self):
         got = names.split_artist_title("In Da Club", "50 Cent")
         self.assertEqual((got.lead, got.title), ("50 Cent", "In Da Club"))
+
+    def test_the_tag_artist_may_be_a_credit_list(self):
+        # yt-dlp joins credits with ", ": the real tag was "Anyma, Sphere".
+        got = names.split_artist_title("Anyma, Chris Avantgarde - Neo-Consciousness [Live at Sphere Las Vegas]",
+                                       "Anyma, Sphere")
+        self.assertEqual(got.title, "Neo-Consciousness [Live at Sphere Las Vegas]")
+        self.assertEqual(got.lead, "Anyma, Chris Avantgarde")
+        self.assertEqual(got.leads, ["Anyma, Chris Avantgarde", "Anyma"])
+
+    def test_a_single_credit_has_one_lead(self):
+        self.assertEqual(names.split_artist_title("50 Cent - Song", "50 Cent").leads, ["50 Cent"])
+
+    def test_collab_names_offer_the_first_credit_as_an_alternative(self):
+        got = names.split_artist_title("Anyma & CamelPhat - The Sign", "Anyma")
+        self.assertEqual(got.leads, ["Anyma & CamelPhat", "Anyma"])
+        self.assertEqual(names.split_artist_title("Song", "A x B").leads, ["A x B", "A"])
 
 
 class TestArtistFolder(unittest.TestCase):

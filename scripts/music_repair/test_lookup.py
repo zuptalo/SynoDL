@@ -159,6 +159,68 @@ class TestFallbackOrder(unittest.TestCase):
         self.assertEqual(r.status, "not_looked_up")
 
 
+class TestRetries(unittest.TestCase):
+    """A run of hours must survive a transient 503 or timeout without giving up on the song."""
+
+    def flaky(self, failures, final):
+        state = {"n": 0}
+
+        def route(url):
+            state["n"] += 1
+            return Response(503, {}, b"") if state["n"] <= failures else final
+        return state, route
+
+    def resolve(self, routes):
+        lk, clock = make_lookup(routes)
+        r = lk.resolve(key="K", lead="50 Cent", title="In Da Club", duration_s=223.0, featured=[])
+        return r, lk, clock
+
+    def test_one_transient_failure_is_retried_and_the_song_is_matched(self):
+        state, route = self.flaky(1, ITUNES_OK)
+        r, lk, clock = self.resolve([("musicbrainz.org", Response(404, {}, b"")), ("itunes.apple.com", route)])
+        self.assertEqual((r.status, r.match.source), ("matched", "itunes"))
+        self.assertEqual(state["n"], 2)
+        self.assertTrue(clock.slept, "it waited before retrying")
+
+    def test_it_gives_up_after_a_bounded_number_of_attempts(self):
+        state, route = self.flaky(99, ITUNES_OK)
+        r, _, _ = self.resolve([("musicbrainz.org", Response(404, {}, b"")), ("itunes.apple.com", route),
+                                ("api.deezer.com", ok({"data": []}))])
+        self.assertEqual(r.status, "not_looked_up")
+        self.assertEqual(state["n"], sources.ATTEMPTS)
+
+    def test_not_found_and_blocked_are_never_retried(self):
+        rec = Recorder([("musicbrainz.org", Response(302, {"location": "https://evil.example.com/"}, b"")),
+                        ("itunes.apple.com", ok({"results": []})), ("api.deezer.com", ok({"data": []}))])
+        lk, _ = make_lookup([])
+        lk.transport = rec
+        lk.resolve(key="K", lead="A", title="B", duration_s=100.0, featured=[])
+        self.assertEqual(len([u for u, _ in rec.requests if "musicbrainz.org" in u]), 1)
+
+
+class TestAlternativeLeads(unittest.TestCase):
+    """A credit list like "Anyma & CamelPhat" is one artist to the file and two to MusicBrainz."""
+
+    def test_the_first_credit_is_tried_when_the_full_name_finds_nothing(self):
+        routes = [("musicbrainz.org/ws/2/recording?", lambda url: mb_search(rec(REC_ID, 223_000, artist="Anyma"))
+                   if "Anyma%22" in url.replace("+", "%20") and "CamelPhat" not in url else mb_search()),
+                  ("/ws/2/release?recording=", ok({"releases": [release(REL_ALBUM, "Album", "2003")]})),
+                  (f"/ws/2/release/{REL_ALBUM}?", ok({"media": [{"tracks": [
+                      {"number": "3", "recording": {"id": REC_ID}}]}]}))]
+        lk, _ = make_lookup(routes)
+        r = lk.resolve(key="K", lead="Anyma & CamelPhat", title="In Da Club", duration_s=223.0, featured=[],
+                       alt_leads=["Anyma"])
+        self.assertEqual(r.status, "matched")
+        self.assertEqual(r.match.artist, "Anyma")
+
+    def test_the_full_name_wins_when_it_matches(self):
+        routes = mb_routes([rec(REC_ID, 223_000, artist="Simon & Garfunkel")], [release(REL_ALBUM, "A", "2003")])
+        lk, _ = make_lookup(routes)
+        r = lk.resolve(key="K", lead="Simon & Garfunkel", title="In Da Club", duration_s=223.0, featured=[],
+                       alt_leads=["Simon"])
+        self.assertEqual(r.match.artist, "Simon & Garfunkel")
+
+
 class TestCache(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()

@@ -140,8 +140,12 @@ is confidently known, `Artist/<Album>/NN - Song.mp3`.
 4. **Given** `Coldplay/Coldplay - Parachutes/` whose tracks have no confident
    match, **When** applied, **Then** they are filed as `Coldplay/Parachutes/Title.mp3`
    (not `Singles`), and `Coldplay - Parachutes` is also a playlist file.
-5. **Given** two tracks that would land on the same path, **When** planned,
-   **Then** neither overwrites the other and the collision is reported.
+5. **Given** two different videos that would land on the same path (e.g.
+   "Easy On Me (Official Video)" and "(Official Lyric Video)"), **When**
+   planned, **Then** both are kept and neither overwrites the other: the file
+   already there — else the first by video id — keeps the plain name, the other
+   is named with its video id, and the clash is reported. Only if that name is
+   also taken does nothing move.
 
 ---
 
@@ -268,6 +272,11 @@ tagged mp3; one with none is listed in the report and left in place.
   `Singles`. Titles MUST
   have the "Official Music Video / Official Video / Lyric Video / 4K …" noise
   removed while the original is kept in the track's tags for finding it again.
+- **FR-008a**: Two songs (different video ids) that resolve to one file name MUST
+  both be kept. The file already at that name — else the first by video id — keeps
+  it; every other is named `<name> [<video id>].mp3`. The title TAG is never
+  altered by this. The plan MUST report each clash, and when even the video-id
+  name is taken it MUST move neither file.
 - **FR-009**: A track's artist folder MUST be its lead artist when a source
   matched it confidently, with featured artists kept in the tags (so a track
   filed under an uploader that is not its artist moves to its real artist). When

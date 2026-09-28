@@ -27,3 +27,14 @@ code:
   - '.dockerignore'
   - '.github/workflows/**'
   - '.github/path-filters.yml'
+
+# The music-library repair tool (spec 1052) is operator tooling: it never ships in
+# the image, so it is NOT in `code` above. It has its own always-cheap job in
+# ci.yml, run only when one of these changes.
+music_repair:
+  - 'scripts/music_repair/**'
+  - 'scripts/music-repair.sh'
+  - 'scripts/music-repair-test.sh'
+  - 'deploy/k8s/music-repair-job.yaml'
+  - 'deploy/k8s/10-synodl.yaml'
+  - '.github/workflows/ci.yml'

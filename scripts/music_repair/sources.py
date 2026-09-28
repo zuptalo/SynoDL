@@ -18,13 +18,17 @@ anywhere else.
 from __future__ import annotations
 
 import http.client
+import json
 import logging
+import os
 import ssl
+import tempfile
 import time
 import urllib.parse
 from dataclasses import dataclass, field
 
-from . import VERSION
+from . import VERSION, matching
+from .matching import Match
 
 log = logging.getLogger("music_repair")
 
@@ -41,6 +45,11 @@ ALLOWED_HOSTS = (
 )
 
 MAX_HOPS = 3
+# A pass over thousands of songs takes hours, and a source will answer 503 or
+# time out now and then. Retry a bounded number of times, with growing waits,
+# before reporting a song as "not looked up" (which the next run retries anyway).
+ATTEMPTS = 3
+BACKOFF_S = (2.0, 6.0)
 DEFAULT_TIMEOUT_S = 15
 DEFAULT_MAX_BYTES = 8 * 1024 * 1024
 USER_AGENT = f"SynoDL-music-repair/{VERSION} (+https://github.com/zuptalo/synodl)"
@@ -98,6 +107,10 @@ class RateLimiter:
         self._clock, self._sleep = clock, sleep
         self._intervals = MIN_INTERVAL_S if intervals is None else intervals
         self._last: dict[str, float] = {}
+
+    def pause(self, seconds: float):
+        """Wait out a transient failure. Injectable so tests never really sleep."""
+        self._sleep(seconds)
 
     def wait(self, host: str):
         for suffix, interval in self._intervals.items():
@@ -160,14 +173,6 @@ def guarded_get(url: str, *, transport=http_transport, limiter: RateLimiter | No
 # artist, title and length?" — and returns a Match or None. A source that cannot
 # be reached raises FetchError; the caller turns that into "not looked up".
 # ---------------------------------------------------------------------------
-
-import json
-import os
-import tempfile
-from dataclasses import dataclass, field
-
-from . import matching, names
-from .matching import Match
 
 MB = "https://musicbrainz.org/ws/2"
 CAA = "https://coverartarchive.org"
@@ -250,17 +255,23 @@ class Lookup:
         self.cache = cache
 
     def _json(self, url: str) -> dict:
-        try:
-            resp = guarded_get(url, transport=self.transport, limiter=self.limiter)
-        except NotFound:
-            return {}  # the source answered: there is nothing here. Not a failure.
+        for attempt in range(ATTEMPTS):
+            try:
+                resp = guarded_get(url, transport=self.transport, limiter=self.limiter)
+                break
+            except NotFound:
+                return {}  # the source answered: there is nothing here. Not a failure.
+            except FetchError:
+                if attempt == ATTEMPTS - 1:
+                    raise
+                self.limiter.pause(BACKOFF_S[min(attempt, len(BACKOFF_S) - 1)])
         try:
             return json.loads(resp.body.decode("utf-8"))
         except ValueError as exc:
             raise FetchError("unreadable response") from exc
 
     def resolve(self, *, key: str, lead: str, title: str, duration_s: float,
-                featured: list[str]) -> Result:
+                featured: list[str], alt_leads=()) -> Result:
         cached = self.cache.get(key) if self.cache else None
         if cached and cached.get("status") in ("matched", "no_match"):
             m = Match.from_dict(cached["match"]) if cached.get("match") else None
@@ -270,19 +281,20 @@ class Lookup:
         tried, failed, nearest = [], False, None
         for name in self.ORDER:
             tried.append(name)
-            try:
-                match, near = getattr(self, "_" + name)(lead, title, duration_s)
-            except (FetchError, Blocked) as exc:
-                log.debug("source failed: %s (%s)", name, type(exc).__name__)
-                failed = True
-                continue
-            if near is not None and (nearest is None or abs(near) < abs(nearest)):
-                nearest = near
-            if match is not None:
-                match.featured = list(featured)
-                result = Result("matched", match, tried, nearest)
-                self._remember(key, result)
-                return result
+            for who in [lead, *alt_leads]:
+                try:
+                    match, near = getattr(self, "_" + name)(who, title, duration_s)
+                except (FetchError, Blocked) as exc:
+                    log.debug("source failed: %s (%s)", name, type(exc).__name__)
+                    failed = True
+                    break          # a source that is down is down for every lead
+                if near is not None and (nearest is None or abs(near) < abs(nearest)):
+                    nearest = near
+                if match is not None:
+                    match.featured = list(featured)
+                    result = Result("matched", match, tried, nearest)
+                    self._remember(key, result)
+                    return result
         if failed:
             # A source that was down says nothing about the song. Not cached, so
             # the next run asks again (FR-013).

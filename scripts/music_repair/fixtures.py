@@ -35,7 +35,7 @@ def require_deps(testcase_cls):
     return unittest.skip("mutagen/ffmpeg not available")(testcase_cls)
 
 
-def make_mp3(path, *, seconds=1, title="", artist="", album="", video_id=None, size_pad=0):
+def make_mp3(path, *, seconds=1, title="", artist="", album="", video_id=None, size_pad=0, description=None):
     """Write a real mp3 with the tags yt-dlp writes (TXXX:purl / TXXX:comment)."""
     os.makedirs(os.path.dirname(path), exist_ok=True)
     subprocess.run(
@@ -54,7 +54,9 @@ def make_mp3(path, *, seconds=1, title="", artist="", album="", video_id=None, s
         url = f"https://www.youtube.com/watch?v={video_id}"
         tags.add(TXXX(encoding=3, desc="purl", text=url))
         tags.add(TXXX(encoding=3, desc="comment", text=url))
-    if size_pad:
+    if description:
+        tags.add(TXXX(encoding=3, desc="description", text=description))
+    elif size_pad:
         tags.add(TXXX(encoding=3, desc="description", text="x" * size_pad))
     tags.save(path, v2_version=3)
     return path
@@ -103,7 +105,8 @@ def build_library(root):
           artist="50 Cent", album="Party Hits", video_id="BBBBBBBBBBB")
     track("ABBA", "Party Hits", "ABBA - Mamma Mia (Official Music Video)",
           title="ABBA - Mamma Mia (Official Music Video)", artist="ABBA",
-          album="Party Hits", video_id="CCCCCCCCCCC")
+          album="Party Hits", video_id="CCCCCCCCCCC",
+          description="SECRET-DESCRIPTION-MARKER visit https://example.com/?token=abc123")
     track("Coldplay", "Coldplay - Parachutes", "Coldplay - Yellow (Official Video)",
           title="Coldplay - Yellow (Official Video)", artist="Coldplay",
           album="Coldplay - Parachutes", video_id="DDDDDDDDDDD")

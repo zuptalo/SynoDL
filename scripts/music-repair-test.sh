@@ -11,7 +11,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 IMAGE="${MUSIC_REPAIR_IMAGE:-$(grep -E '^\s*YTDL_IMAGE:' deploy/k8s/10-synodl.yaml | head -1 | sed -E 's/.*"([^"]+)".*/\1/')}"
 exec docker run --rm --user "$(id -u):$(id -g)" \
-  -v "$PWD/scripts:/s" -w /s \
+  -v "$PWD:/repo" -w /repo/scripts \
   -e MUSIC_REPAIR_REQUIRE_DEPS=1 -e PYTHONDONTWRITEBYTECODE=1 -e HOME=/tmp \
   --entrypoint python3 "$IMAGE" \
   -m unittest discover -s music_repair -p 'test_*.py' "$@"

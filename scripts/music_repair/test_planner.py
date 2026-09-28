@@ -226,20 +226,44 @@ class TestStructure(PlannerBase):
                     for part in a[k].split("/"):
                         self.assertFalse(set(':*?"<>|\\') & set(part), a[k])
 
-    def test_two_songs_to_one_path_conflict_and_neither_moves(self):
+    def clash(self, inv):
+        for t in inv.tracks:
+            if t.video_id == "CCCCCCCCCCC":            # ABBA - Mamma Mia
+                t.tag_title = "Same Title"
+            if t.video_id == "BBBBBBBBBBB":
+                t.tag_title, t.tag_artist, t.folder_artist = "Same Title", "ABBA", "ABBA"
+
+    def test_two_videos_of_one_title_are_both_kept_the_second_named_by_its_video_id(self):
+        # Real libraries are full of these: "Easy On Me (Official Video)" and "(Official Lyric Video)".
+        p = self.plan(mutate=self.clash)
+        # video BBBBBBBBBBB sorts first, so it keeps the plain name; CCCCCCCCCCC carries its id
+        self.one(p, "move", dst="ABBA/Singles/Same Title.mp3")
+        self.one(p, "move", dst="ABBA/Singles/Same Title [CCCCCCCCCCC].mp3")
+        self.assertEqual(self.kind(p, "conflict"), [])
+        self.assertEqual(p.totals["name_clashes"], 1)
+        renamed = self.one(p, "move", dst="ABBA/Singles/Same Title [CCCCCCCCCCC].mp3")
+        self.assertIn("same title", renamed["reason"])
+        tags = self.one(p, "retag", src_suffix="Mamma Mia (Official Music Video).mp3")["tags"]
+        self.assertEqual(tags["title"], "Same Title", "the TITLE stays clean; only the file name is disambiguated")
+
+    def test_the_choice_of_who_keeps_the_plain_name_is_deterministic(self):
+        first = self.plan(mutate=self.clash)
+        second = self.plan(mutate=self.clash)
+        pick = lambda p: sorted(a["dst"] for a in self.kind(p, "move") if "Same Title" in a["dst"])
+        self.assertEqual(pick(first), pick(second))
+
+    def test_a_file_already_at_the_destination_keeps_its_name_and_the_newcomer_is_disambiguated(self):
         def mutate(inv):
-            for t in inv.tracks:
-                if t.video_id == "CCCCCCCCCCC":            # ABBA - Mamma Mia
-                    t.tag_title = "Same Title"
-                    t.relpath = t.relpath
-                if t.video_id == "BBBBBBBBBBB":
-                    t.tag_title = "Same Title"
-                    t.tag_artist = "ABBA"
-                    t.folder_artist = "ABBA"
+            inv.other.setdefault("other", []).append("ABBA/Singles/Mamma Mia.mp3")
         p = self.plan(mutate=mutate)
-        conflicts = self.kind(p, "conflict")
-        self.assertEqual(len(conflicts), 2)
-        self.assertFalse([a for a in self.kind(p, "move") if a["dst"] == "ABBA/Singles/Same Title.mp3"])
+        self.one(p, "move", dst="ABBA/Singles/Mamma Mia [CCCCCCCCCCC].mp3")
+
+    def test_a_clash_that_even_the_disambiguated_name_cannot_resolve_is_a_conflict_and_nothing_moves(self):
+        def mutate(inv):
+            inv.other.setdefault("other", []).extend(["ABBA/Singles/Mamma Mia.mp3", "ABBA/Singles/Mamma Mia [CCCCCCCCCCC].mp3"])
+        p = self.plan(mutate=mutate)
+        self.assertEqual(len(self.kind(p, "conflict")), 1)
+        self.assertFalse([a for a in self.kind(p, "move") if "Mamma Mia" in a["dst"] and a["src"].startswith("ABBA/Party")])
 
 
 class TestMatches(PlannerBase):
@@ -266,7 +290,9 @@ class TestMatches(PlannerBase):
     def test_no_match_and_not_looked_up_are_counted_separately(self):
         p = self.plan({"AAAAAAAAAAA": Result("no_match", None, ["musicbrainz", "itunes", "deezer"], 29.5),
                        "BBBBBBBBBBB": Result("not_looked_up", None, ["musicbrainz"], None)})
-        self.assertEqual((p.totals["no_match"], p.totals["not_looked_up"], p.totals["matched"]), (1, 1, 0))
+        # 6 songs: one answered "no match", one reported unreachable, and four with NO result
+        # at all (as after --no-lookup) — which is "not looked up", never a silent "no match".
+        self.assertEqual((p.totals["no_match"], p.totals["not_looked_up"], p.totals["matched"]), (1, 5, 0))
 
     def test_a_match_artist_spelling_reuses_the_existing_folder(self):
         p = self.plan({"AAAAAAAAAAA": matched(artist="50 cent")})

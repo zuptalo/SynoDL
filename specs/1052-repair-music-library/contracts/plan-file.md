@@ -18,11 +18,13 @@
      "dst": ".trash/<id>/50 Cent/Dance Music 2000 to 2026 …/50 Cent - In Da Club ….mp3",
      "size": 7019710, "mtime_ns": 1759000000000000000}
   ],
+  "skipped": [{"relpath": "ABBA/Party Hits/No Id Track.mp3", "reason": "no video id (kept where it is, never merged on a guess)"}],
   "unidentified": ["…relpaths with no video id…"]
 }
 ```
 
 Rules:
+- `actions` carry only things that change the library (plus `conflict`, which is reported and not carried out); `skipped` lists files left alone, with why. A plan with no non-conflict actions means "nothing to do".
 - `actions` are ordered so that every step's preconditions are met by earlier steps
   (`convert` → `retag` → `move` → `cover` → `playlist` → `trash` / `orphan_nfo` last).
 - `src`/`dst` are library-relative, never absolute and never containing `..`; apply

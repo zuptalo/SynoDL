@@ -85,6 +85,13 @@ One repo, two parts, shipped as a single container.
     faces and nothing else.
   - `internal/{config,httpx}/` — env config (fail-fast), HTTP middleware
     (recover → log → CORS), JSON responses, rate limiting.
+- **`scripts/music_repair/`** + `scripts/music-repair.sh` — an **operator tool**, not part
+  of the server (spec 1052): plans and applies a one-off repair of a music library filled
+  by the YouTube downloads (one copy per song by video id, `.m3u8` playlists, real
+  metadata from MusicBrainz/iTunes/Deezer, everything reversible). It runs as a one-shot
+  Job in the pinned worker image mounting only the music claim; the server, its RBAC and
+  the API are untouched. Runbook: `docs/MUSIC-LIBRARY-REPAIR.md`. Its tests run inside
+  the pinned image: `scripts/music-repair-test.sh`.
 - **`e2e/`** — Playwright tests, hermetic: they build and boot their own
   `synodl` + `synomock` pair (no real NAS, no shared state with `make start`).
 

@@ -38,22 +38,22 @@ normalisation AND `|delta_s| <= 3`). Status per Song: `matched | no_match | not_
 
 | kind | Effect |
 |---|---|
-| `keep` | file stays where it is (already right) |
 | `move` | rename to `dst` (Artist/Album/NN - Title.mp3) |
 | `retag` | write ID3 (title, artist, albumartist, album, track, year, ids, `SYNODL_*`) |
 | `cover` | embed cover + write `folder.jpg` beside the album |
 | `trash` | move a duplicate / orphan to `.trash/<planid>/<relpath>` |
 | `convert` | `.webm` → mp3 via ffmpeg (then trash original) |
 | `rename_bin` | `logo.bin` → real extension, or trash if not an image |
+| `sidecar` | a `.lrc` moves to sit beside its (moved) audio; carries `audio` = the audio's final path |
 | `orphan_nfo` | a media-server `.nfo` whose audio no longer exists → `.trash` (FR-016); never one whose audio remains |
 | `merge_dir` | fold `Coldplay: Everyday Life` into `Coldplay - Everyday Life` |
 | `playlist` | create/merge `Playlists/<title>.m3u8` |
 | `conflict` | two things want one path: neither moved, reported |
-| `skip` | not acted on, with reason (unidentified, stale, unreadable) |
+| — | *Not actions:* a file left alone is listed in the plan's `skipped` array (unidentified, unreadable, symlink, no audio stream) with its reason. Files already correct produce nothing, which is what makes a second run empty (SC-004). |
 
 ## Plan (`plan-<id>.json`)
 
-`{version, id, created, library_fingerprint, totals, actions[], unidentified[], unmatched_summary}`
+`{version, id, created, library, library_fingerprint, totals, actions[], skipped[], unidentified[]}`
 See `contracts/plan-file.md`. The human copy `plan-<id>.md` is generated from it; apply
 reads only the JSON.
 
