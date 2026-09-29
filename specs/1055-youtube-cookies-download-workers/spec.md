@@ -37,6 +37,19 @@ spec: it must be stored encrypted, never shown again, never logged, never sent
 anywhere but YouTube, and it must reach a short-lived worker without becoming
 readable from the objects that describe the worker.
 
+## Clarifications
+
+### Session 2026-09-29
+
+The instruction for this spec was to run the pipeline through to production without stopping, so only a question that changes the security posture was to interrupt. None did; each answer below is the recommended default, recorded so it can be overruled.
+
+- Q: How does the sign-in reach a worker without a new Secret permission? → A: By a one-time pull. The server hands the worker a single-use, ten-minute grant that names only its own Job; an init step exchanges it for the cookies over the cluster network and keeps them in memory-backed scratch space. The grant is worthless on its own: it is honoured only for a request that comes from that Job's own pod address, and never twice. The server's cluster permissions do not change. (A per-worker Secret was rejected: `30-rbac.yaml` deliberately grants no access to Secrets, and `delete` on Secrets could remove the instance's own key.)
+- Q: If a worker cannot fetch the sign-in (server restarting, grant expired), does the download fail? → A: No. It runs anonymously, exactly as it does today, and if YouTube refuses it the failure is reported as usual. A missing sign-in must never turn a working download into a broken one.
+- Q: Who sees the sign-in status, including the last refusal? → A: Administrators only, in Settings. A failed download tells its owner only that YouTube refused it; the hint to save a sign-in is shown to admins.
+- Q: Does a YouTube video download (music-video mode) use it? → A: Yes; anything that talks to YouTube.
+- Q: How large a paste is accepted? → A: 64 KiB, at most 200 cookies. A real browser header is 3 to 6 KiB.
+- Q: Which cookie domains are kept? → A: YouTube's and Google's own (`youtube.com`, `google.com` and their subdomains); a pasted header has no domains, so its cookies are filed under `.youtube.com`.
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - Give SynoDL a YouTube sign-in and downloads get through (Priority: P1)
@@ -216,7 +229,7 @@ saved and assert non-YouTube outputs are identical.
 - **FR-005**: SynoDL MUST refuse, with a reason that does not repeat the pasted text,
   a paste with too few cookies to be a session or nothing recognisable, and MUST
   bound the size accepted.
-- **FR-006**: Only cookies for YouTube's own domains MUST be kept; anything else in
+- **FR-006**: Only cookies for YouTube's and Google's own domains MUST be kept; anything else in
   a pasted file is dropped.
 - **FR-007**: The section MUST show, without any cookie value: whether a sign-in is
   saved, its cookie count, which login cookies it has, when it was saved, and
