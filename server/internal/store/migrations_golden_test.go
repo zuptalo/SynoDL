@@ -43,4 +43,5 @@ var migrationGolden = []string{
 	"43ed51923855f785", // version 38 — music_video_parent (spec 1040)
 	"55e11be68d1f5641", // version 39 — person_photos + source_people (spec 0014)
 	"12b9bc207852b3ac", // version 40 — music_repairs (spec 1053)
+	"0d534c54ec426196", // version 41 — youtube_signin (spec 1055)
 }

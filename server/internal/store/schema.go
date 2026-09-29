@@ -587,4 +587,28 @@ var migrations = []string{
 	CREATE UNIQUE INDEX IF NOT EXISTS idx_music_repairs_one_running ON music_repairs (state) WHERE state = 'running';
 	CREATE INDEX IF NOT EXISTS idx_music_repairs_started ON music_repairs (started_at DESC);
 	`,
+	// 0041 — the YouTube sign-in (spec 1055).
+	//
+	// One row, and the cookies in it are a LIVE LOGIN for a Google account: they
+	// are sealed under SECRETS_KEY like the NAS password and are never read back to
+	// a client — only the non-secret metadata beside them is. A key that can no
+	// longer open the blob makes the row read as absent rather than as an error
+	// (the admin simply pastes again).
+	//
+	// last_refused_at / last_ok_at are the only "live" facts kept, and they are
+	// timestamps of FINISHED downloads, never progress.
+	//
+	// IF NOT EXISTS: the spec 1031 drift repair replays migrations.
+	`
+	CREATE TABLE IF NOT EXISTS youtube_signin (
+		id              INTEGER PRIMARY KEY CHECK (id = 1),
+		cookies_sealed  BLOB NOT NULL,
+		cookie_count    INTEGER NOT NULL DEFAULT 0,
+		login_found     TEXT NOT NULL DEFAULT '',
+		saved_at        INTEGER NOT NULL DEFAULT 0,
+		saved_by_name   TEXT NOT NULL DEFAULT '',
+		last_refused_at INTEGER,
+		last_ok_at      INTEGER
+	);
+	`,
 }

@@ -121,9 +121,14 @@ type Volume struct {
 	EmptyDir *EmptyDirSource `json:"emptyDir,omitempty"`
 }
 
-// EmptyDirSource is an ephemeral scratch volume. It carries no fields: SynoDL
-// never sets a medium or a size limit.
-type EmptyDirSource struct{}
+// EmptyDirSource is an ephemeral scratch volume. Most uses set nothing. The
+// YouTube sign-in (spec 1055) sets Medium "Memory" so the cookies live in a tmpfs
+// that is removed with the pod and never touches a disk, and a SizeLimit so it
+// cannot be used as general scratch space.
+type EmptyDirSource struct {
+	Medium    string `json:"medium,omitempty"`
+	SizeLimit string `json:"sizeLimit,omitempty"`
+}
 
 type PVCVolumeSource struct {
 	ClaimName string `json:"claimName"`
@@ -190,6 +195,10 @@ type ContainerView struct {
 // worth asking for: a pod that has not started has nothing to say.
 type PodStatus struct {
 	Phase             string            `json:"phase,omitempty"` // Pending | Running | Succeeded | Failed | Unknown
+	// PodIP is the address the pod's traffic comes from inside the cluster. The
+	// worker sign-in fetch (spec 1055) is honoured only for a request from exactly
+	// this address.
+	PodIP string `json:"podIP,omitempty"`
 	ContainerStatuses []ContainerStatus `json:"containerStatuses,omitempty"`
 }
 

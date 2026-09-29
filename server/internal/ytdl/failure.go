@@ -23,10 +23,16 @@ const (
 	// cool-down has passed (spec 1043). Its own text so the row says what is
 	// going to happen rather than asking somebody to do it.
 	ReasonRefusedRetrying = "YouTube turned the request away — trying again automatically"
-	ReasonUnavailable     = "this video is no longer available on YouTube"
-	ReasonAgeRestricted   = "YouTube only plays this to signed-in adults"
-	ReasonRegion          = "YouTube does not offer this video in this region"
-	ReasonPaid            = "YouTube only plays this to paying members"
+	// ReasonSignInRefused is a bot-check refusal that happened WITH a saved sign-in
+	// (spec 1055): the session is what has stopped working, and the next step is
+	// the admin's, not time's. Kept out of the automatic-retry reasons on purpose:
+	// it is only ever the FINAL outcome, once the retries are used up.
+	ReasonSignInRefused = "the saved YouTube sign-in appears to have stopped working — paste a fresh one in Settings"
+
+	ReasonUnavailable   = "this video is no longer available on YouTube"
+	ReasonAgeRestricted = "YouTube only plays this to signed-in adults"
+	ReasonRegion        = "YouTube does not offer this video in this region"
+	ReasonPaid          = "YouTube only plays this to paying members"
 )
 
 // FailureFromOutput reads the LAST error a worker printed and names it.
@@ -72,4 +78,17 @@ func FailureFromOutput(raw []byte) (string, bool) {
 		return ReasonUnavailable, true
 	}
 	return "", false
+}
+
+// IsBotCheck reports whether the worker's LAST error was YouTube's "sign in to
+// confirm you're not a bot" — the one refusal that is evidence about the session.
+// A 403 or 429 is a fact about the moment, not about a login.
+func IsBotCheck(raw []byte) bool {
+	last := ""
+	for _, line := range strings.Split(string(raw), "\n") {
+		if strings.HasPrefix(strings.TrimSpace(line), "ERROR:") {
+			last = line
+		}
+	}
+	return strings.Contains(strings.ToLower(last), "not a bot")
 }

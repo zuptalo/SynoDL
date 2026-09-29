@@ -79,6 +79,8 @@ func shortReason(reason string) string {
 		return "turned away by YouTube"
 	case ReasonRefusedRetrying:
 		return "waiting to retry"
+	case ReasonSignInRefused:
+		return "turned away — the YouTube sign-in needs replacing"
 	}
 	return "did not complete"
 }

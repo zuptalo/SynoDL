@@ -83,6 +83,7 @@ Specs are grouped by category band; status moves
 | [1051](specs/1051-unavailable-videos-recognised/spec.md) | Removed videos are recognised however YouTube words it, and failed tracks lead a playlist | 🟢 shipped |
 | [1052](specs/1052-repair-music-library/spec.md) | Repair the music library: one copy per song, clean names, and real metadata | 🟢 shipped |
 | [1053](specs/1053-admins-run-music/spec.md) | Admins run the music library repair from Settings | 🟢 shipped |
+| [1055](specs/1055-youtube-cookies-download-workers/spec.md) | YouTube sign-in for download workers | 🔵 in-review |
 
 ## 🐛 Hotfixes & Bug Fixes (2001+)
 

@@ -76,6 +76,12 @@ type JobConfig struct {
 	// sanitised. Empty for a directly submitted link.
 	GroupName string
 
+	// SignInGrant and SignInURL give the worker the saved YouTube sign-in
+	// (spec 1055). The grant is a single-use, pod-bound ticket, NOT the cookies:
+	// see signin.go for why nothing secret may be written into a Job.
+	SignInGrant string
+	SignInURL   string
+
 	CPURequest, MemRequest string
 	CPULimit, MemLimit     string
 }
@@ -116,7 +122,7 @@ func BuildJob(c JobConfig) (*k8s.Job, error) {
 		Limits:   map[string]string{"cpu": orDefault(c.CPULimit, "1000m"), "memory": orDefault(c.MemLimit, "512Mi")},
 	}
 
-	return &k8s.Job{
+	job := &k8s.Job{
 		APIVersion: "batch/v1",
 		Kind:       "Job",
 		Metadata: k8s.ObjectMeta{
@@ -151,6 +157,7 @@ func BuildJob(c JobConfig) (*k8s.Job, error) {
 							OutDir:             MountPath,
 							MinDurationSeconds: c.MinDurationSeconds,
 							GroupName:          c.GroupName,
+							SignIn:             c.signInWanted(),
 						}),
 						Env: []k8s.EnvVar{
 							// No writable home directory exists in the pod.
@@ -168,7 +175,9 @@ func BuildJob(c JobConfig) (*k8s.Job, error) {
 				},
 			},
 		},
-	}, nil
+	}
+	applySignIn(job, c)
+	return job, nil
 }
 
 // LabelJobKind distinguishes an enumeration worker from a download worker, so
@@ -223,7 +232,7 @@ func BuildExpansionJob(c JobConfig) (*k8s.Job, error) {
 		LabelScope:     string(c.Target.Scope),
 	}
 
-	return &k8s.Job{
+	job := &k8s.Job{
 		APIVersion: "batch/v1",
 		Kind:       "Job",
 		Metadata: k8s.ObjectMeta{
@@ -245,7 +254,7 @@ func BuildExpansionJob(c JobConfig) (*k8s.Job, error) {
 						Name:    "downloader",
 						Image:   c.Image,
 						Command: []string{WorkerBinary},
-						Args:    ExpandArgs(c.Target),
+						Args:    ExpandArgsWith(c.Target, c.signInWanted()),
 						Env: []k8s.EnvVar{
 							{Name: "XDG_CACHE_HOME", Value: "/tmp"},
 						},
@@ -258,7 +267,9 @@ func BuildExpansionJob(c JobConfig) (*k8s.Job, error) {
 				},
 			},
 		},
-	}, nil
+	}
+	applySignIn(job, c)
+	return job, nil
 }
 
 // annotationsFor builds the Job's annotations, omitting anything unknown so an

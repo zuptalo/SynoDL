@@ -46,6 +46,11 @@ type Deps struct {
 	// handler its own cache — which is the entire feature.
 	people *people.Resolver
 
+	// signin holds the single-use grants that let a worker fetch the YouTube
+	// sign-in (spec 1055). A POINTER for the same reason ytdlProgress is; nil in
+	// tests that do not need it, which the fetch handler treats as unavailable.
+	signin *signinGrants
+
 	// ytdlProgress holds the latest reading for each running YouTube download.
 	// A POINTER for the same reason lib and caps are: Deps is copied by value
 	// into every handler closure, and a value field would give each handler its
@@ -138,6 +143,9 @@ func InitCaches(d Deps) Deps {
 	}
 	if d.ytdlProgress == nil {
 		d.ytdlProgress = newProgressCache()
+	}
+	if d.signin == nil {
+		d.signin = newSigninGrants()
 	}
 	if d.ytdlMissing == nil {
 		d.ytdlMissing = newMissingJobs()
@@ -322,6 +330,15 @@ func NewRouter(d Deps) http.Handler {
 		mux.Handle("POST /v1/library/repair/check", handleRepairCheck(d))
 		mux.Handle("POST /v1/library/repair/apply", handleRepairApply(d))
 		mux.Handle("POST /v1/library/repair/undo", handleRepairUndo(d))
+
+		// The YouTube sign-in (spec 1055). Admin only, metadata only on the way out.
+		mux.Handle("GET /v1/youtube/signin", handleGetYoutubeSignIn(d))
+		mux.Handle("PUT /v1/youtube/signin", handlePutYoutubeSignIn(d))
+		mux.Handle("DELETE /v1/youtube/signin", handleDeleteYoutubeSignIn(d))
+		// The worker's side. No session (a worker has none): a single-use grant
+		// bound to the worker's own pod address stands in for one — see
+		// youtube_signin_grants.go for why that is safe on a published port.
+		mux.Handle("GET /v1/internal/ytdl-signin", handleYtdlSignInFetch(d))
 		mux.Handle("GET /v1/source/prefs", handleGetSourcePrefs(d))
 		mux.Handle("PUT /v1/source/prefs", handleSetSourcePrefs(d))
 		mux.Handle("GET /v1/source/view", handleGetSourceView(d))
