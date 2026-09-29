@@ -67,6 +67,11 @@ data:
   # running (read from its own pod, pinned by digest), so the code is always the
   # server's own version. Set this only to force a specific image reference.
   # MUSIC_REPAIR_IMAGE: ""
+  # Optional (spec 1055). Where a download worker redeems its YouTube sign-in grant.
+  # Left unset it is derived as http://synodl.<namespace>.svc:8080/v1/internal/ytdl-signin,
+  # which is this Deployment's own Service. Set it only if that Service is named
+  # differently. The sign-in itself is saved in Settings, never here.
+  # SIGNIN_FETCH_URL: ""
   # Ownership the worker runs as, so saved files are readable by Plex and by you
   # without a chown afterwards. Must match who owns the NFS shares.
   YTDL_UID: "1000"

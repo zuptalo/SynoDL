@@ -177,6 +177,9 @@ export default async function globalSetup(): Promise<void> {
     // The music library repair (spec 1053) copies its tool out of the server's OWN
     // image, learned from its own pod. There is no such pod here, so it is named.
     MUSIC_REPAIR_IMAGE: 'synodl:e2e',
+    // Where a worker would redeem its YouTube sign-in grant (spec 1055). No worker
+    // runs here, so the URL only has to exist for the Job to be built with a grant.
+    SIGNIN_FETCH_URL: 'http://synodl.e2e.svc:8080/v1/internal/ytdl-signin',
   });
   await waitFor(`http://localhost:${SF_PORT}/healthz`);
 

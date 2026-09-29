@@ -97,6 +97,14 @@ One repo, two parts, shipped as a single container.
   image, so versions match), learns of a run only from bounded, parsed `@@synodl` worker
   events (never logged or returned raw), keeps only request + finished outcome in
   `music_repairs`, and allows one run at a time. RBAC is unchanged.
+- **YouTube sign-in** (spec 1055, `internal/ytsignin`, `api/youtube_signin_*.go`,
+  `ytdl/signin.go`): YouTube refuses anonymous workers ("Sign in to confirm you're not a
+  bot"), so an admin pastes the browser's `Cookie` header in **Settings → YouTube sign-in**.
+  It is stored sealed (`youtube_signin`, one row) and never read back. A worker is given a
+  single-use, ten-minute, pod-bound GRANT — not the cookies — and an init container trades
+  it at `/v1/internal/ytdl-signin` for the cookies, written to a memory-backed volume that
+  dies with the pod. It fails open (anonymous), refuses anything carrying a forwarding
+  header, and needs NO RBAC change (still no `secrets`).
 - **`e2e/`** — Playwright tests, hermetic: they build and boot their own
   `synodl` + `synomock` pair (no real NAS, no shared state with `make start`).
 

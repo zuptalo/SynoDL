@@ -61,6 +61,14 @@ defineEmits<{ (e: 'dismiss'): void; (e: 'retry', requestId: string): void }>();
 // close it and find the row again (FR-026, FR-028).
 const canRetry = computed(() => resolved.value?.state === 'failed');
 
+// What the sheet is showing: the live row when the list has one, otherwise
+// whatever was fetched by id.
+const fetched = ref<YtdlDownload | null>(null);
+const notFound = ref(false);
+const resolved = computed<YtdlDownload | null>(() => props.download ?? fetched.value);
+
+// Declared AFTER `resolved` on purpose: the watcher below runs immediately, and
+// reading a const before its declaration throws and blanks the Tasks page.
 // An admin looking at a refused download is told a saved YouTube sign-in can
 // help (spec 1055) — but only when none is saved, and only when the feature
 // exists here. The status is read lazily, the first time such a row is opened,
@@ -85,12 +93,6 @@ watch(
   },
   { immediate: true },
 );
-
-// What the sheet is showing: the live row when the list has one, otherwise
-// whatever was fetched by id.
-const fetched = ref<YtdlDownload | null>(null);
-const notFound = ref(false);
-const resolved = computed<YtdlDownload | null>(() => props.download ?? fetched.value);
 
 async function loadById(): Promise<void> {
   const id = props.requestId;

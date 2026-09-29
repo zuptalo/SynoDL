@@ -4,7 +4,7 @@
 
 **Created**: 2026-09-29
 
-**Status**: planned
+**Status**: in-review
 <!-- SynoDL spec lifecycle: planned → in-progress → in-review → shipped.
      This line is the source of truth for the spec's row in ROADMAP.md;
      bump it as the work moves through the pipeline. The spec id and category
@@ -347,3 +347,10 @@ where the rules are tested hardest.
   session automatically are out of scope.
 - Delivery to the worker, and how much of the existing worker Job model is reused, are
   planning decisions bound by FR-016 to FR-018.
+
+## Verification
+
+- `deploy/k8s/30-rbac.yaml` is byte-identical to `main` (still no `secrets`).
+- Go: converter, store (sealed at rest, wrong key reads as absent), grants (single use, expiry, wrong address, forwarding headers, other Job's pod), admin API, Job assembly (download and expansion, anonymous unchanged, YouTube-only), outcomes and wording.
+- e2e (`e2e/stateful/youtube-signin.spec.ts`): the Job the server creates carries a grant and no cookie value; the server log and every database file are free of cookie values; removing leaves later Jobs anonymous; the Settings paste field is empty after saving. `e2e/youtube-signin-hidden.spec.ts`: absent in the stateless build.
+- Not verifiable in CI: a real YouTube refusal succeeding with a real session (SC-001) — done by hand on the home cluster after release.
