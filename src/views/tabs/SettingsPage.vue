@@ -20,7 +20,7 @@ import {
 import { chevronForward } from 'ionicons/icons';
 import { computed, onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
-import { api } from '@/services/api';
+import { api, type YoutubeSignInStatus } from '@/services/api';
 import { useSession } from '@/composables/useSession';
 import { useTheme } from '@/composables/useTheme';
 import { useLanding } from '@/composables/useLanding';
@@ -32,6 +32,8 @@ import ChangePasswordModal from '@/components/ChangePasswordModal.vue';
 import SourceProviderAdmin from '@/components/SourceProviderAdmin.vue';
 import MusicRepairModal from '@/components/MusicRepairModal.vue';
 import MusicLibraryModal from '@/components/MusicLibraryModal.vue';
+import YoutubeSignInModal from '@/components/YoutubeSignInModal.vue';
+import { signInSubtitle } from '@/services/youtube-signin';
 
 const router = useRouter();
 const { account, logout, isAdmin, mode, user } = useSession();
@@ -60,6 +62,22 @@ const statsOpen = ref(false);
 const sourceOpen = ref(false);
 const musicLibsOpen = ref(false);
 const musicRepairOpen = ref(false);
+const ytSignInOpen = ref(false);
+
+// The YouTube sign-in row (spec 1055) appears only for an admin in the stateful
+// build, and only when the server says the feature is there. A failed read (the
+// route is absent, or we are offline) leaves the row hidden rather than showing
+// a control that cannot work.
+const ytSignIn = ref<YoutubeSignInStatus | null>(null);
+async function loadYtSignIn(): Promise<void> {
+  if (!stateful.value || !isAdmin.value) return;
+  try {
+    ytSignIn.value = await api.getYoutubeSignIn();
+  } catch {
+    ytSignIn.value = null;
+  }
+}
+onMounted(loadYtSignIn);
 
 async function loadHost(): Promise<void> {
   try {
@@ -217,6 +235,23 @@ async function onLogout(): Promise<void> {
         </ion-item>
       </ion-list>
 
+      <!-- A YouTube sign-in for the download workers (spec 1055). -->
+      <ion-list v-if="stateful && isAdmin && ytSignIn?.available" inset>
+        <ion-list-header>YouTube</ion-list-header>
+        <ion-item
+          button
+          :detail="false"
+          data-testid="settings-youtube-signin"
+          @click="ytSignInOpen = true"
+        >
+          <ion-label>
+            YouTube sign-in
+            <p data-testid="settings-youtube-signin-status">{{ signInSubtitle(ytSignIn) }}</p>
+          </ion-label>
+          <ion-icon slot="end" :icon="chevronForward" color="medium" />
+        </ion-item>
+      </ion-list>
+
       <div class="logout">
         <ion-button
           expand="block"
@@ -243,6 +278,12 @@ async function onLogout(): Promise<void> {
         v-if="stateful && isAdmin"
         :is-open="musicRepairOpen"
         @dismiss="musicRepairOpen = false"
+      />
+      <YoutubeSignInModal
+        v-if="stateful && isAdmin && ytSignIn?.available"
+        :is-open="ytSignInOpen"
+        @dismiss="ytSignInOpen = false"
+        @changed="(s) => (ytSignIn = s)"
       />
       <NasConnectionModal :is-open="nasOpen" @dismiss="nasOpen = false" @saved="loadHost" />
       <ChangePasswordModal

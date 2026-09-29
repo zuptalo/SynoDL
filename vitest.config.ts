@@ -72,6 +72,9 @@ export default defineConfig({
         // What the music library repair screen offers and how it words things
         // (spec 1053): the decisions live here so the component can stay thin.
         'src/services/repair-state.ts',
+        // How the YouTube sign-in screen words things, and when a refused
+        // download hints at it (spec 1055).
+        'src/services/youtube-signin.ts',
       ],
       thresholds: { lines: 80, functions: 80, statements: 80, branches: 80 },
     },

@@ -36,6 +36,8 @@ import { ytdlStateLabel } from '@/services/ytdl-labels';
 import { onYtdlUpdate } from '@/composables/useYtdl';
 import { ytdlThumbSrc } from '@/services/ytdl-thumb';
 import { appToast } from '@/services/toast';
+import { useSession } from '@/composables/useSession';
+import { isYoutubeRefusal, shouldHintSignIn } from '@/services/youtube-signin';
 import { formatTimestamp } from '@/utils/format';
 
 /**
@@ -58,6 +60,31 @@ defineEmits<{ (e: 'dismiss'): void; (e: 'retry', requestId: string): void }>();
 // someone works out WHY it failed — and having decided, they should not have to
 // close it and find the row again (FR-026, FR-028).
 const canRetry = computed(() => resolved.value?.state === 'failed');
+
+// An admin looking at a refused download is told a saved YouTube sign-in can
+// help (spec 1055) — but only when none is saved, and only when the feature
+// exists here. The status is read lazily, the first time such a row is opened,
+// so ordinary sheets cost no request.
+const { isAdmin } = useSession();
+const signInStatus = ref<Awaited<ReturnType<typeof api.getYoutubeSignIn>> | null>(null);
+let signInAsked = false;
+const showSignInHint = computed(() =>
+  shouldHintSignIn(resolved.value?.reason, isAdmin.value, signInStatus.value),
+);
+watch(
+  () => [isAdmin.value, resolved.value?.state, resolved.value?.reason] as const,
+  async ([admin, state, reason]) => {
+    if (!admin || state !== 'failed' || !isYoutubeRefusal(reason) || signInAsked) return;
+    signInAsked = true;
+    try {
+      signInStatus.value = await api.getYoutubeSignIn();
+    } catch {
+      signInStatus.value = null; // absent (stateless build) or offline: no hint
+      signInAsked = false;
+    }
+  },
+  { immediate: true },
+);
 
 // What the sheet is showing: the live row when the list has one, otherwise
 // whatever was fetched by id.
@@ -315,6 +342,9 @@ const attemptsLabel = computed(() => {
           <ion-label class="ion-text-wrap">
             <p>Reason</p>
             <h2 data-testid="ytdl-detail-reason">{{ resolved.reason }}</h2>
+            <p v-if="showSignInHint" data-testid="ytdl-detail-signin-hint">
+              Saving a YouTube sign-in in Settings can fix this
+            </p>
           </ion-label>
         </ion-item>
         <ion-item v-if="attemptsLabel">

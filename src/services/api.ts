@@ -539,6 +539,26 @@ export interface MusicLibraries {
   canManage: boolean;
 }
 
+// ---- YouTube sign-in for download workers (spec 1055) ------------------------------
+// Status only: the server never returns a cookie value, and nothing here logs or
+// keeps the pasted text. See specs/1055-youtube-cookies-download-workers/contracts/api.md.
+
+export interface YoutubeSignInStatus {
+  /** False in the stateless build; the row is then not offered at all. */
+  available: boolean;
+  saved: boolean;
+  cookieCount: number;
+  loginCookies: string[];
+  missingLogin: string[];
+  savedAt: number | null;
+  savedBy: string;
+  lastRefusedAt: number | null;
+  lastOkAt: number | null;
+}
+export interface YoutubeSignInSaved extends YoutubeSignInStatus {
+  warning: 'no_login_cookies' | null;
+}
+
 // ---- Music library repair from Settings (spec 1053) ---------------------------------
 // Every field is something the SERVER decoded and bounded; none of it is raw worker
 // output. See specs/1053-admins-run-music/contracts/api.md.
@@ -1208,6 +1228,16 @@ export const api = {
    */
   /** Where music lives on the NAS (spec 1040). Readable by anyone signed in. */
   getMusicLibraries: () => request<MusicLibraries>('/v1/library/music'),
+  /** YouTube sign-in for download workers (spec 1055). Admin only. */
+  getYoutubeSignIn: () => request<YoutubeSignInStatus>('/v1/youtube/signin'),
+  /** `text` is a live login: sent once, never logged, never kept by the caller. */
+  saveYoutubeSignIn: (text: string) =>
+    request<YoutubeSignInSaved>('/v1/youtube/signin', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text }),
+    }),
+  removeYoutubeSignIn: () => request<void>('/v1/youtube/signin', { method: 'DELETE' }),
   /** Music library repair (spec 1053). Admin only. */
   getMusicRepair: () => request<RepairSnapshot>('/v1/library/repair'),
   startMusicRepairCheck: () =>
