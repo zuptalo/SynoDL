@@ -231,3 +231,7 @@ A music download should leave, under the music library:
 and the audio file's tags should carry a non-empty album and album artist. That
 last part is the difference between Plex shelving a track properly and dumping it
 under *[Unknown Album]*, and it is the easiest thing to regress.
+
+## One-off: repairing the music library
+
+`music-repair-job.yaml` is a **template**, not something `install.sh` applies. `scripts/music-repair.sh` renders it into a one-shot Job (pinned worker image, the music claim only, no service-account token). See `docs/MUSIC-LIBRARY-REPAIR.md`.

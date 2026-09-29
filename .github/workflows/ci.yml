@@ -29,6 +29,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       code: ${{ steps.filter.outputs.code }}
+      music_repair: ${{ steps.filter.outputs.music_repair }}
     steps:
       - uses: actions/checkout@v5
         with:
@@ -50,6 +51,25 @@ jobs:
     needs: changes
     if: ${{ github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && needs.changes.outputs.code == 'true') }}
     uses: ./.github/workflows/build-test.yml
+
+  # The music-library repair tool (spec 1052). Operator tooling, so it is outside
+  # the heavy suite; it has its own job, run when its files change. The Python
+  # tests run INSIDE the pinned worker image — the exact runtime the repair Job
+  # uses — with MUSIC_REPAIR_REQUIRE_DEPS=1 so a missing mutagen/ffmpeg FAILS the
+  # build instead of letting the tag, cover and conversion tests skip and pass.
+  # The wrapper's own tests need bash, which that image lacks, so they run on the
+  # runner.
+  music-repair:
+    name: Music repair tool
+    needs: changes
+    if: ${{ github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && needs.changes.outputs.music_repair == 'true') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Wrapper and Job manifest (host)
+        run: python3 -m unittest discover -s scripts/music_repair -p 'test_shell.py' -v
+      - name: Repair tool tests (in the pinned worker image)
+        run: scripts/music-repair-test.sh
 
   # Keep the version monotonic and never reused. A bump is OPTIONAL (a merge
   # without one still publishes the rolling `latest`/`main-<sha>` images via
@@ -123,7 +143,7 @@ jobs:
   ci-gate:
     name: CI gate
     if: always()
-    needs: [changes, verify, roadmap-guard, version-guard]
+    needs: [changes, verify, music-repair, roadmap-guard, version-guard]
     runs-on: ubuntu-latest
     steps:
       - name: Require every upstream job to have passed (or been skipped)
@@ -132,6 +152,7 @@ jobs:
           declare -A results=(
             [changes]='${{ needs.changes.result }}'
             [verify]='${{ needs.verify.result }}'
+            [music-repair]='${{ needs.music-repair.result }}'
             [roadmap-guard]='${{ needs.roadmap-guard.result }}'
             [version-guard]='${{ needs.version-guard.result }}'
           )

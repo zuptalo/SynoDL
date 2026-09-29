@@ -1,0 +1,20 @@
+{
+  "_comment": "Shared fixture table for name sanitising (spec 1052). Spec 1053, which changes the download recipe, reads the same table from a Go test against server/internal/ytdl/sanitize.go so the two implementations cannot disagree about what a safe name is.",
+  "sanitize": [
+    ["Coldplay: Everyday Life", "Coldplay： Everyday Life"],
+    ["AC/DC", "AC DC"],
+    ["What?", "What？"],
+    ["a*b", "a＊b"],
+    ["say \"hi\"", "say ＂hi＂"],
+    ["<x>|y", "＜x＞｜y"],
+    ["..", ""],
+    [".. .. etc", "etc"],
+    ["../../../etc", "etc"],
+    [".hidden", "hidden"],
+    ["trailing. ", "trailing"],
+    ["  spaced   out  ", "spaced out"],
+    ["tab\tand\nnewline", "tab and newline"],
+    ["", ""],
+    ["   ", ""]
+  ]
+}
