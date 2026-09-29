@@ -51,6 +51,7 @@ DEV_BACKEND_ENV = cd $(SERVER_DIR) && set -a && { [ -f .env ] && . ./.env; }; \
 	: $${YTDL_MUSIC_CLAIM:=synodl-music}; \
 	: $${YTDL_MUSIC_VIDEO_CLAIM:=synodl-music-video}; \
 	: $${YTDL_MAX_PARALLEL:=4}; \
+	: $${MUSIC_REPAIR_IMAGE:=synodl:dev}; \
 	mkdir -p "$$DATA_DIR"; set +a;
 
 start: tools
