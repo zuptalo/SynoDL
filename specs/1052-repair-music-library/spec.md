@@ -464,3 +464,22 @@ Genesys` are real albums that this version treats as playlists (only `<Artist> -
 their unmatched tracks go to `Singles`. 19 single-artist playlists with four or more songs cover up to 288 songs —
 but the same rule would also turn `Roya / Persian Dance remix …` (59 songs) into an "album". Not decided; see the
 report to the user.
+
+### Production run (2026-09-28/29, after the operator's snapshot)
+
+- **Plan** `20260928T232118Z-9cba62` (in-cluster, NFS, 132 min): 5,795 tracks, 4,017 songs, 1,774 duplicates,
+  1,828 matched (45%), 2,186 no confident match, 3 not looked up, 0 conflicts, 886 covers planned.
+  Checked before applying: no duplicate destinations, no mount-hostile characters, no path escapes.
+- **Apply** (75 min): 15,976 steps done, **0 failed**, 155 skipped — 139 covers with no art in Cover Art Archive,
+  14 covers briefly unreachable, 2 media-server `.nfo` files the server had rewritten since planning.
+- **Independent check**: 4,017 unique video ids, none on more than one file; all 88 playlists resolve
+  (5,617 entries, 0 unresolved); `.ytdlp-archive.txt` unchanged (174 lines). A fresh in-cluster plan afterwards
+  found 0 duplicates, 0 moves and 0 conflicts — only 3 retags (the songs whose lookups had failed) and 8 stray
+  `artist.nfo` files in lowercase duplicate artist folders, which a follow-up plan (`20260929T071341Z-73c844`,
+  12 steps, 0 failed) applied.
+- **Left behind**: `Coldplay/Coldplay: Everyday Life` remains as an empty shell holding only Synology's root-owned
+  `@eaDir`, which the Job (uid 1000) cannot remove; safe to delete on the NAS.
+- **Known imperfection**: album names are used as the source spells them, so case variants of one album produce
+  separate folders (e.g. `A Head Full Of Dreams` and `A Head Full of Dreams`). Not merged; a follow-up.
+- A read of the volume from the Mac over AFP under-counts (it cannot see colon or normalised-Unicode names), so
+  volume checks were made from the cluster.
