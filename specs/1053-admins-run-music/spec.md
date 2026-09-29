@@ -45,6 +45,7 @@ plan stays on the share, where the tool has always put it.
 
 - Q: How hard should *Apply* be to confirm? → A: The confirmation shows what will change and the *Apply* button stays disabled until the admin ticks "I have taken a snapshot of the music share". A snapshot is the one protection that survives both a bad plan and a lost volume, and the app cannot verify it exists, so the admin acknowledges it. No typed word.
 - Q: How long is a check good for before it must be re-run? → A: 24 hours. That leaves a working day to review and decide; the tool's per-file staleness check still protects anything that changed; and a shorter window would force hours-long re-checks on a large library because of the metadata sources' rate limit.
+- Q: How much of "left alone" does the screen show? → A: Counts by reason plus up to 20 example library-relative paths in total, with the overall total. The full list stays on the share; a bounded, fixed shape keeps the worker's report safe to parse and stops a large slice of the library reaching the browser.
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -224,8 +225,9 @@ open Settings as an admin and as a normal user.
 - **FR-005**: A finished check MUST show, as plain numbers: duplicates set aside,
   files moved, files retagged, playlists written, conflicts, songs matched, songs
   with no confident match, songs not looked up, songs bound for Singles, space
-  needed against space free, and the files left alone with the reason for each
-  (bounded to a reasonable number, with the total).
+  needed against space free, and the files left alone as counts by reason plus at
+  most 20 example library-relative paths in total, with the overall total; the
+  rest is in the complete plan on the share.
 - **FR-006**: A finished check MUST say where the complete plan is on the music
   share, because the screen shows a summary.
 - **FR-007**: *Apply* MUST be possible only for a plan that (a) was made by this
