@@ -62,6 +62,11 @@ data:
   # chosen by the request's mode; the synodl container mounts neither.
   YTDL_MUSIC_CLAIM: "synodl-music"
   YTDL_MUSIC_VIDEO_CLAIM: "synodl-music-video"
+  # Optional (spec 1053). The music library repair run from Settings copies its code
+  # out of an image into the worker. Left unset, SynoDL uses the image it is itself
+  # running (read from its own pod, pinned by digest), so the code is always the
+  # server's own version. Set this only to force a specific image reference.
+  # MUSIC_REPAIR_IMAGE: ""
   # Ownership the worker runs as, so saved files are readable by Plex and by you
   # without a chown afterwards. Must match who owns the NFS shares.
   YTDL_UID: "1000"

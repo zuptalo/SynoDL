@@ -101,6 +101,26 @@ tag contents (video descriptions can hold personal links), URLs or environment v
 an import step, or lists the folder as an artist. Check after the first `apply` (and exclude `Playlists/` from the
 music library if it appears as an artist). The songs themselves are unaffected either way.
 
+## From Settings (admins)
+
+Administrators can run the same repair without `kubectl`: **Settings → Music library
+repair**.
+
+1. **Check library** starts a dry run (changes nothing) and shows progress, then counts:
+   duplicates, moves, retags, playlists, conflicts, matched songs, songs staying in
+   Singles, space needed versus free, and what is left alone and why (with examples).
+2. **Apply** is offered only for a finished check less than 24 hours old, behind a
+   confirmation you must tick that says what will happen and that a snapshot of the
+   share is advisable. Interrupted or partly failed runs can be continued.
+3. **Undo** reverses the latest apply (files return from `.trash` and old paths).
+4. **History** lists who started what, when, and the outcome.
+
+Only one repair runs at a time, including one started with `kubectl`. The worker runs
+the server's own version of the tool (copied from its image), the server never mounts
+the library, and it learns about a run only from bounded, parsed progress/result lines
+the worker prints. Nothing else about the operator workflow changes; the scripts keep
+working.
+
 ## Local, read-only check
 
 ```sh
