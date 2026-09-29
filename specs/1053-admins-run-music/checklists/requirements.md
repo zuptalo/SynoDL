@@ -32,5 +32,5 @@
 ## Notes
 
 - Constitution-driven constraints (server never mounts the library, bounded parsed worker output, no RBAC widening, pinned image, same-version code) are stated as requirements because they are non-negotiable limits on the product, not implementation choices; HOW they are met is left to the plan.
-- Deliberately left to `/speckit-clarify`: the freshness window, and the amount of detail shown for "left alone".
+- Deliberately left to `/speckit-clarify`: the amount of detail shown for "left alone".
 - This spec touches worker orchestration and the credential boundary, so `/speckit-checklist` (security) is required before implement.

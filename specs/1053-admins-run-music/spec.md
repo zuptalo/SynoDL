@@ -44,6 +44,7 @@ plan stays on the share, where the tool has always put it.
 ### Session 2026-09-29
 
 - Q: How hard should *Apply* be to confirm? → A: The confirmation shows what will change and the *Apply* button stays disabled until the admin ticks "I have taken a snapshot of the music share". A snapshot is the one protection that survives both a bad plan and a lost volume, and the app cannot verify it exists, so the admin acknowledges it. No typed word.
+- Q: How long is a check good for before it must be re-run? → A: 24 hours. That leaves a working day to review and decide; the tool's per-file staleness check still protects anything that changed; and a shorter window would force hours-long re-checks on a large library because of the metadata sources' rate limit.
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -229,7 +230,7 @@ open Settings as an admin and as a normal user.
   share, because the screen shows a summary.
 - **FR-007**: *Apply* MUST be possible only for a plan that (a) was made by this
   feature, (b) finished successfully, (c) has not yet been applied, and (d) is
-  younger than a freshness window. Otherwise it MUST NOT be offered and a direct
+  younger than 24 hours, counted from when its check finished. Otherwise it MUST NOT be offered and a direct
   request MUST be refused with the reason.
 - **FR-008**: *Apply* MUST require an explicit confirmation stating what will
   change, that nothing is deleted and that it can be undone, and MUST NOT be
@@ -340,9 +341,8 @@ open Settings as an admin and as a normal user.
   against that library only.
 - A plan made from the command line is not visible here, because the server cannot
   read the share; it can still be applied from the command line.
-- The freshness window for applying a plan is 24 hours: long enough to review, short
-  enough that the library has probably not moved much. (The tool's staleness check
-  still protects any step whose file changed.)
+- The freshness window for applying a plan is 24 hours (clarified). The tool's
+  staleness check still protects any step whose file changed within it.
 - The history keeps the most recent 50 runs.
 - Notifying admins when a long run finishes (push) is out of scope for this spec.
 - Editing a plan before applying it, and changing what new downloads write, are out
