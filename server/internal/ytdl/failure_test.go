@@ -38,3 +38,19 @@ func TestFailureFromOutput(t *testing.T) {
 		})
 	}
 }
+
+// Spec 1055: only the bot-check is evidence about a saved sign-in.
+func TestIsBotCheck(t *testing.T) {
+	for raw, want := range map[string]bool{
+		"ERROR: [youtube] x: Sign in to confirm you’re not a bot. Use --cookies": true,
+		"ERROR: unable to download video data: HTTP Error 403: Forbidden":        false,
+		"ERROR: [youtube] x: Video unavailable":                                  false,
+		"ERROR: Sign in to confirm you're not a bot\nERROR: HTTP Error 429":      false, // the LAST error decides
+		"WARNING: something not a bot related\nERROR: [youtube] x: not a bot":    true,
+		"": false,
+	} {
+		if got := IsBotCheck([]byte(raw)); got != want {
+			t.Errorf("IsBotCheck(%q) = %v, want %v", raw, got, want)
+		}
+	}
+}

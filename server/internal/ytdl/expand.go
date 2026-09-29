@@ -45,8 +45,12 @@ const ExpandTemplate = ExpandSentinel + " id=%(id)s uploader=%(uploader,channel)
 // The URL is the final element after the end-of-options marker, appears exactly
 // once, and is never concatenated into anything — the same rule as every other
 // worker command here.
-func ExpandArgs(t Target) []string {
-	return []string{
+func ExpandArgs(t Target) []string { return ExpandArgsWith(t, false) }
+
+// ExpandArgsWith is ExpandArgs, presenting the saved YouTube sign-in when asked
+// (spec 1055). A playlist listing can be refused just as a download can.
+func ExpandArgsWith(t Target, signIn bool) []string {
+	args := []string{
 		"--flat-playlist",
 		"--skip-download",
 		"--no-warnings",
@@ -54,8 +58,11 @@ func ExpandArgs(t Target) []string {
 		// single private video is entirely ordinary.
 		"-i",
 		"--print", ExpandTemplate,
-		"--", t.URL,
 	}
+	if signIn {
+		args = append(args, "--cookies", SignInCookiesPath)
+	}
+	return append(args, "--", t.URL)
 }
 
 // Entry is one item an enumeration found.

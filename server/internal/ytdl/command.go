@@ -137,6 +137,9 @@ type Options struct {
 	// playlist would lose the very naming that made the playlist worth keeping
 	// together (FR-037).
 	GroupName string
+	// SignIn presents the saved YouTube sign-in: one more pair of discrete
+	// arguments naming a FIXED path (spec 1055). Never a value from a request.
+	SignIn bool
 }
 
 // Args builds the worker's argv.
@@ -196,6 +199,10 @@ func Args(o Options) []string {
 		// name being spliced in.
 		"-o", tmplArtist + "/" + album + "/" + tmplTitle + ".%(ext)s",
 	}...)
+
+	if o.SignIn {
+		args = append(args, "--cookies", SignInCookiesPath)
+	}
 
 	switch o.Mode {
 	case ModeMusicVideo:

@@ -320,16 +320,19 @@ func (d Deps) startYtdlJob(ctx context.Context, rec store.YtdlDownload) error {
 		}
 	}
 
+	grant, grantURL := d.signInFor(ytdl.JobName(rec.RequestID))
 	job, err := ytdl.BuildJob(ytdl.JobConfig{
-		Namespace: d.Cfg.YtdlNamespace,
-		Image:     d.Cfg.YtdlImage,
-		RequestID: rec.RequestID,
-		UserID:    userID,
-		UserName:  userName,
-		Desc:      ytdl.Description{Title: rec.Title, Uploader: rec.Uploader, Artwork: rec.Artwork},
-		Mode:      mode,
-		Target:    ytdl.Target{URL: rec.SourceURL, Scope: ytdl.Scope(rec.Scope)},
-		Libraries: libs,
+		SignInGrant: grant,
+		SignInURL:   grantURL,
+		Namespace:   d.Cfg.YtdlNamespace,
+		Image:       d.Cfg.YtdlImage,
+		RequestID:   rec.RequestID,
+		UserID:      userID,
+		UserName:    userName,
+		Desc:        ytdl.Description{Title: rec.Title, Uploader: rec.Uploader, Artwork: rec.Artwork},
+		Mode:        mode,
+		Target:      ytdl.Target{URL: rec.SourceURL, Scope: ytdl.Scope(rec.Scope)},
+		Libraries:   libs,
 
 		GroupName: rec.GroupName,
 
@@ -405,12 +408,15 @@ func (d Deps) resolveExpansions(ctx context.Context, jobs []k8s.Job) {
 
 // startExpansion creates the enumeration worker for a group.
 func (d Deps) startExpansion(ctx context.Context, g store.YtdlDownload) {
+	grant, grantURL := d.signInFor(ytdl.ExpandJobName(g.RequestID))
 	job, err := ytdl.BuildExpansionJob(ytdl.JobConfig{
-		Namespace: d.Cfg.YtdlNamespace,
-		Image:     d.Cfg.YtdlImage,
-		RequestID: g.RequestID,
-		Mode:      ytdl.Mode(g.Mode),
-		Target:    ytdl.Target{URL: g.SourceURL, Scope: ytdl.Scope(g.Scope)},
+		SignInGrant: grant,
+		SignInURL:   grantURL,
+		Namespace:   d.Cfg.YtdlNamespace,
+		Image:       d.Cfg.YtdlImage,
+		RequestID:   g.RequestID,
+		Mode:        ytdl.Mode(g.Mode),
+		Target:      ytdl.Target{URL: g.SourceURL, Scope: ytdl.Scope(g.Scope)},
 	})
 	if err != nil {
 		now := time.Now().Unix()
@@ -569,6 +575,9 @@ func (d Deps) captureFinished(ctx context.Context, live map[string]k8s.Job) {
 					reason = why
 				}
 			}
+		}
+		if j.Metadata.Labels[ytdl.LabelSignIn] == "true" {
+			reason = d.noteSignInOutcome(ctx, id, j.Metadata.Name, state, reason, rec.Attempts)
 		}
 		if reason == ytdl.ReasonRefused && d.willRetry(rec.Attempts) {
 			reason = ytdl.ReasonRefusedRetrying

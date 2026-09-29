@@ -78,6 +78,11 @@ type Config struct {
 	// YtdlNamespace is where workers are created. Empty means the pod's own
 	// namespace, which is the only one the Role covers.
 	YtdlNamespace string
+
+	// SigninFetchURL is where a worker's init step redeems its YouTube sign-in
+	// grant (spec 1055). Empty means "derive it": the server's own Service in the
+	// workers' namespace. Set it only when the Service is named differently.
+	SigninFetchURL string
 	// YtdlOEmbedURL points the "what is this link?" lookup (spec 1034) at an
 	// explicit endpoint instead of the source's real one. Dev and e2e set it to
 	// the in-repo mock, which is what keeps the suite hermetic — without it the
@@ -158,6 +163,7 @@ func Load() (Config, error) {
 		YtdlImage:              os.Getenv("YTDL_IMAGE"),
 		MusicRepairImage:       os.Getenv("MUSIC_REPAIR_IMAGE"),
 		YtdlNamespace:          os.Getenv("YTDL_NAMESPACE"),
+		SigninFetchURL:         os.Getenv("SIGNIN_FETCH_URL"),
 		YtdlAPIURL:             os.Getenv("YTDL_API_URL"),
 		YtdlOEmbedURL:          os.Getenv("YTDL_OEMBED_URL"),
 		YtdlMusicClaim:         os.Getenv("YTDL_MUSIC_CLAIM"),
