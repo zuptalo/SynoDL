@@ -34,3 +34,8 @@ coverage
 .claude
 .github
 README.md
+
+# The repair tool ships in the image (Dockerfile) but its tests and fixtures do not.
+scripts/music_repair/test_*.py
+scripts/music_repair/fixtures.py
+scripts/music_repair/__pycache__

@@ -11,6 +11,8 @@
  * One repair runs at a time, so the tests are serial and share state on purpose:
  * check → apply → undo is one story told in order.
  */
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
 import { expect, test, type Page } from '@playwright/test';
 import { ADMIN, apiToken, createSecondUser, login } from './helpers';
 
@@ -304,5 +306,15 @@ test.describe('music library repair (spec 1053)', () => {
     });
     expect(overflow.page).toBeLessThanOrEqual(0);
     expect(overflow.modal).toBeLessThanOrEqual(0);
+  });
+
+  test('nothing a worker printed reaches the server\'s own log (FR-022)', async () => {
+    // Every test above made the server read real event lines with example paths and
+    // reasons in them. The server logs to a file for this stack; none of it may be
+    // there — not the prefix, not a path, not a reason, not a plan file.
+    const log = readFileSync(path.join(process.cwd(), '.tmp', 'synodl-e2e-sf.log'), 'utf8');
+    for (const forbidden of ['@@synodl', 'Avaria', 'Hold Me Down', 'no video id', 'an mp3 of that name', 'no cover art', '.repair/plan']) {
+      expect(log, `the server log contains ${forbidden}`).not.toContain(forbidden);
+    }
   });
 });
