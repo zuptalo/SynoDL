@@ -22,6 +22,8 @@ The whole screen in one request (the client polls it every 3 s while a run is ac
     "status": "ready", "canApply": true, "canContinue": false, "canUndo": false,
     "summary": { "kind": "check", "ok": true, "check": { "duplicates": 1774, "…": 0 } }
   },
+  "latest": { "id": "…", "kind": "apply", "state": "finished", "…": "…",
+              "summary": { "kind": "apply", "ok": true, "apply": { "done": 15976, "skipped": 155, "failed": 0 } } },
   "history": [ { "id": "…", "kind": "check", "state": "finished", "startedAt": 0, "finishedAt": 0,
                  "startedBy": "Kamran", "planId": "…", "headline": "1,774 duplicates, 3,970 moves" } ]
 }
@@ -34,6 +36,7 @@ The whole screen in one request (the client polls it every 3 s while a run is ac
 - `current` is `null` when nothing is running. `progress` may be absent (the worker has
   not reported yet).
 - `plan` is the most recent check that has a plan id, or `null`.
+- `latest` is the newest run that has ended, with its bounded `summary` (an apply's skipped steps with reasons, an undo's counts); only that one run carries a summary — history rows stay small.
 - Nothing in it is worker output except the decoded, bounded `summary`.
 
 ## `POST /v1/library/repair/check` → `202 {"id": "…"}`

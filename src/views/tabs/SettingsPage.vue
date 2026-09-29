@@ -30,6 +30,7 @@ import PushOptIn from '@/components/PushOptIn.vue';
 import NasConnectionModal from '@/components/NasConnectionModal.vue';
 import ChangePasswordModal from '@/components/ChangePasswordModal.vue';
 import SourceProviderAdmin from '@/components/SourceProviderAdmin.vue';
+import MusicRepairModal from '@/components/MusicRepairModal.vue';
 import MusicLibraryModal from '@/components/MusicLibraryModal.vue';
 
 const router = useRouter();
@@ -58,6 +59,7 @@ const usersOpen = ref(false);
 const statsOpen = ref(false);
 const sourceOpen = ref(false);
 const musicLibsOpen = ref(false);
+const musicRepairOpen = ref(false);
 
 async function loadHost(): Promise<void> {
   try {
@@ -203,6 +205,16 @@ async function onLogout(): Promise<void> {
           <ion-label>Where music is uploaded</ion-label>
           <ion-icon slot="end" :icon="chevronForward" color="medium" />
         </ion-item>
+        <!-- Check, apply and undo the music library repair (spec 1053). -->
+        <ion-item
+          button
+          :detail="false"
+          data-testid="settings-music-repair"
+          @click="musicRepairOpen = true"
+        >
+          <ion-label>Repair the music library</ion-label>
+          <ion-icon slot="end" :icon="chevronForward" color="medium" />
+        </ion-item>
       </ion-list>
 
       <div class="logout">
@@ -226,6 +238,11 @@ async function onLogout(): Promise<void> {
         v-if="isAdmin"
         :is-open="musicLibsOpen"
         @dismiss="musicLibsOpen = false"
+      />
+      <MusicRepairModal
+        v-if="stateful && isAdmin"
+        :is-open="musicRepairOpen"
+        @dismiss="musicRepairOpen = false"
       />
       <NasConnectionModal :is-open="nasOpen" @dismiss="nasOpen = false" @saved="loadHost" />
       <ChangePasswordModal

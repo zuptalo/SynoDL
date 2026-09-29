@@ -203,6 +203,10 @@ type repairRunView struct {
 	PlanID     string                `json:"planId,omitempty"`
 	Progress   *musicrepair.Progress `json:"progress,omitempty"`
 	Headline   string                `json:"headline,omitempty"`
+	// Summary is set on ONE run only — the newest one that has ended — so the
+	// screen can show an apply's skipped steps with their reasons without every
+	// history row carrying its own copy.
+	Summary *musicrepair.Summary `json:"summary,omitempty"`
 }
 
 type repairPlanView struct {
@@ -228,6 +232,7 @@ type repairSnapshot struct {
 	Current   *repairRunView  `json:"current"`
 	Plan      *repairPlanView `json:"plan"`
 	Undo      *repairUndoView `json:"undo"`
+	Latest    *repairRunView  `json:"latest"`
 	History   []repairRunView `json:"history"`
 }
 
@@ -318,6 +323,11 @@ func handleRepairSnapshot(d Deps) http.Handler {
 				snap.Current = &cur
 			}
 			snap.History = append(snap.History, v)
+			if snap.Latest == nil && row.State != musicrepair.StateRunning {
+				l := v
+				l.Summary = toRun(row).Summary
+				snap.Latest = &l
+			}
 		}
 		if p := musicrepair.DerivePlan(runs, now); p != nil {
 			pv := &repairPlanView{ID: p.ID, CheckedAt: p.CheckedAt, ExpiresAt: p.ExpiresAt, Status: p.Status,

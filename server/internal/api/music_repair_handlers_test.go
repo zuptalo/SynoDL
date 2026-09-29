@@ -91,6 +91,12 @@ type repairSnap struct {
 		PlanID  string `json:"planId"`
 		CanUndo bool   `json:"canUndo"`
 	} `json:"undo"`
+	Latest *struct {
+		ID      string               `json:"id"`
+		Kind    string               `json:"kind"`
+		State   string               `json:"state"`
+		Summary *musicrepair.Summary `json:"summary"`
+	} `json:"latest"`
 	History []struct {
 		ID        string `json:"id"`
 		Kind      string `json:"kind"`
@@ -738,5 +744,36 @@ func TestRepairHistory_KeepsARemovedStartersName(t *testing.T) {
 	s := getRepair(t, h, admin)
 	if s.History[0].StartedBy != "(removed user)" {
 		t.Errorf("startedBy = %q", s.History[0].StartedBy)
+	}
+}
+
+func TestRepairSnapshot_LatestCarriesTheOutcomeOfTheNewestFinishedRun(t *testing.T) {
+	jobs := &fakeJobs{}
+	h, _ := newRepairRouter(t, jobs, repairCfg())
+	admin := adminAfterSetup(t, h)
+	checked(t, h, jobs, admin)
+	_, aid := post(t, h, admin, "/v1/library/repair/apply", planBody(true))
+	log := `@@synodl {"event":"result","kind":"apply","ok":true,"planId":"` + testPlan + `","apply":{"done":10,"skipped":3,` +
+		`"skippedByReason":[{"reason":"no cover art","count":3}],"failedExamples":[]}}` + "\n"
+	s := endRun(t, h, jobs, admin, aid, complete, log)
+	if s.Latest == nil || s.Latest.Kind != "apply" || s.Latest.Summary == nil || s.Latest.Summary.Apply == nil {
+		t.Fatalf("latest = %+v, want the apply's outcome", s.Latest)
+	}
+	if got := s.Latest.Summary.Apply.SkippedByReason; len(got) != 1 || got[0].Reason != "no cover art" || got[0].Count != 3 {
+		t.Errorf("skipped by reason = %+v: an apply's skipped steps must be listed with why", got)
+	}
+	// Only the newest one carries a summary; the history rows stay small.
+	body := do(t, h, "GET", "/v1/library/repair", "", admin).Body.String()
+	if strings.Count(body, `"skippedByReason"`) != 1 {
+		t.Errorf("the summary is repeated in the history rows: the response should stay small")
+	}
+}
+
+func TestRepairSnapshot_NoLatestWhileTheOnlyRunIsRunning(t *testing.T) {
+	h, _ := newRepairRouter(t, &fakeJobs{}, repairCfg())
+	admin := adminAfterSetup(t, h)
+	startCheck(t, h, admin)
+	if s := getRepair(t, h, admin); s.Latest != nil {
+		t.Errorf("latest = %+v, want none until something has ended", s.Latest)
 	}
 }
