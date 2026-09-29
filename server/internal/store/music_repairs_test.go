@@ -157,3 +157,19 @@ func TestMusicRepair_TheMigrationCanBeReplayed(t *testing.T) {
 		t.Fatalf("replaying the newest migration: %v (the drift repair replays them, so each must be idempotent)", err)
 	}
 }
+
+func TestMusicRepair_ARunThatNeverStartedCanBeDiscarded_ButAnOutcomeCannot(t *testing.T) {
+	s := openTestStore(t)
+	_ = s.StartMusicRepair(run("aaaaaaaaaaaa", "check", nil))
+	if ok, err := s.DiscardMusicRepair("aaaaaaaaaaaa"); err != nil || !ok {
+		t.Fatalf("discard: %v %v", ok, err)
+	}
+	if r, _ := s.RunningMusicRepair(); r != nil {
+		t.Error("the slot is still held")
+	}
+	_ = s.StartMusicRepair(run("bbbbbbbbbbbb", "check", nil))
+	_, _ = s.FinishMusicRepair("bbbbbbbbbbbb", "finished", "{}", 1_790_000_100)
+	if ok, _ := s.DiscardMusicRepair("bbbbbbbbbbbb"); ok {
+		t.Error("a recorded outcome was erased")
+	}
+}

@@ -134,3 +134,15 @@ func (s *Store) ListMusicRepairs(limit int) ([]MusicRepair, error) {
 	}
 	return out, rows.Err()
 }
+
+// DiscardMusicRepair removes a run that never actually started (its Job could not
+// be created). It applies only to a run still marked running, so a recorded
+// outcome is never erased; it reports whether it applied.
+func (s *Store) DiscardMusicRepair(id string) (bool, error) {
+	res, err := s.db.Exec(`DELETE FROM music_repairs WHERE id = ? AND state = 'running'`, id)
+	if err != nil {
+		return false, err
+	}
+	n, err := res.RowsAffected()
+	return n > 0, err
+}

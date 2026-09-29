@@ -97,6 +97,13 @@ type Config struct {
 	// are readable by the media server without permission repair.
 	YtdlUID int64
 	YtdlGID int64
+
+	// MusicRepairImage is the SynoDL image the repair worker's init container runs
+	// to copy the tool into the pod (spec 1053). Normally EMPTY: the server reads
+	// its own pod and uses the exact image digest it is running, so the code and
+	// the server cannot be different versions. Set it where there is no such pod —
+	// local development and the e2e stack.
+	MusicRepairImage string
 	// YtdlDeadlineSeconds bounds a single download. Nothing may run forever.
 	YtdlDeadlineSeconds int64
 	// YtdlTTLSeconds is how long a finished job lingers before the cluster
@@ -149,6 +156,7 @@ func Load() (Config, error) {
 		SecretsKey:         os.Getenv("SECRETS_KEY"),
 
 		YtdlImage:              os.Getenv("YTDL_IMAGE"),
+		MusicRepairImage:       os.Getenv("MUSIC_REPAIR_IMAGE"),
 		YtdlNamespace:          os.Getenv("YTDL_NAMESPACE"),
 		YtdlAPIURL:             os.Getenv("YTDL_API_URL"),
 		YtdlOEmbedURL:          os.Getenv("YTDL_OEMBED_URL"),
