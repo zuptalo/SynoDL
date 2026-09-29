@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -46,7 +47,7 @@ func repairCfg() config.Config {
 }
 
 // newRepairRouter is a stateful router with an orchestrator and the given config.
-func newRepairRouter(t *testing.T, jobs JobRunner, cfg config.Config) (http.Handler, *store.Store) {
+func newRepairRouter(t *testing.T, jobs JobRunner, cfg config.Config, opts ...func(*Deps)) (http.Handler, *store.Store) {
 	t.Helper()
 	c, _ := store.NewCipher("kdf-input-for-tests")
 	st, err := store.Open(filepath.Join(t.TempDir(), "db.sqlite"), c)
@@ -57,7 +58,11 @@ func newRepairRouter(t *testing.T, jobs JobRunner, cfg config.Config) (http.Hand
 	mock := httptest.NewServer(synomock.New().Handler())
 	t.Cleanup(mock.Close)
 	factory := func(base string, insecure bool) syno.Client { return syno.NewHTTPClient(mock.URL, false) }
-	return NewRouter(Deps{Cfg: cfg, Version: "test", Stateful: true, Store: st, NAS: nas.New(st, factory), Jobs: jobs}), st
+	d := Deps{Cfg: cfg, Version: "test", Stateful: true, Store: st, NAS: nas.New(st, factory), Jobs: jobs}
+	for _, o := range opts {
+		o(&d)
+	}
+	return NewRouter(d), st
 }
 
 type repairSnap struct {
@@ -421,5 +426,317 @@ func TestRepair_ProgressIsTheParsedShapeAndNeverTheRawLog(t *testing.T) {
 	}
 }
 
-// keep the compiler honest about imports used only by later phases' tests
-var _ = time.Second
+// ---- driving a run to the end (what the cluster would do) -----------------------
+
+// endRun makes the run's Job end with the given status and worker output, then asks
+// the server for the snapshot — which is what brings the record up to date.
+func endRun(t *testing.T, h http.Handler, jobs *fakeJobs, admin map[string]string, id string, status k8s.JobStatus, log string) repairSnap {
+	t.Helper()
+	jobs.mu.Lock()
+	for i := range jobs.jobs {
+		if jobs.jobs[i].Metadata.Name == musicrepair.JobName(id) {
+			jobs.jobs[i].Status = status
+		}
+	}
+	jobs.pods = append(jobs.pods, k8s.Pod{Metadata: k8s.ObjectMeta{Name: "pod-" + id,
+		Labels: map[string]string{musicrepair.LabelRepairID: id}}})
+	if jobs.logs == nil {
+		jobs.logs = map[string]string{}
+	}
+	jobs.logs["pod-"+id] = log
+	jobs.mu.Unlock()
+	return getRepair(t, h, admin)
+}
+
+func checkResult(plan string) string {
+	return `@@synodl {"event":"result","kind":"check","ok":true,"planId":"` + plan + `","planFile":".repair/plan.md","check":{"duplicates":5,"moves":9,"playlists":2}}` + "\n"
+}
+
+func applyResult(failed int) string {
+	ok := "true"
+	reason := ""
+	if failed > 0 {
+		ok, reason = "false", `,"reason":"failed_steps"`
+	}
+	return fmt.Sprintf(`@@synodl {"event":"result","kind":"apply","ok":%s%s,"planId":"%s","apply":{"done":10,"failed":%d}}`+"\n", ok, reason, testPlan, failed)
+}
+
+func undoResult() string {
+	return `@@synodl {"event":"result","kind":"undo","ok":true,"planId":"` + testPlan + `","undo":{"restored":10}}` + "\n"
+}
+
+func post(t *testing.T, h http.Handler, who map[string]string, path, body string) (*httptest.ResponseRecorder, string) {
+	t.Helper()
+	rec := do(t, h, "POST", path, body, who)
+	var out struct {
+		ID string `json:"id"`
+	}
+	_ = json.Unmarshal(rec.Body.Bytes(), &out)
+	return rec, out.ID
+}
+
+func planBody(ack bool) string {
+	return fmt.Sprintf(`{"planId":"%s","snapshotAck":%v}`, testPlan, ack)
+}
+
+// checked runs a check to a successful end and returns the plan id.
+func checked(t *testing.T, h http.Handler, jobs *fakeJobs, admin map[string]string) string {
+	t.Helper()
+	_, id := startCheck(t, h, admin)
+	snap := endRun(t, h, jobs, admin, id, complete, checkResult(testPlan))
+	if snap.Plan == nil || snap.Plan.ID != testPlan || snap.Plan.Status != "ready" || !snap.Plan.CanApply {
+		t.Fatalf("after the check: plan = %+v, want a ready plan", snap.Plan)
+	}
+	if snap.Current != nil {
+		t.Fatalf("after the check: current = %+v, want none", snap.Current)
+	}
+	return id
+}
+
+func TestRepair_AFinishedCheckBecomesAPlanWithItsSummary(t *testing.T) {
+	jobs := &fakeJobs{}
+	h, _ := newRepairRouter(t, jobs, repairCfg())
+	admin := adminAfterSetup(t, h)
+	checked(t, h, jobs, admin)
+	s := getRepair(t, h, admin)
+	if s.Plan.Summary == nil || s.Plan.Summary.Check == nil || s.Plan.Summary.Check.Duplicates != 5 {
+		t.Errorf("plan summary = %+v", s.Plan.Summary)
+	}
+	if len(s.History) != 1 || s.History[0].State != "finished" || !strings.Contains(s.History[0].Headline, "5 duplicates") {
+		t.Errorf("history = %+v", s.History)
+	}
+}
+
+// ---- applying ---------------------------------------------------------------------
+
+func TestRepairApply_RefusedWithoutTheSnapshotAcknowledgement(t *testing.T) {
+	jobs := &fakeJobs{}
+	h, _ := newRepairRouter(t, jobs, repairCfg())
+	admin := adminAfterSetup(t, h)
+	checked(t, h, jobs, admin)
+	n := len(jobs.created)
+	for _, body := range []string{planBody(false), `{"planId":"` + testPlan + `"}`} {
+		rec, _ := post(t, h, admin, "/v1/library/repair/apply", body)
+		if rec.Code != http.StatusBadRequest || errCode(t, rec) != "snapshot_required" {
+			t.Errorf("%s → %d %s, want 400 snapshot_required", body, rec.Code, rec.Body.String())
+		}
+	}
+	if len(jobs.created) != n {
+		t.Error("a Job was created without the acknowledgement: the server must refuse, not only the screen")
+	}
+}
+
+func TestRepairApply_RefusesAPlanIDThatIsNotOne(t *testing.T) {
+	jobs := &fakeJobs{}
+	h, _ := newRepairRouter(t, jobs, repairCfg())
+	admin := adminAfterSetup(t, h)
+	checked(t, h, jobs, admin)
+	n := len(jobs.created)
+	for _, id := range []string{"", "../../etc", "x; rm -rf /", testPlan + " --evil", strings.ToUpper(testPlan)} {
+		rec, _ := post(t, h, admin, "/v1/library/repair/apply", fmt.Sprintf(`{"planId":%q,"snapshotAck":true}`, id))
+		if rec.Code != http.StatusBadRequest {
+			t.Errorf("plan id %q → %d, want 400", id, rec.Code)
+		}
+	}
+	if rec, _ := post(t, h, admin, "/v1/library/repair/apply", `not json`); rec.Code != http.StatusBadRequest {
+		t.Errorf("malformed body → %d", rec.Code)
+	}
+	if len(jobs.created) != n {
+		t.Error("a bad plan id reached the orchestrator")
+	}
+}
+
+func TestRepairApply_UnknownPlanIsNoPlan_IncludingOneMadeFromTheCommandLine(t *testing.T) {
+	jobs := &fakeJobs{}
+	h, _ := newRepairRouter(t, jobs, repairCfg())
+	admin := adminAfterSetup(t, h)
+	rec, _ := post(t, h, admin, "/v1/library/repair/apply", planBody(true))
+	if rec.Code != http.StatusConflict || errCode(t, rec) != "no_plan" {
+		t.Fatalf("→ %d %s, want 409 no_plan: the server cannot apply a plan it never saw", rec.Code, rec.Body.String())
+	}
+}
+
+func TestRepairApply_StartsExactlyThatPlan(t *testing.T) {
+	jobs := &fakeJobs{}
+	h, st := newRepairRouter(t, jobs, repairCfg())
+	admin := adminAfterSetup(t, h)
+	checked(t, h, jobs, admin)
+	rec, id := post(t, h, admin, "/v1/library/repair/apply", planBody(true))
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("→ %d %s", rec.Code, rec.Body.String())
+	}
+	j := jobs.created[len(jobs.created)-1]
+	if got := strings.Join(j.Spec.Template.Spec.Containers[0].Args, " "); got != "apply --library /library --plan "+testPlan {
+		t.Errorf("args = %q", got)
+	}
+	row, _ := st.GetMusicRepair(id)
+	if row.Kind != "apply" || row.PlanID != testPlan || row.State != "running" {
+		t.Errorf("record = %+v", row)
+	}
+	s := getRepair(t, h, admin)
+	if s.Plan.Status != "applying" || s.Plan.CanApply {
+		t.Errorf("plan = %+v, want applying and not applicable again", s.Plan)
+	}
+	// and nothing else may start meanwhile
+	if rec, _ := post(t, h, admin, "/v1/library/repair/apply", planBody(true)); rec.Code != http.StatusConflict || errCode(t, rec) != "busy" {
+		t.Errorf("a second apply → %d %s, want 409 busy", rec.Code, rec.Body.String())
+	}
+	if rec, _ := startCheck(t, h, admin); rec.Code != http.StatusConflict {
+		t.Errorf("a check during an apply → %d, want 409", rec.Code)
+	}
+}
+
+func TestRepairApply_AnAppliedPlanCannotBeAppliedAgain(t *testing.T) {
+	jobs := &fakeJobs{}
+	h, _ := newRepairRouter(t, jobs, repairCfg())
+	admin := adminAfterSetup(t, h)
+	checked(t, h, jobs, admin)
+	_, id := post(t, h, admin, "/v1/library/repair/apply", planBody(true))
+	s := endRun(t, h, jobs, admin, id, complete, applyResult(0))
+	if s.Plan.Status != "applied" || s.Plan.CanApply {
+		t.Fatalf("plan = %+v, want applied", s.Plan)
+	}
+	rec, _ := post(t, h, admin, "/v1/library/repair/apply", planBody(true))
+	if rec.Code != http.StatusConflict || errCode(t, rec) != "already_applied" {
+		t.Errorf("→ %d %s, want 409 already_applied", rec.Code, rec.Body.String())
+	}
+}
+
+func TestRepairApply_AnUnfinishedApplyCanBeContinued(t *testing.T) {
+	jobs := &fakeJobs{}
+	h, _ := newRepairRouter(t, jobs, repairCfg())
+	admin := adminAfterSetup(t, h)
+	checked(t, h, jobs, admin)
+	_, id := post(t, h, admin, "/v1/library/repair/apply", planBody(true))
+	s := endRun(t, h, jobs, admin, id, failed, "[apply] 400/16131\n") // evicted: no result
+	if s.Plan.Status != "apply_unfinished" || !s.Plan.CanContinue || s.Plan.CanApply {
+		t.Fatalf("plan = %+v, want a plan that can be continued", s.Plan)
+	}
+	rec, id2 := post(t, h, admin, "/v1/library/repair/apply", planBody(true))
+	if rec.Code != http.StatusAccepted || id2 == id {
+		t.Fatalf("continue → %d %s", rec.Code, rec.Body.String())
+	}
+	if got := strings.Join(jobs.created[len(jobs.created)-1].Spec.Template.Spec.Containers[0].Args, " "); !strings.HasSuffix(got, "--plan "+testPlan) {
+		t.Errorf("args = %q: continuing means the SAME plan, so the tool resumes from its journal", got)
+	}
+}
+
+func TestRepairApply_ApplyWithFailedStepsCanBeContinued(t *testing.T) {
+	jobs := &fakeJobs{}
+	h, _ := newRepairRouter(t, jobs, repairCfg())
+	admin := adminAfterSetup(t, h)
+	checked(t, h, jobs, admin)
+	_, id := post(t, h, admin, "/v1/library/repair/apply", planBody(true))
+	s := endRun(t, h, jobs, admin, id, failed, applyResult(2)) // exit 3
+	if s.Plan.Status != "apply_unfinished" || !s.Plan.CanContinue {
+		t.Fatalf("plan = %+v", s.Plan)
+	}
+}
+
+func TestRepairApply_ACheckIsGoodForExactly24Hours(t *testing.T) {
+	jobs := &fakeJobs{}
+	var mu sync.Mutex
+	now := time.Unix(1_790_000_000, 0)
+	clock := func(d *Deps) {
+		d.now = func() time.Time { mu.Lock(); defer mu.Unlock(); return now }
+	}
+	h, _ := newRepairRouter(t, jobs, repairCfg(), clock)
+	admin := adminAfterSetup(t, h)
+	checked(t, h, jobs, admin) // finishes at `now`
+
+	mu.Lock()
+	now = now.Add(24*time.Hour - time.Second)
+	mu.Unlock()
+	if s := getRepair(t, h, admin); s.Plan.Status != "ready" {
+		t.Fatalf("at 24h − 1s: %+v, want ready", s.Plan)
+	}
+	mu.Lock()
+	now = now.Add(2 * time.Second)
+	mu.Unlock()
+	if s := getRepair(t, h, admin); s.Plan.Status != "expired" || s.Plan.CanApply {
+		t.Fatalf("at 24h + 1s: %+v, want expired", s.Plan)
+	}
+	rec, _ := post(t, h, admin, "/v1/library/repair/apply", planBody(true))
+	if rec.Code != http.StatusConflict || errCode(t, rec) != "plan_expired" {
+		t.Errorf("→ %d %s, want 409 plan_expired", rec.Code, rec.Body.String())
+	}
+}
+
+// ---- undoing ------------------------------------------------------------------------
+
+func TestRepairUndo_OnlyForSomethingThatWasApplied(t *testing.T) {
+	jobs := &fakeJobs{}
+	h, _ := newRepairRouter(t, jobs, repairCfg())
+	admin := adminAfterSetup(t, h)
+	checked(t, h, jobs, admin)
+	rec, _ := post(t, h, admin, "/v1/library/repair/undo", `{"planId":"`+testPlan+`"}`)
+	if rec.Code != http.StatusConflict || errCode(t, rec) != "not_undoable" {
+		t.Fatalf("undo before apply → %d %s, want 409 not_undoable", rec.Code, rec.Body.String())
+	}
+	if s := getRepair(t, h, admin); s.Undo != nil {
+		t.Errorf("undo offered before anything was applied: %+v", s.Undo)
+	}
+}
+
+func TestRepairUndo_RestoresThenCannotBeUndoneTwice(t *testing.T) {
+	jobs := &fakeJobs{}
+	h, _ := newRepairRouter(t, jobs, repairCfg())
+	admin := adminAfterSetup(t, h)
+	checked(t, h, jobs, admin)
+	_, aid := post(t, h, admin, "/v1/library/repair/apply", planBody(true))
+	s := endRun(t, h, jobs, admin, aid, complete, applyResult(0))
+	if s.Undo == nil || !s.Undo.CanUndo || s.Undo.PlanID != testPlan {
+		t.Fatalf("undo = %+v, want offered for the applied plan", s.Undo)
+	}
+	rec, uid := post(t, h, admin, "/v1/library/repair/undo", `{"planId":"`+testPlan+`"}`)
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("undo → %d %s", rec.Code, rec.Body.String())
+	}
+	if got := strings.Join(jobs.created[len(jobs.created)-1].Spec.Template.Spec.Containers[0].Args, " "); got != "restore --library /library --plan "+testPlan {
+		t.Errorf("args = %q", got)
+	}
+	// not offered while it runs
+	if s := getRepair(t, h, admin); s.Undo != nil && s.Undo.CanUndo {
+		t.Errorf("undo offered while a run is in progress: %+v", s.Undo)
+	}
+	s = endRun(t, h, jobs, admin, uid, complete, undoResult())
+	if s.Plan.Status != "undone" || s.Undo != nil {
+		t.Errorf("after undo: plan=%+v undo=%+v", s.Plan, s.Undo)
+	}
+	rec, _ = post(t, h, admin, "/v1/library/repair/undo", `{"planId":"`+testPlan+`"}`)
+	if rec.Code != http.StatusConflict || errCode(t, rec) != "not_undoable" {
+		t.Errorf("second undo → %d %s", rec.Code, rec.Body.String())
+	}
+}
+
+// ---- history ------------------------------------------------------------------------
+
+func TestRepairHistory_NewestFirstWithWhoAndHowItWent(t *testing.T) {
+	jobs := &fakeJobs{}
+	h, _ := newRepairRouter(t, jobs, repairCfg())
+	admin := adminAfterSetup(t, h)
+	checked(t, h, jobs, admin)
+	_, aid := post(t, h, admin, "/v1/library/repair/apply", planBody(true))
+	endRun(t, h, jobs, admin, aid, complete, applyResult(0))
+	s := getRepair(t, h, admin)
+	if len(s.History) != 2 || s.History[0].Kind != "apply" || s.History[1].Kind != "check" {
+		t.Fatalf("history = %+v, want the apply first, then the check", s.History)
+	}
+	if s.History[0].StartedBy == "" || !strings.Contains(s.History[0].Headline, "10 done") {
+		t.Errorf("apply row = %+v", s.History[0])
+	}
+}
+
+func TestRepairHistory_KeepsARemovedStartersName(t *testing.T) {
+	jobs := &fakeJobs{}
+	h, st := newRepairRouter(t, jobs, repairCfg())
+	admin := adminAfterSetup(t, h)
+	checked(t, h, jobs, admin)
+	if _, err := st.DB().Exec(`UPDATE music_repairs SET user_id = NULL, user_name = ''`); err != nil {
+		t.Fatal(err)
+	}
+	s := getRepair(t, h, admin)
+	if s.History[0].StartedBy != "(removed user)" {
+		t.Errorf("startedBy = %q", s.History[0].StartedBy)
+	}
+}
