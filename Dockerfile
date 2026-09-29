@@ -77,6 +77,13 @@ RUN apk add --no-cache ca-certificates wget tzdata \
 WORKDIR /app
 COPY --from=server /out/synodl /app/synodl
 COPY --from=web /web/dist /app/web
+# The music library repair tool (specs 1052, 1053). The repair worker's INIT container
+# runs this very image and copies the tool into the worker pod, so the code a worker
+# runs is exactly the version of the server that launched it — no second image, no
+# ConfigMap, no permission beyond what downloads already use. Python only: the worker
+# image that does the work already carries Python, mutagen and ffmpeg. The tests and
+# fixtures are left out (.dockerignore).
+COPY scripts/music_repair/ /opt/music_repair/
 # /data is the mount point for the stateful SQLite volume; owned by synodl so the
 # database is writable when a volume is mounted (unused in legacy mode).
 RUN chown -R synodl:synodl /app && mkdir -p /data && chown synodl:synodl /data

@@ -68,6 +68,11 @@ type Deps struct {
 	// POINTER for the same reason ytdlProgress is.
 	ytdlListHealth *listHealth
 
+	// repair holds the music library repair's small in-memory state: the server's
+	// own image once learned, and the latest progress reading per run (spec 1053).
+	// A POINTER for the same reason lib and caps are.
+	repair *repairState
+
 	// now is the reconciler's clock; nil means the real one. A test seam, so a
 	// retry cool-down can be tested without waiting it out.
 	now func() time.Time
@@ -136,6 +141,9 @@ func InitCaches(d Deps) Deps {
 	}
 	if d.ytdlMissing == nil {
 		d.ytdlMissing = newMissingJobs()
+	}
+	if d.repair == nil {
+		d.repair = newRepairState()
 	}
 	if d.ytdlListHealth == nil {
 		d.ytdlListHealth = &listHealth{}
@@ -306,6 +314,14 @@ func NewRouter(d Deps) http.Handler {
 		// so the upload sheet knows which options to offer; writable by an admin.
 		mux.Handle("GET /v1/library/music", handleGetMusicLibraries(d))
 		mux.Handle("PUT /v1/library/music", handleSetMusicLibraries(d))
+
+		// Running the music library repair from Settings (spec 1053). Admin only,
+		// every route. The server never mounts the library, so it learns about a
+		// run only from the Job it launched and a small parsed report from it.
+		mux.Handle("GET /v1/library/repair", handleRepairSnapshot(d))
+		mux.Handle("POST /v1/library/repair/check", handleRepairCheck(d))
+		mux.Handle("POST /v1/library/repair/apply", handleRepairApply(d))
+		mux.Handle("POST /v1/library/repair/undo", handleRepairUndo(d))
 		mux.Handle("GET /v1/source/prefs", handleGetSourcePrefs(d))
 		mux.Handle("PUT /v1/source/prefs", handleSetSourcePrefs(d))
 		mux.Handle("GET /v1/source/view", handleGetSourceView(d))

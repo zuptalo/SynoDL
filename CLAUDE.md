@@ -92,6 +92,11 @@ One repo, two parts, shipped as a single container.
   Job in the pinned worker image mounting only the music claim; the server, its RBAC and
   the API are untouched. Runbook: `docs/MUSIC-LIBRARY-REPAIR.md`. Its tests run inside
   the pinned image: `scripts/music-repair-test.sh`.
+  Admins can also run it from **Settings → Music library repair** (spec 1053): the server
+  launches the same tool as a Job (init container copies the code from the server's own
+  image, so versions match), learns of a run only from bounded, parsed `@@synodl` worker
+  events (never logged or returned raw), keeps only request + finished outcome in
+  `music_repairs`, and allows one run at a time. RBAC is unchanged.
 - **`e2e/`** — Playwright tests, hermetic: they build and boot their own
   `synodl` + `synomock` pair (no real NAS, no shared state with `make start`).
 

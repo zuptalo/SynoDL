@@ -17,11 +17,18 @@ export class ApiError extends Error {
    * Always a category, never upstream text — the server does not echo those.
    */
   readonly reason?: string;
-  constructor(code: string, status: number, reason?: string) {
+  /**
+   * The rest of the error body, for the few errors that carry more than a code —
+   * a repair refused because another is running says who started it and when
+   * (spec 1053). Small, fixed fields the server wrote; never worker output.
+   */
+  readonly detail?: Record<string, unknown>;
+  constructor(code: string, status: number, reason?: string, detail?: Record<string, unknown>) {
     super(code);
     this.code = code;
     this.status = status;
     this.reason = reason;
+    this.detail = detail;
   }
 }
 
@@ -81,10 +88,12 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   if (!resp.ok) {
     let code = `http_${resp.status}`;
     let reason: string | undefined;
+    let detail: Record<string, unknown> | undefined;
     try {
-      const body = (await resp.json()) as { error?: string; reason?: string };
+      const body = (await resp.json()) as { error?: string; reason?: string } & Record<string, unknown>;
       if (body.error) code = body.error;
       reason = body.reason;
+      detail = body;
     } catch {
       /* non-JSON error body — keep the status code */
     }
@@ -94,7 +103,7 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
     if (resp.status === 503 && code === 'nas_reauth') {
       window.dispatchEvent(new CustomEvent(NAS_REAUTH_EVENT));
     }
-    throw new ApiError(code, resp.status, reason);
+    throw new ApiError(code, resp.status, reason, detail);
   }
   // Some successful responses carry no body: 204 from pause/resume/delete, and
   // 201 Created from task-create. Parsing an empty body as JSON throws, so read
@@ -528,6 +537,114 @@ export interface MusicLibraries {
   music: string;
   musicVideo: string;
   canManage: boolean;
+}
+
+// ---- Music library repair from Settings (spec 1053) ---------------------------------
+// Every field is something the SERVER decoded and bounded; none of it is raw worker
+// output. See specs/1053-admins-run-music/contracts/api.md.
+
+export type RepairKind = 'check' | 'apply' | 'undo';
+export type RepairState = 'running' | 'finished' | 'refused' | 'unfinished';
+export type RepairPhase = 'scan' | 'lookup' | 'plan' | 'apply' | 'restore';
+export type RepairPlanStatus =
+  | 'ready'
+  | 'expired'
+  | 'applying'
+  | 'applied'
+  | 'apply_unfinished'
+  | 'undone';
+
+export interface RepairProgress {
+  phase: RepairPhase;
+  done: number;
+  total: number;
+}
+export interface RepairCountReason {
+  reason: string;
+  count: number;
+}
+export interface RepairLeftAlone {
+  total: number;
+  byReason: RepairCountReason[];
+  examples: { path: string; reason: string }[];
+}
+export interface RepairCheck {
+  tracks: number;
+  songs: number;
+  duplicates: number;
+  moves: number;
+  retags: number;
+  covers: number;
+  playlists: number;
+  conflicts: number;
+  nameClashes: number;
+  matched: number;
+  noMatch: number;
+  notLookedUp: number;
+  toSingles: number;
+  albumKnown: number;
+  orphanNfo: number;
+  bytesReclaimed: number;
+  bytesNeeded: number;
+  freeBytes: number;
+  leftAlone: RepairLeftAlone;
+}
+export interface RepairApplyResult {
+  done: number;
+  skipped: number;
+  failed: number;
+  alreadyDone: number;
+  skippedByReason: RepairCountReason[];
+  failedExamples: { path: string; note: string }[];
+}
+export interface RepairUndoResult {
+  restored: number;
+  skipped: number;
+  skippedExamples: { path: string; note: string }[];
+}
+export interface RepairSummary {
+  kind: RepairKind;
+  ok: boolean;
+  reason?: string;
+  planId?: string;
+  planFile?: string;
+  check?: RepairCheck;
+  apply?: RepairApplyResult;
+  undo?: RepairUndoResult;
+}
+export interface RepairRun {
+  id: string;
+  kind: RepairKind;
+  state: RepairState;
+  startedAt: number;
+  finishedAt?: number;
+  startedBy: string;
+  planId?: string;
+  progress?: RepairProgress;
+  headline?: string;
+  /** Only on `RepairSnapshot.latest`: the bounded outcome the server decoded. */
+  summary?: RepairSummary;
+}
+export interface RepairPlan {
+  id: string;
+  checkedAt: number;
+  expiresAt: number;
+  status: RepairPlanStatus;
+  canApply: boolean;
+  canContinue: boolean;
+  planFile?: string;
+  summary?: RepairSummary;
+}
+export interface RepairSnapshot {
+  available: boolean;
+  /** Why it is unavailable: `not_configured` | `no_image`. */
+  reason: string;
+  current: RepairRun | null;
+  plan: RepairPlan | null;
+  undo: { planId: string; appliedAt: number; canUndo: boolean } | null;
+  /** The newest run that has ended, with its outcome. */
+  latest: RepairRun | null;
+  history: RepairRun[];
 }
 
 /** What a completed upload landed as (spec 1022). */
@@ -1091,6 +1208,20 @@ export const api = {
    */
   /** Where music lives on the NAS (spec 1040). Readable by anyone signed in. */
   getMusicLibraries: () => request<MusicLibraries>('/v1/library/music'),
+  /** Music library repair (spec 1053). Admin only. */
+  getMusicRepair: () => request<RepairSnapshot>('/v1/library/repair'),
+  startMusicRepairCheck: () =>
+    request<{ id: string }>('/v1/library/repair/check', { method: 'POST' }),
+  applyMusicRepair: (planId: string, snapshotAck: boolean) =>
+    request<{ id: string }>('/v1/library/repair/apply', {
+      method: 'POST',
+      body: JSON.stringify({ planId, snapshotAck }),
+    }),
+  undoMusicRepair: (planId: string) =>
+    request<{ id: string }>('/v1/library/repair/undo', {
+      method: 'POST',
+      body: JSON.stringify({ planId }),
+    }),
   setMusicLibraries: (music: string, musicVideo: string) =>
     request<MusicLibraries>('/v1/library/music', {
       method: 'PUT',

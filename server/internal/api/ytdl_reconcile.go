@@ -52,6 +52,7 @@ const podLogTailLines = 200
 // only in principle.
 func (d Deps) RunYtdlReconcile(ctx context.Context, interval time.Duration) {
 	d.reconcileYtdlOnce(ctx)
+	d.reconcileMusicRepairs(ctx) // spec 1053: the same loop, so nothing races over the pods list
 	if d.ytdlOnTick != nil {
 		d.ytdlOnTick()
 	}
@@ -64,6 +65,7 @@ func (d Deps) RunYtdlReconcile(ctx context.Context, interval time.Duration) {
 			return
 		case <-t.C:
 			d.reconcileYtdlOnce(ctx)
+			d.reconcileMusicRepairs(ctx)
 			if d.ytdlOnTick != nil {
 				d.ytdlOnTick()
 			}

@@ -174,6 +174,9 @@ export default async function globalSetup(): Promise<void> {
     YTDL_IMAGE: 'jauderho/yt-dlp:2026.08.19',
     YTDL_MUSIC_CLAIM: 'synodl-music',
     YTDL_MUSIC_VIDEO_CLAIM: 'synodl-music-video',
+    // The music library repair (spec 1053) copies its tool out of the server's OWN
+    // image, learned from its own pod. There is no such pod here, so it is named.
+    MUSIC_REPAIR_IMAGE: 'synodl:e2e',
   });
   await waitFor(`http://localhost:${SF_PORT}/healthz`);
 

@@ -69,6 +69,9 @@ export default defineConfig({
         'src/services/pull-distance.ts',
         // What to draw when nobody has a photograph of somebody (spec 0014).
         'src/services/person.ts',
+        // What the music library repair screen offers and how it words things
+        // (spec 1053): the decisions live here so the component can stay thin.
+        'src/services/repair-state.ts',
       ],
       thresholds: { lines: 80, functions: 80, statements: 80, branches: 80 },
     },

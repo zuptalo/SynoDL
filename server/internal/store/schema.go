@@ -554,4 +554,37 @@ var migrations = []string{
 	);
 	CREATE INDEX IF NOT EXISTS idx_source_people_checked ON source_people (checked_at);
 	`,
+	// 0040 — music library repair runs (spec 1053).
+	//
+	// The REQUEST and its FINISHED OUTCOME, and nothing live: whether a repair is
+	// running right now comes from the Job that carries it, and its progress from
+	// the worker's output — neither is written here (constitution Principle III).
+	// `summary` is the fixed, bounded shape the worker reported (counts and a few
+	// example paths), never a log.
+	//
+	// The partial unique index IS the "only one repair at a time" rule: inserting a
+	// row in state 'running' is acquiring the single slot, atomically, so two
+	// simultaneous requests cannot both start.
+	//
+	// user_id is SET NULL on delete and user_name is a snapshot, so the history
+	// survives the person who started a run being removed.
+	//
+	// IF NOT EXISTS throughout: the spec 1031 drift repair rewinds schema_migrations
+	// and replays, so a migration that cannot run twice turns that repair into a
+	// boot failure.
+	`
+	CREATE TABLE IF NOT EXISTS music_repairs (
+		id          TEXT PRIMARY KEY,
+		kind        TEXT NOT NULL,
+		plan_id     TEXT NOT NULL DEFAULT '',
+		state       TEXT NOT NULL DEFAULT 'running',
+		user_id     INTEGER REFERENCES users(id) ON DELETE SET NULL,
+		user_name   TEXT NOT NULL DEFAULT '',
+		started_at  INTEGER NOT NULL DEFAULT 0,
+		finished_at INTEGER,
+		summary     TEXT NOT NULL DEFAULT ''
+	);
+	CREATE UNIQUE INDEX IF NOT EXISTS idx_music_repairs_one_running ON music_repairs (state) WHERE state = 'running';
+	CREATE INDEX IF NOT EXISTS idx_music_repairs_started ON music_repairs (started_at DESC);
+	`,
 }

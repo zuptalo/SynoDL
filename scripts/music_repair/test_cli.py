@@ -117,6 +117,134 @@ class TestApplyCommand(CliBase):
         self.assertIn("lock", err)
 
 
+def events_of(text):
+    from music_repair import events
+    return [json.loads(l[len(events.PREFIX):]) for l in text.splitlines() if l.startswith(events.PREFIX)]
+
+
+class TestEvents(CliBase):
+    """What the server reads (spec 1053). The human lines stay; these are added."""
+
+    def plan_events(self, *extra):
+        code, out, err = run(["plan", "--library", self.root, "--repair-dir", self.repair, "--no-lookup", *extra])
+        self.assertEqual(code, 0, err)
+        return out, events_of(out)
+
+    def test_plan_reports_progress_and_ends_with_one_result_that_equals_the_plan(self):
+        out, evs = self.plan_events()
+        pid = [l.split()[-1] for l in out.splitlines() if "plan id" in l][0]
+        self.assertIn("[plan] plan id", out, "the human output is unchanged")
+        phases = [e["phase"] for e in evs if e["event"] == "progress"]
+        self.assertEqual(phases[0], "scan")
+        self.assertIn("plan", phases)
+        self.assertEqual(evs[-1]["event"], "result")
+        self.assertEqual(len([e for e in evs if e["event"] == "result"]), 1)
+        res = evs[-1]
+        plan = json.loads(read_bytes(os.path.join(self.repair, f"plan-{pid}.json")))
+        self.assertEqual((res["kind"], res["ok"], res["planId"]), ("check", True, pid))
+        c, t = res["check"], plan["totals"]
+        self.assertEqual((c["duplicates"], c["moves"], c["retags"], c["playlists"], c["songs"], c["tracks"]),
+                         (t["duplicates_to_trash"], t["moves"], t["retags"], t["playlists"], t["songs"], t["tracks"]))
+        self.assertEqual(c["notLookedUp"], t["not_looked_up"])
+        self.assertGreater(c["freeBytes"], 0)
+        self.assertEqual(c["leftAlone"]["total"], len(plan["skipped"]))
+
+    def test_lookup_progress_is_reported_every_25(self):
+        calls = {"n": 0}
+
+        def transport(url, headers, timeout, max_bytes):
+            calls["n"] += 1
+            return sources.Response(404, {}, b"")
+        code, out, err = run(["plan", "--library", self.root, "--repair-dir", self.repair], transport=transport)
+        self.assertEqual(code, 0, err)
+        looked = [e for e in events_of(out) if e["event"] == "progress" and e["phase"] == "lookup"]
+        self.assertTrue(looked)
+        self.assertEqual(looked[-1]["done"], looked[-1]["total"])
+
+    def apply_events(self):
+        out, _ = self.plan_events()
+        pid = [l.split()[-1] for l in out.splitlines() if "plan id" in l][0]
+        code, out2, err2 = run(["apply", "--library", self.root, "--repair-dir", self.repair, "--plan", pid],
+                               fetch_cover=lambda u: (_ for _ in ()).throw(sources.NotFound("x")))
+        self.assertEqual(code, 0, out2 + err2)
+        return pid, out2, events_of(out2)
+
+    def test_apply_reports_progress_and_a_result_equal_to_its_results_file(self):
+        pid, out, evs = self.apply_events()
+        self.assertIn("[apply] done", out)
+        self.assertTrue([e for e in evs if e["event"] == "progress" and e["phase"] == "apply"])
+        res = evs[-1]
+        self.assertEqual((res["event"], res["kind"], res["ok"], res["planId"]), ("result", "apply", True, pid))
+        counts = json.loads(read_bytes(os.path.join(self.repair, f"results-{pid}.json")))["counts"]
+        self.assertEqual((res["apply"]["done"], res["apply"]["skipped"], res["apply"]["failed"]),
+                         (counts["done"], counts["skipped"], counts["failed"]))
+
+    def test_restore_reports_a_result(self):
+        pid, _, _ = self.apply_events()
+        code, out, err = run(["restore", "--library", self.root, "--repair-dir", self.repair, "--plan", pid])
+        self.assertEqual(code, 0, err)
+        evs = events_of(out)
+        self.assertEqual((evs[-1]["kind"], evs[-1]["ok"]), ("undo", True))
+        self.assertGreater(evs[-1]["undo"]["restored"], 0)
+
+    def refusal(self, argv, **kw):
+        code, out, err = run(argv, **kw)
+        self.assertEqual(code, cli.REFUSED, out + err)
+        evs = events_of(out)
+        self.assertEqual(evs[-1]["event"], "result")
+        self.assertFalse(evs[-1]["ok"])
+        return evs[-1]
+
+    def test_refusals_end_with_a_result_carrying_a_fixed_reason(self):
+        r = self.refusal(["apply", "--library", self.root, "--repair-dir", self.repair, "--plan", "20260929T071341Z-aaaaaa"])
+        self.assertEqual((r["kind"], r["reason"]), ("apply", "no_plan"))
+
+        os.makedirs(self.repair, exist_ok=True)
+        with open(os.path.join(self.repair, "lock"), "w") as f:
+            json.dump({"pid": 1, "host": "h", "since": "then"}, f)
+        r = self.refusal(["plan", "--library", self.root, "--repair-dir", self.repair, "--no-lookup"])
+        self.assertEqual((r["kind"], r["reason"]), ("check", "locked"))
+        os.unlink(os.path.join(self.repair, "lock"))
+
+        r = self.refusal(["plan", "--library", os.path.join(self.tmp.name, "nope"), "--no-lookup"])
+        self.assertEqual(r["reason"], "rejected")
+
+    def test_a_plan_that_leaves_the_library_is_refused_as_rejected(self):
+        out, _ = self.plan_events()
+        pid = [l.split()[-1] for l in out.splitlines() if "plan id" in l][0]
+        path = os.path.join(self.repair, f"plan-{pid}.json")
+        plan = json.loads(read_bytes(path))
+        plan["actions"].append({"id": "a999999", "kind": "move", "reason": "x", "src": "../x", "dst": "y"})
+        with open(path, "w") as f:
+            json.dump(plan, f)
+        r = self.refusal(["apply", "--library", self.root, "--repair-dir", self.repair, "--plan", pid])
+        self.assertEqual(r["reason"], "rejected")
+
+    def test_not_enough_space_is_reported(self):
+        from collections import namedtuple
+        from music_repair import applier
+        out, _ = self.plan_events()
+        pid = [l.split()[-1] for l in out.splitlines() if "plan id" in l][0]
+        Usage = namedtuple("Usage", "total used free")
+        real = applier.shutil.disk_usage
+        applier.shutil.disk_usage = lambda p: Usage(10**12, 10**12 - 10, 10)
+        try:
+            r = self.refusal(["apply", "--library", self.root, "--repair-dir", self.repair, "--plan", pid])
+        finally:
+            applier.shutil.disk_usage = real
+        self.assertEqual(r["reason"], "no_space")
+
+    def test_no_description_url_video_id_or_environment_reaches_an_event(self):
+        os.environ["SYNODL_TEST_SECRET"] = "hunter2"
+        try:
+            _, out, _ = self.apply_events()
+        finally:
+            del os.environ["SYNODL_TEST_SECRET"]
+        mine = "\n".join(l for l in out.splitlines() if l.startswith("@@synodl "))
+        for forbidden in ("SECRET-DESCRIPTION", "example.com", "token=abc123", "hunter2", "AAAAAAAAAAA", "youtube.com"):
+            self.assertNotIn(forbidden, mine)
+
+
 class TestTermination(CliBase):
     """Kubernetes ends a Job with SIGTERM (deadline, delete, node drain). Python's default
     skips `finally`, which would leave the lock behind and lose unflushed lookups."""

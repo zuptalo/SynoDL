@@ -77,6 +77,19 @@ func (c *Client) ListPods(ctx context.Context, selector string) ([]Pod, error) {
 	return all, err
 }
 
+// GetPod reads ONE pod by name (spec 1053).
+//
+// The only caller asks about the server's own pod, to learn which image it is
+// running. `pods: get` has been granted since spec 0012 — no new permission. The
+// name is escaped, so it cannot change which resource is read.
+func (c *Client) GetPod(ctx context.Context, name string) (*Pod, error) {
+	var out Pod
+	if err := c.do(ctx, http.MethodGet, c.podsURL(url.PathEscape(name), nil), nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
 // PodLog returns one pod's output, bounded.
 //
 // It does not reuse do(): that decodes JSON, and this endpoint answers

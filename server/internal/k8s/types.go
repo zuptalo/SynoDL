@@ -63,7 +63,12 @@ type PodTemplateSpec struct {
 }
 
 type PodSpec struct {
-	RestartPolicy   string              `json:"restartPolicy,omitempty"`
+	RestartPolicy string `json:"restartPolicy,omitempty"`
+	// InitContainers run to completion before Containers start. The repair
+	// worker (spec 1053) uses ONE, running SynoDL's own image to copy the tool
+	// into a volume, so the code the worker runs is the code the server runs.
+	// Download workers set none, and it is omitted from their JSON.
+	InitContainers  []Container         `json:"initContainers,omitempty"`
 	Containers      []Container         `json:"containers"`
 	Volumes         []Volume            `json:"volumes,omitempty"`
 	SecurityContext *PodSecurityContext `json:"securityContext,omitempty"`
@@ -102,13 +107,23 @@ type VolumeMount struct {
 	Name      string `json:"name"`
 	MountPath string `json:"mountPath"`
 	SubPath   string `json:"subPath,omitempty"`
+	// ReadOnly is set where a container must not be able to change what it was
+	// given — the code volume of the repair worker.
+	ReadOnly bool `json:"readOnly,omitempty"`
 }
 
 type Volume struct {
-	Name                  string            `json:"name"`
-	PersistentVolumeClaim *PVCVolumeSource  `json:"persistentVolumeClaim,omitempty"`
-	EmptyDir              map[string]string `json:"emptyDir,omitempty"`
+	Name                  string           `json:"name"`
+	PersistentVolumeClaim *PVCVolumeSource `json:"persistentVolumeClaim,omitempty"`
+	// EmptyDir is a POINTER to an empty struct so that a volume which is an
+	// emptyDir serialises as `"emptyDir":{}` (an empty map would be dropped by
+	// omitempty, leaving a volume with no source, which the API server rejects).
+	EmptyDir *EmptyDirSource `json:"emptyDir,omitempty"`
 }
+
+// EmptyDirSource is an ephemeral scratch volume. It carries no fields: SynoDL
+// never sets a medium or a size limit.
+type EmptyDirSource struct{}
 
 type PVCVolumeSource struct {
 	ClaimName string `json:"claimName"`
@@ -155,13 +170,36 @@ func boolp(v bool) *bool    { return &v }
 // enforceable — so there are no spec fields here worth carrying.
 type Pod struct {
 	Metadata ObjectMeta `json:"metadata"`
+	Spec     PodView    `json:"spec,omitempty"`
 	Status   PodStatus  `json:"status,omitempty"`
+}
+
+// PodView is the read-side subset of a pod's spec: which images it was
+// configured with. It exists so the server can learn its own image (spec 1053);
+// nothing here is ever written.
+type PodView struct {
+	Containers []ContainerView `json:"containers,omitempty"`
+}
+
+type ContainerView struct {
+	Name  string `json:"name"`
+	Image string `json:"image"`
 }
 
 // PodStatus carries only what is needed to decide whether a pod's output is
 // worth asking for: a pod that has not started has nothing to say.
 type PodStatus struct {
-	Phase string `json:"phase,omitempty"` // Pending | Running | Succeeded | Failed | Unknown
+	Phase             string            `json:"phase,omitempty"` // Pending | Running | Succeeded | Failed | Unknown
+	ContainerStatuses []ContainerStatus `json:"containerStatuses,omitempty"`
+}
+
+// ContainerStatus carries what a container is ACTUALLY running: ImageID is the
+// reference to the exact image bytes (repo@sha256:…), which a tag such as
+// `:latest` is not — a tag can move under a running pod.
+type ContainerStatus struct {
+	Name    string `json:"name"`
+	Image   string `json:"image,omitempty"`
+	ImageID string `json:"imageID,omitempty"`
 }
 
 // PodList is the LIST response.

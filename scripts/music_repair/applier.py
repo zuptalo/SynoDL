@@ -175,22 +175,24 @@ class Journal:
 
 # ---- apply ----------------------------------------------------------------
 
-def apply(plan: dict, library: str, repair_dir: str, *, fetch_cover=None, disk_usage=shutil.disk_usage) -> Results:
+def apply(plan: dict, library: str, repair_dir: str, *, fetch_cover=None, disk_usage=None,
+          progress=None) -> Results:
     validate(plan, library)
     need = int(plan.get("totals", {}).get("bytes_needed", 0) * SPACE_MARGIN)
-    free = disk_usage(library).free
+    free = (disk_usage or shutil.disk_usage)(library).free   # resolved at call time, so it can be substituted
     if free < need:
         raise NotEnoughSpace(f"not enough free space: need about {need} bytes, {free} free — short by {need - free}")
     lock = Lock(repair_dir)
     lock.acquire()
     try:
-        return _Run(plan, library, repair_dir, fetch_cover or sources.fetch_cover).run()
+        return _Run(plan, library, repair_dir, fetch_cover or sources.fetch_cover, progress).run()
     finally:
         lock.release()
 
 
 class _Run:
-    def __init__(self, plan, library, repair_dir, fetch_cover):
+    def __init__(self, plan, library, repair_dir, fetch_cover, progress=None):
+        self.progress = progress or (lambda i, n: None)
         self.plan, self.library, self.repair = plan, library, repair_dir
         self.id = plan["id"]
         self.fetch_cover = fetch_cover
@@ -223,8 +225,9 @@ class _Run:
                 self.journal.write(rec)
                 bucket = {"done": self.res.done, "skipped": self.res.skipped, "failed": self.res.failed}[status]
                 bucket.append({"action_id": a["id"], "kind": a["kind"], "src": a.get("src"), "note": note})
-                if i % 200 == 0:
+                if i % 200 == 0 or i == len(actions):
                     print(f"[apply] {i}/{len(actions)}", flush=True)
+                    self.progress(i, len(actions))
             self.cleanup_dirs()
         finally:
             self.journal.close()
