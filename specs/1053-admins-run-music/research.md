@@ -51,7 +51,7 @@ Two events: `progress` (`phase`, `done`, `total`) and `result` (`kind`, `ok`, `r
 **Bounds (constitution v2.2.0: worker output is user data)**: the log read is capped at
 256 KiB by the existing client and tailed to the last 200 lines; an event line over
 its cap (4 KiB progress, 16 KiB result) is dropped; at most 64 event lines are considered; every integer is clamped to
-`[0, 10¹²]`; every string is stripped of control characters and length-capped; unknown
+`[0, 10¹⁵]`; every string is stripped of control characters and length-capped; unknown
 fields and unknown events are discarded; at most 20 example paths and 12 reasons are
 kept. Nothing from the log is written to the server's own log, and nothing but the
 decoded, re-serialised shape reaches a client.

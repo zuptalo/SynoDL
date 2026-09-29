@@ -52,7 +52,7 @@ Refusal (the tool declined, exit 4):
 2. Drop a line that does not start with the prefix, is longer than its cap (4 KiB progress, 16 KiB result), or is not a JSON object.
 3. Decode into the fixed types of `data-model.md`; ignore unknown fields; unknown `event`,
    `phase` or `reason` values are dropped (not passed through).
-4. Clamp integers to `[0, 10¹²]`; strip control characters and cap string length (paths
+4. Clamp integers to `[0, 10¹⁵]`; strip control characters and cap string length (paths
    200, reasons/notes 120); cap arrays (12 reasons, 20 check examples, 10 apply/undo examples).
 5. `planId` must match `^\d{8}T\d{6}Z-[0-9a-f]{6}$` or is dropped.
 6. Only the last valid `result` and the last valid `progress` are used.

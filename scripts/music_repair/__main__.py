@@ -18,7 +18,7 @@ import signal
 import sys
 import time
 
-from . import VERSION, applier, identity, inventory, planner, report, sources
+from . import VERSION, applier, events, identity, inventory, planner, report, sources
 
 OK, FAILED, REFUSED = 0, 3, 4
 
@@ -42,23 +42,28 @@ def cmd_plan(args, transport, fetch_cover) -> int:
     library, repair = _paths(args)
     if not os.path.isdir(library):
         print(f"no such library: {library}", file=sys.stderr)
+        events.result("check", ok=False, reason="rejected")
         return REFUSED
     lock = applier.Lock(repair)
     try:
         lock.acquire()
     except applier.Locked as exc:
         print(f"refused: {exc}", file=sys.stderr)
+        events.result("check", ok=False, reason="locked")
         return REFUSED
     try:
         print(f"[plan] scanning {library}", flush=True)
+        events.progress("scan", 0, 0)
         inv = inventory.scan(library, limit=args.limit)
         print(f"[plan] {len(inv.tracks)} tracks, {sum(len(v) for v in inv.other.values())} other files", flush=True)
+        events.progress("scan", len(inv.tracks), len(inv.tracks))
         songs, _ = identity.group(inv.tracks)
         results = {}
         if not args.no_lookup:
             cache = sources.Cache(os.path.join(repair, "cache.json"))
             lookup = sources.Lookup(transport=transport or sources.http_transport, cache=cache)
             todo = [s for s in songs if planner.needs_lookup(s.kept)]
+            events.progress("lookup", 0, len(todo))
             try:
                 for i, s in enumerate(todo, 1):
                     p = planner.parse_kept(s.kept)
@@ -67,9 +72,11 @@ def cmd_plan(args, transport, fetch_cover) -> int:
                                                     alt_leads=p.leads[1:])
                     if i % 25 == 0 or i == len(todo):
                         print(f"[plan] looked up {i}/{len(todo)}", flush=True)
+                        events.progress("lookup", i, len(todo))
             finally:
                 cache.flush()      # whatever ended the loop, the answers already found are kept
         plan_id = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime()) + "-" + secrets.token_hex(3)
+        events.progress("plan", 0, 0)
         plan = planner.build_plan(inv, results, plan_id=plan_id)
         doc = plan.to_dict()
         try:
@@ -77,7 +84,8 @@ def cmd_plan(args, transport, fetch_cover) -> int:
         except OSError:
             free = None
         _atomic_write(os.path.join(repair, f"plan-{plan_id}.json"), json.dumps(doc, ensure_ascii=False, indent=1))
-        _atomic_write(os.path.join(repair, f"plan-{plan_id}.md"), report.render_md(doc, free))
+        md_path = os.path.join(repair, f"plan-{plan_id}.md")
+        _atomic_write(md_path, report.render_md(doc, free))
         t = plan.totals
         print(f"[plan] plan id {plan_id}")
         print(f"[plan] {len(plan.changes)} changes: {t['duplicates_to_trash']} duplicates set aside, {t['moves']} moves, "
@@ -87,7 +95,10 @@ def cmd_plan(args, transport, fetch_cover) -> int:
               f"{t['not_looked_up']} not looked up")
         if not plan.changes:
             print("[plan] nothing to do")
-        print(f"[plan] read {os.path.join(repair, f'plan-{plan_id}.md')}")
+        print(f"[plan] read {md_path}")
+        rel = os.path.relpath(md_path, library)
+        events.result("check", ok=True, plan_id=plan_id, plan_file="" if rel.startswith("..") else rel,
+                      section={"check": events.summarise_plan(doc, free)})
         return OK
     finally:
         lock.release()
@@ -106,11 +117,17 @@ def cmd_apply(args, fetch_cover) -> int:
     plan = _load_plan(repair, args.plan)
     if plan is None:
         print(f"refused: no plan {args.plan} in {repair}", file=sys.stderr)
+        events.result("apply", ok=False, reason="no_plan")
         return REFUSED
     try:
-        res = applier.apply(plan, library, repair, fetch_cover=fetch_cover)
+        events.progress("apply", 0, len(plan.get("actions", [])))
+        res = applier.apply(plan, library, repair, fetch_cover=fetch_cover,
+                            progress=lambda i, n: events.progress("apply", i, n))
     except (applier.PlanRejected, applier.NotEnoughSpace, applier.Locked) as exc:
         print(f"refused: {exc}", file=sys.stderr)
+        reason = {applier.PlanRejected: "rejected", applier.NotEnoughSpace: "no_space",
+                  applier.Locked: "locked"}[type(exc)]
+        events.result("apply", ok=False, reason=reason, plan_id=args.plan)
         return REFUSED
     c = res.counts()
     print(f"[apply] done {c['done']}, skipped {c['skipped']}, failed {c['failed']}, already done {c['already_done']}")
@@ -118,20 +135,26 @@ def cmd_apply(args, fetch_cover) -> int:
         print(f"[apply] skipped {s['kind']} {s.get('src') or ''}: {s['note']}")
     for f in res.failed[:20]:
         print(f"[apply] FAILED {f['kind']} {f.get('src') or ''}: {f['note']}")
+    events.result("apply", ok=not res.failed, reason="failed_steps" if res.failed else "", plan_id=args.plan,
+                  section={"apply": events.summarise_apply(res)})
     return FAILED if res.failed else OK
 
 
 def cmd_restore(args) -> int:
     library, repair = _paths(args)
     try:
+        events.progress("restore", 0, 0)
         res = applier.restore(args.plan, library, repair)
     except (applier.PlanRejected, applier.Locked) as exc:
         print(f"refused: {exc}", file=sys.stderr)
+        events.result("undo", ok=False, reason="locked" if isinstance(exc, applier.Locked) else "no_plan",
+                      plan_id=args.plan)
         return REFUSED
     c = res.counts()
     print(f"[restore] restored {c['done']}, skipped {c['skipped']}")
     for s in res.skipped[:20]:
         print(f"[restore] skipped {s['kind']} {s.get('src') or ''}: {s['note']}")
+    events.result("undo", ok=True, plan_id=args.plan, section={"undo": events.summarise_restore(res)})
     return OK
 
 

@@ -40,7 +40,7 @@ Summary {
   undo    { restored, skipped, skippedExamples[≤10]{path,note} }
 }
 ```
-Every integer is clamped to `[0, 10¹²]`; every string is control-character-stripped and
+Every integer is clamped to `[0, 10¹⁵]`; every string is control-character-stripped and
 length-capped (paths 200, reasons/notes 120). Exactly one of `check`/`apply`/`undo` is
 present, matching `kind`.
 
