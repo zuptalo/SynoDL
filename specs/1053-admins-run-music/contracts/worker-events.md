@@ -4,7 +4,7 @@ The tool (`python3 -m music_repair`) keeps printing its human-readable lines. In
 addition it prints **event lines** to stdout: `@@synodl ` followed by one JSON object on
 the same line. The server keeps only these and ignores every other line.
 
-- One object per line, ≤ 4096 bytes. Written with `ensure_ascii=False`, no newlines inside.
+- One object per line: ≤ 4096 bytes for `progress`, ≤ 16384 bytes for `result` (20 example paths of ≤ 200 characters plus reasons is about 9 KB). Written with `ensure_ascii=False`, no newlines inside.
 - Emitted through one function (`events.emit`) so the shape and the bounds are enforced in
   one place on the sending side too; the receiving side re-checks everything.
 
@@ -49,7 +49,7 @@ Refusal (the tool declined, exit 4):
 ## Receiving rules (server)
 
 1. Read at most 256 KiB, tailing 200 lines. Consider at most 64 event lines.
-2. Drop a line that does not start with the prefix, is longer than 4 KiB, or is not a JSON object.
+2. Drop a line that does not start with the prefix, is longer than its cap (4 KiB progress, 16 KiB result), or is not a JSON object.
 3. Decode into the fixed types of `data-model.md`; ignore unknown fields; unknown `event`,
    `phase` or `reason` values are dropped (not passed through).
 4. Clamp integers to `[0, 10¹²]`; strip control characters and cap string length (paths

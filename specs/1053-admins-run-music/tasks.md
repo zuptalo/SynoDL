@@ -4,11 +4,13 @@
 
 **Tests**: REQUIRED (constitution II). Within every phase the test tasks come first and MUST fail before the implementation that satisfies them. Gates: `scripts/music-repair-test.sh` (tool), `cd server && go build ./... && go vet ./... && go test ./...`, `npm run build`, `npm run test:unit:coverage`, `npm run test:e2e` (locally with `CHROMIUM_PATH`).
 
+**Issues**: #313 Gate + tool events · #314 Foundations · #315 US1 · #316 US2 · #317 US3 · #318 US4 · #319 US5 · #320 Delivery (the PR into `main` lists `Closes #313` … `Closes #320`).
+
 **Format**: `- [ ] T### [P?] [US?] description with file path` — `[P]` = different files, no dependency on an incomplete task.
 
 ## Phase 0: Gate before code
 
-- [ ] T000 Run `/speckit-analyze`, then `/speckit-checklist` (security: worker orchestration, worker-output parsing, admin authorisation, one-at-a-time), fix every gap in spec/plan/tasks, then `/speckit-taskstoissues`
+- [x] T000 Run `/speckit-analyze`, then `/speckit-checklist` (security: worker orchestration, worker-output parsing, admin authorisation, one-at-a-time), fix every gap in spec/plan/tasks, then `/speckit-taskstoissues`
 
 ## Phase 1: The tool reports (Python; blocks everything that reads a run)
 
