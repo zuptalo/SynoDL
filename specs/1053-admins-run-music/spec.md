@@ -39,6 +39,12 @@ to report, read in a bounded, parsed, never-logged way (constitution, Principle 
 Everything the admin sees is therefore a summary the worker reports — the complete
 plan stays on the share, where the tool has always put it.
 
+## Clarifications
+
+### Session 2026-09-29
+
+- Q: How hard should *Apply* be to confirm? → A: The confirmation shows what will change and the *Apply* button stays disabled until the admin ticks "I have taken a snapshot of the music share". A snapshot is the one protection that survives both a bad plan and a lost volume, and the app cannot verify it exists, so the admin acknowledges it. No typed word.
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - Check the library and read what would change (Priority: P1)
@@ -97,8 +103,9 @@ that failed, and a plan that was already applied — each is refused.
    window, or a plan already applied, **Then** *Apply* is not offered and a direct
    request is refused.
 3. **Given** the confirmation dialog, **Then** it states what will change, that
-   nothing is deleted, that it can be undone, and that a snapshot is advisable; and
-   it cannot be confirmed by accident (an explicit action, not a stray tap).
+   nothing is deleted and that it can be undone, and *Apply* stays disabled until
+   the admin ticks "I have taken a snapshot of the music share"; nothing is started
+   by a stray tap, and un-ticking disables it again.
 4. **Given** an apply that was stopped part-way (a deadline, a restart, a node
    drain), **Then** it is shown as *did not finish* with what it had done, and the
    admin can continue it, which resumes rather than starts over.
@@ -225,8 +232,11 @@ open Settings as an admin and as a normal user.
   younger than a freshness window. Otherwise it MUST NOT be offered and a direct
   request MUST be refused with the reason.
 - **FR-008**: *Apply* MUST require an explicit confirmation stating what will
-  change, that nothing is deleted, that it can be undone, and that a snapshot of the
-  share beforehand is advisable.
+  change, that nothing is deleted and that it can be undone, and MUST NOT be
+  possible until the admin has acknowledged, by ticking a box in that confirmation,
+  that they have taken a snapshot of the music share. The acknowledgement is per
+  request, never remembered, and a request that does not carry it MUST be refused
+  by the server, not only hidden by the screen.
 - **FR-009**: *Apply* MUST carry out exactly the plan the admin reviewed, identified
   by that plan's id, never "whatever is latest".
 - **FR-010**: An admin MUST be able to continue an apply that did not finish, which
