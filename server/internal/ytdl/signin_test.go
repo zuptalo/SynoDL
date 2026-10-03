@@ -167,7 +167,10 @@ func TestSignIn_ExpansionJobsGetItToo(t *testing.T) {
 }
 
 func TestSignIn_ScriptFailsOpenAndHasNoUserInput(t *testing.T) {
-	for _, must := range []string{"exit 0", "# Netscape HTTP Cookie File", "$SYNODL_SIGNIN_GRANT", "$SYNODL_SIGNIN_URL", "umask 077"} {
+	for _, must := range []string{
+		"exit 0", "# Netscape HTTP Cookie File", "$SYNODL_SIGNIN_GRANT",
+		"$SYNODL_SIGNIN_URL", "umask 077", `while [ "$n" -lt 20 ]`, "sleep 1", "-t 1",
+	} {
 		if !strings.Contains(signInScript, must) {
 			t.Errorf("init script lacks %q", must)
 		}

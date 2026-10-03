@@ -153,6 +153,25 @@ func TestFetch_TheRightPodGetsTheCookiesExactlyOnce(t *testing.T) {
 	}
 }
 
+func TestFetch_PendingPodAddressCanRetryTheSameGrant(t *testing.T) {
+	d, g, tok, fj := fetchDeps(t, "")
+	first := fetch(d, tok, "10.42.0.97:41234", nil)
+	if first.Code != 404 || first.Body.Len() != 0 {
+		t.Fatalf("fetch before pod IP is visible = %d %q", first.Code, first.Body.String())
+	}
+	if _, still := g.peek(tok); !still {
+		t.Fatal("an address-pending fetch consumed the grant")
+	}
+
+	// Kubernetes has now published the address. This is the second request made
+	// by the init container's bounded retry loop, not a new grant or Job.
+	fj.pods[0].Status.PodIP = "10.42.0.97"
+	second := fetch(d, tok, "10.42.0.97:41234", nil)
+	if second.Code != 200 || !strings.Contains(second.Body.String(), sm) {
+		t.Fatalf("fetch after pod IP became visible = %d %q", second.Code, second.Body.String())
+	}
+}
+
 func TestFetch_EveryRefusalIsTheSameEmpty404(t *testing.T) {
 	cases := map[string]func(d Deps, tok string) *httptest.ResponseRecorder{
 		"wrong address": func(d Deps, tok string) *httptest.ResponseRecorder { return fetch(d, tok, "10.42.0.55:1", nil) },

@@ -153,23 +153,40 @@ func handleYtdlSignInFetch(d Deps) http.Handler {
 			host = r.RemoteAddr
 		}
 		from := net.ParseIP(host)
-		pods, err := d.Jobs.ListPods(r.Context(), "job-name="+job)
-		if err != nil || from == nil {
-			deny("address")
+		if from == nil {
+			deny("address_invalid")
 			return
 		}
-		match := false
+		pods, err := d.Jobs.ListPods(r.Context(), "job-name="+job)
+		if err != nil {
+			deny("address_api")
+			return
+		}
+		matchingPods, podsWithIP, match := 0, 0, false
 		for _, p := range pods {
 			if p.Metadata.Labels["job-name"] != job {
 				continue
 			}
-			if ip := net.ParseIP(p.Status.PodIP); ip != nil && ip.Equal(from) {
-				match = true
-				break
+			matchingPods++
+			if ip := net.ParseIP(p.Status.PodIP); ip != nil {
+				podsWithIP++
+				if ip.Equal(from) {
+					match = true
+					break
+				}
 			}
 		}
 		if !match {
-			deny("address")
+			switch {
+			case matchingPods == 0:
+				deny("address_pod_missing")
+			case podsWithIP == 0:
+				// Expected briefly while a newly started pod's status catches up.
+				// The grant is not consumed, so the init container may retry it.
+				deny("address_pending")
+			default:
+				deny("address_mismatch")
+			}
 			return
 		}
 		plain, present, err := d.Store.OpenYoutubeSignInCookies()
