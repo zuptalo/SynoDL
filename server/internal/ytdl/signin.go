@@ -35,11 +35,25 @@ const (
 // because the downloader treats a MISSING --cookies file as a crash, whereas an
 // empty one simply runs anonymously. A server restart between Job creation and
 // the fetch must not turn a working download into a broken one.
+//
+// The pod may start before its status.podIP is visible through the Kubernetes
+// API. The fetch endpoint cannot authenticate its address during that short
+// window, so retry the same unspent grant for up to roughly a minute. Each wget
+// gets one short attempt; in the usual case the first request still succeeds.
 const signInScript = `set -u; umask 077
 f=` + SignInCookiesPath + `
 printf '# Netscape HTTP Cookie File\n' > "$f"
-wget -q -T 10 -O "$f.tmp" --header "Authorization: Bearer $SYNODL_SIGNIN_GRANT" "$SYNODL_SIGNIN_URL" \
-  && [ -s "$f.tmp" ] && mv "$f.tmp" "$f"
+n=0
+while [ "$n" -lt 20 ]; do
+  if wget -q -T 2 -t 1 -O "$f.tmp" --header "Authorization: Bearer $SYNODL_SIGNIN_GRANT" "$SYNODL_SIGNIN_URL" \
+    && [ -s "$f.tmp" ]; then
+    mv "$f.tmp" "$f"
+    exit 0
+  fi
+  rm -f "$f.tmp"
+  n=$((n + 1))
+  [ "$n" -ge 20 ] || sleep 1
+done
 rm -f "$f.tmp"; exit 0`
 
 // signInWanted reports whether this Job is to be given the sign-in. Only a target
