@@ -75,6 +75,11 @@ type Config struct {
 	// extractor stops working against the source, so this is bumped
 	// deliberately alongside the supply-chain review rather than floated.
 	YtdlImage string
+	// YtdlPOTProviderURL enables the worker's external YouTube proof-of-origin
+	// token plugin (spec 2042). The selected worker image must contain the
+	// bgutil provider plugin and Node.js. Empty preserves the ordinary yt-dlp
+	// command exactly.
+	YtdlPOTProviderURL string
 	// YtdlNamespace is where workers are created. Empty means the pod's own
 	// namespace, which is the only one the Role covers.
 	YtdlNamespace string
@@ -161,6 +166,7 @@ func Load() (Config, error) {
 		SecretsKey:         os.Getenv("SECRETS_KEY"),
 
 		YtdlImage:              os.Getenv("YTDL_IMAGE"),
+		YtdlPOTProviderURL:     strings.TrimSpace(os.Getenv("YTDL_POT_PROVIDER_URL")),
 		MusicRepairImage:       os.Getenv("MUSIC_REPAIR_IMAGE"),
 		YtdlNamespace:          os.Getenv("YTDL_NAMESPACE"),
 		SigninFetchURL:         os.Getenv("SIGNIN_FETCH_URL"),

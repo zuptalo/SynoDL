@@ -28,6 +28,11 @@ Google can end a session (or you sign out of that browser). If YouTube still ref
 download with a sign-in saved, the download says *the saved YouTube sign-in appears to
 have stopped working*, and Settings shows when it was last refused. Paste a fresh one.
 
+A valid saved sign-in may still be refused when YouTube requires proof-of-origin
+tokens for the cluster's egress address. Operators with a compatible worker image
+can set `YTDL_POT_PROVIDER_URL` to an internal bgutil provider; see the Kubernetes
+deployment guide. This supplements the saved cookies rather than replacing them.
+
 ## How it reaches a worker (for operators)
 
 The cookies never enter a Job, so anyone who can read Jobs cannot read them. A Job carries

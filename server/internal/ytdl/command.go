@@ -3,6 +3,7 @@ package ytdl
 import (
 	"fmt"
 	"path"
+	"strings"
 )
 
 // The output template and the album metadata template are THE SAME EXPRESSION.
@@ -140,6 +141,26 @@ type Options struct {
 	// SignIn presents the saved YouTube sign-in: one more pair of discrete
 	// arguments naming a FIXED path (spec 1055). Never a value from a request.
 	SignIn bool
+	// POTProviderURL is an operator-controlled internal HTTP endpoint for a
+	// bgutil yt-dlp PO-token provider. Empty leaves the worker command unchanged.
+	POTProviderURL string
+}
+
+// poTokenArgs opts a compatible worker image into YouTube's mweb client, the
+// external bgutil provider, and Node-based JS challenge solving. The URL is
+// instance configuration, not request input, and remains one discrete argv
+// value. Keeping this optional preserves compatibility with plain yt-dlp
+// images for every installation that has not configured a provider.
+func poTokenArgs(providerURL string) []string {
+	providerURL = strings.TrimSpace(providerURL)
+	if providerURL == "" {
+		return nil
+	}
+	return []string{
+		"--js-runtimes", "node",
+		"--extractor-args", "youtube:player_client=mweb",
+		"--extractor-args", "youtubepot-bgutilhttp:base_url=" + providerURL,
+	}
 }
 
 // Args builds the worker's argv.
@@ -171,6 +192,7 @@ func Args(o Options) []string {
 	}
 
 	args := append([]string{}, dotOnlyGuardArgs()...)
+	args = append(args, poTokenArgs(o.POTProviderURL)...)
 	args = append(args, []string{
 		// Say what you are doing, in a format WE defined (spec 0013). --newline
 		// is load-bearing: without it the extractor rewrites one line with

@@ -57,7 +57,12 @@ data:
   # The image tag is PINNED and must stay pinned. An outdated extractor silently
   # stops working against YouTube, so bump this deliberately — like any other
   # dependency — rather than floating it on :latest and finding out from a user.
-  YTDL_IMAGE: "jauderho/yt-dlp:2026.08.19"
+  YTDL_IMAGE: "${YTDL_IMAGE}"
+  # Optional YouTube proof-of-origin token provider (spec 2042). When set, the
+  # worker image must include the bgutil yt-dlp plugin and Node.js. Pin that
+  # image by tag or digest; do not use a floating tag. The provider should be an
+  # internal-only service reachable from worker pods.
+  YTDL_POT_PROVIDER_URL: "${YTDL_POT_PROVIDER_URL}"
   # The two libraries from 40-media.yaml. A worker mounts exactly ONE of them,
   # chosen by the request's mode; the synodl container mounts neither.
   YTDL_MUSIC_CLAIM: "synodl-music"
