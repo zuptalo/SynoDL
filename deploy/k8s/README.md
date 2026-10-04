@@ -242,4 +242,4 @@ under *[Unknown Album]*, and it is the easiest thing to regress.
 
 ## One-off: repairing the music library
 
-`music-repair-job.yaml` is a **template**, not something `install.sh` applies. `scripts/music-repair.sh` renders it into a one-shot Job (pinned worker image, the music claim only, no service-account token). See `docs/MUSIC-LIBRARY-REPAIR.md`. Admins can also run it from Settings (spec 1053); that needs no RBAC change and uses the server's own image for the code (`MUSIC_REPAIR_IMAGE` overrides).
+`music-repair-job.yaml.tpl` is a **template**, not something `install.sh` applies. `scripts/music-repair.sh` renders it into a one-shot Job (pinned worker image, the music claim only, no service-account token). See `docs/MUSIC-LIBRARY-REPAIR.md`. Admins can also run it from Settings (spec 1053); that needs no RBAC change and uses the server's own image for the code (`MUSIC_REPAIR_IMAGE` overrides).

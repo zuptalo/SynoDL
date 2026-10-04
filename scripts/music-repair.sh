@@ -54,7 +54,7 @@ render() {  # render <job-name> <configmap> <json-args>
     || { echo "synodl-config is missing YTDL_IMAGE / YTDL_UID / YTDL_GID / YTDL_MUSIC_CLAIM" >&2; exit 4; }
   sed -e "s|__JOB_NAME__|$1|g" -e "s|__NAMESPACE__|$NAMESPACE|g" -e "s|__IMAGE__|$image|g" \
       -e "s|__UID__|$uid|g" -e "s|__GID__|$gid|g" -e "s|__CLAIM__|$claim|g" \
-      -e "s|__CONFIGMAP__|$2|g" -e "s|__ARGS__|$3|g" "$HERE/../deploy/k8s/music-repair-job.yaml"
+      -e "s|__CONFIGMAP__|$2|g" -e "s|__ARGS__|$3|g" "$HERE/../deploy/k8s/music-repair-job.yaml.tpl"
 }
 
 # `--dry-run` prints the manifest and touches nothing (used by the tests).
