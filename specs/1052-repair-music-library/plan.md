@@ -122,7 +122,7 @@ scripts/
     ├── test_planner.py test_playlists.py test_applier.py test_cli.py
     └── fixtures.py                 # builds a tiny fake library for tests
 deploy/k8s/
-└── music-repair-job.yaml           # Job template: one PVC, pinned image, ConfigMap code
+└── music-repair-job.yaml.tpl       # Job template: one PVC, pinned image, ConfigMap code
 .github/workflows/ci.yml            # + python unittest step
 ```
 
@@ -137,7 +137,7 @@ process" is met by the Job, and "no endpoint, no UI" (clarified) by not touching
    MusicBrainz / Cover Art Archive / iTunes / Deezer; cache.
 3. **Applier**: trash-first moves, retag + cover embed, `.webm` convert, `.bin` fix,
    `Playlists/` write, free-space gate, resumable journal, `restore`.
-4. **CLI + Job**: `__main__`, `music-repair.sh`, `music-repair-job.yaml`, docs, CI step.
+4. **CLI + Job**: `__main__`, `music-repair.sh`, `music-repair-job.yaml.tpl`, docs, CI step.
 5. **Real-library verification**: offline dry run on `/Volumes/music` (read-only, plan to a
    scratch dir), review counts against the survey; then hand the operator the two commands.
 

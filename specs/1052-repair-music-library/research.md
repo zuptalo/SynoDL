@@ -142,7 +142,7 @@ idempotence check (SC-004).
 
 ## R10 — Delivery to the cluster
 
-`scripts/music-repair.sh` renders `deploy/k8s/music-repair-job.yaml` (image and UID/GID read
+`scripts/music-repair.sh` renders `deploy/k8s/music-repair-job.yaml.tpl` (image and UID/GID read
 from the live `synodl-config` ConfigMap so they cannot drift from the download workers),
 creates the code ConfigMap from `scripts/music_repair/*.py` (excluding tests), waits, and
 streams logs. The Job: `restartPolicy: Never`, `backoffLimit: 0`, `activeDeadlineSeconds: 43200` (the first lookup pass is
