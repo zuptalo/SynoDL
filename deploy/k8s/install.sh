@@ -15,6 +15,9 @@
 # Optional env:
 #   SYNO_TLS_INSECURE   "true" to skip TLS verification of the NAS cert (set this
 #                       for a self-signed / private-CA DSM cert). Default "false".
+#   YTDL_IMAGE          pinned yt-dlp worker image (default below).
+#   YTDL_POT_PROVIDER_URL
+#                       internal bgutil provider URL; empty disables PO tokens.
 #   KUBECTL             kubectl binary (default kubectl).
 #
 # This installer manages only the k3s side. It applies BOTH ingress routers, so
@@ -36,9 +39,11 @@ set -euo pipefail
 # (STATELESS=true), or as a one-time wizard prefill. Defaults to empty.
 : "${SYNO_URL:=}"
 : "${SYNO_TLS_INSECURE:=false}"
+: "${YTDL_IMAGE:=jauderho/yt-dlp:2026.08.19}"
+: "${YTDL_POT_PROVIDER_URL:=}"
 KUBECTL="${KUBECTL:-kubectl}"
 DIR="$(cd "$(dirname "$0")" && pwd)"
-export APP_HOST SYNO_URL SYNO_TLS_INSECURE
+export APP_HOST SYNO_URL SYNO_TLS_INSECURE YTDL_IMAGE YTDL_POT_PROVIDER_URL
 
 command -v envsubst >/dev/null || { echo "need 'envsubst' (gettext). install it and re-run." >&2; exit 1; }
 
@@ -62,7 +67,7 @@ fi
 
 echo "==> applying manifests for APP_HOST=$APP_HOST SYNO_URL=$SYNO_URL SYNO_TLS_INSECURE=$SYNO_TLS_INSECURE"
 for f in 00-namespace 10-synodl 20-ingressroute 30-rbac; do
-  envsubst '${APP_HOST} ${SYNO_URL} ${SYNO_TLS_INSECURE}' < "$DIR/${f}.yaml" | "$KUBECTL" apply -f -
+  envsubst '${APP_HOST} ${SYNO_URL} ${SYNO_TLS_INSECURE} ${YTDL_IMAGE} ${YTDL_POT_PROVIDER_URL}' < "$DIR/${f}.yaml" | "$KUBECTL" apply -f -
 done
 
 # The two media libraries for YouTube downloads (spec 0012) are OPTIONAL and are

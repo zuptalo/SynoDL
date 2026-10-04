@@ -12,8 +12,21 @@ func clearEnv(t *testing.T) {
 	for _, k := range []string{
 		"ENV", "PORT", "ALLOWED_ORIGINS", "STATIC_DIR", "DEV_PROXY",
 		"SYNO_URL", "SYNO_TLS_INSECURE", "MAX_TORRENT_MB", "LOGIN_PER_MINUTE",
+		"YTDL_POT_PROVIDER_URL",
 	} {
 		t.Setenv(k, "")
+	}
+}
+
+func TestLoad_YtdlPOTProviderURL(t *testing.T) {
+	clearEnv(t)
+	t.Setenv("YTDL_POT_PROVIDER_URL", "  http://bgutil.ytdlp.svc:4416  ")
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if got, want := cfg.YtdlPOTProviderURL, "http://bgutil.ytdlp.svc:4416"; got != want {
+		t.Errorf("YtdlPOTProviderURL = %q, want %q", got, want)
 	}
 }
 

@@ -219,6 +219,14 @@ usually within weeks, and silently. Bump it deliberately alongside the
 supply-chain review rather than floating it on `:latest`, where you would find
 out from a user instead of from a test.
 
+If YouTube requires proof-of-origin tokens, set `YTDL_POT_PROVIDER_URL` to an
+internal bgutil HTTP provider. This opt-in also selects the `mweb` client and
+enables the Node JavaScript runtime. The pinned `YTDL_IMAGE` must therefore
+contain the matching `bgutil-ytdlp-pot-provider` plugin and Node.js. Do not expose
+the provider publicly; a cross-namespace ClusterIP service is sufficient. Both
+values can be passed to `install.sh`; without them it retains the standard pinned
+worker and disables PO-token support.
+
 ### Verifying
 
 A music download should leave, under the music library:

@@ -47,6 +47,38 @@ func values(args []string, flag string) []string {
 	return out
 }
 
+func TestArgs_POTProviderIsOptionalAndUsesMwebWithNode(t *testing.T) {
+	target := Target{URL: "https://youtu.be/abc", Scope: ScopeSingle}
+	plain := Args(Options{Mode: ModeMusic, Target: target})
+	if has(plain, "--js-runtimes") || has(plain, "--extractor-args") {
+		t.Fatalf("unconfigured worker gained PO-token arguments: %v", plain)
+	}
+
+	configured := Args(Options{
+		Mode: ModeMusic, Target: target,
+		POTProviderURL: "http://bgutil-ytdlp-pot.ytdlp.svc:4416",
+	})
+	if got := value(configured, "--js-runtimes"); got != "node" {
+		t.Errorf("--js-runtimes = %q, want node", got)
+	}
+	want := []string{
+		"youtube:player_client=mweb",
+		"youtubepot-bgutilhttp:base_url=http://bgutil-ytdlp-pot.ytdlp.svc:4416",
+	}
+	got := values(configured, "--extractor-args")
+	if len(got) != len(want) {
+		t.Fatalf("extractor args = %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("extractor arg %d = %q, want %q", i, got[i], want[i])
+		}
+	}
+	if configured[len(configured)-2] != "--" || configured[len(configured)-1] != target.URL {
+		t.Fatalf("provider configuration displaced guarded final URL: %v", configured[len(configured)-3:])
+	}
+}
+
 // FR-009: the album tag and the album folder must be incapable of disagreeing.
 // The only way to guarantee that is for the two templates to be the same
 // expression, so assert byte equality rather than "both look right".

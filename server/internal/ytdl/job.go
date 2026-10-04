@@ -81,6 +81,9 @@ type JobConfig struct {
 	// see signin.go for why nothing secret may be written into a Job.
 	SignInGrant string
 	SignInURL   string
+	// POTProviderURL is the non-secret internal endpoint used by a compatible
+	// yt-dlp provider plugin. It is carried only as a discrete command argument.
+	POTProviderURL string
 
 	CPURequest, MemRequest string
 	CPULimit, MemLimit     string
@@ -158,6 +161,7 @@ func BuildJob(c JobConfig) (*k8s.Job, error) {
 							MinDurationSeconds: c.MinDurationSeconds,
 							GroupName:          c.GroupName,
 							SignIn:             c.signInWanted(),
+							POTProviderURL:     c.POTProviderURL,
 						}),
 						Env: []k8s.EnvVar{
 							// No writable home directory exists in the pod.
@@ -254,7 +258,7 @@ func BuildExpansionJob(c JobConfig) (*k8s.Job, error) {
 						Name:    "downloader",
 						Image:   c.Image,
 						Command: []string{WorkerBinary},
-						Args:    ExpandArgsWith(c.Target, c.signInWanted()),
+						Args:    ExpandArgsWith(c.Target, c.signInWanted(), c.POTProviderURL),
 						Env: []k8s.EnvVar{
 							{Name: "XDG_CACHE_HOME", Value: "/tmp"},
 						},

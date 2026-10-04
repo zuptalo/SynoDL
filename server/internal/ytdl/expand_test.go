@@ -5,6 +5,21 @@ import (
 	"testing"
 )
 
+func TestExpandArgs_POTProviderUsesTheSameWorkerSetup(t *testing.T) {
+	target := Target{URL: "https://www.youtube.com/playlist?list=PL1", Scope: ScopePlaylist}
+	args := ExpandArgsWith(target, true, "http://bgutil.ytdlp.svc:4416")
+	if got := value(args, "--js-runtimes"); got != "node" {
+		t.Errorf("--js-runtimes = %q, want node", got)
+	}
+	wantProvider := "youtubepot-bgutilhttp:base_url=http://bgutil.ytdlp.svc:4416"
+	if got := values(args, "--extractor-args"); len(got) != 2 || got[1] != wantProvider {
+		t.Errorf("extractor args = %v, want mweb plus %q", got, wantProvider)
+	}
+	if !hasPair(args, "--cookies", SignInCookiesPath) {
+		t.Errorf("PO-token configuration displaced the saved sign-in: %v", args)
+	}
+}
+
 func entryLine(id, title string) string {
 	return ExpandSentinel + " id=" + id + " uploader=Lo-fi Beats title=" + title
 }

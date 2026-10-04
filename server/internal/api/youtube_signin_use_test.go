@@ -75,6 +75,20 @@ func TestSignInUse_NothingSavedMeansTheJobIsAnonymous(t *testing.T) {
 	}
 }
 
+func TestPOTProviderConfig_ReachesTheWorkerJob(t *testing.T) {
+	cfg := signInCfg()
+	cfg.YtdlPOTProviderURL = "http://ytdlp.ytdlp.svc:4416"
+	_, _, _, job, _ := startWithSignIn(t, cfg, false)
+	args := job.Spec.Template.Spec.Containers[0].Args
+	want := "youtubepot-bgutilhttp:base_url=" + cfg.YtdlPOTProviderURL
+	for _, arg := range args {
+		if arg == want {
+			return
+		}
+	}
+	t.Fatalf("worker args do not carry configured provider %q: %v", want, args)
+}
+
 func TestSignInUse_AFinalBotCheckIsReportedAsTheSignIn(t *testing.T) {
 	d, jobs, id, _, grant := startWithSignIn(t, signInCfg(), true)
 	jobs.emitFor(id, botCheck)
