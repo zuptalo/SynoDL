@@ -4,7 +4,7 @@
 
 **Created**: 2026-10-03
 
-**Status**: in-review
+**Status**: shipped
 <!-- SynoDL spec lifecycle: planned → in-progress → in-review → shipped. -->
 
 **Input**: Production workers successfully received the saved YouTube cookies,

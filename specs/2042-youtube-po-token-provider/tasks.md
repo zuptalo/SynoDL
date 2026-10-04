@@ -10,4 +10,4 @@
 - [x] T004 Add regression tests for the disabled and enabled command shapes.
 - [x] T005 Run the full server gates and build a local production image.
 - [x] T006 Deploy locally to home k3s with a digest-pinned compatible worker image; verify the provider smoke test and a real retry.
-- [ ] T007 Merge, publish `:latest`, restore the production deployment, and mark shipped.
+- [x] T007 Merge, publish `:latest`, restore the production deployment, and mark shipped.

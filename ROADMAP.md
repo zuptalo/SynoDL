@@ -128,4 +128,4 @@ Specs are grouped by category band; status moves
 | [2039](specs/2039-whole-download-list-shown/spec.md) | The whole download list is shown, not the newest page of it | 🟢 shipped |
 | [2040](specs/2040-live-list-misses/spec.md) | The live Tasks list no longer misses a download that finished just as you opened it | 🟢 shipped |
 | [2041](specs/2041-youtube-signin-pod-ip-race/spec.md) | YouTube workers wait for their pod address before fetching the saved sign-in | 🟢 shipped |
-| [2042](specs/2042-youtube-po-token-provider/spec.md) | YouTube workers can use an external PO-token provider | 🔵 in-review |
+| [2042](specs/2042-youtube-po-token-provider/spec.md) | YouTube workers can use an external PO-token provider | 🟢 shipped |
